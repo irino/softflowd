@@ -1262,13 +1262,19 @@ static int
 connsock(struct sockaddr_storage *addr)
 {
 	int s;
+	socklen_t len;
 
-	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) < 0) {
+	len = sizeof(*addr);
+#ifdef SOCK_HAS_LEN
+	len = ((struct sockaddr *)addr)->sa_len;
+#endif
+
+	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) == -1) {
 		fprintf(stderr, "socket() error: %s\n", 
 		    strerror(errno));
 		exit(1);
 	}
-	if (connect(s, (struct sockaddr*)addr, sizeof(*addr)) == -1) {
+	if (connect(s, (struct sockaddr*)addr, len) == -1) {
 		fprintf(stderr, "connect() error: %s\n",
 		    strerror(errno));
 		exit(1);
@@ -1500,7 +1506,7 @@ parse_hostport(const char *s, struct sockaddr_storage *addr)
 		fprintf(stderr, "Out of memory\n");
 		exit(1);
 	}
-	if ((port = strchr(host, ':')) == NULL ||
+	if ((port = strrchr(host, ':')) == NULL ||
 	    *(++port) == '\0' || *host == '\0') {
 		fprintf(stderr, "Invalid -n argument.\n");
 		usage();
@@ -1590,11 +1596,11 @@ drop_privs(void)
 int
 main(int argc, char **argv)
 {
-	char *dev, *capfile, *bpf_prog;
+	char *dev, *capfile, *bpf_prog, dest_addr[256], dest_serv[256];
 	const char *pidfile_path, *ctlsock_path;
 	extern char *optarg;
 	extern int optind;
-	int ch, dontfork_flag, linktype, nfsock, ctlsock, r;
+	int ch, dontfork_flag, linktype, nfsock, ctlsock, r, err;
 	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
@@ -1684,8 +1690,16 @@ main(int argc, char **argv)
 	setup_packet_capture(&pcap, &linktype, dev, capfile, bpf_prog);
 	
 	/* Netflow send socket */
-	if (dest.ss_family != 0)
+	if (dest.ss_family != 0) {
+		if ((err = getnameinfo((struct sockaddr *)&dest,
+		    ((struct sockaddr *)&dest)->sa_len, dest_addr,
+		    sizeof(dest_addr), dest_serv, sizeof(dest_serv),
+		    NI_NUMERICHOST)) == -1) {
+			fprintf(stderr, "getnameinfo: %d\n", err);
+			exit(1);
+		}
 		nfsock = connsock(&dest); /* Will exit on fail */
+	}
 	
 	/* Control socket */
 	if (ctlsock_path != NULL)
@@ -1717,6 +1731,10 @@ main(int argc, char **argv)
 
 	logit(LOG_NOTICE, "%s v%s starting data collection", 
 	    PROGNAME, PROGVER);
+	if (dest.ss_family != 0) {
+		logit(LOG_NOTICE, "Exporting flows to [%s]:%s",
+		    dest_addr, dest_serv);
+	}
 
 	/* Main processing loop */
 	gettimeofday(&system_boot_time, NULL);
