@@ -102,7 +102,7 @@ sub process_nf_v1($$)
 	$sender_s = inet_ntop(AF_INET6, $sender) if $af == 6;
 
 	($header{ver}, $header{flows}, $header{uptime}, $header{secs}, 
-	 $header{nsecs}) = unpack("nnNNNNCC", $pkt);
+	 $header{nsecs}) = unpack("nnNNN", $pkt);
 
 	if (length($pkt) < (16 + (48 * $header{flows}))) {
 		printf STDERR timestamp()." Short Netflow v.1 packet: %d < %d\n",
@@ -126,6 +126,62 @@ sub process_nf_v1($$)
 		 $flow{start}, $flow{finish}, $flow{src_port}, $flow{dst_port}, 
 		 my $pad1, $flow{protocol}, $flow{tos}, $flow{tcp_flags}) =
 		    unpack("CCCCCCCCCCCCnnNNNNnnnCCC", $ptr);
+
+		$flow{src} = sprintf "%u.%u.%u.%u", $src1, $src2, $src3, $src4;
+		$flow{dst} = sprintf "%u.%u.%u.%u", $dst1, $dst2, $dst3, $dst4;
+		$flow{nxt} = sprintf "%u.%u.%u.%u", $nxt1, $nxt2, $nxt3, $nxt4;
+
+		printf timestamp() . " " .
+		    "from %s started %s finish %s proto %u %s:%u > %s:%u %u " . 
+		    "packets %u octets\n",
+		    $sender_s,
+		    fuptime($flow{start}), fuptime($flow{finish}), 
+		    $flow{protocol}, 
+		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
+		    $flow{pkts}, $flow{bytes};
+	}
+}
+
+sub process_nf_v5($$)
+{
+	my $sender = shift;
+	my $pkt = shift;
+	my %header;
+	my %flow;
+	my $sender_s;
+
+	%header = qw();
+
+	$sender_s = inet_ntoa($sender) if $af == 4;
+	$sender_s = inet_ntop(AF_INET6, $sender) if $af == 6;
+
+	($header{ver}, $header{flows}, $header{uptime}, $header{secs}, 
+	 $header{nsecs}, $header{flow_seq}, ) = unpack("nnNNNN", $pkt);
+
+	if (length($pkt) < (24 + (48 * $header{flows}))) {
+		printf STDERR timestamp()." Short Netflow v.1 packet: %d < %d\n",
+		    length($pkt), 24 + (48 * $header{flows});
+		return;
+	}
+
+	printf timestamp() . " HEADER v.%u (%u flow%s) seq %u\n", $header{ver},
+	    $header{flows}, $header{flows} == 1 ? "" : "s", $header{flow_seq};
+
+	for(my $i = 0; $i < $header{flows}; $i++) {
+		my $off = 24 + (48 * $i);
+		my $ptr = substr($pkt, $off, 52);
+
+		%flow = qw();
+
+		(my $src1, my $src2, my $src3, my $src4,
+		 my $dst1, my $dst2, my $dst3, my $dst4, 
+		 my $nxt1, my $nxt2, my $nxt3, my $nxt4, 
+		 $flow{in_ndx}, $flow{out_ndx}, $flow{pkts}, $flow{bytes}, 
+		 $flow{start}, $flow{finish}, $flow{src_port}, $flow{dst_port}, 
+		 my $pad1, $flow{tcp_flags}, $flow{protocol}, $flow{tos},
+		 $flow{src_as}, $flow{dst_as},
+		 $flow{src_mask}, $flow{dst_mask}) =
+		    unpack("CCCCCCCCCCCCnnNNNNnnCCCCnnCC", $ptr);
 
 		$flow{src} = sprintf "%u.%u.%u.%u", $src1, $src2, $src3, $src4;
 		$flow{dst} = sprintf "%u.%u.%u.%u", $dst1, $dst2, $dst3, $dst4;
@@ -207,6 +263,7 @@ for (;;) {
 	($ver) = unpack("n", $payload);
 
 	if	($ver == 1)	{ process_nf_v1($sender, $payload); }
+	elsif	($ver == 5)	{ process_nf_v5($sender, $payload); }
 	else {
 		printf STDERR timestamp()." Unsupported netflow version %d\n",
 		    $ver;

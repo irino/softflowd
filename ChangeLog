@@ -1,6 +1,7 @@
 20040710
  - (djm) Tidy up code: remove some debugging gunk, kill a global
- - (djm) Add support for NetFlow v.5 export format
+ - (djm) Add support for NetFlow v.5 export format to softflowd
+ - (djm) Add support for NetFlow v.5 export format to collector.pl
 
 20040430
  - (djm) Release version 0.9
