@@ -604,6 +604,10 @@ datalink_skip(int linktype, const u_int8_t *pkt, u_int32_t caplen)
 		case DLT_RAW:
 			skiplen = 0;
 			break;
+		case DLT_LOOP:
+		case DLT_NULL:
+			skiplen = 4;
+			break;
 		default:
 			skiplen = -1;
 			break;
@@ -619,10 +623,21 @@ datalink_skip(int linktype, const u_int8_t *pkt, u_int32_t caplen)
 				skiplen = -1;
 			break;
 		case DLT_PPP:
+			/* XXX: untested */
 			if (ntohs(*(const u_int16_t*)(pkt + 3)) != 0x21)
 				skiplen = -1;
 			break;
+		case DLT_NULL:
+			/* XXX: untested */
+			if (*(const u_int32_t*)pkt != AF_INET)
+				skiplen = -1;
+			break;
+		case DLT_LOOP:
+			if (ntohl(*(const u_int32_t*)pkt) != AF_INET)
+				skiplen = -1;
+			break;
 		case DLT_RAW:
+			/* XXX: untested */
 			break;
 		default:
 			skiplen = -1;
