@@ -16,9 +16,12 @@ Unfortunately traffic-vis is many years stale, not designed for speed and
 was written by a younger, less experienced version of myself.
 
 Softflowd itself is licensed under a two-term BSD license (see the source
-files for details). The code in sys-tree.h is Copyright 2002 Niels Provos
-<provos@citi.umich.edu> and comes straight from OpenBSD CVS - the license
-is identical.
+files for details). 
+
+The code in sys-tree.h is Copyright 2002 Niels Provos <provos@citi.umich.edu> 
+and comes straight from OpenBSD CVS, convtime.c comes is Copyright 2001 
+Kevin Steves and comes from OpenSSH (misc.c). Both of these files are 
+licensed under two-term BSD licenses too.
 
 If you have any feedback or questions, please email me:
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002 Damien Miller.  All rights reserved.
+ * Copyright (c) 2001 Kevin Steves.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,59 +22,66 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _SFD_COMMON_H
+#include "common.h"
+#include "convtime.h"
 
-#define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
+#define SECONDS		1
+#define MINUTES		(SECONDS * 60)
+#define HOURS		(MINUTES * 60)
+#define DAYS		(HOURS * 24)
+#define WEEKS		(DAYS * 7)
 
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <sys/poll.h>
-#include <sys/un.h>
+long int
+convtime(const char *s)
+{
+	long total, secs;
+	const char *p;
+	char *endp;
 
-#include <netinet/in.h>
-#include <netinet/in_systm.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netinet/udp.h>
-#include <arpa/inet.h>
-#include <net/bpf.h>
+	errno = 0;
+	total = 0;
+	p = s;
 
-#include <stdio.h>
-#include <errno.h>
-#include <syslog.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
-#include <signal.h>
-#include <netdb.h>
+	if (p == NULL || *p == '\0')
+		return -1;
 
-/* XXX: this check probably isn't sufficient for all systems */
-#ifndef __GNU_LIBRARY__ 
-# define SOCK_HAS_LEN 
-#endif
+	while (*p) {
+		secs = strtol(p, &endp, 10);
+		if (p == endp ||
+		    (errno == ERANGE && (secs == LONG_MIN || secs == LONG_MAX)) ||
+		    secs < 0)
+			return -1;
 
-/* The name of the program */
-#define PROGNAME		"softflowd"
+		switch (*endp++) {
+		case '\0':
+			endp--;
+		case 's':
+		case 'S':
+			break;
+		case 'm':
+		case 'M':
+			secs *= MINUTES;
+			break;
+		case 'h':
+		case 'H':
+			secs *= HOURS;
+			break;
+		case 'd':
+		case 'D':
+			secs *= DAYS;
+			break;
+		case 'w':
+		case 'W':
+			secs *= WEEKS;
+			break;
+		default:
+			return -1;
+		}
+		total += secs;
+		if (total < 0)
+			return -1;
+		p = endp;
+	}
 
-/* The name of the program */
-#define PROGVER			"0.8"
-
-/* Default pidfile */
-#define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
-
-/* Default control socket */
-#define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
-
-#ifndef MIN
-# define MIN(a,b) (((a)<(b))?(a):(b))
-#endif
-#ifndef MAX
-# define MAX(a,b) (((a)>(b))?(a):(b))
-#endif
-#ifndef offsetof
-# define offsetof(type, member) ((size_t) &((type *)0)->member)
-#endif
-
-#endif /* _SFD_COMMON_H */
+	return total;
+}

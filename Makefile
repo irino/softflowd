@@ -14,11 +14,11 @@ TARGETS=softflowd softflowctl
 
 all: $(TARGETS)
 
-softflowd: softflowd.o
-	$(CC) $(LDFLAGS) -o $@ softflowd.o $(LIBS)
+softflowd: convtime.o softflowd.o
+	$(CC) $(LDFLAGS) -o $@ softflowd.o convtime.o $(LIBS)
 
-softflowctl: softflowctl.o
-	$(CC) $(LDFLAGS) -o $@ softflowctl.o $(LIBS)
+softflowctl: convtime.o softflowctl.o
+	$(CC) $(LDFLAGS) -o $@ softflowctl.o convtime.o $(LIBS)
 
 clean:
 	rm -f $(TARGETS) *.o core *.core

@@ -44,6 +44,7 @@
  */
 
 #include "common.h"
+#include "convtime.h"
 
 #if defined(__OpenBSD__)
 # include <sys/tree.h>
@@ -1347,8 +1348,8 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 		exit(1);
 	}
 	*(value - 1) = '\0';
-	timeout = atoi(value);
-	if (timeout <= 0 || timeout >= 65536) {
+	timeout = convtime(value);
+	if (timeout <= 0) {
 		fprintf(stderr, "Invalid -t timeout.\n");
 		usage();
 		exit(1);

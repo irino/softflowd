@@ -7,6 +7,7 @@ general
 softflowd
 ---------
 
+  - We don't handle fragments right for tcp/udp
   - Pretty print/pretty parse timeouts (use openssh:misc.c::convtime)
   - Timeout for unanswered TCP connection
   - Ditto orphaned connections (one packet in one direction only)

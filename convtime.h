@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002 Damien Miller.  All rights reserved.
+ * Copyright (c) 2001 Kevin Steves.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,59 +22,29 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _SFD_COMMON_H
+#ifndef _SFD_CONVTIME_H
 
-#define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
+/*
+ * Convert a time string into seconds; format is
+ * a sequence of:
+ *      time[qualifier]
+ *
+ * Valid time qualifiers are:
+ *      <none>  seconds
+ *      s|S     seconds
+ *      m|M     minutes
+ *      h|H     hours
+ *      d|D     days
+ *      w|W     weeks
+ *
+ * Examples:
+ *      90m     90 minutes
+ *      1h30m   90 minutes
+ *      2d      2 days
+ *      1w      1 week
+ *
+ * Return -1 if time string is invalid.
+ */
+long int convtime(const char *s);
 
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <sys/poll.h>
-#include <sys/un.h>
-
-#include <netinet/in.h>
-#include <netinet/in_systm.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netinet/udp.h>
-#include <arpa/inet.h>
-#include <net/bpf.h>
-
-#include <stdio.h>
-#include <errno.h>
-#include <syslog.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
-#include <signal.h>
-#include <netdb.h>
-
-/* XXX: this check probably isn't sufficient for all systems */
-#ifndef __GNU_LIBRARY__ 
-# define SOCK_HAS_LEN 
-#endif
-
-/* The name of the program */
-#define PROGNAME		"softflowd"
-
-/* The name of the program */
-#define PROGVER			"0.8"
-
-/* Default pidfile */
-#define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
-
-/* Default control socket */
-#define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
-
-#ifndef MIN
-# define MIN(a,b) (((a)<(b))?(a):(b))
-#endif
-#ifndef MAX
-# define MAX(a,b) (((a)>(b))?(a):(b))
-#endif
-#ifndef offsetof
-# define offsetof(type, member) ((size_t) &((type *)0)->member)
-#endif
-
-#endif /* _SFD_COMMON_H */
+#endif /* _SFD_CONVTIME_H */

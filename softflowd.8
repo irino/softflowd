@@ -1,6 +1,7 @@
 .\" $Id$
 .\"
 .\" Copyright (c) 2002 Damien Miller.  All rights reserved.
+.\" Portions Copyright (c) 2001 Kevin Steves.  All rights reserved.
 .\"
 .\" Redistribution and use in source and binary forms, with or without
 .\" modification, are permitted provided that the following conditions
@@ -76,9 +77,6 @@ Flows may also be expired early if they approach their traffic counts
 exceed 2Gb or if the number of flows being tracked exceeds 
 .Ar max_flows
 (default: 8192). In this last case, flows are expired oldest-first. 
-Flow expiry checking is done every 
-.Ar check_wait
-seconds (default: 8).
 .Pp
 Upon expiry, the flow information is accumulated into statistics which may
 be viewed using 
@@ -143,10 +141,13 @@ Set the timeout names
 .Ar timeout_name
 to 
 .Ar time 
-in seconds.
 Refer to the 
-.Sx TIMEOUTS
-section for the valid timeout names and their meanings.
+.Sx Timeouts
+section for the valid timeout names and their meanings. The 
+.Ar time
+parameter may be specified using one of the formats explained in the 
+.Sx Time Formats
+section below.
 .It Fl d
 Specify that 
 .Nm
@@ -161,7 +162,14 @@ flag and turns on additional debugging output.
 Displays commandline usage information.
 .El
 .Pp
-.Sh TIMEOUTS
+Any further commandline arguments will be concatenated together and 
+applied as a 
+.Xr bpf 4
+packet filter. This filter will cause 
+.Nm
+to ignore the specified traffic.
+.Ss Timeouts
+.Pp
 .Nm
 will expire quiescent flows after user-configurable periods. The exact 
 timeout used depends on the nature of the flow. The various timeouts 
@@ -196,7 +204,50 @@ or if their traffic exceeds 2Gb in either direction.
 .Xr softflowctl 8
 may be used to print information on the average lifetimes of flows and 
 the reasons for their expiry.
-.Sh RUN-TIME CONTROL
+.Ss Time Formats
+.Pp
+.Nm
+command-line arguments that specify time
+may be expressed using a sequence of the form:
+.Sm off
+.Ar time Op Ar qualifier ,
+.Sm on
+where
+.Ar time
+is a positive integer value and
+.Ar qualifier
+is one of the following:
+.Pp
+.Bl -tag -width Ds -compact -offset indent
+.It Cm <none>
+seconds
+.It Cm s | Cm S
+seconds
+.It Cm m | Cm M
+minutes
+.It Cm h | Cm H
+hours
+.It Cm d | Cm D
+days
+.It Cm w | Cm W
+weeks
+.El
+.Pp
+Each member of the sequence is added together to calculate
+the total time value.
+.Pp
+Time format examples:
+.Pp
+.Bl -tag -width Ds -compact -offset indent
+.It 600
+600 seconds (10 minutes)
+.It 10m
+10 minutes
+.It 1h30m
+1 hour 30 minutes (90 minutes)
+.El
+.Ss Run-time Control
+.Pp
 A daemonised
 .Nm
 instance may be controlled using the 
