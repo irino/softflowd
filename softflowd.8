@@ -48,6 +48,17 @@ A "traffic flow" is
 communication between two IP addresses or (if the overlying protocol is 
 TCP or UDP) address/port tuples. 
 .Pp
+The intended use of
+.Nm 
+is as a software implementation of Cisco's NetFlow(tm) traffic account
+system.
+.Nm 
+supports data export using version 1 of the NetFlow protocol. 
+.Nm 
+can also run in statistics-only mode, where it just collects summary 
+information. Currently, too few statistics are collected to make this
+mode really useful.
+.Pp
 Network traffic may be obtained by listening on a promiscuous network
 interface or by reading stored
 .Xr pcap 3
