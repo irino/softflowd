@@ -282,7 +282,7 @@ static void sighand_other(int signum)
 /*
  * This is the flow comparison function.
  */
-static inline int
+static int
 flow_compare(struct FLOW *a, struct FLOW *b)
 {
 	/* Be careful to avoid signed vs unsigned issues here */
@@ -312,7 +312,7 @@ FLOW_GENERATE(FLOWS, FLOW, trp, flow_compare);
 /*
  * This is the expiry comparison function.
  */
-static inline int
+static int
 expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 {
 	if (a->expires_at != b->expires_at)
@@ -2027,5 +2027,5 @@ expiry_check:
 	if (ctlsock_path != NULL)
 		unlink(ctlsock_path);
 	
-	exit(r == 0 ? 0 : 1);
+	return(r == 0 ? 0 : 1);
 }
