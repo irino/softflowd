@@ -426,14 +426,40 @@ format_flow_brief(struct FLOW *flow)
 	return (buf);
 }
 
+/* Fill in transport-layer (tcp/udp) portions of flow record */
+static int
+transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
+    const size_t caplen, int isfrag, int protocol, int ndx)
+{
+	const struct tcphdr *tcp = (const struct tcphdr *)pkt;
+	const struct udphdr *udp = (const struct udphdr *)pkt;
+
+	switch (protocol) {
+	case IPPROTO_TCP:
+		/* Check for runt packet, but don't error out on short frags */
+		if (caplen < sizeof(*tcp))
+			return (isfrag ? 0 : 1);
+		flow->port[ndx] = tcp->th_sport;
+		flow->port[ndx ^ 1] = tcp->th_dport;
+		flow->tcp_flags[ndx] |= tcp->th_flags;
+		break;
+	case IPPROTO_UDP:
+		/* Check for runt packet, but don't error out on short frags */
+		if (caplen < sizeof(*udp))
+			return (isfrag ? 0 : 1);
+		flow->port[ndx] = udp->uh_sport;
+		flow->port[ndx ^ 1] = udp->uh_dport;
+		break;
+	}
+	return (0);
+}
+
 /* Convert a packet to a partial flow record (used for comparison) */
 static int
 packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
     const size_t caplen, const size_t len, int *isfrag, int af)
 {
 	const struct ip *ip = (const struct ip *)pkt;
-	const struct tcphdr *tcp;
-	const struct udphdr *udp;
 	int ndx;
 
 	/* XXX - IPv6 support */
@@ -448,6 +474,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	memset(flow, '\0', sizeof(*flow));
 
 	/* Prepare to store flow in canonical format */
+	/* XXX: memcmp */
 	ndx = ntohl(ip->ip_src.s_addr) > ntohl(ip->ip_dst.s_addr) ? 1 : 0;
 	
 	flow->af = af;
@@ -463,29 +490,8 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	if (*isfrag && (ntohs(ip->ip_off) & IP_OFFMASK) != 0)
 		return (0);
 
-	switch (ip->ip_p) {
-	case IPPROTO_TCP:
-		tcp = (const struct tcphdr *)(pkt + (ip->ip_hl * 4));
-
-		/* Check for runt packet, but don't error out on short frags */
-		if (caplen - (ip->ip_hl * 4) < sizeof(*tcp))
-			return (*isfrag ? 0 : 1);
-		flow->port[ndx] = tcp->th_sport;
-		flow->port[ndx ^ 1] = tcp->th_dport;
-		flow->tcp_flags[ndx] |= tcp->th_flags;
-		break;
-	case IPPROTO_UDP:
-		udp = (const struct udphdr *)(pkt + (ip->ip_hl * 4));
-
-		/* Check for runt packet, but don't error out on short frags */
-		if (caplen - (ip->ip_hl * 4) < sizeof(*udp))
-			return (*isfrag ? 0 : 1);
-		flow->port[ndx] = udp->uh_sport;
-		flow->port[ndx ^ 1] = udp->uh_dport;
-		break;
-	}
-	
-	return (0);
+	return (transport_to_flowrec(flow, pkt + (ip->ip_hl * 4), 
+	    caplen - (ip->ip_hl * 4), *isfrag, ip->ip_p, ndx));
 }
 
 static void

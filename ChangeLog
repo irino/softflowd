@@ -4,6 +4,8 @@
  - (djm) Next step in preparation of IPv6 support: make flow structure and
    lookup function support both IPv4 and IPv6 addresses (v6 addrs aren't yet
    used)
+ - (djm) Another step on the road: factor out transport-layer protocol parsing
+   from IPv4 parsing code
 
 20040901
  - (djm) Fix a tiny, stupid bug that prevents flow export
