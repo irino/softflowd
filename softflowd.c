@@ -84,16 +84,6 @@ static struct timeval system_boot_time;
 #define DEFAULT_MAXIMUM_LIFETIME	(3600*24*7)
 
 /*
- * How many seconds to wait for pcap data before doing housekeeping
- */
-#define EXPIRY_WAIT	8
-
-/*
- * How many seconds to wait in poll
- */
-#define POLL_WAIT	((EXPIRY_WAIT * 1000) / 2)
-
-/*
  * Default maximum number of flow to track simultaneously 
  * 8192 corresponds to just under 1Mb of flow data
  */
@@ -783,6 +773,26 @@ update_expiry_stats(struct FLOWTRACK *ft, struct EXPIRY *e)
 	}	
 }
 
+/* How long before the next expiry event in millisecond */
+static int
+next_expire(struct FLOWTRACK *ft)
+{
+	struct EXPIRY *expiry;
+	struct timeval now;
+	int ret;
+
+	gettimeofday(&now, NULL);
+
+	if ((expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries)) == NULL)
+		ret = -1;				/* Indefinite */
+	else if (expiry->expires_at < now.tv_sec)
+		ret = 0;				/* Now */
+	else
+		ret = 999 + (expiry->expires_at - now.tv_sec) * 1000;
+
+	return (ret);
+}
+
 /*
  * Scan the tree of expiry events and process expired flows. If zap_all
  * is set, then forcibly expire all flows.
@@ -807,7 +817,9 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	if (verbose_flag)
 		logit(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
 
-	for(expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries); expiry != NULL; expiry = nexpiry) {
+	for(expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries);
+	    expiry != NULL;
+	    expiry = nexpiry) {
 		nexpiry = EXPIRY_NEXT(EXPIRIES, &ft->expiries, expiry);
 		if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) || 
 		    (ex != CE_EXPIRE_FORCED &&
@@ -1599,7 +1611,6 @@ main(int argc, char **argv)
 	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
-	time_t next_expiry_check;
 	struct FLOWTRACK flowtrack;
 	socklen_t dest_len;
 
@@ -1734,7 +1745,6 @@ main(int argc, char **argv)
 	/* Main processing loop */
 	gettimeofday(&system_boot_time, NULL);
 	stop_collection_flag = 0;
-	next_expiry_check = time(NULL) + EXPIRY_WAIT;
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, linktype};
 		struct pollfd pl[2];
@@ -1757,7 +1767,8 @@ main(int argc, char **argv)
 				pl[1].events = POLLIN|POLLERR|POLLHUP;
 			}
 
-			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT);
+			r = poll(pl, (ctlsock == -1) ? 1 : 2, 
+			    next_expire(&flowtrack));
 			if (r == -1 && errno != EINTR) {
 				logit(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
@@ -1800,7 +1811,7 @@ main(int argc, char **argv)
 		 * flows
 		 */
 		if (flowtrack.num_flows > max_flows || 
-		    next_expiry_check <= time(NULL)) {
+		    next_expire(&flowtrack) == 0) {
 expiry_check:
 			/*
 			 * If we are reading from a capture file, we never
@@ -1819,7 +1830,6 @@ expiry_check:
 				force_expire(&flowtrack, flowtrack.num_flows - max_flows);
 				goto expiry_check;
 			}
-			next_expiry_check = time(NULL) + EXPIRY_WAIT;
 		}
 	}
 

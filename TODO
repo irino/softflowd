@@ -7,7 +7,6 @@ general
 softflowd
 ---------
 
-  - Eliminate pointless expiry scans: pick up next expiry event from top of list
   - See if we can reduce per-packet overhead more
     - Cost of expiry remove and re-add per packet
   - Stop run-time malloc (maybe)
@@ -15,6 +14,8 @@ softflowd
     - Maintain bitmap freelist (one for both types)
   - NetFlow v.5
   - NetFlow v.9 (IPv6!)
+    - Subject to asshole IPR claim: 
+      http://www.ietf.org/ietf/IPR/cisco-claise-netflow.txt
   - We don't handle fragments right
     - This shouldn't be too hard or too memory intensive. We just need to 
       keep a tree of fragment entries. Each entry would need to contain 
