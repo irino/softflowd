@@ -177,12 +177,6 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	struct NF9_SOFTFLOWD_DATA_COMMON *dc[2];
 	u_int freclen, ret_len, nflows;
 
-char buf1[256];
-inet_ntop(flow->af, &flow->addr[0], buf1, sizeof(buf1));
-logit(LOG_DEBUG, "flow addr0: %s", buf1);
-inet_ntop(flow->af, &flow->addr[1], buf1, sizeof(buf1));
-logit(LOG_DEBUG, "flow addr1: %s", buf1);
-
 	bzero(d, sizeof(d));
 	*len_used = nflows = ret_len = 0;
 	switch (flow->af) {
