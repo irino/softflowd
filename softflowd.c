@@ -181,8 +181,10 @@ struct FLOWTRACK {
 	double max_pkts, min_pkts, mean_pkts;	/* flow packets (both ways) */
 
 	/* Per protocol statistics */
-	u_int64_t octets_per_proto[256];
-	u_int64_t packets_per_proto[256];		
+	u_int64_t flows_pp[256];
+	u_int64_t octets_pp[256];
+	u_int64_t packets_pp[256];		
+	double max_dur_pp[256], mean_dur_pp[256];/* Useful for tuning */
 };
 
 /*
@@ -692,16 +694,26 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	tmp -= (double)flow->flow_start.tv_sec +
 	    ((double)flow->flow_start.tv_usec / 1000000.0);
 
+	ft->flows_pp[flow->protocol % 256]++;
+
 	if (n == 1.0) {
 		ft->min_dur = ft->mean_dur = ft->max_dur = tmp;
 	} else {
 		ft->mean_dur = update_mean(ft->mean_dur, tmp, n);
 		ft->min_dur = MIN(ft->min_dur, tmp);
 		ft->max_dur = MAX(ft->max_dur, tmp);
+
+		if (ft->flows_pp[flow->protocol % 256] == 0) {
+			ft->max_dur_pp[flow->protocol % 256] = ft->mean_dur_pp[flow->protocol % 256] = tmp;
+		} else {
+			ft->mean_dur_pp[flow->protocol % 256] = update_mean(ft->mean_dur_pp[flow->protocol % 256], tmp, 
+			    (double)ft->flows_pp[flow->protocol % 256]);
+			ft->max_dur_pp[flow->protocol % 256] = MAX(ft->max_dur_pp[flow->protocol % 256], tmp);
+		}
 	}
 
 	tmp = flow->octets[0] + flow->octets[1];
-	ft->octets_per_proto[flow->protocol % 256] += tmp;
+	ft->octets_pp[flow->protocol % 256] += tmp;
 	if (n == 1.0) {
 		ft->min_bytes = ft->mean_bytes = ft->max_bytes = tmp;
 	} else {
@@ -711,7 +723,7 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	}
 
 	tmp = flow->packets[0] + flow->packets[1];
-	ft->packets_per_proto[flow->protocol % 256] += tmp;
+	ft->packets_pp[flow->protocol % 256] += tmp;
 	if (n == 1.0) {
 		ft->min_pkts = ft->mean_pkts = ft->max_pkts = tmp;
 	} else {
@@ -867,23 +879,25 @@ log_stats(struct FLOWTRACK *ft)
 	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
 
 	syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
-	syslog(LOG_INFO, "    Duration: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "  Duration: %0.2f / %0.2f / %0.2f", 
 	    ft->min_dur, ft->mean_dur, ft->max_dur);
-	syslog(LOG_INFO, "    Flow bytes: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "  Flow bytes: %0.2f / %0.2f / %0.2f", 
 	    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
-	syslog(LOG_INFO, "    Flow packets: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "  Flow packets: %0.2f / %0.2f / %0.2f", 
 	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
 
 	syslog(LOG_INFO, "Per protocol statistics:");
 	setprotoent(1);
 	for(i = 0; i < 256; i++) {
-		if (ft->packets_per_proto[i]) {
+		if (ft->packets_pp[i]) {
 			pe = getprotobynumber(i);
 			syslog(LOG_INFO, 
-			    "    Protocol %s(%d): %llu bytes %llu packets",
+			    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs min/max duration",
 			    pe != NULL ? pe->p_name : "", i, 
-			    ft->octets_per_proto[i], 
-			    ft->packets_per_proto[i]);
+			    ft->octets_pp[i], 
+			    ft->packets_pp[i],
+			    ft->mean_dur_pp[i],
+			    ft->max_dur_pp[i]);
 		}
 	}
 	endprotoent();
