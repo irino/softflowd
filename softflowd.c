@@ -434,6 +434,13 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	const struct tcphdr *tcp = (const struct tcphdr *)pkt;
 	const struct udphdr *udp = (const struct udphdr *)pkt;
 
+	/*
+	 * XXX to keep flow in proper canonical format, it may be necessary
+	 * to swap the array slots based on the order of the port numbers
+	 * does this matter in practice??? I don't think so - return flows will
+	 * always match, because of their symmetrical addr/ports
+	 */
+
 	switch (protocol) {
 	case IPPROTO_TCP:
 		/* Check for runt packet, but don't error out on short frags */
@@ -474,8 +481,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	memset(flow, '\0', sizeof(*flow));
 
 	/* Prepare to store flow in canonical format */
-	/* XXX: memcmp */
-	ndx = ntohl(ip->ip_src.s_addr) > ntohl(ip->ip_dst.s_addr) ? 1 : 0;
+	ndx = memcmp(&ip->ip_src, &ip->ip_dst, sizeof(ip->ip_src)) > 0 ? 1 : 0;
 	
 	flow->af = af;
 	flow->addr[ndx].v4 = ip->ip_src;
