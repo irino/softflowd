@@ -42,14 +42,6 @@ softflowd
     - Ability to set soft mininum number of flow records per packet
     - Need timeout so the queue doesn't rot
     - Benefits of queue vs leaving them in flow table???
-  - Collect more statistics (maybe)
-    - Option to take histograms
-    - Flow bandwidth
-    - Per well-known-port
-      - How to do this quicky? Memory efficiently?
-    - Per IP address/range
-      - How to do this quicky? Memory efficiently?
-    - Moving averages
   - Ability to freeze/resume state (maybe)
   - Ability to open more than one interface (maybe)
   - Ability to read more than one pcap file (maybe)
@@ -62,6 +54,17 @@ softflowd
   - Remote control over network (requires SSL)
   - Multiple interface support
     - Requires some way to avoid duplicate recording of flows (IP ID)
+
+  - Collect more statistics (maybe)
+    - Advanced packet analysis: store hash of packet payload, keep 
+      statistics on traffic similarity
+    - Option to take histograms
+    - Flow bandwidth
+    - Per well-known-port
+      - How to do this quicky? Memory efficiently?
+    - Per IP address/range
+      - How to do this quicky? Memory efficiently?
+    - Moving averages
   - Track traffic over lifetime of flow
     - Maintain linked list traffic counts, keyed by time interval
     - E.g. key by (now / 300)
