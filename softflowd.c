@@ -1259,15 +1259,9 @@ accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
 }
 
 static int
-connsock(struct sockaddr_storage *addr)
+connsock(struct sockaddr_storage *addr, socklen_t len)
 {
 	int s;
-	socklen_t len;
-
-	len = sizeof(*addr);
-#ifdef SOCK_HAS_LEN
-	len = ((struct sockaddr *)addr)->sa_len;
-#endif
 
 	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) == -1) {
 		fprintf(stderr, "socket() error: %s\n", 
@@ -1496,7 +1490,7 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 }
 
 static void
-parse_hostport(const char *s, struct sockaddr_storage *addr)
+parse_hostport(const char *s, struct sockaddr_storage *addr, socklen_t *len)
 {
 	char *orig, *host, *port;
 	struct addrinfo hints, *res;
@@ -1533,6 +1527,7 @@ parse_hostport(const char *s, struct sockaddr_storage *addr)
 	}
 	memcpy(addr, res->ai_addr, res->ai_addrlen);
 	free(orig);
+	*len = res->ai_addrlen;
 }
 
 /* 
@@ -1606,7 +1601,8 @@ main(int argc, char **argv)
 	struct sockaddr_storage dest;
 	time_t next_expiry_check;
 	struct FLOWTRACK flowtrack;
-	
+	socklen_t dest_len;
+
 	init_flowtrack(&flowtrack);
 
 	memset(&dest, '\0', sizeof(dest));
@@ -1659,7 +1655,7 @@ main(int argc, char **argv)
 			break;
 		case 'n':
 			/* Will exit on failure */
-			parse_hostport(optarg, &dest);
+			parse_hostport(optarg, &dest, &dest_len);
 			break;
 		case 'p':
 			pidfile_path = optarg;
@@ -1692,13 +1688,12 @@ main(int argc, char **argv)
 	/* Netflow send socket */
 	if (dest.ss_family != 0) {
 		if ((err = getnameinfo((struct sockaddr *)&dest,
-		    ((struct sockaddr *)&dest)->sa_len, dest_addr,
-		    sizeof(dest_addr), dest_serv, sizeof(dest_serv),
-		    NI_NUMERICHOST)) == -1) {
+		    dest_len, dest_addr, sizeof(dest_addr), 
+		    dest_serv, sizeof(dest_serv), NI_NUMERICHOST)) == -1) {
 			fprintf(stderr, "getnameinfo: %d\n", err);
 			exit(1);
 		}
-		nfsock = connsock(&dest); /* Will exit on fail */
+		nfsock = connsock(&dest, dest_len); /* Will exit on fail */
 	}
 	
 	/* Control socket */
