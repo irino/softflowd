@@ -100,7 +100,6 @@
 #define IPV6_FLOWLABEL_MASK	ntohl(0x000fffff)
 #endif
 
-
 #ifndef _PATH_DEVNULL
 # define _PATH_DEVNULL		"/dev/null"
 #endif
@@ -113,6 +112,15 @@
 #endif
 #ifndef offsetof
 # define offsetof(type, member) ((size_t) &((type *)0)->member)
+#endif
+
+#if defined(__GNUC__)
+# ifndef __dead
+#  define __dead                __attribute__((__noreturn__))
+# endif
+# ifndef __packed
+#  define __packed              __attribute__((__packed__))
+# endif
 #endif
 
 #if !defined(HAVE_INT8_T) && defined(OUR_CFG_INT8_T)
