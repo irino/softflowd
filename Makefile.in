@@ -56,8 +56,8 @@ strip:
 	strip $(TARGETS)
 
 install:
-        $(INSTALL) -m 0755 -s softflowd $(sbindir)/softflowd
-        $(INSTALL) -m 0755 -s softflowctl $(isbindir)/softflowctl
+	$(INSTALL) -m 0755 -s softflowd $(sbindir)/softflowd
+	$(INSTALL) -m 0755 -s softflowctl $(isbindir)/softflowctl
 	$(INSTALL) -m 0644 softflowd.8 $(mandir)/$(mansubdir)8/softflowd.8
 	$(INSTALL) -m 0644 softflowctl.8 $(mandir)/$(mansubdir)8/softflowctl.8
 

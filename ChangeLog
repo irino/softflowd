@@ -5,6 +5,7 @@
  - (djm) Never endprotoent()
  - (djm) Use autoconf to detect various things; in preparation of more 
    portability
+ - (djm) Detect int and define standard int types in configure
 
 20031111
  - (djm) Remove -Werror from CFLAGS, it causes problems in released software

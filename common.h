@@ -41,7 +41,6 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
-#include <net/bpf.h>
 
 #include <stdio.h>
 #include <errno.h>
@@ -54,6 +53,15 @@
 #include <netdb.h>
 #include <pwd.h>
 #include <grp.h>
+
+#if defined(HAVE_NET_BPF_H)
+#include <net/bpf.h>
+#elif defined(HAVE_PCAP_BPF_H)
+#include <pcap-bpf.h>
+#endif
+#if defined(HAVE_INTTYPES_H)
+#include <inttypes.h>
+#endif
 
 /* The name of the program */
 #define PROGNAME		"softflowd"
@@ -75,6 +83,31 @@
 #endif
 #ifndef offsetof
 # define offsetof(type, member) ((size_t) &((type *)0)->member)
+#endif
+
+#if !defined(HAVE_INT8_T) && defined(OUR_CFG_INT8_T)
+typedef OUR_CFG_INT8_T int8_t;
+#endif
+#if !defined(HAVE_INT16_T) && defined(OUR_CFG_INT16_T)
+typedef OUR_CFG_INT16_T int16_t;
+#endif
+#if !defined(HAVE_INT32_T) && defined(OUR_CFG_INT32_T)
+typedef OUR_CFG_INT32_T int32_t;
+#endif
+#if !defined(HAVE_INT64_T) && defined(OUR_CFG_INT64_T)
+typedef OUR_CFG_INT64_T int64_t;
+#endif
+#if !defined(HAVE_U_INT8_T) && defined(OUR_CFG_U_INT8_T)
+typedef OUR_CFG_U_INT8_T u_int8_t;
+#endif
+#if !defined(HAVE_U_INT16_T) && defined(OUR_CFG_U_INT16_T)
+typedef OUR_CFG_U_INT16_T u_int16_t;
+#endif
+#if !defined(HAVE_U_INT32_T) && defined(OUR_CFG_U_INT32_T)
+typedef OUR_CFG_UINT32_T u_int32_t;
+#endif
+#if !defined(HAVE_U_INT64_T) && defined(OUR_CFG_U_INT64_T)
+typedef OUR_CFG_UINT64_T u_int64_t;
 #endif
 
 #endif /* _SFD_COMMON_H */
