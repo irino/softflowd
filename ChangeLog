@@ -1,6 +1,9 @@
 20040930
  - (djm) Increase caplen a little for IPv6
  - (djm) Remove unused debugging code from NetFlow v.9 support
+ - (djm) Add a timeout to cluster expiry expiry events, so we get more flows 
+    per packet. Default is to check for expiries every 60s
+ - (djm) Allow timouts to be disabled (by setting them to 0)
 
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 

@@ -34,8 +34,6 @@ softflowd
   - Make counters 64 bits
     - We can report these directly for NetFlow v.9
     - Flow older NetFlow, report by sending multiple flows until counter < 2^32
-  - Implement a minimum period between expiries, so we get more flows per 
-    packet. (change next_expire to return add a fudge factor to timeouts)
 
  Misc features
   - Ability to open more than one interface (maybe)

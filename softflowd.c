@@ -431,16 +431,18 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 	
 	if (flow->protocol == IPPROTO_TCP) {
 		/* Reset TCP flows */
-		if ((flow->tcp_flags[0] & TH_RST) ||
-		    (flow->tcp_flags[1] & TH_RST)) {
+		if (ft->tcp_rst_timeout != 0 &&
+		    ((flow->tcp_flags[0] & TH_RST) ||
+		    (flow->tcp_flags[1] & TH_RST))) {
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    ft->tcp_rst_timeout;
 			flow->expiry->reason = R_TCP_RST;
 			goto out;
 		}
 		/* Finished TCP flows */
-		if ((flow->tcp_flags[0] & TH_FIN) &&
-		    (flow->tcp_flags[1] & TH_FIN)) {
+		if (ft->tcp_fin_timeout != 0 &&
+		    ((flow->tcp_flags[0] & TH_FIN) &&
+		    (flow->tcp_flags[1] & TH_FIN))) {
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    ft->tcp_fin_timeout;
 			flow->expiry->reason = R_TCP_FIN;
@@ -448,13 +450,15 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 		}
 
 		/* TCP flows */
-		flow->expiry->expires_at = flow->flow_last.tv_sec + 
-		    ft->tcp_timeout;
-		flow->expiry->reason = R_TCP;
-		goto out;
+		if (ft->tcp_timeout != 0) {
+			flow->expiry->expires_at = flow->flow_last.tv_sec + 
+			    ft->tcp_timeout;
+			flow->expiry->reason = R_TCP;
+			goto out;
+		}
 	}
 
-	if (flow->protocol == IPPROTO_UDP) {
+	if (ft->udp_timeout != 0 && flow->protocol == IPPROTO_UDP) {
 		/* UDP flows */
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->udp_timeout;
@@ -462,8 +466,9 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 		goto out;
 	}
 
-	if ((flow->af == AF_INET && flow->protocol == IPPROTO_ICMP) || 
-	    ((flow->af == AF_INET6 && flow->protocol == IPPROTO_ICMPV6)))
+	if (ft->icmp_timeout != 0 &&
+	    ((flow->af == AF_INET && flow->protocol == IPPROTO_ICMP) || 
+	    ((flow->af == AF_INET6 && flow->protocol == IPPROTO_ICMPV6)))) {
 		/* UDP flows */
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->icmp_timeout;
@@ -671,17 +676,30 @@ next_expire(struct FLOWTRACK *ft)
 {
 	struct EXPIRY *expiry;
 	struct timeval now;
-	int ret;
+	u_int32_t expires_at, ret, fudge;
 
 	gettimeofday(&now, NULL);
 
 	if ((expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries)) == NULL)
-		ret = -1;				/* Indefinite */
-	else if (expiry->expires_at < now.tv_sec)
-		ret = 0;				/* Now */
-	else
-		ret = 999 + (expiry->expires_at - now.tv_sec) * 1000;
+		return (-1); /* indefinite */
 
+	expires_at = expiry->expires_at;
+
+	/* Don't cluster urgent expiries */
+	if (expires_at == 0 && (expiry->reason == R_OVERBYTES || 
+	    expiry->reason == R_OVERFLOWS || expiry->reason == R_FLUSH))
+		return (0); /* Now */
+
+	/* Cluster expiries by expiry_interval */
+	if (ft->expiry_interval > 1) {
+		if ((fudge = expires_at % ft->expiry_interval) > 0)
+			expires_at += ft->expiry_interval - fudge;
+	}
+
+	if (expires_at < now.tv_sec)
+		return (0); /* Now */
+
+	ret = 999 + (expires_at - now.tv_sec) * 1000;
 	return (ret);
 }
 
@@ -1045,6 +1063,7 @@ print_timeouts(struct FLOWTRACK *ft, FILE *out)
 	fprintf(out, "          ICMP timeout: %ds\n", ft->icmp_timeout);
 	fprintf(out, "       General timeout: %ds\n", ft->general_timeout);
 	fprintf(out, "      Maximum lifetime: %ds\n", ft->maximum_lifetime);
+	fprintf(out, "       Expiry interval: %ds\n", ft->expiry_interval);
 }
 
 static int
@@ -1283,6 +1302,7 @@ init_flowtrack(struct FLOWTRACK *ft)
 	ft->icmp_timeout = DEFAULT_ICMP_TIMEOUT;
 	ft->general_timeout = DEFAULT_GENERAL_TIMEOUT;
 	ft->maximum_lifetime = DEFAULT_MAXIMUM_LIFETIME;
+	ft->expiry_interval = DEFAULT_EXPIRY_INTERVAL;
 }
 
 static char *
@@ -1326,19 +1346,20 @@ usage(void)
 	fprintf(stderr, "  -n host:port    Send Cisco NetFlow(tm)-compatible packets to host:port\n");
 	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
 	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
-	fprintf(stderr, "  -v 1|5          NetFlow export packet version\n");
+	fprintf(stderr, "  -v 1|5|9        NetFlow export packet version\n");
 	fprintf(stderr, "  -d              Don't daemonise\n");
 	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity\n");
 	fprintf(stderr, "  -h              Display this help\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Valid timeout names and default values:\n");
-	fprintf(stderr, "  tcp     (default %d)", DEFAULT_TCP_TIMEOUT);
-	fprintf(stderr, "  tcp.rst (default %d) ", DEFAULT_TCP_RST_TIMEOUT);
-	fprintf(stderr, "  tcp.fin (default %d)\n", DEFAULT_TCP_FIN_TIMEOUT);
-	fprintf(stderr, "  udp     (default %d) ", DEFAULT_UDP_TIMEOUT);
-	fprintf(stderr, "  icmp    (default %d) ", DEFAULT_ICMP_TIMEOUT);
-	fprintf(stderr, "  general (default %d)", DEFAULT_GENERAL_TIMEOUT);
-	fprintf(stderr, "  maxlife (default %d)\n", DEFAULT_MAXIMUM_LIFETIME);
+	fprintf(stderr, "  tcp     (default %6d)", DEFAULT_TCP_TIMEOUT);
+	fprintf(stderr, "  tcp.rst (default %6d)", DEFAULT_TCP_RST_TIMEOUT);
+	fprintf(stderr, "  tcp.fin (default %6d)\n", DEFAULT_TCP_FIN_TIMEOUT);
+	fprintf(stderr, "  udp     (default %6d)", DEFAULT_UDP_TIMEOUT);
+	fprintf(stderr, "  icmp    (default %6d)", DEFAULT_ICMP_TIMEOUT);
+	fprintf(stderr, "  general (default %6d)\n", DEFAULT_GENERAL_TIMEOUT);
+	fprintf(stderr, "  maxlife (default %6d)", DEFAULT_MAXIMUM_LIFETIME);
+	fprintf(stderr, "  expint  (default %6d)\n", DEFAULT_EXPIRY_INTERVAL);
 	fprintf(stderr, "\n");
 }
 
@@ -1360,7 +1381,7 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 	}
 	*(value - 1) = '\0';
 	timeout = convtime(value);
-	if (timeout <= 0) {
+	if (timeout < 0) {
 		fprintf(stderr, "Invalid -t timeout.\n");
 		usage();
 		exit(1);
@@ -1379,9 +1400,17 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 		ft->general_timeout = timeout;
 	else if (strcmp(name, "maxlife") == 0)
 		ft->maximum_lifetime = timeout;
+	else if (strcmp(name, "expint") == 0)
+		ft->expiry_interval = timeout;
 	else {
 		fprintf(stderr, "Invalid -t name.\n");
 		usage();
+		exit(1);
+	}
+
+	if (ft->general_timeout == 0) {
+		fprintf(stderr, "\"general\" flow timeout must be "
+		    "greater than zero\n");
 		exit(1);
 	}
 

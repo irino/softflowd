@@ -52,6 +52,7 @@
 #define DEFAULT_ICMP_TIMEOUT		300
 #define DEFAULT_GENERAL_TIMEOUT		3600
 #define DEFAULT_MAXIMUM_LIFETIME	(3600*24*7)
+#define DEFAULT_EXPIRY_INTERVAL		60
 
 /*
  * Default maximum number of flow to track simultaneously 
@@ -88,6 +89,7 @@ struct FLOWTRACK {
 	int icmp_timeout;			/* ICMP flows */
 	int general_timeout;			/* Everything else */
 	int maximum_lifetime;			/* Maximum life for flows */
+	int expiry_interval;			/* Interval between expiries */ 
 
 	/* Statistics */
 	u_int64_t total_packets;		/* # of good packets */

@@ -54,7 +54,7 @@ The intended use of
 is as a software implementation of Cisco's NetFlow(tm) traffic account
 system.
 .Nm 
-supports data export using versions 1 or 5 of the NetFlow protocol. 
+supports data export using versions 1, 5 or 9 of the NetFlow protocol. 
 .Nm 
 can also run in statistics-only mode, where it just collects summary 
 information.
@@ -87,7 +87,7 @@ be viewed using
 If the 
 .Fl n
 option has been specified the flow informaion is formatted in a UDP datagram 
-which is compatible with versions 1 or 5 of Cisco's NetFlow(tm) accounting 
+which is compatible with versions 1, 5 or 9 of Cisco's NetFlow(tm) accounting 
 export format.
 These records are sent to the specified
 .Ar host
@@ -216,6 +216,12 @@ are forcibly expired when they pass
 seconds.
 To disable this feature, specify a 
 .Ar maxlife
+of 0.
+.It Ar expint
+Specify the interval between expiry checks.
+Increase this to group more flows into a NetFlow packet.
+To disable this feature, specify a 
+.Ar expint
 of 0.
 .El
 .Pp
