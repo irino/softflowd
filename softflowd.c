@@ -669,6 +669,8 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int zap_all)
 			ft->flows_exported += num_expired * 2;
 		else
 			ft->flows_dropped += num_expired * 2;
+
+		free(expired_flows);
 	}
 
 	return (r);
