@@ -47,6 +47,7 @@
 #include "convtime.h"
 #include "sys-tree.h"
 #include "treetype.h"
+#include "log.h"
 #include <pcap.h>
 
 
@@ -254,7 +255,7 @@ static void sighand_graceful_shutdown(int signum)
 static void sighand_other(int signum)
 {
 	/* XXX: this may not be completely safe */
-	syslog(LOG_WARNING, "Exiting immediately on unexpected signal %d", signum);
+	logit(LOG_WARNING, "Exiting immediately on unexpected signal %d", signum);
 	_exit(0);
 }
 
@@ -553,7 +554,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 
 		ft->num_flows++;
 		if (verbose_flag)
-			syslog(LOG_DEBUG, "ADD FLOW %s", format_flow_brief(flow));
+			logit(LOG_DEBUG, "ADD FLOW %s", format_flow_brief(flow));
 	} else {
 		/* Update flow statistics */
 		flow->packets[0] += tmp.packets[0];
@@ -611,7 +612,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
 		if (j >= NF1_MAXFLOWS - 1) {
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
+				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
 			hdr->flows = htons(hdr->flows);
 			errsz = sizeof(err);
 			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
@@ -624,7 +625,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		if (j == 0) {
 #if 0
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Starting on new flow packet");
+				logit(LOG_DEBUG, "Starting on new flow packet");
 #endif
 			memset(&packet, '\0', sizeof(packet));
 			hdr->version = htons(1);
@@ -639,7 +640,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		if (flows[i]->octets[0] > 0) {
 #if 0
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
+				logit(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
 #endif
 			flw->src_ip = flows[i]->addr[0];
 			flw->dest_ip = flows[i]->addr[1];
@@ -660,7 +661,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		if (flows[i]->octets[1] > 0) {
 #if 0
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Flow %d of %d 1<0", i, num_flows);
+				logit(LOG_DEBUG, "Flow %d of %d 1<0", i, num_flows);
 #endif
 			flw->src_ip = flows[i]->addr[1];
 			flw->dest_ip = flows[i]->addr[0];
@@ -681,7 +682,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	/* Send any leftovers */
 	if (j != 0) {
 		if (verbose_flag)
-			syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
+			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
 		hdr->flows = htons(hdr->flows);
 		errsz = sizeof(err);
 		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
@@ -804,7 +805,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	expired_flows = NULL;
 
 	if (verbose_flag)
-		syslog(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
+		logit(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
 
 	for(expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries); expiry != NULL; expiry = nexpiry) {
 		nexpiry = EXPIRY_NEXT(EXPIRIES, &ft->expiries, expiry);
@@ -813,7 +814,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 		    (expiry->expires_at < now.tv_sec))) {
 			/* Flow has expired */
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Queuing flow seq:%llu (%p) for expiry",
+				logit(LOG_DEBUG, "Queuing flow seq:%llu (%p) for expiry",
 				   expiry->flow->flow_seq, expiry->flow);
 
 			/* Add to array of expired flows */
@@ -844,14 +845,14 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	}
 
 	if (verbose_flag)
-		syslog(LOG_DEBUG, "Finished scan %d flow(s) to be evicted", num_expired);
+		logit(LOG_DEBUG, "Finished scan %d flow(s) to be evicted", num_expired);
 	
 	/* Processing for expired flows */
 	if (num_expired > 0) {
 		if (nfsock != -1) {
 			r = send_netflow_v1(expired_flows, num_expired, nfsock);
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "sent %d netflow packets", r);
+				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
 				ft->flows_exported += num_expired * 2;
 				ft->packets_sent += r;
@@ -861,7 +862,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 		}
 		for (i = 0; i < num_expired; i++) {
 			if (verbose_flag) {
-				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
+				logit(LOG_DEBUG, "EXPIRED: %s (%p)", 
 				    format_flow(expired_flows[i]),
 				    expired_flows[i]);
 			}
@@ -887,7 +888,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 
 	/* XXX move all overflow processing here (maybe) */
 	if (verbose_flag)
-		syslog(LOG_INFO, "Forcing expiry of %d flows",
+		logit(LOG_INFO, "Forcing expiry of %d flows",
 		    num_to_expire);
 
 	/*
@@ -904,7 +905,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 		 * setting all the keys in a tree to the same value is 
 		 * safe.
 		 */
-		syslog(LOG_ERR, "Out of memory while expiring flows - "
+		logit(LOG_ERR, "Out of memory while expiring flows - "
 		    "all flows expired");
 		EXPIRY_FOREACH(expiry, EXPIRIES, &ft->expiries) {
 			expiry->expires_at = 0;
@@ -922,7 +923,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 		expiryv[i++] = expiry;
 	}
 	if (i < num_to_expire) {
-		syslog(LOG_ERR, "Needed to expire %d flows, "
+		logit(LOG_ERR, "Needed to expire %d flows, "
 		    "but only %d active", num_to_expire, i);
 		num_to_expire = i;
 	}
@@ -1166,12 +1167,12 @@ accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
 	int fd, ret;
 
 	if ((fd = accept(lsock, NULL, NULL)) == -1) {
-		syslog(LOG_ERR, "ctl accept: %s - exiting",
+		logit(LOG_ERR, "ctl accept: %s - exiting",
 		    strerror(errno));
 		return(-1);
 	}
 	if ((ctlf = fdopen(fd, "r+")) == NULL) {
-		syslog(LOG_ERR, "fdopen: %s - exiting\n",
+		logit(LOG_ERR, "fdopen: %s - exiting\n",
 		    strerror(errno));
 		close(fd);
 		return (-1);
@@ -1179,14 +1180,14 @@ accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
 	setlinebuf(ctlf);
 
 	if (fgets(buf, sizeof(buf), ctlf) == NULL) {
-		syslog(LOG_ERR, "Control socket yielded no data");
+		logit(LOG_ERR, "Control socket yielded no data");
 		return (0);
 	}
 	if ((p = strchr(buf, '\n')) != NULL)
 		*p = '\0';
 	
 	if (verbose_flag)
-		syslog(LOG_DEBUG, "Control socket \"%s\"", buf);
+		logit(LOG_DEBUG, "Control socket \"%s\"", buf);
 
 	/* XXX - use dispatch table */
 	ret = -1;
@@ -1258,7 +1259,7 @@ accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
 }
 
 static int
-connsock(struct sockaddr_in *addr)
+connsock(struct sockaddr_storage *addr)
 {
 	int s;
 
@@ -1489,9 +1490,11 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 }
 
 static void
-parse_hostport(const char *s, struct sockaddr_in *addr)
+parse_hostport(const char *s, struct sockaddr_storage *addr)
 {
 	char *host, *port;
+	struct addrinfo hints, *res;
+	int herr;
 
 	if ((host = strdup(s)) == NULL) {
 		fprintf(stderr, "Out of memory\n");
@@ -1503,19 +1506,19 @@ parse_hostport(const char *s, struct sockaddr_in *addr)
 		exit(1);
 	}
 	*(port - 1) = '\0';
-	addr->sin_family = AF_INET;
-	addr->sin_port = atoi(port);
-	if (addr->sin_port <= 0 || addr->sin_port >= 65536) {
-		fprintf(stderr, "Invalid -n port.\n");
-		usage();
+
+	memset(&hints, '\0', sizeof(hints));
+	hints.ai_socktype = SOCK_DGRAM;
+	if ((herr = getaddrinfo(host, port, &hints, &res)) == -1) {
+		fprintf(stderr, "Address lookup failed: %s\n",
+		    gai_strerror(herr));
 		exit(1);
 	}
-	addr->sin_port = htons(addr->sin_port);
-	if (inet_aton(host, &addr->sin_addr) == 0) {
-		fprintf(stderr, "Invalid -n host.\n");
-		usage();
+	if (res == NULL || res->ai_addr == NULL) {
+		fprintf(stderr, "No addresses found for %s:%s\n", host, port);
 		exit(1);
 	}
+	memcpy(addr, res->ai_addr, res->ai_addrlen);
 	free(host);
 }
 
@@ -1528,37 +1531,50 @@ drop_privs(void)
 	struct passwd *pw;
 	
 	if ((pw = getpwnam(PRIVDROP_USER)) == NULL) {
-		syslog(LOG_ERR, "Unable to find unprivileged user \"%s\"", 
+		logit(LOG_ERR, "Unable to find unprivileged user \"%s\"", 
 		    PRIVDROP_USER);
 		exit(1);
 	}
 	if (chdir(PRIVDROP_CHROOT_DIR) != 0) {
-		syslog(LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
+		logit(LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
 		    PRIVDROP_CHROOT_DIR, strerror(errno));
 		exit(1);
 	}
 	if (chroot(PRIVDROP_CHROOT_DIR) != 0) {
-		syslog(LOG_ERR, "Unable to chroot to directory \"%s\": %s",
+		logit(LOG_ERR, "Unable to chroot to directory \"%s\": %s",
 		    PRIVDROP_CHROOT_DIR, strerror(errno));
 		exit(1);
 	}
 	if (chdir("/") != 0) {
-		syslog(LOG_ERR, "Unable to chdir to chroot root: %s",
+		logit(LOG_ERR, "Unable to chdir to chroot root: %s",
 		    strerror(errno));
 		exit(1);
 	}
 	if (setgroups(1, &pw->pw_gid) != 0) {
-		syslog(LOG_ERR, "Couldn't setgroups (%u): %s",
+		logit(LOG_ERR, "Couldn't setgroups (%u): %s",
 		    (unsigned int)pw->pw_gid, strerror(errno));
 		exit(1);
 	}
+#if defined(HAVE_SETRESGID)
 	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
-		syslog(LOG_ERR, "Couldn't set gid (%u): %s",
+#elsif defined(HAVE_SETREGID)
+	if (setregid(pw->pw_gid, pw->pw_gid) == -1) {
+#else
+	if (setegid(pw->pw_gid) == -1 || setgid(pw->pw_gid) == -1) {
+#endif
+		logit(LOG_ERR, "Couldn't set gid (%u): %s",
 		    (unsigned int)pw->pw_gid, strerror(errno));
 		exit(1);
 	}
+
+#if defined(HAVE_SETRESUID)
 	if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
-		syslog(LOG_ERR, "Couldn't set uid (%u): %s",
+#elsif defined(HAVE_SETREUID)
+	if (setreuid(pw->pw_uid, pw->pw_uid) == -1) {
+#else
+	if (seteuid(pw->pw_uid) == -1 || setuid(pw->pw_uid) == -1) {
+#endif
+		logit(LOG_ERR, "Couldn't set uid (%u): %s",
 		    (unsigned int)pw->pw_uid, strerror(errno));
 		exit(1);
 	}
@@ -1574,17 +1590,13 @@ main(int argc, char **argv)
 	int ch, dontfork_flag, linktype, nfsock, ctlsock, r;
 	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
-	struct sockaddr_in dest;
+	struct sockaddr_storage dest;
 	time_t next_expiry_check;
 	struct FLOWTRACK flowtrack;
 	
-	memset(&dest, '\0', sizeof(dest));
-#ifdef SOCK_HAS_LEN 
-	dest.sin_len = sizeof(dest);
-#endif
-
 	init_flowtrack(&flowtrack);
 
+	memset(&dest, '\0', sizeof(dest));
 	bpf_prog = NULL;
 	nfsock = ctlsock = -1;
 	dev = capfile = NULL;
@@ -1665,7 +1677,7 @@ main(int argc, char **argv)
 	setup_packet_capture(&pcap, &linktype, dev, capfile, bpf_prog);
 	
 	/* Netflow send socket */
-	if (dest.sin_family != 0)
+	if (dest.ss_family != 0)
 		nfsock = connsock(&dest); /* Will exit on fail */
 	
 	/* Control socket */
@@ -1673,12 +1685,12 @@ main(int argc, char **argv)
 		ctlsock = unix_listener(ctlsock_path); /* Will exit on fail */
 	
 	if (dontfork_flag) {
-		openlog(PROGNAME, LOG_PID|LOG_PERROR, LOG_DAEMON);
+		loginit(PROGNAME, 1);
 	} else {	
 		FILE *pidfile;
 
 		daemon(0, 0);
-		openlog(PROGNAME, LOG_PID, LOG_DAEMON);
+		loginit(PROGNAME, 0);
 
 		if ((pidfile = fopen(pidfile_path, "w")) == NULL) {
 			fprintf(stderr, "Couldn't open pidfile %s: %s\n",
@@ -1696,7 +1708,7 @@ main(int argc, char **argv)
 		drop_privs();
 	}
 
-	syslog(LOG_NOTICE, "%s v%s starting data collection", 
+	logit(LOG_NOTICE, "%s v%s starting data collection", 
 	    PROGNAME, PROGVER);
 
 	/* Main processing loop */
@@ -1727,7 +1739,7 @@ main(int argc, char **argv)
 
 			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT);
 			if (r == -1 && errno != EINTR) {
-				syslog(LOG_ERR, "Exiting on poll: %s", 
+				logit(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
 				break;
 			}
@@ -1745,11 +1757,11 @@ main(int argc, char **argv)
 		    (capfile != NULL || pl[0].revents != 0)) {
 			r = pcap_dispatch(pcap, max_flows, flow_cb, (void*)&cb_ctxt);
 			if (r == -1) {
-				syslog(LOG_ERR, "Exiting on pcap_dispatch: %s", 
+				logit(LOG_ERR, "Exiting on pcap_dispatch: %s", 
 				    pcap_geterr(pcap));
 				break;
 			} else if (r == 0) {
-				syslog(LOG_NOTICE, "Shutting down after pcap EOF");
+				logit(LOG_NOTICE, "Shutting down after pcap EOF");
 				graceful_shutdown_request = 1;
 				break;
 			}
@@ -1758,7 +1770,7 @@ main(int argc, char **argv)
 
 		/* Fatal error from per-packet functions */
 		if (cb_ctxt.fatal) {
-			syslog(LOG_WARNING, "Fatal error - exiting immediately");
+			logit(LOG_WARNING, "Fatal error - exiting immediately");
 			break;
 		}
 
@@ -1777,7 +1789,7 @@ expiry_check:
 			 */
 			if (check_expired(&flowtrack, nfsock, 
 			    capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) < 0)
-				syslog(LOG_WARNING, "Unable to export flows");
+				logit(LOG_WARNING, "Unable to export flows");
 	
 			/*
 			 * If we are over max_flows, force-expire the oldest 
@@ -1793,12 +1805,12 @@ expiry_check:
 
 	/* Flags set by signal handlers or control socket */
 	if (graceful_shutdown_request) {
-		syslog(LOG_WARNING, "Shutting down on user request");
+		logit(LOG_WARNING, "Shutting down on user request");
 		check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
 	} else if (exit_request)
-		syslog(LOG_WARNING, "Exiting immediately on user request");
+		logit(LOG_WARNING, "Exiting immediately on user request");
 	else
-		syslog(LOG_ERR, "Exiting immediately on internal error");
+		logit(LOG_ERR, "Exiting immediately on internal error");
 		
 	if (capfile != NULL && dontfork_flag)
 		statistics(&flowtrack, stdout);

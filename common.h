@@ -29,10 +29,11 @@
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/ioctl.h>
-#include <sys/time.h>
-#include <sys/socket.h>
 #include <sys/poll.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 
 #include <netinet/in.h>
@@ -42,17 +43,19 @@
 #include <netinet/udp.h>
 #include <arpa/inet.h>
 
-#include <stdio.h>
-#include <errno.h>
-#include <syslog.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
-#include <signal.h>
-#include <netdb.h>
-#include <pwd.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <grp.h>
+#include <netdb.h>
+#include <limits.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>
 
 #if defined(HAVE_NET_BPF_H)
 #include <net/bpf.h>
@@ -74,6 +77,14 @@
 
 /* Default control socket */
 #define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
+
+#ifndef IP_OFFMASK
+# define IP_OFFMASK		0x1fff	/* mask for fragmenting bits */
+#endif
+
+#ifndef _PATH_DEVNULL
+# define _PATH_DEVNULL		"/dev/null"
+#endif
 
 #ifndef MIN
 # define MIN(a,b) (((a)<(b))?(a):(b))
@@ -104,10 +115,10 @@ typedef OUR_CFG_U_INT8_T u_int8_t;
 typedef OUR_CFG_U_INT16_T u_int16_t;
 #endif
 #if !defined(HAVE_U_INT32_T) && defined(OUR_CFG_U_INT32_T)
-typedef OUR_CFG_UINT32_T u_int32_t;
+typedef OUR_CFG_U_INT32_T u_int32_t;
 #endif
 #if !defined(HAVE_U_INT64_T) && defined(OUR_CFG_U_INT64_T)
-typedef OUR_CFG_UINT64_T u_int64_t;
+typedef OUR_CFG_U_INT64_T u_int64_t;
 #endif
 
 #endif /* _SFD_COMMON_H */

@@ -21,7 +21,36 @@ AC_CONFIG_HEADER(config.h)
 AC_PROG_CC
 AC_PROG_INSTALL
 
-AC_CHECK_HEADERS(net/bpf.h pcap-bpf.h)
+# Optional verbose warnings for gcc, see below
+WFLAGS="-Wall -Waggregate-return -Wcast-align -Wcast-qual"
+WFLAGS="$WFLAGS -Wmissing-declarations -Wmissing-prototypes"
+WFLAGS="$WFLAGS -Wno-conversion -Wpointer-arith -Wshadow"
+WFLAGS="$WFLAGS -Wuninitialized -Wcast-align -Wcast-qual"
+WFLAGS="$WFLAGS -WformatC=2 -Wformat-nonliteral -Wwrite-strings" 
+
+# Process flag arguments early, so they are available for tests later
+AC_ARG_ENABLE(gcc-warnings,
+	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
+	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
+)
+AC_ARG_WITH(cflags,
+	[  --with-cflags           Specify additional compiler flags],
+	[ if test "x$withval" != "xno" ; then CFLAGS="$CFLAGS $withval"; fi ]	
+)
+AC_ARG_WITH(cppflags,
+	[  --with-cppflags         Specify additional preprocessor flags] ,
+	[ if test "x$withval" != "xno"; then CPPFLAGS="$CPPFLAGS $withval"; fi ]
+)
+AC_ARG_WITH(ldflags,
+	[  --with-ldflags          Specify additional linker flags],
+	[ if test "x$withval" != "xno" ; then LDFLAGS="$LDFLAGS $withval"; fi ]	
+)
+AC_ARG_WITH(libs,
+	[  --with-libs             Specify additional libraries to link with],
+	[ if test "x$withval" != "xno" ; then LIBS="$LIBS $withval"; fi ]	
+)
+
+AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h)
 
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)
 dnl 
@@ -41,7 +70,12 @@ AC_CHECK_MEMBER([struct sockaddr.sa_len],
 	[#include <sys/types.h>
 	 #include <sys/socket.h>])
 
+AC_SEARCH_LIBS(daemon, bsd)
+AC_SEARCH_LIBS(gethostbyname, nsl)
+AC_SEARCH_LIBS(socket, socket)
 AC_CHECK_LIB(pcap, pcap_open_live)
+
+AC_CHECK_FUNCS(daemon setresuid setreuid setresgid setgid)
 
 AC_CHECK_TYPES([u_int64_t, int64_t, uint64_t, u_int32_t, int32_t, uint32_t])
 AC_CHECK_TYPES([u_int16_t, int16_t, uint16_t, u_int8_t, int8_t, uint8_t])
@@ -106,6 +140,19 @@ elif test "x$ac_cv_sizeof_long_long_int" = "x8" ; then
 else
 	AC_MSG_ERROR([No 64-bit signed int type found])
 fi
+
+if test "x$ac_cv_header_pcap_bpf_h" != "xyes" && \
+   test "x$ac_cv_header_net_bpf_h" != "xyes" ; then
+	AC_MSG_ERROR([No BPF header found])
+fi
+if test "x$ac_cv_header_pcap_h" != "xyes" ; then
+	AC_MSG_ERROR([No pcap.h header found])
+fi
+if test "x$ac_cv_lib_pcap_pcap_open_live" != "xyes" ; then
+	AC_MSG_ERROR([libpcap not found])
+fi
+
+
 
 AC_EXEEXT
 AC_CONFIG_FILES([Makefile])

@@ -9,24 +9,16 @@ datadir=@datadir@
 mandir=@mandir@
 mansubdir=@mansubdir@
 sysconfdir=@sysconfdir@
-piddir=@piddir@
 srcdir=@srcdir@
 top_srcdir=@top_srcdir@
 VPATH=@srcdir@
 CC=@CC@
-LD=@LD@
+LDFLAGS=@LDFLAGS@
 CFLAGS=@CFLAGS@
 CPPFLAGS=-I$(srcdir) @CPPFLAGS@
 LIBS=@LIBS@
 EXEEXT=@EXEEXT@
 INSTALL=@INSTALL@
-
-WARNFLAGS=\
-	-Wall -Waggregate-return -Wcast-align -Wcast-qual \
-	-Wmissing-declarations -Wmissing-prototypes -Wno-conversion \
-	-Wpointer-arith -Wshadow -Wuninitialized -Wcast-align \
-	-Wcast-qual -WformatC=2 -Wformat-nonliteral -Wwrite-strings \
-	#-Werror
 
 #CFLAGS+=-DFLOW_RB		# Use red-black tree for flows
 CFLAGS+=-DFLOW_SPLAY		# Use splay tree for flows
@@ -37,8 +29,8 @@ TARGETS=softflowd${EXEEXT} softflowctl${EXEEXT}
 
 all: $(TARGETS)
 
-softflowd${EXEEXT}: convtime.o softflowd.o
-	$(CC) $(LDFLAGS) -o $@ softflowd.o convtime.o $(LIBS)
+softflowd${EXEEXT}: daemon.o log.o convtime.o softflowd.o
+	$(CC) $(LDFLAGS) -o $@ softflowd.o daemon.o convtime.o log.o $(LIBS)
 
 softflowctl${EXEEXT}: convtime.o softflowctl.o
 	$(CC) $(LDFLAGS) -o $@ softflowctl.o convtime.o $(LIBS)
