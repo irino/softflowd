@@ -3,6 +3,7 @@
  - (djm) Use struct sockaddr in arguments (not sockaddr_storage), properly 
    check length
  - (djm) Mention NetFlow v.5 support in manpage
+ - (djm) Release version 0.9.1
 
 20040716
  - (djm) Fix collector.pl when no address family specified on commandline
