@@ -2,6 +2,8 @@ Things yet to do:
 
 softflowd
 ---------
+ - Verify checksums (perhaps bad for accounting, good for flow tracking)
+ - Multiple export target hosts
 
  Performance
   - See if we can reduce per-packet overhead more
