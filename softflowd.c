@@ -136,6 +136,35 @@ static int dump_stats = 0;
 # define MAX(a,b) (((a)>(b))?(a):(b))
 #endif
 
+/* Underlying data structure for flow tree: RB or splay tree */
+
+#define FLOWS_USE_SPLAY_TREES
+#ifdef FLOWS_USE_SPLAY_TREES
+# define FT_ENTRY(a)			SPLAY_ENTRY(a)
+# define FT_FIND(a, b, c)		SPLAY_FIND(a, b, c)
+# define FT_FOREACH(a, b, c)		SPLAY_FOREACH(a, b, c)
+# define FT_GENERATE(a, b, c, d)	SPLAY_GENERATE(a, b, c, d)
+# define FT_HEAD(a, b)			SPLAY_HEAD(a, b)
+# define FT_INIT(a)			SPLAY_INIT(a)
+# define FT_INSERT(a, b, c)		SPLAY_INSERT(a, b, c)
+# define FT_MIN(a, b)			SPLAY_MIN(a, b)
+# define FT_NEXT(a, b, c)		SPLAY_NEXT(a, b, c)
+# define FT_PROTOTYPE(a, b, c, d)	SPLAY_PROTOTYPE(a, b, c, d)
+# define FT_REMOVE(a, b, c)		SPLAY_REMOVE(a, b, c)
+#else
+# define FT_ENTRY(a)			RB_ENTRY(a)
+# define FT_FIND(a, b, c)		RB_FIND(a, b, c)
+# define FT_FOREACH(a, b, c)		RB_FOREACH(a, b, c)
+# define FT_GENERATE(a, b, c, d)	RB_GENERATE(a, b, c, d)
+# define FT_HEAD(a, b)			RB_HEAD(a, b)
+# define FT_INIT(a)			RB_INIT(a)
+# define FT_INSERT(a, b, c)		RB_INSERT(a, b, c)
+# define FT_MIN(a, b)			RB_MIN(a, b)
+# define FT_NEXT(a, b, c)		RB_NEXT(a, b, c)
+# define FT_PROTOTYPE(a, b, c, d)	RB_PROTOTYPE(a, b, c, d)
+# define FT_REMOVE(a, b, c)		RB_REMOVE(a, b, c)
+#endif
+
 /*
  * This structure is the root of the flow tracking system.
  * It holds the root of the tree of active flows and the head of the
@@ -150,7 +179,7 @@ struct FLOWTRACK {
 	u_int64_t flows_exported;		/* # of flows sent */
 	u_int64_t flows_dropped;		/* # of flows dropped */
 	u_int64_t flows_force_expired;		/* # of flows forced out */
-	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
+	FT_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
 	TAILQ_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries queue */
 };
 
@@ -161,7 +190,7 @@ struct FLOWTRACK {
 struct FLOW {
 	/* Housekeeping */
 	struct EXPIRY *expiry;			/* Pointer to expiry record */
-	RB_ENTRY(FLOW) next;			/* Tree pointer */
+	FT_ENTRY(FLOW) next;			/* Tree pointer */
 
 	/* Per-flow statistics (all in _host_ byte order) */
 	u_int64_t flow_seq;			/* Flow ID */
@@ -306,8 +335,8 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 }
 
 /* Generate functions for flow tree */
-RB_PROTOTYPE(FLOWS, FLOW, next, flow_compare);
-RB_GENERATE(FLOWS, FLOW, next, flow_compare);
+FT_PROTOTYPE(FLOWS, FLOW, next, flow_compare);
+FT_GENERATE(FLOWS, FLOW, next, flow_compare);
 
 /* Format a time in an ISOish format */
 static const char *
@@ -450,7 +479,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	}
 
 	/* If a matching flow does not exist, create and insert one */
-	if ((flow = RB_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
+	if ((flow = FT_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
 		/* Allocate and fill in the flow */
 		if ((flow = malloc(sizeof(*flow))) == NULL)
 			return (PP_MALLOC_FAIL);
@@ -458,7 +487,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		memcpy(&flow->flow_start, received_time,
 		    sizeof(flow->flow_start));
 		flow->flow_seq = ft->next_flow_seq++;
-		RB_INSERT(FLOWS, &ft->flows, flow);
+		FT_INSERT(FLOWS, &ft->flows, flow);
 
 		/* Allocate and fill in the associated expiry event */
 		if ((flow->expiry = malloc(sizeof(*flow->expiry))) == NULL)
@@ -609,7 +638,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int zap_all)
 		nexpiry = TAILQ_NEXT(expiry, next);
 		if (zap_all || (expiry->expires_at < now.tv_sec)) {
 			/* Flow has expired */
-			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
+			FT_REMOVE(FLOWS, &ft->flows, expiry->flow);
 			TAILQ_REMOVE(&ft->expiries, expiry, next);
 
 			ft->num_flows--;
@@ -670,9 +699,9 @@ delete_all_flows(struct FLOWTRACK *ft)
 {
 	struct FLOW *flow, *nflow;
 
-	for(flow = RB_MIN(FLOWS, &ft->flows); flow != NULL; flow = nflow) {
-		nflow = RB_NEXT(FLOWS, &ft->flows, flow);
-		RB_REMOVE(FLOWS, &ft->flows, flow);
+	for(flow = FT_MIN(FLOWS, &ft->flows); flow != NULL; flow = nflow) {
+		nflow = FT_NEXT(FLOWS, &ft->flows, flow);
+		FT_REMOVE(FLOWS, &ft->flows, flow);
 		
 		TAILQ_REMOVE(&ft->expiries, flow->expiry, next);
 		free(flow->expiry);
@@ -685,12 +714,12 @@ delete_all_flows(struct FLOWTRACK *ft)
 }
 
 /*
- * Dump our current status. 
+ * Log our current status. 
  * Includes summary counters and (in verbose mode) the list of current flows
  * and the queue of expiry events.
  */
 static int
-dump_flows(struct FLOWTRACK *ft)
+log_stats(struct FLOWTRACK *ft)
 {
 	struct FLOW *flow;
 	struct EXPIRY *expiry;
@@ -706,7 +735,7 @@ dump_flows(struct FLOWTRACK *ft)
 	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
 
 	if (verbose_flag) {
-		RB_FOREACH(flow, FLOWS, &ft->flows)
+		FT_FOREACH(flow, FLOWS, &ft->flows)
 			syslog(LOG_DEBUG, "%s", format_flow(flow));
 		TAILQ_FOREACH(expiry, &ft->expiries, next) {
 			syslog(LOG_DEBUG, 
@@ -730,7 +759,8 @@ usage(void)
 	fprintf(stderr, "  -t timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
 	fprintf(stderr, "  -m max_flows  Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
 	fprintf(stderr, "  -n host:port  Send Cisco NetFlow(tm)-compatible packets to host:port\n");
-	fprintf(stderr, "  -d            Debug mode - don't daemonise\n");
+	fprintf(stderr, "  -d            Don't daemonise\n");
+	fprintf(stderr, "  -D            Debug mode: don't daemonise + verbosity\n");
 	fprintf(stderr, "  -h            Display this help\n");
 	fprintf(stderr, "\n");
 }
@@ -834,7 +864,7 @@ main(int argc, char **argv)
 	const char *pidfile_path;
 	char ebuf[PCAP_ERRBUF_SIZE];
 	extern char *optarg;
-	int ch, timeout, debug_flag, r, linktype, sock, max_flows;
+	int ch, timeout, dontfork_flag, r, linktype, sock, max_flows;
 	pcap_t *pcap = NULL;
 	struct sockaddr_in target;
 	struct FLOWTRACK flowtrack;
@@ -851,14 +881,17 @@ main(int argc, char **argv)
 	timeout = DEFAULT_TIMEOUT;
 	max_flows = DEFAULT_MAX_FLOWS;
 	pidfile_path = DEFAULT_PIDFILE;
-	debug_flag = 0;
-	while ((ch = getopt(argc, argv, "hdi:r:t:n:m:p:")) != -1) {
+	dontfork_flag = 0;
+	while ((ch = getopt(argc, argv, "hdDi:r:t:n:m:p:")) != -1) {
 		switch (ch) {
 		case 'h':
 			usage();
 			return (0);
+		case 'D':
+			verbose_flag = 1;
+			/* FALLTHROUGH */
 		case 'd':
-			debug_flag = 1;
+			dontfork_flag = 1;
 			break;
 		case 'i':
 			if (capfile != NULL || dev != NULL) {
@@ -936,7 +969,7 @@ main(int argc, char **argv)
 	/* Set up flow-tracking structure */
 	memset(&flowtrack, '\0', sizeof(flowtrack));
 	flowtrack.next_flow_seq = 1;
-	RB_INIT(&flowtrack.flows);
+	FT_INIT(&flowtrack.flows);
 	TAILQ_INIT(&flowtrack.expiries);
 
 	/* Open pcap */
@@ -969,9 +1002,8 @@ main(int argc, char **argv)
 		exit(1);
 	}
 	
-	if (debug_flag) {
+	if (dontfork_flag) {
 		openlog(PROGNAME, LOG_PID|LOG_PERROR, LOG_DAEMON);
-		verbose_flag = 1;
 	} else {	
 		daemon(0, 0);
 		openlog(PROGNAME, LOG_PID, LOG_DAEMON);
@@ -998,29 +1030,34 @@ main(int argc, char **argv)
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, timeout, linktype};
 		struct pollfd pl[1];
-	
+
 		/*
 		 * Silly libpcap's timeout function doesn't work, so we
-		 * do it here
+		 * do it here (only if we are reading live)
 		 */
-		pl[0].fd = pcap_fileno(pcap);
-		pl[0].events = POLLIN|POLLERR|POLLHUP;
-		pl[0].revents = 0;
-		r = poll(pl, 1, MAINLOOP_TIMEOUT * 1000);
-		if (r == -1 && errno != EINTR) {
-			syslog(LOG_ERR, "Exiting on poll: %s", strerror(errno));
-			break;
+		r = 0;
+		if (capfile == NULL) { 
+			pl[0].fd = pcap_fileno(pcap);
+			pl[0].events = POLLIN|POLLERR|POLLHUP;
+			pl[0].revents = 0;
+			r = poll(pl, 1, MAINLOOP_TIMEOUT * 1000);
+			if (r == -1 && errno != EINTR) {
+				syslog(LOG_ERR, "Exiting on poll: %s", 
+				    strerror(errno));
+				break;
+			}
 		}
 
 		/* If we have data, run it through libpcap */
-		if (r > 0) {
+		if (capfile != NULL || r > 0) {
 			r = pcap_dispatch(pcap, -1, flow_cb, (void*)&cb_ctxt);
 			if (r == -1) {
 				syslog(LOG_ERR, "Exiting on pcap_dispatch: %s", 
 				    pcap_geterr(pcap));
 				break;
 			} else if (r == 0) {
-				syslog(LOG_NOTICE, "Exiting on pcap_dispatch EOF");
+				syslog(LOG_NOTICE, "Shutting down after pcap EOF");
+				graceful_shutdown_request = 1;
 				break;
 			}
 		}
@@ -1054,20 +1091,27 @@ main(int argc, char **argv)
 		if (dump_stats) {
 			syslog(LOG_INFO, "Dumping statistics");
 			dump_stats = 0;
-			dump_flows(&flowtrack);
+			log_stats(&flowtrack);
 		}
 
-		/* Expiry processing happens every MAINLOOP_TIMEOUT seconds */
-		if (next_expiry_check <= time(NULL)) {
+		/*
+		 * Expiry processing happens every MAINLOOP_TIMEOUT seconds
+		 * or whenever we have exceeded the maximum number of active 
+		 * flows
+		 */
+		if (flowtrack.num_flows > max_flows || 
+		    next_expiry_check <= time(NULL)) {
+expiry_check:
 			if (check_expired(&flowtrack, sock, 0) != 0)
 				syslog(LOG_WARNING, "Unable to export flows");
 	
-			/* If we are over max_flows, kick the oldest out first */
+			/*
+			 * If we are over max_flows, force-expire the oldest 
+			 * out first and immediately reprocess to evict them
+			 */
 			if (flowtrack.num_flows > max_flows) {
 				force_expire(&flowtrack, flowtrack.num_flows - max_flows);
-				/* Reprocess to remove freshly expired flows */
-				if (check_expired(&flowtrack, sock, 0) != 0)
-					syslog(LOG_WARNING, "Unable to export flows");
+				goto expiry_check;
 			}
 			next_expiry_check = time(NULL) + MAINLOOP_TIMEOUT;
 		}
@@ -1078,6 +1122,8 @@ main(int argc, char **argv)
 
 	pcap_close(pcap);
 	close(sock);
+
+	log_stats(&flowtrack);
 	
 	exit(r == 0 ? 0 : 1);
 }
