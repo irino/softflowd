@@ -667,6 +667,9 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	num_expired = 0;
 	expired_flows = NULL;
 
+	if (verbose)
+		syslog(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
+
 	for (expiry = TAILQ_FIRST(&ft->expiries); expiry != NULL; expiry = nexpiry) {
 		nexpiry = TAILQ_NEXT(expiry, next);
 		if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) || 
@@ -693,6 +696,9 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			free(expiry);
 		}
 	}
+
+	if (verbose)
+		syslog(LOG_DEBUG, "Finished scan %d flow to be evicted", ex);
 	
 	/* Processing for expired flows */
 	if (num_expired > 0) {
