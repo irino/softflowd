@@ -7,6 +7,7 @@ general
 softflowd
 ---------
 
+  - Eliminate pointless expiry scans: pick up next expiry event from top of list
   - See if we can reduce per-packet overhead more
     - Cost of expiry remove and re-add per packet
   - Stop run-time malloc (maybe)
