@@ -23,6 +23,7 @@
  */
 
 #ifndef _SFD_COMMON_H
+#define _SFD_COMMON_H
 
 #include "config.h"
 

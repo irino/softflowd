@@ -44,8 +44,9 @@
  */
 
 #include "common.h"
-#include "convtime.h"
 #include "sys-tree.h"
+#include "convtime.h"
+#include "softflowd.h"
 #include "treetype.h"
 #include "log.h"
 #include <pcap.h>
@@ -58,219 +59,12 @@ static int verbose_flag = 0;		/* Debugging flag */
 /* Signal handler flags */
 static int graceful_shutdown_request = 0;	
 
-/* User to setuid to and directory to chroot to when we drop privs */
-#ifndef PRIVDROP_USER
-# define PRIVDROP_USER		"nobody"
-#endif
-
-#define PRIVDROP_CHROOT_DIR	"/var/empty"
-
-/*
- * Capture length for libpcap: Must fit the link layer header, plus 
- * a maximally sized ip/ipv6 header and most of a TCP header
- */
-#define LIBPCAP_SNAPLEN		128
-
-/*
- * Timeouts
- */
-#define DEFAULT_TCP_TIMEOUT		3600
-#define DEFAULT_TCP_RST_TIMEOUT		120
-#define DEFAULT_TCP_FIN_TIMEOUT		300
-#define DEFAULT_UDP_TIMEOUT		300
-#define DEFAULT_ICMP_TIMEOUT		300
-#define DEFAULT_GENERAL_TIMEOUT		3600
-#define DEFAULT_MAXIMUM_LIFETIME	(3600*24*7)
-
-/*
- * Default maximum number of flow to track simultaneously 
- * 8192 corresponds to just under 1Mb of flow data
- */
-#define DEFAULT_MAX_FLOWS	8192
-
-/* Store a couple of statistics, maybe more in the future */
-struct STATISTIC {
-	double min, mean, max;
-};
-
-/*
- * This structure is the root of the flow tracking system.
- * It holds the root of the tree of active flows and the head of the
- * tree of expiry events. It also collects miscellaneous statistics
- */
-struct FLOWTRACK {
-	/* The flows and their expiry events */
-	FLOW_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
-	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
-
-	unsigned int num_flows;			/* # of active flows */
-	u_int64_t next_flow_seq;		/* Next flow ID */
-
-	/* Stuff related to flow export */
-	int export_ver;				/* NetFlow packet format */
-	struct timeval system_boot_time;	/* SysUptime */
-	
-	/* Flow timeouts */
-	int tcp_timeout;			/* Open TCP connections */
-	int tcp_rst_timeout;			/* TCP flows after RST */
-	int tcp_fin_timeout;			/* TCP flows after bidi FIN */
-	int udp_timeout;			/* UDP flows */
-	int icmp_timeout;			/* ICMP flows */
-	int general_timeout;			/* Everything else */
-	int maximum_lifetime;			/* Maximum life for flows */
-
-	/* Statistics */
-	u_int64_t total_packets;		/* # of good packets */
-	u_int64_t frag_packets;			/* # of fragmented packets */
-	u_int64_t non_ip_packets;		/* # of not-IP packets */
-	u_int64_t bad_packets;			/* # of bad packets */
-	u_int64_t flows_expired;		/* # expired */
-	u_int64_t flows_exported;		/* # of flows sent */
-	u_int64_t flows_dropped;		/* # of flows dropped */
-	u_int64_t flows_force_expired;		/* # of flows forced out */
-	u_int64_t packets_sent;			/* # netflow packets sent */
-	struct STATISTIC duration;		/* Flow duration */
-	struct STATISTIC octets;		/* Bytes (bidir) */
-	struct STATISTIC packets;		/* Packets (bidir) */
-
-	/* Per protocol statistics */
-	u_int64_t flows_pp[256];
-	u_int64_t octets_pp[256];
-	u_int64_t packets_pp[256];
-	struct STATISTIC duration_pp[256];
-
-	/* Timeout statistics */
-	u_int64_t expired_general;
-	u_int64_t expired_tcp;
-	u_int64_t expired_tcp_rst;
-	u_int64_t expired_tcp_fin;
-	u_int64_t expired_udp;
-	u_int64_t expired_icmp;
-	u_int64_t expired_maxlife;
-	u_int64_t expired_overbytes;
-	u_int64_t expired_maxflows;
-	u_int64_t expired_flush;
-};
-
-/*
- * This structure is an entry in the tree of flows that we are 
- * currently tracking. 
- *
- * Because flows are matched _bi-directionally_, they must be stored in
- * a canonical format: the numerically lowest address and port number must
- * be stored in the first address and port array slot respectively.
- */
-struct FLOW {
-	/* Housekeeping */
-	struct EXPIRY *expiry;			/* Pointer to expiry record */
-	FLOW_ENTRY(FLOW) trp;			/* Tree pointer */
-
-	/* Flow identity (all are in network byte order) */
-	int af;					/* Address family of flow */
-	u_int32_t ip6_flowlabel;		/* IPv6 Flowlabel */
-	union {
-		struct in_addr v4;
-		struct in6_addr v6;
-	} addr[2];				/* Endpoint addresses */
-	u_int16_t port[2];			/* Endpoint ports */
-	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
-	u_int8_t protocol;			/* Protocol */
-
-	/* Per-flow statistics (all in _host_ byte order) */
-	u_int64_t flow_seq;			/* Flow ID */
-	struct timeval flow_start;		/* Time of creation */
-	struct timeval flow_last;		/* Time of last traffic */
-
-	/* Per-endpoint statistics (all in _host_ byte order) */
-	u_int32_t octets[2];			/* Octets so far */
-	u_int32_t packets[2];			/* Packets so far */
-};
-
-/*
- * This is an entry in the tree of expiry events. The tree is used to 
- * avoid traversion the whole tree of active flows looking for ones to
- * expire. "expires_at" is the time at which the flow should be discarded,
- * or zero if it is scheduled for immediate disposal. 
- *
- * When a flow which hasn't been scheduled for immediate expiry registers 
- * traffic, it is deleted from its current position in the tree and 
- * re-inserted (subject to its updated timeout).
- *
- * Expiry scans operate by starting at the head of the tree and expiring
- * each entry with expires_at < now
- * 
- */
-struct EXPIRY {
-	EXPIRY_ENTRY(EXPIRY) trp;		/* Tree pointer */
-	struct FLOW *flow;			/* pointer to flow */
-
-	u_int32_t expires_at;			/* time_t */
-	enum { 
-		R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, R_ICMP, 
-		R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH
-	} reason;
-};
-
 /* Context for libpcap callback functions */
 struct CB_CTXT {
 	struct FLOWTRACK *ft;
 	int linktype;
 	int fatal;
 };
-
-/*
- * This is the Cisco Netflow(tm) version 1 packet format
- * Based on:
- * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
- */
-struct NF1_HEADER {
-	u_int16_t version, flows;
-	u_int32_t uptime_ms, time_sec, time_nanosec;
-};
-struct NF1_FLOW {
-	u_int32_t src_ip, dest_ip, nexthop_ip;
-	u_int16_t if_index_in, if_index_out;
-	u_int32_t flow_packets, flow_octets;
-	u_int32_t flow_start, flow_finish;
-	u_int16_t src_port, dest_port;
-	u_int16_t pad1;
-	u_int8_t protocol, tos, tcp_flags;
-	u_int8_t pad2, pad3, pad4;
-	u_int32_t reserved1;
-#if 0
- 	u_int8_t reserved2; /* XXX: no longer used */
-#endif
-};
-/* Maximum of 24 flows per packet */
-#define NF1_MAXFLOWS		24
-#define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
-				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
-
-/*
- * This is the Cisco Netflow(tm) version 5 packet format
- * Based on:
- * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
- */
-struct NF5_HEADER {
-	u_int16_t version, flows;
-	u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
-	u_int8_t engine_type, engine_id, reserved1, reserved2;
-};
-struct NF5_FLOW {
-	u_int32_t src_ip, dest_ip, nexthop_ip;
-	u_int16_t if_index_in, if_index_out;
-	u_int32_t flow_packets, flow_octets;
-	u_int32_t flow_start, flow_finish;
-	u_int16_t src_port, dest_port;
-	u_int8_t pad1;
-	u_int8_t tcp_flags, protocol, tos;
-	u_int16_t src_as, dest_as;
-	u_int8_t src_mask, dst_mask;
-	u_int16_t pad2;
-};
-#define NF5_MAXFLOWS		30
-#define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
-				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
 struct DATALINK {
@@ -740,7 +534,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 /*
  * Subtract two timevals. Returns (t1 - t2) in milliseconds.
  */
-static u_int32_t
+u_int32_t
 timeval_sub_ms(struct timeval *t1, struct timeval *t2)
 {
 	struct timeval res;
@@ -752,219 +546,6 @@ timeval_sub_ms(struct timeval *t1, struct timeval *t2)
 		res.tv_sec--;
 	}
 	return ((u_int32_t)res.tv_sec * 1000 + (u_int32_t)res.tv_usec / 1000);
-}
-
-/*
- * Given an array of expired flows, send netflow v1 report packets
- * Returns number of packets sent or -1 on error
- */
-static int
-send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time)
-{
-	struct timeval now;
-	u_int32_t uptime_ms;
-	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
-	struct NF1_HEADER *hdr = NULL;
-	struct NF1_FLOW *flw = NULL;
-	int i, j, offset, num_packets, err;
-	socklen_t errsz;
-	
-	gettimeofday(&now, NULL);
-	uptime_ms = timeval_sub_ms(&now, system_boot_time);
-
-	hdr = (struct NF1_HEADER *)packet;
-	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
-		if (j >= NF1_MAXFLOWS - 1) {
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
-			hdr->flows = htons(hdr->flows);
-			errsz = sizeof(err);
-			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-			    &err, &errsz); /* Clear ICMP errors */
-			if (send(nfsock, packet, (size_t)offset, 0) == -1)
-				return (-1);
-			j = 0;
-			num_packets++;
-		}
-		if (j == 0) {
-			memset(&packet, '\0', sizeof(packet));
-			hdr->version = htons(1);
-			hdr->flows = 0; /* Filled in as we go */
-			hdr->uptime_ms = htonl(uptime_ms);
-			hdr->time_sec = htonl(now.tv_sec);
-			hdr->time_nanosec = htonl(now.tv_usec * 1000);
-			offset = sizeof(*hdr);
-		}		
-		flw = (struct NF1_FLOW *)(packet + offset);
-		
-		/* NetFlow v.1 doesn't do IPv6 */
-		if (flows[i]->af != AF_INET)
-			continue;
-		if (flows[i]->octets[0] > 0) {
-			flw->src_ip = flows[i]->addr[0].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[1].v4.s_addr;
-			flw->src_port = flows[i]->port[0];
-			flw->dest_port = flows[i]->port[1];
-			flw->flow_packets = htonl(flows[i]->packets[0]);
-			flw->flow_octets = htonl(flows[i]->octets[0]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish = 
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->protocol = flows[i]->protocol;
-			flw->tcp_flags = flows[i]->tcp_flags[0];
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
-		flw = (struct NF1_FLOW *)(packet + offset);
-
-		if (flows[i]->octets[1] > 0) {
-			flw->src_ip = flows[i]->addr[1].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[0].v4.s_addr;
-			flw->src_port = flows[i]->port[1];
-			flw->dest_port = flows[i]->port[0];
-			flw->flow_packets = htonl(flows[i]->packets[1]);
-			flw->flow_octets = htonl(flows[i]->octets[1]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish =
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->protocol = flows[i]->protocol;
-			flw->tcp_flags = flows[i]->tcp_flags[1];
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
-	}
-
-	/* Send any leftovers */
-	if (j != 0) {
-		if (verbose_flag)
-			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
-		hdr->flows = htons(hdr->flows);
-		errsz = sizeof(err);
-		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-		    &err, &errsz); /* Clear ICMP errors */
-		if (send(nfsock, packet, (size_t)offset, 0) == -1)
-			return (-1);
-		num_packets++;
-	}
-
-	return (num_packets);
-}
-
-/*
- * Given an array of expired flows, send netflow v5 report packets
- * Returns number of packets sent or -1 on error
- */
-static int
-send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time)
-{
-	struct timeval now;
-	u_int32_t uptime_ms;
-	u_int8_t packet[NF5_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
-	struct NF5_HEADER *hdr = NULL;
-	struct NF5_FLOW *flw = NULL;
-	int i, j, offset, num_packets, err;
-	socklen_t errsz;
-	
-	gettimeofday(&now, NULL);
-	uptime_ms = timeval_sub_ms(&now, system_boot_time);
-
-	hdr = (struct NF5_HEADER *)packet;
-	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
-		if (j >= NF5_MAXFLOWS - 1) {
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
-			hdr->flows = htons(hdr->flows);
-			errsz = sizeof(err);
-			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-			    &err, &errsz); /* Clear ICMP errors */
-			if (send(nfsock, packet, (size_t)offset, 0) == -1)
-				return (-1);
-			j = 0;
-			num_packets++;
-		}
-		if (j == 0) {
-			memset(&packet, '\0', sizeof(packet));
-			hdr->version = htons(5);
-			hdr->flows = 0; /* Filled in as we go */
-			hdr->uptime_ms = htonl(uptime_ms);
-			hdr->time_sec = htonl(now.tv_sec);
-			hdr->time_nanosec = htonl(now.tv_usec * 1000);
-			hdr->flow_sequence = htonl(flows_exported);
-			/* Other fields are left zero */
-			offset = sizeof(*hdr);
-		}		
-		flw = (struct NF5_FLOW *)(packet + offset);
-
-		/* NetFlow v.5 doesn't do IPv6 */
-		if (flows[i]->af != AF_INET)
-			continue;
-		if (flows[i]->octets[0] > 0) {
-			flw->src_ip = flows[i]->addr[0].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[1].v4.s_addr;
-			flw->src_port = flows[i]->port[0];
-			flw->dest_port = flows[i]->port[1];
-			flw->flow_packets = htonl(flows[i]->packets[0]);
-			flw->flow_octets = htonl(flows[i]->octets[0]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish =
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->tcp_flags = flows[i]->tcp_flags[0];
-			flw->protocol = flows[i]->protocol;
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
-		flw = (struct NF5_FLOW *)(packet + offset);
-
-		if (flows[i]->octets[1] > 0) {
-			flw->src_ip = flows[i]->addr[1].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[0].v4.s_addr;
-			flw->src_port = flows[i]->port[1];
-			flw->dest_port = flows[i]->port[0];
-			flw->flow_packets = htonl(flows[i]->packets[1]);
-			flw->flow_octets = htonl(flows[i]->octets[1]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish =
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->tcp_flags = flows[i]->tcp_flags[1];
-			flw->protocol = flows[i]->protocol;
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
-	}
-
-	/* Send any leftovers */
-	if (j != 0) {
-		if (verbose_flag)
-			logit(LOG_DEBUG, "Sending v5 flow packet len = %d",
-			    offset);
-		hdr->flows = htons(hdr->flows);
-		errsz = sizeof(err);
-		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-		    &err, &errsz); /* Clear ICMP errors */
-		if (send(nfsock, packet, (size_t)offset, 0) == -1)
-			return (-1);
-		num_packets++;
-	}
-
-	return (num_packets);
 }
 
 static void
@@ -1143,12 +724,12 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			case 1:
 				r = send_netflow_v1(expired_flows, num_expired,
 				    nfsock, ft->flows_exported,
-				    &ft->system_boot_time);
+				    &ft->system_boot_time, verbose_flag);
 				break;
 			case 5:
 				r = send_netflow_v5(expired_flows, num_expired,
 				    nfsock, ft->flows_exported,
-				    &ft->system_boot_time);
+				    &ft->system_boot_time, verbose_flag);
 				break;
 			default:
 				/* Shouldn't be here */

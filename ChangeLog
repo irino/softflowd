@@ -1,3 +1,6 @@
+20040913
+ - (djm) Split out netflow send functions into separate files
+
 20040909
  - (djm) Implement IPv6 flow tracking. Currently no export functionality.
  - (djm) Portability fixes for Linux, add closefrom()
