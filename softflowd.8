@@ -116,6 +116,38 @@ flag and turns on additional debugging output.
 .It Fl h
 Displays commandline usage information.
 .El
+.Pp
+While 
+.Nm
+is running, it may be controlled by sending signals, e.g. using 
+.Xr kill 1 .
+For this purpose, 
+.Nm 
+creates a 
+.Pa /var/run/softflowd.pid
+file containing its process-id when in daemon mode. The signals accepted 
+by 
+.Nm
+are:
+.Bl -tag -width Ds
+.It Ar SIGHUP
+Immediately expire and export all flows. This option is useful to clear
+the daemon at the end of a reporting period.
+.It Ar SIGINT
+Terminate gracefully. Upon receipt of a 
+.Ar SIGINT ,
+.Nm 
+will expire and export all flows and shut down.
+.It Ar SIGTERM
+Exit immediately without exporting flows.
+.It Ar SIGUSR1
+Immediately forget all accumulated flows (without exporting them).
+.It Ar SIGUSR2
+Log summary statistics. In verbose mode, this will also log all accumulated
+flows and their associated expiry events.
+.El
+.Pp
+Receipt of any other signal will result in immediate exit.
 .Sh AUTHORS
 Damien Miller <djm@mindrot.org>
 .Sh SEE ALSO
