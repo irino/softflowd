@@ -1,3 +1,8 @@
+20031001
+ - (djm) Realloc audit
+ - (djm) Chroot to /var/empty and drop privileges on daemonisation
+ - (djm) More things TODO
+
 20030620
  - (djm) Fixup collector timestamp printing
  - (djm) Rework TODO, add section on planned fragment handling

@@ -59,6 +59,13 @@ static int graceful_shutdown_request = 0;
 /* "System boot" time, for SysUptime */
 static struct timeval system_boot_time;
 
+/* User to setuid to and directory to chroot to when we drop privs */
+#ifndef PRIVDROP_USER
+# define PRIVDROP_USER		"nobody"
+#endif
+
+#define PRIVDROP_CHROOT_DIR	"/var/empty"
+
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
  * a maximally sized ip header and most of a TCP header
@@ -785,7 +792,7 @@ update_expiry_stats(struct FLOWTRACK *ft, struct EXPIRY *e)
 static int
 check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 {
-	struct FLOW **expired_flows;
+	struct FLOW **expired_flows, **oldexp;
 	int num_expired, i, r;
 	struct timeval now;
 
@@ -810,10 +817,16 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 				   expiry->flow->flow_seq, expiry->flow);
 
 			/* Add to array of expired flows */
+			oldexp = expired_flows;
 			expired_flows = realloc(expired_flows,
 			    sizeof(*expired_flows) * (num_expired + 1));
-			expired_flows[num_expired] = expiry->flow;
-			num_expired++;
+			/* Don't fatal on realloc failures */
+			if (expired_flows == NULL)
+				expired_flows = oldexp;
+			else {
+				expired_flows[num_expired] = expiry->flow;
+				num_expired++;
+			}
 
 			if (ex == CE_EXPIRE_ALL)
 				expiry->reason = R_FLUSH;
@@ -1341,16 +1354,16 @@ argv_join(int argc, char **argv)
 	ret = NULL;
 	for (i = 0; i < argc; i++) {
 		ret_len += strlen(argv[i]);
-		if (i != 0)
-			ret_len++; /* Make room for ' ' */
-		if ((ret = realloc(ret, ret_len + 1)) == NULL) {
+		if ((ret = realloc(ret, ret_len + 2)) == NULL) {
 			fprintf(stderr, "Memory allocation failed.\n");
 			exit(1);
 		}
 		if (i == 0)
 			ret[0] = '\0';
-		else
+		else {
+			ret_len++; /* Make room for ' ' */
 			strncat(ret, " ", ret_len + 1);
+		}
 			
 		strncat(ret, argv[i], ret_len + 1);
 	}
@@ -1458,6 +1471,51 @@ parse_hostport(const char *s, struct sockaddr_in *addr)
 		exit(1);
 	}
 	free(host);
+}
+
+/* 
+ * Drop privileges and chroot, will exit on failure
+ */
+static void 
+drop_privs(void)
+{
+	struct passwd *pw;
+	
+	if ((pw = getpwnam(PRIVDROP_USER)) == NULL) {
+		syslog(LOG_ERR, "Unable to find unprivileged user \"%s\"", 
+		    PRIVDROP_USER);
+		exit(1);
+	}
+	if (chdir(PRIVDROP_CHROOT_DIR) != 0) {
+		syslog(LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
+		    PRIVDROP_CHROOT_DIR, strerror(errno));
+		exit(1);
+	}
+	if (chroot(PRIVDROP_CHROOT_DIR) != 0) {
+		syslog(LOG_ERR, "Unable to chroot to directory \"%s\": %s",
+		    PRIVDROP_CHROOT_DIR, strerror(errno));
+		exit(1);
+	}
+	if (chdir("/") != 0) {
+		syslog(LOG_ERR, "Unable to chdir to chroot root: %s",
+		    strerror(errno));
+		exit(1);
+	}
+	if (setgroups(1, &pw->pw_gid) != 0) {
+		syslog(LOG_ERR, "Couldn't setgroups (%u): %s",
+		    (unsigned int)pw->pw_gid, strerror(errno));
+		exit(1);
+	}
+	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
+		syslog(LOG_ERR, "Couldn't set gid (%u): %s",
+		    (unsigned int)pw->pw_gid, strerror(errno));
+		exit(1);
+	}
+	if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
+		syslog(LOG_ERR, "Couldn't set uid (%u): %s",
+		    (unsigned int)pw->pw_uid, strerror(errno));
+		exit(1);
+	}
 }
 
 int
@@ -1587,9 +1645,13 @@ main(int argc, char **argv)
 		signal(SIGINT, sighand_graceful_shutdown);
 		signal(SIGTERM, sighand_graceful_shutdown);
 		signal(SIGSEGV, sighand_other);
+
+		setprotoent(1);
+		drop_privs();
 	}
 
-	syslog(LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
+	syslog(LOG_NOTICE, "%s v%s starting data collection", 
+	    PROGNAME, PROGVER);
 
 	/* Main processing loop */
 	gettimeofday(&system_boot_time, NULL);
@@ -1706,3 +1768,4 @@ expiry_check:
 	
 	exit(r == 0 ? 0 : 1);
 }
+

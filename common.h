@@ -49,6 +49,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <netdb.h>
+#include <pwd.h>
 
 /* XXX: this check probably isn't sufficient for all systems */
 #ifndef __GNU_LIBRARY__ 

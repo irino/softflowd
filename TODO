@@ -7,7 +7,6 @@ general
 softflowd
 ---------
 
-  - Drop privs!
   - NetFlow v.5
   - NetFlow v.9 (IPv6!)
   - We don't handle fragments right
@@ -54,7 +53,25 @@ softflowd
   - sflow support (www.sflow.org)
     - Needs XDR encoding
     - But will give us IPv6 flow export support
-
+  - Remote control over network (requires SSL)
+  - Multiple interface support
+    - Requires some way to avoid duplicate recording of flows (IP ID)
+  - Track traffic over lifetime of flow
+    - Maintain linked list traffic counts, keyed by time interval
+    - E.g. key by (now / 300)
+      - Or (now - start_time) / 300 (better)
+    - When new packet comes in:
+      - If timestamp of HEAD of list == (now / xxx), then counter += octets
+      - Otherwise create new traffic counter at HEAD and update it
+        - Then trim tail if the list length is too big
+    - Maybe store "hunks" of data, rather than individual counts in the 
+      list, as storing a single int is a huge waste of space
+    - Maybe a rrdtool-like heirarchy of timespans
+      - 300 seconds (5 minutes)       (2400 bytes)
+      - 360 1-minute blocks (6 hours) (2880 bytes)
+      - 288 10-minute blocks (2 days) (2304 bytes)
+      - 336 1-hour blocks (2 weeks)   (2688 bytes)
+        - Total 10kb worst-case per-flow
 softflowctl
 -----------
 
