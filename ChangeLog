@@ -1,3 +1,6 @@
+20030620
+ - (djm) Fixup collector timestamp printing
+
 20030307
  - (djm) Add basic perl netflow collector
 

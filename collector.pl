@@ -17,7 +17,7 @@ use Getopt::Long;
 
 sub timestamp()
 {
-	return strftime "%02Y-%02m-%02dT%02H:%02M:%02S", localtime;
+	return strftime "%Y-%m-%dT%H:%M:%S", localtime;
 }
 
 sub do_listen($)
