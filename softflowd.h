@@ -137,7 +137,7 @@ struct FLOW {
 
 	/* Flow identity (all are in network byte order) */
 	int af;					/* Address family of flow */
-	u_int32_t ip6_flowlabel;		/* IPv6 Flowlabel */
+	u_int32_t ip6_flowlabel[2];		/* IPv6 Flowlabel */
 	union {
 		struct in_addr v4;
 		struct in6_addr v6;
@@ -182,7 +182,7 @@ struct EXPIRY {
 };
 
 /* Prototype for functions shared from softflowd.c */
-u_int32_t timeval_sub_ms(struct timeval *t1, struct timeval *t2);
+u_int32_t timeval_sub_ms(const struct timeval *t1, const struct timeval *t2);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,

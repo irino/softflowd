@@ -137,14 +137,21 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 	if (a->af != b->af)
 		return (a->af > b->af ? 1 : -1);
 
-	if (a->ip6_flowlabel != b->ip6_flowlabel)
-		return (a->ip6_flowlabel > b->ip6_flowlabel ? 1 : -1);
-
 	if ((r = memcmp(&a->addr[0], &b->addr[0], sizeof(a->addr[0]))) != 0)
 		return (r > 0 ? 1 : -1);
 
 	if ((r = memcmp(&a->addr[1], &b->addr[1], sizeof(a->addr[1]))) != 0)
 		return (r > 0 ? 1 : -1);
+
+#ifdef notyet
+	if (a->ip6_flowlabel[0] != 0 && b->ip6_flowlabel[0] != 0 && 
+	    a->ip6_flowlabel[0] != b->ip6_flowlabel[0])
+		return (a->ip6_flowlabel[0] > b->ip6_flowlabel[0] ? 1 : -1);
+
+	if (a->ip6_flowlabel[1] != 0 && b->ip6_flowlabel[1] != 0 && 
+	    a->ip6_flowlabel[1] != b->ip6_flowlabel[1])
+		return (a->ip6_flowlabel[1] > b->ip6_flowlabel[1] ? 1 : -1);
+#endif
 
 	if (a->protocol != b->protocol)
 		return (a->protocol > b->protocol ? 1 : -1);
@@ -230,8 +237,10 @@ format_flow(struct FLOW *flow)
 	snprintf(ftime, sizeof(ftime), "%s", 
 	    format_time(flow->flow_last.tv_sec));
 
-	snprintf(buf, sizeof(buf), 
-	    "seq:%llu %s:%hu <> %s:%hu proto:%u octets>:%u packets>:%u octets<:%u packets<:%u start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x",
+	snprintf(buf, sizeof(buf),  "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u "
+	    "octets>:%u packets>:%u octets<:%u packets<:%u "
+	    "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
+	    "flowlabel>:%08x flowlabel<:%08x ",
 	    flow->flow_seq,
 	    addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
 	    (int)flow->protocol, 
@@ -239,7 +248,8 @@ format_flow(struct FLOW *flow)
 	    flow->octets[1], flow->packets[1], 
 	    stime, (flow->flow_start.tv_usec + 500) / 1000, 
 	    ftime, (flow->flow_start.tv_usec + 500) / 1000,
-	    flow->tcp_flags[0], flow->tcp_flags[1]);
+	    flow->tcp_flags[0], flow->tcp_flags[1],
+	    flow->ip6_flowlabel[0], flow->ip6_flowlabel[1]);
 
 	return (buf);
 }
@@ -255,7 +265,7 @@ format_flow_brief(struct FLOW *flow)
 	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
 	snprintf(buf, sizeof(buf), 
-	    "seq:%llu %s:%hu <> %s:%hu proto:%u",
+	    "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u",
 	    flow->flow_seq,
 	    addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
 	    (int)flow->protocol);
@@ -352,7 +362,7 @@ ipv6_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 	    sizeof(ip6->ip6_src)) > 0 ? 1 : 0;
 	
 	flow->af = af;
-	flow->ip6_flowlabel = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
+	flow->ip6_flowlabel[ndx] = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
 	flow->addr[ndx].v6 = ip6->ip6_src;
 	flow->addr[ndx ^ 1].v6 = ip6->ip6_dst;
 	flow->octets[ndx] = len;
@@ -451,7 +461,8 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 		goto out;
 	}
 
-	if (flow->protocol == IPPROTO_ICMP) {
+	if ((flow->af == AF_INET && flow->protocol == IPPROTO_ICMP) || 
+	    ((flow->af == AF_INET6 && flow->protocol == IPPROTO_ICMPV6)))
 		/* UDP flows */
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->icmp_timeout;
@@ -557,7 +568,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
  * Subtract two timevals. Returns (t1 - t2) in milliseconds.
  */
 u_int32_t
-timeval_sub_ms(struct timeval *t1, struct timeval *t2)
+timeval_sub_ms(const struct timeval *t1, const struct timeval *t2)
 {
 	struct timeval res;
 
@@ -1409,7 +1420,7 @@ parse_hostport(const char *s, struct sockaddr *addr, socklen_t *len)
 		exit(1);
 	}
 	if (res == NULL || res->ai_addr == NULL) {
-		fprintf(stderr, "No addresses found for %s:%s\n", host, port);
+		fprintf(stderr, "No addresses found for [%s]:%s\n", host, port);
 		exit(1);
 	}
 	if (res->ai_addrlen > *len) {
