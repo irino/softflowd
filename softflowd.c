@@ -150,6 +150,9 @@ struct FLOWTRACK {
 	u_int64_t flows_exported;		/* # of flows sent */
 	u_int64_t flows_dropped;		/* # of flows dropped */
 	u_int64_t flows_force_expired;		/* # of flows forced out */
+	double max_dur, min_dur, mean_dur;	/* flow duration */
+	double max_bytes, min_bytes, mean_bytes;/* flow bytes (both ways) */
+	double max_pkts, min_pkts, mean_pkts;	/* flow packets (both ways) */
 	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
 	TAILQ_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries queue */
 };
@@ -590,6 +593,59 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	return (0);
 }
 
+static double 
+update_mean(double mean, double new_sample, double n)
+{
+	/*
+	 * XXX I think this method of calculating the a new mean from an 
+	 * existing mean is correct but I don't have my stats book handy
+	 *
+	 * I use this instead of "Mnew = ((Mold * n - 1) + S) / n" to 
+	 * avoid accumulating fp rounding errors. Maybe I'm misguided :)
+	 */
+	return (mean + ((new_sample - mean) / n));
+}
+
+/* Update global statistics */
+static void
+update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
+{
+	double tmp;
+	static double n = 1.0;
+
+	tmp = (double)flow->flow_last.tv_sec +
+	    ((double)flow->flow_last.tv_usec / 1000000.0);
+	tmp -= (double)flow->flow_start.tv_sec +
+	    ((double)flow->flow_start.tv_usec / 1000000.0);
+
+	if (n == 1.0) {
+		ft->min_dur = ft->mean_dur = ft->max_dur = tmp;
+	} else {
+		ft->mean_dur = update_mean(ft->mean_dur, tmp, n);
+		ft->min_dur = MIN(ft->min_dur, tmp);
+		ft->max_dur = MAX(ft->max_dur, tmp);
+	}
+
+	tmp = flow->octets[0] + flow->octets[1];
+	if (n == 1.0) {
+		ft->min_bytes = ft->mean_bytes = ft->max_bytes = tmp;
+	} else {
+		ft->mean_bytes = update_mean(ft->mean_bytes, tmp, n);
+		ft->min_bytes = MIN(ft->min_bytes, tmp);
+		ft->max_bytes = MAX(ft->max_bytes, tmp);
+	}
+
+	tmp = flow->packets[0] + flow->packets[1];
+	if (n == 1.0) {
+		ft->min_pkts = ft->mean_pkts = ft->max_pkts = tmp;
+	} else {
+		ft->mean_pkts = update_mean(ft->mean_pkts, tmp, n);
+		ft->min_pkts = MIN(ft->min_pkts, tmp);
+		ft->max_pkts = MAX(ft->max_pkts, tmp);
+	}
+	n++;
+}
+
 /*
  * Scan the queue of expiry events and process expired flows. If zap_all
  * is set, then forcibly expire all flows.
@@ -646,6 +702,9 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
 				    format_flow(expired_flows[i]),
 				    expired_flows[i]);
+			
+			update_statistics(ft, expired_flows[i]);
+
 			free(expired_flows[i]);
 		}
 	
@@ -721,6 +780,14 @@ log_stats(struct FLOWTRACK *ft)
 	syslog(LOG_INFO, "Total flows exported: %llu", ft->flows_exported);
 	syslog(LOG_INFO, "Flow export packets dropped: %llu", ft->flows_dropped);
 	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
+
+	syslog(LOG_INFO, "Flow duration: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	    ft->min_dur, ft->mean_dur, ft->max_dur);
+	syslog(LOG_INFO, "Flow bytes: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
+	syslog(LOG_INFO, "Flow packets: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
+
 
 #if 0
 	syslog(LOG_INFO, "RB_EMPTY: %d", RB_EMPTY(&ft->flows));
