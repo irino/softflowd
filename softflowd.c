@@ -84,6 +84,7 @@
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/poll.h>
+#include <sys/un.h>
 
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
@@ -111,6 +112,11 @@
 
 #include <pcap.h>
 
+/* XXX: this check probably isn't sufficient for all systems */
+#ifndef __GNU_LIBRARY__ 
+# #define SOCK_HAS_LEN 
+#endif
+
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
 
@@ -129,6 +135,9 @@ static int dump_stats = 0;
 
 /* Default pidfile */
 #define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
+
+/* Default control socket */
+#define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
 
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
@@ -158,6 +167,9 @@ static int dump_stats = 0;
 #endif
 #ifndef MAX
 # define MAX(a,b) (((a)>(b))?(a):(b))
+#endif
+#ifndef offsetof
+# define offsetof(type, member) ((size_t) &((type *)0)->member)
 #endif
 
 /*
@@ -940,24 +952,6 @@ log_stats(struct FLOWTRACK *ft)
 	return (0);
 }
 
-/* Display commandline usage information */
-static void
-usage(void)
-{
-	fprintf(stderr, "Usage: %s [options]\n", PROGNAME);
-	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
-	fprintf(stderr, "  -i interface  Specify interface to listen on\n");
-	fprintf(stderr, "  -r pcap_file  Specify packet capture file to read\n");
-	fprintf(stderr, "  -f timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
-	fprintf(stderr, "  -t check_wait Seconds between scans for expired flows (default %d)\n", DEFAULT_RECHECK_WAIT);
-	fprintf(stderr, "  -m max_flows  Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
-	fprintf(stderr, "  -n host:port  Send Cisco NetFlow(tm)-compatible packets to host:port\n");
-	fprintf(stderr, "  -d            Don't daemonise\n");
-	fprintf(stderr, "  -D            Debug mode: don't daemonise + verbosity\n");
-	fprintf(stderr, "  -h            Display this help\n");
-	fprintf(stderr, "\n");
-}
-
 /*
  * Figure out how many bytes to skip from front of packet to get past 
  * datalink headers. If pkt is specified, also check whether it is an 
@@ -1050,35 +1044,84 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	}
 }
 
+/* Display commandline usage information */
+static void
+usage(void)
+{
+	fprintf(stderr, "Usage: %s [options]\n", PROGNAME);
+	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
+	fprintf(stderr, "  -i interface  Specify interface to listen on\n");
+	fprintf(stderr, "  -r pcap_file  Specify packet capture file to read\n");
+	fprintf(stderr, "  -f timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
+	fprintf(stderr, "  -t check_wait Seconds between scans for expired flows (default %d)\n", DEFAULT_RECHECK_WAIT);
+	fprintf(stderr, "  -m max_flows  Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
+	fprintf(stderr, "  -n host:port  Send Cisco NetFlow(tm)-compatible packets to host:port\n");
+	fprintf(stderr, "  -d            Don't daemonise\n");
+	fprintf(stderr, "  -p pidfile    Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
+	fprintf(stderr, "  -D            Debug mode: don't daemonise + verbosity\n");
+	fprintf(stderr, "  -h            Display this help\n");
+	fprintf(stderr, "\n");
+}
+
+static int
+accept_control(int ctlsock)
+{
+	unsigned char buf[64], *p;
+	FILE *ctlf;
+
+	if ((ctlf = fdopen(ctlsock, "r+")) == NULL) {
+		syslog(LOG_ERR, "fdopen: %s\n", strerror(errno));
+		return (-1);
+	}
+	setlinebuf(ctlf);
+
+	if (fgets(buf, sizeof(buf), ctlf) == NULL) {
+		syslog(LOG_ERR, "Control socket yielded no data");
+		return (-1);
+	}
+	if ((p = strchr(buf, '\n')) != NULL)
+		*p = '\0';
+	
+	syslog(LOG_INFO, "Control socket \"%s\"", buf);
+
+	if (strcmp(buf, "blah") == 0) {
+		fprintf(ctlf, "Hello\nthere\n");
+	}
+	
+	return (0);
+}
+
 int
 main(int argc, char **argv)
 {
 	char *dev, *capfile, *hostport, *value;
-	const char *pidfile_path;
+	const char *pidfile_path, *ctlsock_path;
 	char ebuf[PCAP_ERRBUF_SIZE];
 	extern char *optarg;
-	int ch, timeout, dontfork_flag, r, linktype, sock;
+	int ch, timeout, dontfork_flag, r, linktype, nfsock, ctlsock;
 	int recheck_wait, max_flows;
+	socklen_t ctllen;
 	pcap_t *pcap = NULL;
 	struct sockaddr_in dest;
+	struct sockaddr_un ctl;
 	struct FLOWTRACK flowtrack;
 	time_t next_expiry_check;
 	FILE *pidfile;
 	
 	memset(&dest, '\0', sizeof(dest));
-	/* XXX: this check probably isn't sufficient for all systems */
-#ifndef __GNU_LIBRARY__ 
+#ifdef SOCK_HAS_LEN 
 	dest.sin_len = sizeof(dest);
 #endif
 
-	sock = -1;
+	nfsock = ctlsock = -1;
 	dev = capfile = NULL;
 	timeout = DEFAULT_TIMEOUT;
 	recheck_wait = DEFAULT_RECHECK_WAIT;
 	max_flows = DEFAULT_MAX_FLOWS;
 	pidfile_path = DEFAULT_PIDFILE;
+	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
-	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:")) != -1) {
+	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:c:")) != -1) {
 		switch (ch) {
 		case 'h':
 			usage();
@@ -1156,6 +1199,9 @@ main(int argc, char **argv)
 		case 'p':
 			pidfile_path = optarg;
 			break;
+		case 'c':
+			ctlsock_path = optarg;
+			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");
 			usage();
@@ -1197,18 +1243,47 @@ main(int argc, char **argv)
 
 	/* Netflow send socket */
 	if (dest.sin_family != 0) {
-		if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+		if ((nfsock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
 			fprintf(stderr, "socket() error: %s\n", 
 			    strerror(errno));
 			exit(1);
 		}
-		if (connect(sock, (struct sockaddr*)&dest, sizeof(dest)) == -1) {
+		if (connect(nfsock, (struct sockaddr*)&dest, sizeof(dest)) == -1) {
 			fprintf(stderr, "connect() error: %s\n",
 			    strerror(errno));
 			exit(1);
 		}
 	}
-
+	
+	/* Control socket */
+	if (ctlsock_path != NULL) {
+		memset(&ctl, '\0', sizeof(ctl));
+		strncpy(ctl.sun_path, ctlsock_path, sizeof(ctl.sun_path));
+		ctl.sun_path[sizeof(ctl.sun_path) - 1] = '\0';
+		ctl.sun_family = AF_UNIX;
+		ctllen = offsetof(struct sockaddr_un, sun_path) +
+                    strlen(ctlsock_path) + 1;
+#ifdef SOCK_HAS_LEN 
+		ctl.sun_len = socklen;
+#endif
+		if ((ctlsock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+			fprintf(stderr, "ctl socket() error: %s\n", 
+			    strerror(errno));
+			exit(1);
+		}
+		unlink(ctlsock_path);
+		if (bind(ctlsock, (struct sockaddr*)&ctl, sizeof(ctl)) == -1) {
+			fprintf(stderr, "ctl bind(\"%s\") error: %s\n",
+			    ctl.sun_path, strerror(errno));
+			exit(1);
+		}
+		if (listen(ctlsock, 64) == -1) {
+			fprintf(stderr, "ctl listen() error: %s\n",
+			    strerror(errno));
+			exit(1);
+		}
+	}
+	
 	if (dontfork_flag) {
 		openlog(PROGNAME, LOG_PID|LOG_PERROR, LOG_DAEMON);
 	} else {	
@@ -1238,7 +1313,7 @@ main(int argc, char **argv)
 	next_expiry_check = time(NULL) + recheck_wait;
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, timeout, linktype};
-		struct pollfd pl[1];
+		struct pollfd pl[2];
 
 		/*
 		 * Silly libpcap's timeout function doesn't work, so we
@@ -1249,8 +1324,12 @@ main(int argc, char **argv)
 			pl[0].fd = pcap_fileno(pcap);
 			pl[0].events = POLLIN|POLLERR|POLLHUP;
 			pl[0].revents = 0;
+			pl[1].fd = ctlsock;
+			pl[1].events = POLLIN|POLLERR|POLLHUP;
+			pl[1].revents = 0;
 			/* Iterate mainloop twice per recheck */
-			r = poll(pl, 1, recheck_wait * 1000 / 2);
+			r = poll(pl, (ctlsock == -1) ? 1U : 2U,
+			    recheck_wait * 1000 / 2);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
@@ -1258,8 +1337,19 @@ main(int argc, char **argv)
 			}
 		}
 
+		/* Accept connection on control socket if present */
+		if (ctlsock != -1 && pl[1].revents != 0) {
+			if ((r = accept(ctlsock, NULL, NULL)) == -1) {
+				syslog(LOG_ERR, "ctl accept %s - exiting",
+				    strerror(errno));
+				break;
+			}
+			accept_control(r);
+			close(r);
+		}
+
 		/* If we have data, run it through libpcap */
-		if (capfile != NULL || r > 0) {
+		if (capfile != NULL || pl[0].revents != 0) {
 			r = pcap_dispatch(pcap, max_flows, flow_cb, (void*)&cb_ctxt);
 			if (r == -1) {
 				syslog(LOG_ERR, "Exiting on pcap_dispatch: %s", 
@@ -1291,7 +1381,7 @@ main(int argc, char **argv)
 		if (purge_flows) {
 			syslog(LOG_NOTICE, "Purging flows on user request");
 			purge_flows = 0;
-			check_expired(&flowtrack, sock, CE_EXPIRE_ALL);
+			check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
 		}
 		if (delete_flows) {
 			syslog(LOG_NOTICE, "Deleting all flows on user request");
@@ -1317,7 +1407,7 @@ expiry_check:
 			 * expire flows based on time - instead we only 
 			 * expire flows when the flow table is full. 
 			 */
-			if (check_expired(&flowtrack, sock, 
+			if (check_expired(&flowtrack, nfsock, 
 			    capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) != 0)
 				syslog(LOG_WARNING, "Unable to export flows");
 	
@@ -1334,14 +1424,19 @@ expiry_check:
 	}
 
 	if (graceful_shutdown_request)
-		check_expired(&flowtrack, sock, CE_EXPIRE_ALL);
+		check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
 
 	pcap_close(pcap);
-	close(sock);
+	
+	if (nfsock != -1)
+		close(nfsock);
 
 	log_stats(&flowtrack);
 
 	unlink(pidfile_path);
+	if (ctlsock_path != NULL)
+		unlink(ctlsock_path);
+
 	
 	exit(r == 0 ? 0 : 1);
 }

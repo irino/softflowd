@@ -37,6 +37,8 @@
 .Op Fl t Ar check_wait
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
+.Op Fl p Ar pidfile
+.Op Fl c Ar ctl_sock
 .Sh DESCRIPTION
 .Nm
 is a software implementation of a flow-based network traffic accounting
@@ -101,6 +103,10 @@ is exceeded.
 This option specifies the number of seconds that a flow must be quiescent
 (no traffic recorded) before it is considered expired. The default is one
 hour (3600 seconds).
+.It Fl p Ar pidfile
+Specify an alternate location to store the process-id when in daemon mode.
+Default is 
+.Pa /var/run/softflowd.pid
 .It Fl t Ar check_wait
 Specify how often checks for expired events occur. Unless the flow table
 is overfull, 
