@@ -1,3 +1,6 @@
+20040901
+ - (djm) Fix a tiny, stupid bug that prevents flow export
+
 20040827
  - (djm) NetFlow v.5 supports 30 flows per packet
  - (djm) Use struct sockaddr in arguments (not sockaddr_storage), properly 

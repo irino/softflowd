@@ -1827,6 +1827,7 @@ main(int argc, char **argv)
 			break;
 		case 'n':
 			/* Will exit on failure */
+			dest_len = sizeof(dest);
 			parse_hostport(optarg, (struct sockaddr *)&dest,
 			    &dest_len);
 			break;
