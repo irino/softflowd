@@ -584,7 +584,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 
 		if (flows[i]->octets[1] > 0) {
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
+				syslog(LOG_DEBUG, "Flow %d of %d 1<0", i, num_flows);
 			flw->src_ip = flows[i]->addr[1];
 			flw->dest_ip = flows[i]->addr[0];
 			flw->src_port = flows[i]->port[1];
