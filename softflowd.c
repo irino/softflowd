@@ -601,7 +601,8 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
 	struct NF1_HEADER *hdr = NULL;
 	struct NF1_FLOW *flw = NULL;
-	int i, j, offset, num_packets;
+	int i, j, offset, num_packets, err;
+	socklen_t errsz;
 	
 	gettimeofday(&now, NULL);
 	uptime_ms = timeval_sub_ms(&now, &system_boot_time);
@@ -612,6 +613,9 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
 			hdr->flows = htons(hdr->flows);
+			errsz = sizeof(err);
+			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
+			    &err, &errsz); /* Clear ICMP errors */
 			if (send(nfsock, packet, (size_t)offset, 0) == -1)
 				return (-1);
 			j = 0;
@@ -679,6 +683,9 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		if (verbose_flag)
 			syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
 		hdr->flows = htons(hdr->flows);
+		errsz = sizeof(err);
+		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
+		    &err, &errsz); /* Clear ICMP errors */
 		if (send(nfsock, packet, (size_t)offset, 0) == -1)
 			return (-1);
 		num_packets++;
