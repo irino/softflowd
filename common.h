@@ -24,6 +24,8 @@
 
 #ifndef _SFD_COMMON_H
 
+#include "config.h"
+
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
 
 #include <sys/types.h>
@@ -52,11 +54,6 @@
 #include <netdb.h>
 #include <pwd.h>
 #include <grp.h>
-
-/* XXX: this check probably isn't sufficient for all systems */
-#ifndef __GNU_LIBRARY__ 
-# define SOCK_HAS_LEN 
-#endif
 
 /* The name of the program */
 #define PROGNAME		"softflowd"

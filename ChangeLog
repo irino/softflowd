@@ -3,6 +3,8 @@
  - (djm) Print flow start and finish times in collector.pl
  - (djm) Linux needs grp.h for setgroups()
  - (djm) Never endprotoent()
+ - (djm) Use autoconf to detect various things; in preparation of more 
+   portability
 
 20031111
  - (djm) Remove -Werror from CFLAGS, it causes problems in released software
