@@ -1,0 +1,15 @@
+20021029
+ - (djm) Multiple fixes and improvements from Octavian Cerna <tavy@ylabs.com>
+    - softflowd.c (connsock): Fix arguments to `connect': addr is a pointer, 
+	not a structure.
+      (flow_update_expiry): Properly compute the flow lifetime.
+      (send_netflow_v1): Count the leftover packet.
+	Send flow_start, flow_finish and uptime_ms as Cisco equipment 
+	does: milliseconds since system boot.
+      (timeval_sub_ms): New function.
+      (main): Changed POLL_WAIT to be (EXPIRY_WAIT/2) as stated in the 
+	comment above `poll': twice per recheck.
+	`poll' takes the last argument in milliseconds.
+	Initialize system_boot_time as the time at the start of capture
+	(fixme: how does this affect reading from capture files?)
+

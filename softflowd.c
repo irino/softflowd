@@ -59,6 +59,9 @@ static int verbose_flag = 0;		/* Debugging flag */
 /* Signal handler flags */
 static int graceful_shutdown_request = 0;	
 
+/* "System boot" time, for SysUptime */
+static struct timeval system_boot_time;
+
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
  * a maximally sized ip header and most of a TCP header
@@ -83,7 +86,7 @@ static int graceful_shutdown_request = 0;
 /*
  * How many seconds to wait in poll
  */
-#define POLL_WAIT	8
+#define POLL_WAIT	(EXPIRY_WAIT / 2)
 
 /*
  * Default maximum number of flow to track simultaneously 
@@ -431,7 +434,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 	
 	/* Flows over maximum life seconds */
 	if (ft->maximum_lifetime != 0 && 
-	    flow->flow_start.tv_sec - flow->flow_last.tv_sec > 
+	    flow->flow_last.tv_sec - flow->flow_start.tv_sec > 
 	    ft->maximum_lifetime) {
 		flow->expiry->expires_at = 0;
 		flow->expiry->reason = R_MAXLIFE;
@@ -560,6 +563,23 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 }
 
 /*
+ * Subtract two timevals. Returns (t1 - t2) in milliseconds.
+ */
+static u_int32_t
+timeval_sub_ms(struct timeval *t1, struct timeval *t2)
+{
+	struct timeval res;
+
+	res.tv_sec = t1->tv_sec - t2->tv_sec;
+	res.tv_usec = t1->tv_usec - t2->tv_usec;
+	if (res.tv_usec < 0) {
+		res.tv_usec += 1000000L;
+		res.tv_sec--;
+	}
+	return ((u_int32_t)res.tv_sec * 1000 + (u_int32_t)res.tv_usec / 1000);
+}
+
+/*
  * Given an array of expired flows, send netflow v1 report packets
  * Returns number of packets sent or -1 on error
  */
@@ -567,12 +587,14 @@ static int
 send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 {
 	struct timeval now;
+	u_int32_t uptime_ms;
 	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
 	struct NF1_HEADER *hdr = NULL;
 	struct NF1_FLOW *flw = NULL;
 	int i, j, offset, num_packets;
 	
 	gettimeofday(&now, NULL);
+	uptime_ms = timeval_sub_ms(&now, &system_boot_time);
 
 	hdr = (struct NF1_HEADER *)packet;
 	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
@@ -593,7 +615,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			memset(&packet, '\0', sizeof(packet));
 			hdr->version = htons(1);
 			hdr->flows = 0; /* Filled in as we go */
-			hdr->uptime_ms = 0;
+			hdr->uptime_ms = htonl(uptime_ms);
 			hdr->time_sec = htonl(now.tv_sec);
 			hdr->time_nanosec = htonl(now.tv_usec * 1000);
 			offset = sizeof(*hdr);
@@ -611,8 +633,8 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			flw->dest_port = flows[i]->port[1];
 			flw->flow_packets = htonl(flows[i]->packets[0]);
 			flw->flow_octets = htonl(flows[i]->octets[0]);
-			flw->flow_start = htonl(flows[i]->flow_start.tv_sec);
-			flw->flow_finish = htonl(flows[i]->flow_last.tv_sec);
+			flw->flow_start = htonl(timeval_sub_ms(&flows[i]->flow_start, &system_boot_time));
+			flw->flow_finish = htonl(timeval_sub_ms(&flows[i]->flow_last, &system_boot_time));
 			flw->protocol = flows[i]->protocol;
 			flw->tcp_flags = flows[i]->tcp_flags[0];
 			offset += sizeof(*flw);
@@ -632,8 +654,8 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			flw->dest_port = flows[i]->port[0];
 			flw->flow_packets = htonl(flows[i]->packets[1]);
 			flw->flow_octets = htonl(flows[i]->octets[1]);
-			flw->flow_start = htonl(flows[i]->flow_start.tv_sec);
-			flw->flow_finish = htonl(flows[i]->flow_last.tv_sec);
+			flw->flow_start = htonl(timeval_sub_ms(&flows[i]->flow_start, &system_boot_time));
+			flw->flow_finish = htonl(timeval_sub_ms(&flows[i]->flow_last, &system_boot_time));
 			flw->protocol = flows[i]->protocol;
 			flw->tcp_flags = flows[i]->tcp_flags[1];
 			offset += sizeof(*flw);
@@ -649,6 +671,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		hdr->flows = htons(hdr->flows);
 		if (send(nfsock, packet, (size_t)offset, 0) == -1)
 			return (-1);
+		num_packets++;
 	}
 
 	return (num_packets);
@@ -1130,7 +1153,7 @@ connsock(struct sockaddr_in *addr)
 		    strerror(errno));
 		exit(1);
 	}
-	if (connect(s, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+	if (connect(s, (struct sockaddr*)addr, sizeof(*addr)) == -1) {
 		fprintf(stderr, "connect() error: %s\n",
 		    strerror(errno));
 		exit(1);
@@ -1514,6 +1537,7 @@ main(int argc, char **argv)
 	syslog(LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
 
 	/* Main processing loop */
+	gettimeofday(&system_boot_time, NULL);
 	exit_request = stop_collection_flag = 0;
 	next_expiry_check = time(NULL) + EXPIRY_WAIT;
 	for(;;) {
@@ -1537,7 +1561,7 @@ main(int argc, char **argv)
 				pl[0].events = 0;
 
 			/* Iterate mainloop twice per recheck */
-			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT);
+			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT * 1000);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
