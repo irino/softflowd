@@ -366,6 +366,7 @@ expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 EXPIRY_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 
+#if 0
 /* Dump a packet */
 static void
 dump_packet(const u_int8_t *p, int len)
@@ -382,6 +383,7 @@ dump_packet(const u_int8_t *p, int len)
 	}
 	logit(LOG_INFO, "packet len %d: %s", len, buf);
 }
+#endif
 
 /* Format a time in an ISOish format */
 static const char *
