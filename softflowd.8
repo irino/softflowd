@@ -31,7 +31,7 @@
 .Nd Traffic flow monitoring
 .Sh SYNOPSIS
 .Nm softflowd
-.Op Fl dDh
+.Op Fl 6dDh
 .Op Fl i Ar interface
 .Op Fl r Ar pcap_file
 .Op Fl t Ar timeout_name=seconds
@@ -58,8 +58,8 @@ supports data export using versions 1, 5 or 9 of the NetFlow protocol.
 .Nm 
 can also run in statistics-only mode, where it just collects summary 
 information.
-Currently, too few statistics are collected to make this
-mode really useful.
+However, too few statistics are collected to make this
+mode really useful for anything other than debugging.
 .Pp
 Network traffic may be obtained by listening on a promiscuous network
 interface or by reading stored
@@ -70,6 +70,9 @@ Traffic may be filtered with an optional
 .Xr bpf 4
 program, specified on the command-line as
 .Ar bpf_prog .
+.Nm
+is IPv6 capable and will track IPv6 flows if the NetFlow export protocol 
+supports it (currently only NetFlow v.9 possesses an IPv6 export capability). 
 .Pp
 .Nm
 tries to track only active traffic flows.
@@ -167,13 +170,21 @@ section below.
 Specify that 
 .Nm
 should not fork and daemonise itself.
+.It Fl 6
+Forces
+.Nm
+To track IPv6 flows even if the NetFlow export protocol does not support
+reporting them.
+This is useful for debugging and statistics gathering only.
 .It Fl D
 Places
 .Nm
 in a debugging mode.
 This implies the 
 .Fl d
-flag and turns on additional debugging output.
+and
+.Fl 6
+flags and turns on additional debugging output.
 .It Fl h
 Displays commandline usage information.
 .El

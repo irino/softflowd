@@ -64,6 +64,7 @@ struct CB_CTXT {
 	struct FLOWTRACK *ft;
 	int linktype;
 	int fatal;
+	int want_v6;
 };
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
@@ -1042,7 +1043,7 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	struct timeval tv;
 
 	s = datalink_check(cb_ctxt->linktype, pkt, phdr->caplen, &af);
-	if (s < 0) {
+	if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
 		cb_ctxt->ft->non_ip_packets++;
 	} else {
 		tv.tv_sec = phdr->ts.tv_sec;
@@ -1230,7 +1231,7 @@ unix_listener(const char *path)
 
 static void
 setup_packet_capture(struct pcap **pcap, int *linktype, 
-    char *dev, char *capfile, char *bpf_prog)
+    char *dev, char *capfile, char *bpf_prog, int need_v6)
 {
 	char ebuf[PCAP_ERRBUF_SIZE];
 	struct bpf_program prog_c;
@@ -1238,7 +1239,8 @@ setup_packet_capture(struct pcap **pcap, int *linktype,
 
 	/* Open pcap */
 	if (dev != NULL) {
-		if ((*pcap = pcap_open_live(dev, LIBPCAP_SNAPLEN, 
+		if ((*pcap = pcap_open_live(dev, 
+		    need_v6 ? LIBPCAP_SNAPLEN_V6 : LIBPCAP_SNAPLEN_V4, 
 		    1, 0, ebuf)) == NULL) {
 			fprintf(stderr, "pcap_open_live: %s\n", ebuf);
 			exit(1);
@@ -1347,8 +1349,10 @@ usage(void)
 	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
 	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
 	fprintf(stderr, "  -v 1|5|9        NetFlow export packet version\n");
+	fprintf(stderr, "  -6              Track IPv6 flows, regardless of whether selected \n"
+	                "                  NetFlow export protocol supports it\n");
 	fprintf(stderr, "  -d              Don't daemonise\n");
-	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity\n");
+	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity + track v6 flows\n");
 	fprintf(stderr, "  -h              Display this help\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Valid timeout names and default values:\n");
@@ -1527,13 +1531,15 @@ main(int argc, char **argv)
 	const char *pidfile_path, *ctlsock_path;
 	extern char *optarg;
 	extern int optind;
-	int ch, dontfork_flag, linktype, ctlsock, i, r, err;
+	int ch, dontfork_flag, linktype, ctlsock, i, r, err, always_v6;
 	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
 	struct FLOWTRACK flowtrack;
 	socklen_t dest_len;
 	struct NETFLOW_TARGET target;
+	struct CB_CTXT cb_ctxt;
+	struct pollfd pl[2];
 
 	closefrom(STDERR_FILENO + 1);
 
@@ -1550,13 +1556,18 @@ main(int argc, char **argv)
 	pidfile_path = DEFAULT_PIDFILE;
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
-	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:c:v:")) != -1) {
+	always_v6 = 0;
+	while ((ch = getopt(argc, argv, "6hdDi:r:f:t:n:m:p:c:v:")) != -1) {
 		switch (ch) {
+		case '6':
+			always_v6 = 1;
+			break;
 		case 'h':
 			usage();
 			return (0);
 		case 'D':
 			verbose_flag = 1;
+			always_v6 = 1;
 			/* FALLTHROUGH */
 		case 'd':
 			dontfork_flag = 1;
@@ -1633,7 +1644,8 @@ main(int argc, char **argv)
 	bpf_prog = argv_join(argc - optind, argv + optind);
 
 	/* Will exit on failure */
-	setup_packet_capture(&pcap, &linktype, dev, capfile, bpf_prog);
+	setup_packet_capture(&pcap, &linktype, dev, capfile, bpf_prog,
+	    target.dialect->v6_capable || always_v6);
 	
 	/* Netflow send socket */
 	if (dest.ss_family != 0) {
@@ -1684,10 +1696,10 @@ main(int argc, char **argv)
 	/* Main processing loop */
 	gettimeofday(&flowtrack.system_boot_time, NULL);
 	stop_collection_flag = 0;
+	cb_ctxt.ft = &flowtrack;
+	cb_ctxt.linktype = linktype;
+	cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
 	for(;;) {
-		struct CB_CTXT cb_ctxt = {&flowtrack, linktype};
-		struct pollfd pl[2];
-
 		/*
 		 * Silly libpcap's timeout function doesn't work, so we
 		 * do it here (only if we are reading live)

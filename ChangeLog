@@ -5,6 +5,9 @@
     per packet. Default is to check for expiries every 60s
  - (djm) Allow timouts to be disabled (by setting them to 0)
  - (djm) Include IP_PROTOCOL_VERSION field in NetFlow v.9 packets
+ - (djm) Don't bother tracking IPv6 flows if NetFlow export version 
+   doesn't support it
+ - (djm) Don't crank up pcap snaplen unless we are interested in IPv6 either
 
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
