@@ -43,66 +43,7 @@
  * place significant load on hosts or gateways on which it is installed.
  */
 
-/* XXX - TODO:
- * - Implement a (configurable) maximum lifetime for flows
- * - Tidy statistics collection
- *   - Encapsulate stats in struct (inc min/max/whatever)
- *   - Separate update function
- *   - Option to take histograms (maybe)
- * - Fast-expire closed TCP sessions
- *   - We track tcp flags bidirectionally
- *   - We need to track TCP seqnum when we see a FIN and watch for reply
- *     - Bidirectional
- *   - RST we could do easily
- * - Implement different expiry rates for TCP and UDP connections
- *    - e.g. heuristics to fast-expire udp transaction traffic like dns
- *    - XXX this is important - most flows are short-lived noise
- * - Flow exporter sends flow records for flows with 0 octets/packets
- * - IPv6 support (I don't think netflow supports it yet)
- * - Enqueue expired flows in struct FLOWTRACK rather than sending 
- *   immediately upon expiry
- *   - Ability to set soft mininum number of flow records per packet
- *   - Need timeout so the queue doesn't rot
- *   - Benefits of queue vs leaving them in flow table???
- * - FIFO/socket interface
- *   - Move from signals to socket interface
- *     - Kill the global variables
- *   - Real-time dump of flowtable (shm/mmap fd pass?)
- *   - Diagnostics without syslog spam
- *   - Supply companion softflowdctl as interface
- *   - ntop like view
- * - Collect more statistics
- *   - Flow bandwidth
- *   - Per well-known-port
- *   - Moving averages
- * - Ability to freeze/resume state (maybe)
- */
-
-#define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
-
-#include <sys/types.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <sys/poll.h>
-#include <sys/un.h>
-
-#include <netinet/in.h>
-#include <netinet/in_systm.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
-#include <netinet/udp.h>
-#include <arpa/inet.h>
-#include <net/bpf.h>
-
-#include <stdio.h>
-#include <errno.h>
-#include <syslog.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
-#include <unistd.h>
-#include <signal.h>
-#include <netdb.h>
+#include "common.h"
 
 #if defined(__OpenBSD__)
 # include <sys/tree.h>
@@ -112,32 +53,11 @@
 
 #include <pcap.h>
 
-/* XXX: this check probably isn't sufficient for all systems */
-#ifndef __GNU_LIBRARY__ 
-# #define SOCK_HAS_LEN 
-#endif
-
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
 
 /* Signal handler flags */
 static int graceful_shutdown_request = 0;	
-static int exit_request = 0;
-static int purge_flows = 0;
-static int delete_flows = 0;
-static int dump_stats = 0;
-
-/* The name of the program */
-#define PROGNAME		"softflowd"
-
-/* The name of the program */
-#define PROGVER			"0.5"
-
-/* Default pidfile */
-#define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
-
-/* Default control socket */
-#define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
 
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
@@ -146,15 +66,24 @@ static int dump_stats = 0;
 #define LIBPCAP_SNAPLEN		96
 
 /*
- * Default timeout: Quiescent flows which have not seen traffic for 
- * this many seconds will be expired
+ * Timeouts
  */
-#define DEFAULT_TIMEOUT 	3600
+#define DEFAULT_TCP_TIMEOUT		3600
+#define DEFAULT_TCP_RST_TIMEOUT		120
+#define DEFAULT_TCP_FIN_TIMEOUT		300
+#define DEFAULT_UDP_TIMEOUT		300
+#define DEFAULT_GENERAL_TIMEOUT		3600
+#define DEFAULT_MAXIMUM_LIFETIME	(3600*24*7)
 
 /*
  * How many seconds to wait for pcap data before doing housekeeping
  */
-#define DEFAULT_RECHECK_WAIT	8
+#define EXPIRY_WAIT	8
+
+/*
+ * How many seconds to wait in poll
+ */
+#define POLL_WAIT	8
 
 /*
  * Default maximum number of flow to track simultaneously 
@@ -162,15 +91,10 @@ static int dump_stats = 0;
  */
 #define DEFAULT_MAX_FLOWS	8192
 
-#ifndef MIN
-# define MIN(a,b) (((a)<(b))?(a):(b))
-#endif
-#ifndef MAX
-# define MAX(a,b) (((a)>(b))?(a):(b))
-#endif
-#ifndef offsetof
-# define offsetof(type, member) ((size_t) &((type *)0)->member)
-#endif
+/* Store a couple of statistics, maybe more in the future */
+struct STATISTIC {
+	double min, mean, max;
+};
 
 /*
  * This structure is the root of the flow tracking system.
@@ -185,6 +109,14 @@ struct FLOWTRACK {
 	unsigned int num_flows;			/* # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
 	
+	/* Flow timeouts */
+	int tcp_timeout;			/* Open TCP connections */
+	int tcp_rst_timeout;			/* TCP flows after RST */
+	int tcp_fin_timeout;			/* TCP flows after bidi FIN */
+	int udp_timeout;			/* UDP flows */
+	int general_timeout;			/* Everything else */
+	int maximum_lifetime;			/* Maximum life for flows */
+
 	/* Statistics */
 	u_int64_t total_packets;		/* # of good packets */
 	u_int64_t non_ip_packets;		/* # of not-IP packets */
@@ -194,15 +126,26 @@ struct FLOWTRACK {
 	u_int64_t flows_dropped;		/* # of flows dropped */
 	u_int64_t flows_force_expired;		/* # of flows forced out */
 	u_int64_t packets_sent;			/* # netflow packets sent */
-	double max_dur, min_dur, mean_dur;	/* flow duration */
-	double max_bytes, min_bytes, mean_bytes;/* flow bytes (both ways) */
-	double max_pkts, min_pkts, mean_pkts;	/* flow packets (both ways) */
+	struct STATISTIC duration;		/* Flow duration */
+	struct STATISTIC octets;		/* Bytes (bidir) */
+	struct STATISTIC packets;		/* Packets (bidir) */
 
 	/* Per protocol statistics */
 	u_int64_t flows_pp[256];
 	u_int64_t octets_pp[256];
-	u_int64_t packets_pp[256];		
-	double max_dur_pp[256], mean_dur_pp[256];/* Useful for tuning */
+	u_int64_t packets_pp[256];
+	struct STATISTIC duration_pp[256];
+
+	/* Timeout statistics */
+	u_int64_t expired_general;
+	u_int64_t expired_tcp;
+	u_int64_t expired_tcp_rst;
+	u_int64_t expired_tcp_fin;
+	u_int64_t expired_udp;
+	u_int64_t expired_maxlife;
+	u_int64_t expired_overbytes;
+	u_int64_t expired_maxflows;
+	u_int64_t expired_flush;
 };
 
 /*
@@ -250,15 +193,18 @@ struct FLOW {
  */
 struct EXPIRY {
 	RB_ENTRY(EXPIRY) trp;			/* Tree pointer */
+	struct FLOW *flow;			/* pointer to flow */
 
 	u_int32_t expires_at;			/* time_t */
-	struct FLOW *flow;			/* pointer to flow */
+	enum { 
+		R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, 
+		R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH
+	} reason;
 };
 
 /* Context for libpcap callback functions */
 struct CB_CTXT {
 	struct FLOWTRACK *ft;
-	int timeout;
 	int linktype;
 	int fatal;
 };
@@ -295,29 +241,6 @@ struct NF1_FLOW {
 static void sighand_graceful_shutdown(int signum)
 {
 	graceful_shutdown_request = signum;
-}
-
-static void sighand_exit(int signum)
-{
-	exit_request = 1;
-}
-
-static void sighand_purge(int signum)
-{
-	purge_flows = 1;
-	signal(signum, sighand_purge);
-}
-
-static void sighand_delete(int signum)
-{
-	delete_flows = 1;
-	signal(signum, sighand_delete);
-}
-
-static void sighand_dump_stats(int signum)
-{
-	dump_stats = 1;
-	signal(signum, sighand_dump_stats);
 }
 
 static void sighand_other(int signum)
@@ -496,6 +419,65 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	return (0);
 }
 
+static void
+flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
+{
+	/* Flows over 2Gb traffic */
+	if (flow->octets[0] > (1U << 31) || flow->octets[1] > (1U << 31)) {
+		flow->expiry->expires_at = 0;
+		flow->expiry->reason = R_OVERBYTES;
+		return;
+	}
+	
+	/* Flows over maximum life seconds */
+	if (ft->maximum_lifetime != 0 && 
+	    flow->flow_start.tv_sec - flow->flow_last.tv_sec > 
+	    ft->maximum_lifetime) {
+		flow->expiry->expires_at = 0;
+		flow->expiry->reason = R_MAXLIFE;
+		return;
+	}
+	
+	if (flow->protocol == IPPROTO_TCP) {
+		/* Reset TCP flows */
+		if ((flow->tcp_flags[0] & TH_RST) ||
+		    (flow->tcp_flags[1] & TH_RST)) {
+			flow->expiry->expires_at = flow->flow_last.tv_sec + 
+			    ft->tcp_rst_timeout;
+			flow->expiry->reason = R_TCP_RST;
+			return;
+		}
+		/* Finished TCP flows */
+		if ((flow->tcp_flags[0] & TH_FIN) &&
+		    (flow->tcp_flags[1] & TH_FIN)) {
+			flow->expiry->expires_at = flow->flow_last.tv_sec + 
+			    ft->tcp_fin_timeout;
+			flow->expiry->reason = R_TCP_FIN;
+			return;
+		}
+
+		/* TCP flows */
+		flow->expiry->expires_at = flow->flow_last.tv_sec + 
+		    ft->tcp_timeout;
+		flow->expiry->reason = R_TCP;
+		return;
+	}
+
+	if (flow->protocol == IPPROTO_UDP) {
+		/* UDP flows */
+		flow->expiry->expires_at = flow->flow_last.tv_sec + 
+		    ft->udp_timeout;
+		flow->expiry->reason = R_UDP;
+		return;
+	}
+
+	/* Everything else */
+	flow->expiry->expires_at = flow->flow_last.tv_sec + 
+	    ft->general_timeout;
+	flow->expiry->reason = R_GENERAL;
+}
+
+
 /* Return values from process_packet */
 #define PP_OK		0
 #define PP_BAD_PACKET	-2
@@ -512,7 +494,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 static int
 process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, 
     const u_int32_t caplen, const u_int32_t len, 
-    const struct timeval *received_time, int timeout)
+    const struct timeval *received_time)
 {
 	struct FLOW tmp, *flow;
 
@@ -541,6 +523,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		flow->expiry->flow = flow;
 		/* Must be non-zero (0 means expire immediately) */
 		flow->expiry->expires_at = 1;
+		flow->expiry->reason = R_GENERAL;
 
 		ft->num_flows++;
 		if (verbose_flag)
@@ -568,28 +551,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	
 	memcpy(&flow->flow_last, received_time, sizeof(flow->flow_last));
 
-	/*
-	 * Here we do fast-expiry of certain flows.
-	 *
-	 * The current use is a bit of a kludge: avoid octet counter 
-	 * overflow by expiring flows early which are halfway toward 
-	 * overflow  (2Gb of traffic). If the real traffic flow continues, 
-	 * the flow entry will be immediately added again anyway.
-	 *
-	 * Later we can use a similar mechanism for fast-expiring 
-	 * closed TCP sessions
-	 */
 	if (flow->expiry->expires_at != 0) {
-		if (flow->octets[0] > (1U << 31) || 
-		    flow->octets[1] > (1U << 31)) {
-			flow->expiry->expires_at = 0;
-		} else {
-			flow->expiry->expires_at = flow->flow_last.tv_sec + 
-			    timeout;
-		}
-#if 0
-		syslog(LOG_DEBUG, "Adding expiry %p", flow->expiry);
-#endif
+		flow_update_expiry(ft, flow);
 		RB_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 	}
 
@@ -691,9 +654,17 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	return (num_packets);
 }
 
-static double 
-update_mean(double mean, double new_sample, double n)
+static void
+update_statistic(struct STATISTIC *s, double new, double n)
 {
+	if (n == 1.0) {
+		s->min = s->mean = s->max = new;
+		return;
+	}
+
+	s->min = MIN(s->min, new);
+	s->max = MAX(s->max, new);
+
 	/*
 	 * XXX I think this method of calculating the a new mean from an 
 	 * existing mean is correct but I don't have my stats book handy
@@ -701,8 +672,9 @@ update_mean(double mean, double new_sample, double n)
 	 * I use this instead of "Mnew = ((Mold * n - 1) + S) / n" to 
 	 * avoid accumulating fp rounding errors. Maybe I'm misguided :)
 	 */
-	return (mean + ((new_sample - mean) / n));
+	s->mean = s->mean + ((new - s->mean) / n);
 }
+
 
 /* Update global statistics */
 static void
@@ -711,50 +683,63 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	double tmp;
 	static double n = 1.0;
 
+	ft->flows_expired++;
+	ft->flows_pp[flow->protocol % 256]++;
+
 	tmp = (double)flow->flow_last.tv_sec +
 	    ((double)flow->flow_last.tv_usec / 1000000.0);
 	tmp -= (double)flow->flow_start.tv_sec +
 	    ((double)flow->flow_start.tv_usec / 1000000.0);
+	if (tmp < 0.0)
+		tmp = 0.0;
 
-	ft->flows_expired++;
-	ft->flows_pp[flow->protocol % 256]++;
-
-	if (n == 1.0) {
-		ft->min_dur = ft->mean_dur = ft->max_dur = tmp;
-	} else {
-		ft->mean_dur = update_mean(ft->mean_dur, tmp, n);
-		ft->min_dur = MIN(ft->min_dur, tmp);
-		ft->max_dur = MAX(ft->max_dur, tmp);
-
-		if (ft->flows_pp[flow->protocol % 256] == 0) {
-			ft->max_dur_pp[flow->protocol % 256] = ft->mean_dur_pp[flow->protocol % 256] = tmp;
-		} else {
-			ft->mean_dur_pp[flow->protocol % 256] = update_mean(ft->mean_dur_pp[flow->protocol % 256], tmp, 
-			    (double)ft->flows_pp[flow->protocol % 256]);
-			ft->max_dur_pp[flow->protocol % 256] = MAX(ft->max_dur_pp[flow->protocol % 256], tmp);
-		}
-	}
+	update_statistic(&ft->duration, tmp, n);
+	update_statistic(&ft->duration_pp[flow->protocol], tmp, 
+	    (double)ft->flows_pp[flow->protocol % 256]);
 
 	tmp = flow->octets[0] + flow->octets[1];
+	update_statistic(&ft->octets, tmp, n);
 	ft->octets_pp[flow->protocol % 256] += tmp;
-	if (n == 1.0) {
-		ft->min_bytes = ft->mean_bytes = ft->max_bytes = tmp;
-	} else {
-		ft->mean_bytes = update_mean(ft->mean_bytes, tmp, n);
-		ft->min_bytes = MIN(ft->min_bytes, tmp);
-		ft->max_bytes = MAX(ft->max_bytes, tmp);
-	}
 
 	tmp = flow->packets[0] + flow->packets[1];
+	update_statistic(&ft->packets, tmp, n);
 	ft->packets_pp[flow->protocol % 256] += tmp;
-	if (n == 1.0) {
-		ft->min_pkts = ft->mean_pkts = ft->max_pkts = tmp;
-	} else {
-		ft->mean_pkts = update_mean(ft->mean_pkts, tmp, n);
-		ft->min_pkts = MIN(ft->min_pkts, tmp);
-		ft->max_pkts = MAX(ft->max_pkts, tmp);
-	}
+
 	n++;
+}
+
+static void 
+update_expiry_stats(struct FLOWTRACK *ft, struct EXPIRY *e)
+{
+	switch (e->reason) {
+	case R_GENERAL:
+		ft->expired_general++;
+		break;
+	case R_TCP:
+		ft->expired_tcp++;
+		break;
+	case R_TCP_RST:
+		ft->expired_tcp_rst++;
+		break;
+	case R_TCP_FIN:
+		ft->expired_tcp_fin++;
+		break;
+	case R_UDP:
+		ft->expired_udp++;
+		break;
+	case R_MAXLIFE:
+		ft->expired_maxlife++;
+		break;
+	case R_OVERBYTES:
+		ft->expired_overbytes++;
+		break;
+	case R_OVERFLOWS:
+		ft->expired_maxflows++;
+		break;
+	case R_FLUSH:
+		ft->expired_flush++;
+		break;
+	}	
 }
 
 /*
@@ -803,6 +788,11 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			expiry->flow->expiry = NULL;
 			free(expiry);
 
+			if (ex == CE_EXPIRE_ALL)
+				expiry->reason = R_FLUSH;
+
+			update_expiry_stats(ft, expiry);
+
 			ft->num_flows--;
 		}
 	}
@@ -824,11 +814,11 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			}
 		}
 		for (i = 0; i < num_expired; i++) {
-			if (verbose_flag)
+			if (verbose_flag) {
 				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
 				    format_flow(expired_flows[i]),
 				    expired_flows[i]);
-			
+			}
 			update_statistics(ft, expired_flows[i]);
 
 			free(expired_flows[i]);
@@ -837,7 +827,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 		free(expired_flows);
 	}
 
-	return (r);
+	return (r == -1 ? -1 : num_expired);
 }
 
 /*
@@ -848,6 +838,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 {
 	struct EXPIRY *expiry;
 
+	/* XXX move all overflow processing here */
 	if (verbose_flag)
 		syslog(LOG_INFO, "Forcing expiry of %d flows",
 		    num_to_expire);
@@ -856,6 +847,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 		if (num_to_expire-- <= 0)
 			break;
 		expiry->expires_at = 0;
+		expiry->reason = R_OVERFLOWS;
 		ft->flows_force_expired++;
 	}
 }
@@ -865,7 +857,9 @@ static int
 delete_all_flows(struct FLOWTRACK *ft)
 {
 	struct FLOW *flow, *nflow;
-
+	int i;
+	
+	i = 0;
 	for(flow = RB_MIN(FLOWS, &ft->flows); flow != NULL; flow = nflow) {
 		nflow = RB_NEXT(FLOWS, &ft->flows, flow);
 		RB_REMOVE(FLOWS, &ft->flows, flow);
@@ -875,9 +869,10 @@ delete_all_flows(struct FLOWTRACK *ft)
 
 		ft->num_flows--;
 		free(flow);
+		i++;
 	}
 	
-	return (0);
+	return (i);
 }
 
 /*
@@ -886,70 +881,94 @@ delete_all_flows(struct FLOWTRACK *ft)
  * and the tree of expiry events.
  */
 static int
-log_stats(struct FLOWTRACK *ft)
+statistics(struct FLOWTRACK *ft, FILE *out)
 {
-	struct FLOW *flow;
-	struct EXPIRY *expiry;
-	time_t now;
 	int i;
 	struct protoent *pe;
+	char proto[32];
 
-	now = time(NULL);
-
-	syslog(LOG_INFO, "Number of active flows: %d from %llu packets processed", 
-	    ft->num_flows, ft->total_packets);
-	syslog(LOG_INFO, "Ignored packets: %llu (%llu non-IP, %llu too short)",
+	fprintf(out, "Number of active flows: %d\n", ft->num_flows);
+	fprintf(out, "Packets processed: %llu\n", ft->total_packets);
+	fprintf(out, "Ignored packets: %llu (%llu non-IP, %llu too short)\n",
 	    ft->non_ip_packets + ft->bad_packets, ft->non_ip_packets, ft->bad_packets);
-	syslog(LOG_INFO, "Total flows expired: %llu (%llu forced out)", 
+	fprintf(out, "Flows expired: %llu (%llu forced)\n", 
 	    ft->flows_expired, ft->flows_force_expired);
-	syslog(LOG_INFO, "Total flows exported: %llu in %llu packets",
-	    ft->flows_exported, ft->packets_sent);
-	syslog(LOG_INFO, "Flow export packets dropped: %llu", ft->flows_dropped);
+	fprintf(out, "Flows exported: %llu in %llu packets (%llu failures)\n",
+	    ft->flows_exported, ft->packets_sent, ft->flows_dropped);
+
+	fprintf(out, "\n");
 
 	if (ft->flows_expired != 0) {
-		syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
-		syslog(LOG_INFO, "  Duration: %0.2f / %0.2f / %0.2f", 
-		    ft->min_dur, ft->mean_dur, ft->max_dur);
-		syslog(LOG_INFO, "  Flow bytes: %0.2f / %0.2f / %0.2f", 
-		    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
-		syslog(LOG_INFO, "  Flow packets: %0.2f / %0.2f / %0.2f", 
-		    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
+		fprintf(out, "Expired flow statistics:  minimum       average       maximum\n");
+		fprintf(out, "  Flow bytes:        %12.0f  %12.0f  %12.0f\n", 
+		    ft->octets.min, ft->octets.mean, ft->octets.max);
+		fprintf(out, "  Flow packets:      %12.0f  %12.0f  %12.0f\n", 
+		    ft->packets.min, ft->packets.mean, ft->packets.max);
+		fprintf(out, "  Duration:          %12.2fs %12.2fs %12.2fs\n", 
+		    ft->duration.min, ft->duration.mean, ft->duration.max);
 
-		syslog(LOG_INFO, "Per protocol statistics:");
+		fprintf(out, "\n");
+		fprintf(out, "Expired flow reasons:\n");
+		fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   tcp.fin = %9llu\n", 
+		    ft->expired_tcp, ft->expired_tcp_rst, ft->expired_tcp_fin);
+		fprintf(out, "       udp = %9llu   general = %9llu   maxlife = %9llu\n",
+		    ft->expired_udp, ft->expired_general, ft->expired_maxlife);
+		fprintf(out, "  over 2Gb = %9llu\n", ft->expired_overbytes);
+		fprintf(out, "  maxflows = %9llu\n", ft->expired_maxflows);
+		fprintf(out, "   flushed = %9llu\n", ft->expired_flush);
+
+		fprintf(out, "\n");
+
+		fprintf(out, "Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
 		setprotoent(1);
 		for(i = 0; i < 256; i++) {
 			if (ft->packets_pp[i]) {
 				pe = getprotobynumber(i);
-				syslog(LOG_INFO, 
-				    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs avg/max duration",
-				    pe != NULL ? pe->p_name : "", i, 
+				snprintf(proto, sizeof(proto), "%s (%d)", 
+				    pe != NULL ? pe->p_name : "Unknown", i);
+				fprintf(out, 
+				    "  %17s: %14llu %12llu   %8.2fs %10.2fs\n",
+				    proto,
 				    ft->octets_pp[i], 
 				    ft->packets_pp[i],
-				    ft->mean_dur_pp[i],
-				    ft->max_dur_pp[i]);
+				    ft->duration_pp[i].mean,
+				    ft->duration_pp[i].max);
 			}
 		}
+		endprotoent();
 	}
 
-	endprotoent();
-
 #if 0
-	syslog(LOG_INFO, "RB_EMPTY: %d", RB_EMPTY(&ft->flows));
-	syslog(LOG_INFO, "TAILQ_EMPTY: %d", TAILQ_EMPTY(&ft->expiries));
+	fprintf(out, "RB_EMPTY: %d\n", RB_EMPTY(&ft->flows));
+	fprintf(out, "TAILQ_EMPTY: %d\n", TAILQ_EMPTY(&ft->expiries));
 #endif
 
-	if (verbose_flag) {
-		RB_FOREACH(flow, FLOWS, &ft->flows)
-			syslog(LOG_DEBUG, "ACTIVE %s", format_flow(flow));
-		RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
-			syslog(LOG_DEBUG, 
-			    "EXPIRY EVENT for flow %llu in %ld seconds",
+	return (0);
+}
+
+static void
+dump_flows(struct FLOWTRACK *ft, FILE *out)
+{
+	struct EXPIRY *expiry;
+	time_t now;
+
+	now = time(NULL);
+
+	RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
+		fprintf(out, "ACTIVE %s\n", format_flow(expiry->flow));
+		if ((long int) expiry->expires_at - now < 0) {
+			fprintf(out, 
+			    "EXPIRY EVENT for flow %llu now%s\n",
+			    expiry->flow->flow_seq, 
+			    expiry->expires_at == 0 ? " (FORCED)": "");
+		} else {
+			fprintf(out, 
+			    "EXPIRY EVENT for flow %llu in %ld seconds\n",
 			    expiry->flow->flow_seq, 
 			    (long int) expiry->expires_at - now);
 		}
+		fprintf(out, "\n");
 	}
-
-	return (0);
 }
 
 /*
@@ -1038,42 +1057,26 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	} else {
 		if (process_packet(cb_ctxt->ft, pkt + s, 
 		    phdr->caplen - s, phdr->len - s, 
-		    (const struct timeval *)&phdr->ts, 
-		    cb_ctxt->timeout) == PP_MALLOC_FAIL)
+		    (const struct timeval *)&phdr->ts) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
 }
 
-/* Display commandline usage information */
-static void
-usage(void)
-{
-	fprintf(stderr, "Usage: %s [options]\n", PROGNAME);
-	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
-	fprintf(stderr, "  -i interface  Specify interface to listen on\n");
-	fprintf(stderr, "  -r pcap_file  Specify packet capture file to read\n");
-	fprintf(stderr, "  -f timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
-	fprintf(stderr, "  -t check_wait Seconds between scans for expired flows (default %d)\n", DEFAULT_RECHECK_WAIT);
-	fprintf(stderr, "  -m max_flows  Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
-	fprintf(stderr, "  -n host:port  Send Cisco NetFlow(tm)-compatible packets to host:port\n");
-	fprintf(stderr, "  -d            Don't daemonise\n");
-	fprintf(stderr, "  -p pidfile    Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
-	fprintf(stderr, "  -D            Debug mode: don't daemonise + verbosity\n");
-	fprintf(stderr, "  -h            Display this help\n");
-	fprintf(stderr, "\n");
-}
-
+#define CTL_SHUTDOWN		1
+#define CTL_EXIT		2
+#define CTL_EXPIRE_NOW		3
+#define CTL_DELETE_ALL		4
+#define CTL_STATISTICS		5
+#define CTL_INCREASE_DEBUG	6
+#define CTL_DECREASE_DEBUG	7
+#define CTL_STOP_COLLECTION	8
+#define CTL_START_COLLECTION	9
+#define CTL_DUMP_FLOWS		10
+#define CTL_TIMEOUTS		11
 static int
-accept_control(int ctlsock)
+accept_control(FILE *ctlf)
 {
 	unsigned char buf[64], *p;
-	FILE *ctlf;
-
-	if ((ctlf = fdopen(ctlsock, "r+")) == NULL) {
-		syslog(LOG_ERR, "fdopen: %s\n", strerror(errno));
-		return (-1);
-	}
-	setlinebuf(ctlf);
 
 	if (fgets(buf, sizeof(buf), ctlf) == NULL) {
 		syslog(LOG_ERR, "Control socket yielded no data");
@@ -1082,41 +1085,323 @@ accept_control(int ctlsock)
 	if ((p = strchr(buf, '\n')) != NULL)
 		*p = '\0';
 	
-	syslog(LOG_INFO, "Control socket \"%s\"", buf);
+	if (verbose_flag)
+		syslog(LOG_DEBUG, "Control socket \"%s\"", buf);
 
-	if (strcmp(buf, "blah") == 0) {
-		fprintf(ctlf, "Hello\nthere\n");
-	}
+	if (strcmp(buf, "shutdown") == 0)
+		return (CTL_SHUTDOWN);
+	else if (strcmp(buf, "exit") == 0)
+		return (CTL_EXIT);
+	else if (strcmp(buf, "expire-all") == 0)
+		return (CTL_EXPIRE_NOW);
+	else if (strcmp(buf, "delete-all") == 0)
+		return (CTL_DELETE_ALL);
+	else if (strcmp(buf, "statistics") == 0)
+		return (CTL_STATISTICS);
+	else if (strcmp(buf, "debug+") == 0)
+		return (CTL_INCREASE_DEBUG);
+	else if (strcmp(buf, "debug-") == 0)
+		return (CTL_DECREASE_DEBUG);
+	else if (strcmp(buf, "stop-gather") == 0)
+		return (CTL_STOP_COLLECTION);
+	else if (strcmp(buf, "start-gather") == 0)
+		return (CTL_START_COLLECTION);
+	else if (strcmp(buf, "dump-flows") == 0)
+		return (CTL_DUMP_FLOWS);
+	else if (strcmp(buf, "timeouts") == 0)
+		return (CTL_TIMEOUTS);
+
+	fprintf(ctlf, "Unknown control commmand \"%s\"\n", buf);
 	
 	return (0);
+}
+
+static int
+connsock(struct sockaddr_in *addr)
+{
+	int s;
+
+	if ((s = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+		fprintf(stderr, "socket() error: %s\n", 
+		    strerror(errno));
+		exit(1);
+	}
+	if (connect(s, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+		fprintf(stderr, "connect() error: %s\n",
+		    strerror(errno));
+		exit(1);
+	}
+
+	return(s);
+}
+
+static int 
+unix_listener(const char *path)
+{
+	struct sockaddr_un addr;
+	socklen_t addrlen;
+	int s;
+
+	memset(&addr, '\0', sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	
+	strncpy(addr.sun_path, path, sizeof(addr.sun_path));
+	addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
+	
+	addrlen = offsetof(struct sockaddr_un, sun_path) + strlen(path) + 1;
+#ifdef SOCK_HAS_LEN 
+	addr.sun_len = addrlen;
+#endif
+
+	if ((s = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+		fprintf(stderr, "unix domain socket() error: %s\n", 
+		    strerror(errno));
+		exit(1);
+	}
+	unlink(path);
+	if (bind(s, (struct sockaddr*)&addr, addrlen) == -1) {
+		fprintf(stderr, "unix domain bind(\"%s\") error: %s\n",
+		    addr.sun_path, strerror(errno));
+		exit(1);
+	}
+	if (listen(s, 64) == -1) {
+		fprintf(stderr, "unix domain listen() error: %s\n",
+		    strerror(errno));
+		exit(1);
+	}
+	
+	return (s);
+}
+
+static void
+setup_packet_capture(struct pcap **pcap, int *linktype, 
+    char *dev, char *capfile, char *bpf_prog)
+{
+	char ebuf[PCAP_ERRBUF_SIZE];
+	struct bpf_program prog_c;
+	u_int32_t bpf_mask, bpf_net;
+
+	/* Open pcap */
+	if (dev != NULL) {
+		if ((*pcap = pcap_open_live(dev, LIBPCAP_SNAPLEN, 
+		    1, 0, ebuf)) == NULL) {
+			fprintf(stderr, "pcap_open_live: %s\n", ebuf);
+			exit(1);
+		}
+		if (pcap_lookupnet(dev, &bpf_net, &bpf_mask, ebuf) == -1) {
+			fprintf(stderr, "pcap_lookupnet: %s\n", ebuf);
+			exit(1);
+		}
+	} else {
+		if ((*pcap = pcap_open_offline(capfile, ebuf)) == NULL) {
+			fprintf(stderr, "pcap_open_offline(%s): %s\n", 
+			    capfile, ebuf);
+			exit(1);
+		}
+		bpf_net = bpf_mask = 0;
+	}
+	*linktype = pcap_datalink(*pcap);
+	if (datalink_skip(*linktype, NULL, 0) == -1) {
+		fprintf(stderr, "Unsupported datalink type %d\n", *linktype);
+		exit(1);
+	}
+	/* Attach BPF filter, if specified */
+	if (bpf_prog != NULL) {
+		if (pcap_compile(*pcap, &prog_c, bpf_prog, 1, bpf_mask) == -1) {
+			fprintf(stderr, "pcap_compile(\"%s\"): %s\n", 
+			    bpf_prog, pcap_geterr(*pcap));
+			exit(1);
+		}
+		if (pcap_setfilter(*pcap, &prog_c) == -1) {
+			fprintf(stderr, "pcap_setfilter: %s\n", 
+			    pcap_geterr(*pcap));
+			exit(1);
+		}
+	}
+}
+
+static void
+init_flowtrack(struct FLOWTRACK *ft)
+{
+	/* Set up flow-tracking structure */
+	memset(ft, '\0', sizeof(*ft));
+	ft->next_flow_seq = 1;
+	RB_INIT(&ft->flows);
+	RB_INIT(&ft->expiries);
+	
+	ft->tcp_timeout = DEFAULT_TCP_TIMEOUT;
+	ft->tcp_rst_timeout = DEFAULT_TCP_RST_TIMEOUT;
+	ft->tcp_fin_timeout = DEFAULT_TCP_FIN_TIMEOUT;
+	ft->udp_timeout = DEFAULT_UDP_TIMEOUT;
+	ft->general_timeout = DEFAULT_GENERAL_TIMEOUT;
+	ft->maximum_lifetime = DEFAULT_MAXIMUM_LIFETIME;
+}
+
+static char *
+argv_join(int argc, char **argv)
+{
+	int i;
+	size_t ret_len;
+	char *ret;
+
+	ret_len = 0;
+	ret = NULL;
+	for (i = 0; i < argc; i++) {
+		ret_len += strlen(argv[i]);
+		if (i != 0)
+			ret_len++; /* Make room for ' ' */
+		if ((ret = realloc(ret, ret_len + 1)) == NULL) {
+			fprintf(stderr, "Memory allocation failed.\n");
+			exit(1);
+		}
+		if (i == 0)
+			ret[0] = '\0';
+		else
+			strncat(ret, " ", ret_len + 1);
+			
+		strncat(ret, argv[i], ret_len + 1);
+	}
+
+	return (ret);
+}
+
+static void
+print_timeouts(struct FLOWTRACK *ft, FILE *out)
+{
+	fprintf(out, "           TCP timeout: %ds\n", ft->tcp_timeout);
+	fprintf(out, "  TCP post-RST timeout: %ds\n", ft->tcp_rst_timeout);
+	fprintf(out, "  TCP post-FIN timeout: %ds\n", ft->tcp_fin_timeout);
+	fprintf(out, "           UDP timeout: %ds\n", ft->udp_timeout);
+	fprintf(out, "       General timeout: %ds\n", ft->general_timeout);
+	fprintf(out, "      Maximum lifetime: %ds\n", ft->maximum_lifetime);
+}
+
+/* Display commandline usage information */
+static void
+usage(void)
+{
+	fprintf(stderr, "Usage: %s [options] [bpf_program]\n", PROGNAME);
+	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
+	fprintf(stderr, "  -i interface    Specify interface to listen on\n");
+	fprintf(stderr, "  -r pcap_file    Specify packet capture file to read\n");
+	fprintf(stderr, "  -t timeout=time Specify names timeout\n");
+	fprintf(stderr, "  -m max_flows    Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
+	fprintf(stderr, "  -n host:port    Send Cisco NetFlow(tm)-compatible packets to host:port\n");
+	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
+	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
+	fprintf(stderr, "  -d              Don't daemonise\n");
+	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity\n");
+	fprintf(stderr, "  -h              Display this help\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Valid timeout names and default values:\n");
+	fprintf(stderr, "  tcp     (default %d)", DEFAULT_TCP_TIMEOUT);
+	fprintf(stderr, "  tcp.rst (default %d) ", DEFAULT_TCP_RST_TIMEOUT);
+	fprintf(stderr, "  tcp.fin (default %d)\n", DEFAULT_TCP_FIN_TIMEOUT);
+	fprintf(stderr, "  udp     (default %d) ", DEFAULT_UDP_TIMEOUT);
+	fprintf(stderr, "  general (default %d)", DEFAULT_GENERAL_TIMEOUT);
+	fprintf(stderr, "  maxlife (default %d)\n", DEFAULT_MAXIMUM_LIFETIME);
+	fprintf(stderr, "\n");
+}
+
+static void
+set_timeout(struct FLOWTRACK *ft, const char *to_spec)
+{
+	char *name, *value;
+	int timeout;
+
+	if ((name = strdup(to_spec)) == NULL) {
+		fprintf(stderr, "Out of memory\n");
+		exit(1);
+	}
+	if ((value = strchr(name, '=')) == NULL ||
+	    *(++value) == '\0') {
+		fprintf(stderr, "Invalid -t option.\n");
+		usage();
+		exit(1);
+	}
+	*(value - 1) = '\0';
+	timeout = atoi(value);
+	if (timeout <= 0 || timeout >= 65536) {
+		fprintf(stderr, "Invalid -t timeout.\n");
+		usage();
+		exit(1);
+	}
+	if (strcmp(name, "tcp") == 0)
+		ft->tcp_timeout = timeout;
+	else if (strcmp(name, "tcp.rst") == 0)
+		ft->tcp_rst_timeout = timeout;
+	else if (strcmp(name, "tcp.fin") == 0)
+		ft->tcp_fin_timeout = timeout;
+	else if (strcmp(name, "udp") == 0)
+		ft->udp_timeout = timeout;
+	else if (strcmp(name, "general") == 0)
+		ft->general_timeout = timeout;
+	else if (strcmp(name, "maxlife") == 0)
+		ft->maximum_lifetime = timeout;
+	else {
+		fprintf(stderr, "Invalid -t name.\n");
+		usage();
+		exit(1);
+	}
+
+	free(name);
+}
+
+static void
+parse_hostport(const char *s, struct sockaddr_in *addr)
+{
+	char *host, *port;
+
+	if ((host = strdup(s)) == NULL) {
+		fprintf(stderr, "Out of memory\n");
+		exit(1);
+	}
+	if ((port = strchr(host, ':')) == NULL || *(++port) == '\0') {
+		fprintf(stderr, "Invalid -n option.\n");
+		usage();
+		exit(1);
+	}
+	*(port - 1) = '\0';
+	addr->sin_family = AF_INET;
+	addr->sin_port = atoi(port);
+	if (addr->sin_port <= 0 || addr->sin_port >= 65536) {
+		fprintf(stderr, "Invalid -n port.\n");
+		usage();
+		exit(1);
+	}
+	addr->sin_port = htons(addr->sin_port);
+	if (inet_aton(host, &addr->sin_addr) == 0) {
+		fprintf(stderr, "Invalid -n host.\n");
+		usage();
+		exit(1);
+	}
+	free(host);
 }
 
 int
 main(int argc, char **argv)
 {
-	char *dev, *capfile, *hostport, *value;
+	char *dev, *capfile, *bpf_prog;
 	const char *pidfile_path, *ctlsock_path;
-	char ebuf[PCAP_ERRBUF_SIZE];
 	extern char *optarg;
-	int ch, timeout, dontfork_flag, r, linktype, nfsock, ctlsock;
-	int recheck_wait, max_flows;
-	socklen_t ctllen;
+	extern int optind;
+	int ch, dontfork_flag, linktype, nfsock, ctlsock, r;
+	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
-	struct sockaddr_in dest;
-	struct sockaddr_un ctl;
 	struct FLOWTRACK flowtrack;
+	struct sockaddr_in dest;
 	time_t next_expiry_check;
-	FILE *pidfile;
 	
 	memset(&dest, '\0', sizeof(dest));
 #ifdef SOCK_HAS_LEN 
 	dest.sin_len = sizeof(dest);
 #endif
 
+	init_flowtrack(&flowtrack);
+
+	bpf_prog = NULL;
 	nfsock = ctlsock = -1;
 	dev = capfile = NULL;
-	timeout = DEFAULT_TIMEOUT;
-	recheck_wait = DEFAULT_RECHECK_WAIT;
 	max_flows = DEFAULT_MAX_FLOWS;
 	pidfile_path = DEFAULT_PIDFILE;
 	ctlsock_path = DEFAULT_CTLSOCK;
@@ -1147,20 +1432,12 @@ main(int argc, char **argv)
 				exit(1);
 			}
 			capfile = optarg;
-			break;
-		case 'f':
-			if ((timeout = atoi(optarg)) < 0) {
-				fprintf(stderr, "Invalid timeout\n\n");
-				usage();
-				exit(1);
-			}
+			dontfork_flag = 1;
+			ctlsock_path = NULL;
 			break;
 		case 't':
-			if ((recheck_wait = atoi(optarg)) < 0) {
-				fprintf(stderr, "Invalid expiry check wait\n\n");
-				usage();
-				exit(1);
-			}
+			/* Will exit on failure */
+			set_timeout(&flowtrack, optarg); 
 			break;
 		case 'm':
 			if ((max_flows = atoi(optarg)) < 0) {
@@ -1170,37 +1447,17 @@ main(int argc, char **argv)
 			}
 			break;
 		case 'n':
-			if ((hostport = strdup(optarg)) == NULL) {
-				fprintf(stderr, "Out of memory\n");
-				exit(1);
-			}
-			if ((value = strchr(hostport, ':')) == NULL ||
-			    *(++value) == '\0') {
-				fprintf(stderr, "Invalid -n option.\n");
-				usage();
-				exit(1);
-			}
-			*(value - 1) = '\0';
-			dest.sin_family = AF_INET;
-			dest.sin_port = atoi(value);
-			if (dest.sin_port <= 0 || dest.sin_port >= 65536) {
-				fprintf(stderr, "Invalid -n port.\n");
-				usage();
-				exit(1);
-			}
-			dest.sin_port = htons(dest.sin_port);
-			if (inet_aton(hostport, &dest.sin_addr) == 0) {
-				fprintf(stderr, "Invalid -n host.\n");
-				usage();
-				exit(1);
-			}
-			free(hostport);
+			/* Will exit on failure */
+			parse_hostport(optarg, &dest);
 			break;
 		case 'p':
 			pidfile_path = optarg;
 			break;
 		case 'c':
-			ctlsock_path = optarg;
+			if (strcmp(optarg, "none") == 0)
+				ctlsock_path = NULL;
+			else
+				ctlsock_path = optarg;
 			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");
@@ -1214,81 +1471,29 @@ main(int argc, char **argv)
 		usage();
 		exit(1);
 	}
+	
+	/* join remaining arguments (if any) into bpf program */
+	bpf_prog = argv_join(argc - optind, argv + optind);
 
-	/* Set up flow-tracking structure */
-	memset(&flowtrack, '\0', sizeof(flowtrack));
-	flowtrack.next_flow_seq = 1;
-	RB_INIT(&flowtrack.flows);
-	RB_INIT(&flowtrack.expiries);
-
-	/* Open pcap */
-	if (dev != NULL) {
-		if ((pcap = pcap_open_live(dev, LIBPCAP_SNAPLEN, 
-		    1, 0, ebuf)) == NULL) {
-			fprintf(stderr, "pcap_open_live: %s\n", ebuf);
-			exit(1);
-		}
-	} else {
-		if ((pcap = pcap_open_offline(capfile, ebuf)) == NULL) {
-			fprintf(stderr, "pcap_open_offline(%s): %s\n", capfile, 
-			    ebuf);
-			exit(1);
-		}
-	}
-	linktype = pcap_datalink(pcap);
-	if (datalink_skip(linktype, NULL, 0) == -1) {
-		fprintf(stderr, "Unsupported datalink type %d\n", linktype);
-		exit(1);
-	}
-
+	/* Will exit on failure */
+	setup_packet_capture(&pcap, &linktype, dev, capfile, bpf_prog);
+	
 	/* Netflow send socket */
-	if (dest.sin_family != 0) {
-		if ((nfsock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-			fprintf(stderr, "socket() error: %s\n", 
-			    strerror(errno));
-			exit(1);
-		}
-		if (connect(nfsock, (struct sockaddr*)&dest, sizeof(dest)) == -1) {
-			fprintf(stderr, "connect() error: %s\n",
-			    strerror(errno));
-			exit(1);
-		}
-	}
+	if (dest.sin_family != 0)
+		nfsock = connsock(&dest); /* Will exit on fail */
 	
 	/* Control socket */
-	if (ctlsock_path != NULL) {
-		memset(&ctl, '\0', sizeof(ctl));
-		strncpy(ctl.sun_path, ctlsock_path, sizeof(ctl.sun_path));
-		ctl.sun_path[sizeof(ctl.sun_path) - 1] = '\0';
-		ctl.sun_family = AF_UNIX;
-		ctllen = offsetof(struct sockaddr_un, sun_path) +
-                    strlen(ctlsock_path) + 1;
-#ifdef SOCK_HAS_LEN 
-		ctl.sun_len = socklen;
-#endif
-		if ((ctlsock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-			fprintf(stderr, "ctl socket() error: %s\n", 
-			    strerror(errno));
-			exit(1);
-		}
-		unlink(ctlsock_path);
-		if (bind(ctlsock, (struct sockaddr*)&ctl, sizeof(ctl)) == -1) {
-			fprintf(stderr, "ctl bind(\"%s\") error: %s\n",
-			    ctl.sun_path, strerror(errno));
-			exit(1);
-		}
-		if (listen(ctlsock, 64) == -1) {
-			fprintf(stderr, "ctl listen() error: %s\n",
-			    strerror(errno));
-			exit(1);
-		}
-	}
+	if (ctlsock_path != NULL)
+		ctlsock = unix_listener(ctlsock_path); /* Will exit on fail */
 	
 	if (dontfork_flag) {
 		openlog(PROGNAME, LOG_PID|LOG_PERROR, LOG_DAEMON);
 	} else {	
+		FILE *pidfile;
+
 		daemon(0, 0);
 		openlog(PROGNAME, LOG_PID, LOG_DAEMON);
+
 		if ((pidfile = fopen(pidfile_path, "w")) == NULL) {
 			fprintf(stderr, "Couldn't open pidfile %s: %s\n",
 			    pidfile_path, strerror(errno));
@@ -1296,23 +1501,19 @@ main(int argc, char **argv)
 		}
 		fprintf(pidfile, "%u\n", getpid());
 		fclose(pidfile);
-	}
 
-	signal(SIGINT, sighand_graceful_shutdown);
-	signal(SIGTERM, sighand_exit);
-	signal(SIGHUP, sighand_purge);
-	signal(SIGUSR1, sighand_delete);
-	signal(SIGUSR2, sighand_dump_stats);
-	/* Only catch SEGV when daemonised */
-	if (!dontfork_flag)
+		signal(SIGINT, sighand_graceful_shutdown);
+		signal(SIGTERM, sighand_graceful_shutdown);
 		signal(SIGSEGV, sighand_other);
+	}
 
 	syslog(LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
 
 	/* Main processing loop */
-	next_expiry_check = time(NULL) + recheck_wait;
+	exit_request = stop_collection_flag = 0;
+	next_expiry_check = time(NULL) + EXPIRY_WAIT;
 	for(;;) {
-		struct CB_CTXT cb_ctxt = {&flowtrack, timeout, linktype};
+		struct CB_CTXT cb_ctxt = {&flowtrack, linktype};
 		struct pollfd pl[2];
 
 		/*
@@ -1321,15 +1522,18 @@ main(int argc, char **argv)
 		 */
 		r = 0;
 		if (capfile == NULL) { 
-			pl[0].fd = pcap_fileno(pcap);
-			pl[0].events = POLLIN|POLLERR|POLLHUP;
-			pl[0].revents = 0;
 			pl[1].fd = ctlsock;
 			pl[1].events = POLLIN|POLLERR|POLLHUP;
 			pl[1].revents = 0;
+
+			pl[0].fd = pcap_fileno(pcap);
+			pl[0].events = POLLIN|POLLERR|POLLHUP;
+			pl[0].revents = 0;
+			if (stop_collection_flag)
+				pl[0].events = 0;
+
 			/* Iterate mainloop twice per recheck */
-			r = poll(pl, (ctlsock == -1) ? 1U : 2U,
-			    recheck_wait * 1000 / 2);
+			r = poll(pl, (ctlsock == -1) ? 1U : 2U, POLL_WAIT);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
@@ -1337,15 +1541,84 @@ main(int argc, char **argv)
 			}
 		}
 
+#if 0
+		syslog(LOG_DEBUG, "Post poll ctl = %x pcap = %x",
+		    pl[1].revents, pl[0].revents);
+#endif
+
 		/* Accept connection on control socket if present */
 		if (ctlsock != -1 && pl[1].revents != 0) {
+			FILE *ctlf;
+
 			if ((r = accept(ctlsock, NULL, NULL)) == -1) {
 				syslog(LOG_ERR, "ctl accept %s - exiting",
 				    strerror(errno));
 				break;
 			}
-			accept_control(r);
+			if ((ctlf = fdopen(r, "r+")) == NULL) {
+				syslog(LOG_ERR, "fdopen: %s\n", strerror(errno));
+				return (-1);
+			}
+			setlinebuf(ctlf);
+			switch (accept_control(ctlf)) {
+			case CTL_SHUTDOWN:
+				fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
+				graceful_shutdown_request = 1;
+				break;
+			case CTL_EXIT:
+				fprintf(ctlf, "softflowd[%u]: Exiting now...\n", getpid());
+				exit_request = 1;
+				break;
+			case CTL_EXPIRE_NOW:
+				fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", 
+				    getpid(), check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL));
+				break;
+			case CTL_DELETE_ALL:
+				fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", 
+				    getpid(), delete_all_flows(&flowtrack));
+				break;
+			case CTL_STATISTICS:
+				fprintf(ctlf, "softflowd[%u]: Accumulated statistics:\n", getpid());
+				statistics(&flowtrack, ctlf);
+				break;
+			case CTL_INCREASE_DEBUG:
+				fprintf(ctlf, "softflowd[%u]: Debug level increased.\n", getpid());
+				verbose_flag = 1;
+				break;
+			case CTL_DECREASE_DEBUG:
+				fprintf(ctlf, "softflowd[%u]: Debug level decreased.\n", getpid());
+				verbose_flag = 0;
+				break;
+			case CTL_STOP_COLLECTION:
+				fprintf(ctlf, "softflowd[%u]: Data collection stopped.\n", getpid());
+				stop_collection_flag = 1;
+				pl[0].revents = 0;
+				break;
+			case CTL_START_COLLECTION:
+				fprintf(ctlf, "softflowd[%u]: Data collection resumed.\n", getpid());
+				stop_collection_flag = 0;
+				break;
+			case CTL_DUMP_FLOWS:
+				fprintf(ctlf, "softflowd[%u]: Dumping flow data:\n", getpid());
+				dump_flows(&flowtrack, ctlf);
+				break;
+			case CTL_TIMEOUTS:
+				fprintf(ctlf, "softflowd[%u]: Printing timeouts:\n", getpid());
+				print_timeouts(&flowtrack, ctlf);
+				break;
+			}
+			fclose(ctlf);
 			close(r);
+		}
+
+		/* Flags set by signal handlers or control socket */
+		if (graceful_shutdown_request) {
+			syslog(LOG_WARNING, "Shutting down on user request");
+			break;
+		}
+		if (exit_request) {
+			syslog(LOG_WARNING, "Exiting immediately on user request");
+			break;
 		}
 
 		/* If we have data, run it through libpcap */
@@ -1369,31 +1642,6 @@ main(int argc, char **argv)
 			break;
 		}
 
-		/* Flags set by signal handlers */
-		if (graceful_shutdown_request) {
-			syslog(LOG_WARNING, "Shutting down on user request");
-			break;
-		}
-		if (exit_request) {
-			syslog(LOG_WARNING, "Exiting immediately on user request");
-			break;
-		}
-		if (purge_flows) {
-			syslog(LOG_NOTICE, "Purging flows on user request");
-			purge_flows = 0;
-			check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
-		}
-		if (delete_flows) {
-			syslog(LOG_NOTICE, "Deleting all flows on user request");
-			delete_flows = 0;
-			delete_all_flows(&flowtrack);
-		}
-		if (dump_stats) {
-			syslog(LOG_INFO, "Dumping statistics");
-			dump_stats = 0;
-			log_stats(&flowtrack);
-		}
-
 		/*
 		 * Expiry processing happens every recheck_rate seconds
 		 * or whenever we have exceeded the maximum number of active 
@@ -1408,7 +1656,7 @@ expiry_check:
 			 * expire flows when the flow table is full. 
 			 */
 			if (check_expired(&flowtrack, nfsock, 
-			    capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) != 0)
+			    capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) < 0)
 				syslog(LOG_WARNING, "Unable to export flows");
 	
 			/*
@@ -1419,19 +1667,20 @@ expiry_check:
 				force_expire(&flowtrack, flowtrack.num_flows - max_flows);
 				goto expiry_check;
 			}
-			next_expiry_check = time(NULL) + recheck_wait;
+			next_expiry_check = time(NULL) + EXPIRY_WAIT;
 		}
 	}
 
 	if (graceful_shutdown_request)
 		check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
 
+	if (capfile != NULL && dontfork_flag)
+		statistics(&flowtrack, stdout);
+
 	pcap_close(pcap);
 	
 	if (nfsock != -1)
 		close(nfsock);
-
-	log_stats(&flowtrack);
 
 	unlink(pidfile_path);
 	if (ctlsock_path != NULL)

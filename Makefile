@@ -9,7 +9,7 @@ WARNFLAGS=\
 LIBS=-lpcap #-lefence
 LDFLAGS=-g
 
-CFLAGS=-g -O $(WARNFLAGS)
+CFLAGS=-g -O $(WARNFLAGS) -I/usr/include/pcap
 
 TARGETS=softflowd softflowctl
 

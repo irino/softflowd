@@ -27,51 +27,61 @@
 .Os
 .Sh NAME
 .Nm softflowd
-.Nd Traffic flow accounting compatible with Cisco NetFlow(tm)
+.Nd Traffic flow monitoring
 .Sh SYNOPSIS
 .Nm softflowd
-.Op Fl dDH
+.Op Fl dDh
 .Op Fl i Ar interface
 .Op Fl r Ar pcap_file
-.Op Fl f Ar timeout
-.Op Fl t Ar check_wait
+.Op Fl t Ar timeout_name=seconds
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
 .Op Fl c Ar ctl_sock
+.Op bpf_program
 .Sh DESCRIPTION
 .Nm
-is a software implementation of a flow-based network traffic accounting
-collector. 
+is a software implementation of a flow-based network traffic monitor. 
 .Nm
-listens on a promiscuous network interface (using
-.Xr pcap 3 )
-and gathers information about active traffic flows. 
+reads network traffic and gathers information about active traffic flows. 
 A "traffic flow" is 
 communication between two IP addresses or (if the overlying protocol is 
-TCP or UDP) IP address/port number tuples. 
+TCP or UDP) address/port tuples. 
+.Pp
+Network traffic may be obtained by listening on a promiscuous network
+interface or by reading stored
+.Xr pcap 3
+files, such as those written by 
+.Xr tcpdump 8 .
+Traffic may be filtered with an optional
+.Xr bpf 4
+program, specified on the command-line as
+.Ar bpf_prog .
 .Pp
 .Nm
-will aggregate data within specific flow during their lifetime. When the
-flow has been quiescent for at least 
-.Ar timeout
-seconds (default: 1 hour) the flow is expired automatically. Flows may also
-be expired early if they approach their traffic counts exceed 2Gb or if
-the number of flows being tracked exceeds 
+tries to track only active traffic flows. When the
+flow has been quiescent for a period of time it is expired automatically. 
+Flows may also be expired early if they approach their traffic counts 
+exceed 2Gb or if the number of flows being tracked exceeds 
 .Ar max_flows
 (default: 8192). In this last case, flows are expired oldest-first. 
 Flow expiry checking is done every 
 .Ar check_wait
 seconds (default: 8).
 .Pp
-On flow expiry, the gathered statistics are formatted in a UDP datagram 
+Upon expiry, the flow information is accumulated into statistics which may
+be viewed using 
+.Xr softflowctl 8 .
+If the 
+.Fl n
+option has been specified the flow informaion is formatted in a UDP datagram 
 which is compatible with version 1 of Cisco's NetFlow(tm) accounting export
 format. These records are sent to the specified
 .Ar host
 and
 .Ar port .
 .Pp
-The commandline options are as follows:
+The command-line options are as follows:
 .Bl -tag -width Ds
 .It Fl n Ar host:port
 Specify the 
@@ -98,22 +108,18 @@ file rather than a network interface.
 .Nm
 processes the whole capture file and only expires flows when 
 .Ar max_flows
-is exceeded.
-.It Fl f Ar timeout
-This option specifies the number of seconds that a flow must be quiescent
-(no traffic recorded) before it is considered expired. The default is one
-hour (3600 seconds).
+is exceeded. In this mode, 
+.Nm
+will not fork and will automatically print summary statistics before 
+exiting.
 .It Fl p Ar pidfile
 Specify an alternate location to store the process-id when in daemon mode.
 Default is 
 .Pa /var/run/softflowd.pid
-.It Fl t Ar check_wait
-Specify how often checks for expired events occur. Unless the flow table
-is overfull, 
-.Nm
-will check the table evern
-.Ar check_wait
-seconds looking for expired flows.
+.It Fl c Ar ctlsock
+Specify an alternate location for the remote control socket in daemon mode.
+Default is 
+.Pa /var/run/softflowd.pid
 .It Fl m Ar max_flows
 Specifies the maximum number of flow to concurrently track. If this  limit
 is exceeded, the flows which have least recently seen traffic are forcibly
@@ -121,6 +127,15 @@ expired. In practice, the actual maximum may briefly exceed this limit by a
 small amount as  expiry processing happens less frequently than traffic
 collection. The default is 8192 flows, which corresponds to slightly less
 than 800k of working data.
+.It Fl t Ar timeout_name=time
+Set the timeout names
+.Ar timeout_name
+to 
+.Ar time 
+in seconds.
+Refer to the 
+.Sx TIMEOUTS
+section for the valid timeout names and their meanings.
 .It Fl d
 Specify that 
 .Nm
@@ -135,41 +150,83 @@ flag and turns on additional debugging output.
 Displays commandline usage information.
 .El
 .Pp
-While 
+.Sh TIMEOUTS
 .Nm
-is running, it may be controlled by sending signals, e.g. using 
-.Xr kill 1 .
-For this purpose, 
-.Nm 
-creates a 
-.Pa /var/run/softflowd.pid
-file containing its process-id when in daemon mode. The signals accepted 
-by 
-.Nm
-are:
+will expire quiescent flows after user-configurable periods. The exact 
+timeout used depends on the nature of the flow. The various timeouts 
+that may be set from the command-line (using the 
+.Fl t 
+option) and their meanings are:
 .Bl -tag -width Ds
-.It Ar SIGHUP
-Immediately expire and export all flows. This option is useful to clear
-the daemon at the end of a reporting period.
-.It Ar SIGINT
-Terminate gracefully. Upon receipt of a 
-.Ar SIGINT ,
-.Nm 
-will expire and export all flows and shut down.
-.It Ar SIGTERM
-Exit immediately without exporting flows.
-.It Ar SIGUSR1
-Immediately forget all accumulated flows (without exporting them).
-.It Ar SIGUSR2
-Log summary statistics. In verbose mode, this will also log all accumulated
-flows and their associated expiry events.
+.It Ar general
+This is the general timeout applied to all traffic unless overridden by 
+one of the other timeouts.
+.It Ar tcp
+This is the general TCP timeout, applied to open TCP connections.
+.It Ar tcp.rst
+This timeout is applied to a TCP connection when a RST packet has been 
+sent by one or both endpoints.
+.It Ar tcp.fin
+This timeout is applied to a TCP connection when a FIN packet has been
+sent by both endpoints.
+.It Ar udp
+This is the general UDP timeout, applied to all UDP connections.
+.It Ar maxlife
+This is the maximum lifetime that a flow may exist for. All flows 
+are forcibly expired when they pass
+.Ar maxlife
+seconds. To disable this feature, specify a 
+.Ar maxlife
+of 0.
 .El
 .Pp
-Receipt of any other signal will result in immediate exit.
+Flows may also be expired if there are not enough flow entries to hold them
+or if their traffic exceeds 2Gb in either direction. 
+.Xr softflowctl 8
+may be used to print information on the average lifetimes of flows and 
+the reasons for their expiry.
+.Sh RUN-TIME CONTROL
+A daemonised
+.Nm
+instance may be controlled using the 
+.Xr softflowctl 8
+command. This interface allows one to shut down the daemon, force expiry of
+all tracked flows and extract debugging and summary data. Also, upon 
+receipt of a 
+.Dv SIGTERM
+or 
+.DV SIGINT
+.Nm
+will cause 
+.Nm
+to exit, after expiring all flows (and thus sending flow export packets 
+if 
+.Fl -n 
+was specified on the commandline). If you do not want to export flows upon
+shutdown, clear them first with
+.Xr softflowctl 8 .
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa /var/run/softflowd.pid
+This file stores the process-id when
+.Nm
+is in daemon mode. This location may be overridden using the 
+.Fl p
+command-line option.
+.It Pa /var/run/softflowd.ctl
+This is the remote control socket. 
+.Nm 
+listens on this socket for commands from 
+.Xr softflowctl 8 . This location may be overridden using the 
+.Fl c
+command-line option.
+.El
 .Sh AUTHORS
 Damien Miller <djm@mindrot.org>
 .Sh SEE ALSO
+.Xr softflowctl 8 ,
 .Xr tcpdump 8 ,
-.Xr pcap 3 
+.Xr pcap 3 ,
+.Xr bpf 4
 .Bd -literal
 http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm

@@ -1,0 +1,25 @@
+Welcome to softflowd, a flow-based network monitor. 
+
+More details about softflowd's function and usage may be found in the
+supplied manpages, which you can view prior to installation using 
+
+/usr/bin/nroff -c -mandoc softflowd.8 | less
+/usr/bin/nroff -c -mandoc softflowctl.8 | less
+
+Building softflowd should be as simple as typing "make". Unfortunately 
+some systems like to make life complicated. Things work fine on the 
+systems that I develop and test on (OpenBSD 3.1/3.2 and Redhat Linux 
+7.3/8.0).
+
+Softflowd derives from an earlier project of mine: traffic-vis. 
+Unfortunately traffic-vis is many years stale, not designed for speed and
+was written by a younger, less experienced version of myself.
+
+Softflowd itself is licensed under a two-term BSD license (see the source
+files for details). The code in sys-tree.h is Copyright 2002 Niels Provos
+<provos@citi.umich.edu> and comes straight from OpenBSD CVS - the license
+is identical.
+
+If you have any feedback or questions, please email me:
+
+Damien Miller <djm@mindrot.org>
