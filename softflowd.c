@@ -1111,7 +1111,7 @@ main(int argc, char **argv)
 			    pidfile_path, strerror(errno));
 			exit(1);
 		}
-		fprintf(pidfile, "%u", getpid());
+		fprintf(pidfile, "%u\n", getpid());
 		fclose(pidfile);
 	}
 
