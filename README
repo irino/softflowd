@@ -23,6 +23,8 @@ and comes straight from OpenBSD CVS, convtime.c comes is Copyright 2001
 Kevin Steves and comes from OpenSSH (misc.c). Both of these files are 
 licensed under two-term BSD licenses too.
 
-If you have any feedback or questions, please email me:
+Please report bugs in softflowd to http://bugzilla.mindrot.org/ If you find
+a security bug, please report it directly by email. If you have any feedback
+or questions, please email me: 
 
 Damien Miller <djm@mindrot.org>
