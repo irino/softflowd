@@ -17,22 +17,22 @@ use Getopt::Long;
 
 sub timestamp()
 {
-	return strftime "%02Y/%02m/%02d-%02H:%02M:%02S", localtime;
+	return strftime "%02Y-%02m-%02dT%02H:%02M:%02S", localtime;
 }
 
 sub do_listen($)
 {
 	my $port = shift
 		or confess "No UDP port specified";
-        my $socket = IO::Socket::INET -> new (
-	    Proto => 'udp', LocalPort => $port)
+        my $socket = IO::Socket::INET->new (Proto=>'udp', LocalPort=>$port)
 		or croak "Couldn't open UDP socket: $!";
 
 	return $socket;
 }
 
-sub process_nf_v1($)
+sub process_nf_v1($$)
 {
+	my $sender = shift;
 	my $pkt = shift;
 	my %header;
 	my %flow;
@@ -69,104 +69,12 @@ sub process_nf_v1($)
 		$flow{dst} = sprintf "%u.%u.%u.%u", $dst1, $dst2, $dst3, $dst4;
 		$flow{nxt} = sprintf "%u.%u.%u.%u", $nxt1, $nxt2, $nxt3, $nxt4;
 
-		printf timestamp() .
-		    "     %16s:%6u %16s:%6u %3u %10u %10u\n",
+		printf timestamp() . " " .
+		    "from %s proto %u %s:%u > %s:%u %u packets %u octets\n",
+		    inet_ntoa($sender), 
+		    $flow{protocol}, 
 		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
-		    $flow{protocol}, $flow{pkts}, $flow{bytes};
-	}
-}
-
-sub process_nf_v5($)
-{
-	my $pkt = shift;
-	my %header;
-	my %flow;
-	
-	%header = qw();
-
-	($header{ver}, $header{flows}, $header{uptime}, $header{secs}, 
-	 $header{nsecs}, $header{seq}, $header{engine_type}, 
-	 $header{engine_id}) = unpack("nnNNNNCC", $pkt);
-
-	if (length($pkt) < (24 + (48 * $header{flows}))) {
-		printf STDERR timestamp()." Short Netflow v.5 packet: %d < %d\n",
-		    length($pkt), 24 + (48 * $header{flows});
-		return;
-	}
-
-	printf timestamp() . " HEADER v.%u (%u flow%s)\n", $header{ver},
-	    $header{flows}, $header{flows} == 1 ? "" : "s";
-
-	for(my $i = 0; $i < $header{flows}; $i++) {
-		my $off = 24 + (48 * $i);
-		my $ptr = substr($pkt, $off, 52);
-
-		%flow = qw();
-
-		(my $src1, my $src2, my $src3, my $src4,
-		 my $dst1, my $dst2, my $dst3, my $dst4, 
-		 my $nxt1, my $nxt2, my $nxt3, my $nxt4, 
-		 $flow{in_ndx}, $flow{out_ndx}, $flow{pkts}, $flow{bytes}, 
-		 $flow{start}, $flow{finish}, $flow{src_port}, $flow{dst_port}, 
-		 my $pad1, $flow{tcp_flags}, $flow{protocol}, $flow{tos}, 
-		 $flow{src_as}, $flow{dst_as}, $flow{src_mask}, 
-		 $flow{dst_mask}) = unpack("CCCCCCCCCCCCnnNNNNnnCCCCnnCC", $ptr);
-
-		$flow{src} = sprintf "%u.%u.%u.%u", $src1, $src2, $src3, $src4;
-		$flow{dst} = sprintf "%u.%u.%u.%u", $dst1, $dst2, $dst3, $dst4;
-		$flow{nxt} = sprintf "%u.%u.%u.%u", $nxt1, $nxt2, $nxt3, $nxt4;
-
-		printf timestamp() .
-		    "     %16s:%6u %16s:%6u %3u %10u %10u\n",
-		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
-		    $flow{protocol}, $flow{pkts}, $flow{bytes};
-	}
-}
-
-sub process_nf_v7($)
-{
-	my $pkt = shift;
-	my %header;
-	my %flow;
-	
-	%header = qw();
-
-	($header{ver}, $header{flows}, $header{uptime}, $header{secs}, 
-	 $header{nsecs}, $header{seq}) = unpack("nnNNNNCC", $pkt);
-
-	if (length($pkt) < (24 + (52 * $header{flows}))) {
-		printf STDERR timestamp()." Short Netflow v.7 packet: %d < %d\n",
-		    length($pkt), 24 + (52 * $header{flows});
-		return;
-	}
-
-	printf timestamp() . " HEADER v.%u (%u flow%s)\n", $header{ver},
-	    $header{flows}, $header{flows} == 1 ? "" : "s";
-
-	for(my $i = 0; $i < $header{flows}; $i++) {
-		my $off = 24 + (52 * $i);
-		my $ptr = substr($pkt, $off, 52);
-
-		%flow = qw();
-
-		(my $src1, my $src2, my $src3, my $src4,
-		 my $dst1, my $dst2, my $dst3, my $dst4, 
-		 my $nxt1, my $nxt2, my $nxt3, my $nxt4, 
-		 $flow{in_ndx}, $flow{out_ndx}, $flow{pkts}, $flow{bytes}, 
-		 $flow{start}, $flow{finish}, $flow{src_port}, $flow{dst_port}, 
-		 $flow{flags1}, $flow{tcp_flags}, $flow{protocol}, 
-		 $flow{tos}, $flow{src_as}, $flow{dst_as}, $flow{src_mask}, 
-		 $flow{dst_mask}, $flow{flags2}, $flow{bypassed}) =
-		     unpack("CCCCCCCCCCCCnnNNNNnnCCCCnnCCnN", $ptr);
-
-		$flow{src} = sprintf "%u.%u.%u.%u", $src1, $src2, $src3, $src4;
-		$flow{dst} = sprintf "%u.%u.%u.%u", $dst1, $dst2, $dst3, $dst4;
-		$flow{nxt} = sprintf "%u.%u.%u.%u", $nxt1, $nxt2, $nxt3, $nxt4;
-
-		printf timestamp() .
-		    "     %16s:%6u %16s:%6u %3u %10u %10u\n",
-		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
-		    $flow{protocol}, $flow{pkts}, $flow{bytes};
+		    $flow{pkts}, $flow{bytes};
 	}
 }
 
@@ -192,6 +100,8 @@ for (;;) {
 	my $ver;
 	my $failcount = 0;
 	my $netflow;
+	my $junk;
+	my $sender;
 
 	# Open the listening port if we haven't already
 	$socket = do_listen($port) unless defined $socket;
@@ -199,6 +109,8 @@ for (;;) {
 	# Fetch a packet
 	$from = $socket->recv($payload, 8192, 0);
 	
+	($junk, $sender) = unpack_sockaddr_in($from);
+
 	# Reopen listening socket on error
 	if (!defined $from) {
 		$socket->close;
@@ -218,9 +130,7 @@ for (;;) {
 	# The version is always the first 16 bits of the packet
 	($ver) = unpack("n", $payload);
 
-	if	($ver == 1)	{ process_nf_v1($payload); }
-	elsif	($ver == 5)	{ process_nf_v5($payload); }
-	elsif	($ver == 7)	{ process_nf_v7($payload); }
+	if	($ver == 1)	{ process_nf_v1($sender, $payload); }
 	else {
 		printf STDERR timestamp()." Unsupported netflow version %d\n",
 		    $ver;
