@@ -15,6 +15,7 @@
  - (djm) More flow export fixes
  - (djm) Tidy manpage and mention v6 export syntax
  - (djm) Unbreak Solaris, pass socklen around instead of using sa_len
+ - (djm) Unbreak "make install"
 
 20040415
  - (djm) Clear socket errors before UDP send; from pfflowd
