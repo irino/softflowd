@@ -78,7 +78,6 @@ struct FLOWTRACK {
 	u_int64_t next_flow_seq;		/* Next flow ID */
 
 	/* Stuff related to flow export */
-	int export_ver;				/* NetFlow packet format */
 	struct timeval system_boot_time;	/* SysUptime */
 	
 	/* Flow timeouts */

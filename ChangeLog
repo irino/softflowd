@@ -1,5 +1,11 @@
 20040913
  - (djm) Split out netflow send functions into separate files
+ - (djm) Switch to a table of netflow exporter functions in preparation for 
+   additional export protocols
+ - (djm) Collect netflow export target information together in a struct, in 
+   preparation for more export protocols and support for multiple export targets
+ - (djm) Optimise the datalink_check function, by caching the last datalink type
+   used.
 
 20040909
  - (djm) Implement IPv6 flow tracking. Currently no export functionality.
