@@ -714,12 +714,12 @@ delete_all_flows(struct FLOWTRACK *ft)
 }
 
 /*
- * Log our current status. 
+ * Dump our current status. 
  * Includes summary counters and (in verbose mode) the list of current flows
  * and the queue of expiry events.
  */
 static int
-log_stats(struct FLOWTRACK *ft)
+dump_flows(struct FLOWTRACK *ft)
 {
 	struct FLOW *flow;
 	struct EXPIRY *expiry;
@@ -1091,7 +1091,7 @@ main(int argc, char **argv)
 		if (dump_stats) {
 			syslog(LOG_INFO, "Dumping statistics");
 			dump_stats = 0;
-			log_stats(&flowtrack);
+			dump_flows(&flowtrack);
 		}
 
 		/*
@@ -1122,8 +1122,6 @@ expiry_check:
 
 	pcap_close(pcap);
 	close(sock);
-
-	log_stats(&flowtrack);
 	
 	exit(r == 0 ? 0 : 1);
 }
