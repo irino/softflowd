@@ -698,7 +698,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	}
 
 	if (verbose_flag)
-		syslog(LOG_DEBUG, "Finished scan %d flow to be evicted", ex);
+		syslog(LOG_DEBUG, "Finished scan %d flow(s) to be evicted", num_expired);
 	
 	/* Processing for expired flows */
 	if (num_expired > 0) {
