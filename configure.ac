@@ -70,6 +70,16 @@ AC_CHECK_MEMBER([struct sockaddr.sa_len],
 	[#include <sys/types.h>
 	 #include <sys/socket.h>])
 
+AC_CHECK_MEMBER(struct ip6_ext.ip6e_nxt,
+	[AC_DEFINE([HAVE_STRUCT_IP6_EXT], 1, [struct ip6_ext.ip6e_nxt exists])],
+	[],
+	[
+		#include <sys/types.h>
+		#include <sys/socket.h>
+		#include <netinet/in.h>
+		#include <netinet/ip6.h>
+	])
+
 AC_SEARCH_LIBS(daemon, bsd)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)

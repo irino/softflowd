@@ -1,3 +1,7 @@
+20041109
+ - (djm) Test for struct ip6_ext in autoconf and define a replacement if 
+   missing, some systems lack it
+
 20040930
  - (djm) Increase caplen a little for IPv6
  - (djm) Remove unused debugging code from NetFlow v.9 support

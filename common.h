@@ -158,4 +158,11 @@ size_t strlcat(char *dst, const char *src, size_t siz);
 void closefrom(int lowfd);
 #endif
 
+#ifndef HAVE_STRUCT_IP6_EXT
+struct ip6_ext {
+	u_int8_t ip6e_nxt;
+	u_int8_t ip6e_len;
+} __packed;
+#endif
+
 #endif /* _SFD_COMMON_H */
