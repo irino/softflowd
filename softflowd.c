@@ -1308,7 +1308,7 @@ usage(void)
 	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
 	fprintf(stderr, "  -i interface    Specify interface to listen on\n");
 	fprintf(stderr, "  -r pcap_file    Specify packet capture file to read\n");
-	fprintf(stderr, "  -t timeout=time Specify names timeout\n");
+	fprintf(stderr, "  -t timeout=time Specify named timeout\n");
 	fprintf(stderr, "  -m max_flows    Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
 	fprintf(stderr, "  -n host:port    Send Cisco NetFlow(tm)-compatible packets to host:port\n");
 	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
@@ -1339,7 +1339,7 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 	}
 	if ((value = strchr(name, '=')) == NULL ||
 	    *(++value) == '\0') {
-		fprintf(stderr, "Invalid -t option.\n");
+		fprintf(stderr, "Invalid -t option \"%s\".\n", name);
 		usage();
 		exit(1);
 	}
