@@ -58,34 +58,6 @@ struct NF5_FLOW {
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
 
 /*
- * This is the Cisco Netflow(tm) version 1 packet format
- * Based on:
- * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
- */
-struct NF1_HEADER {
-	u_int16_t version, flows;
-	u_int32_t uptime_ms, time_sec, time_nanosec;
-};
-struct NF1_FLOW {
-	u_int32_t src_ip, dest_ip, nexthop_ip;
-	u_int16_t if_index_in, if_index_out;
-	u_int32_t flow_packets, flow_octets;
-	u_int32_t flow_start, flow_finish;
-	u_int16_t src_port, dest_port;
-	u_int16_t pad1;
-	u_int8_t protocol, tos, tcp_flags;
-	u_int8_t pad2, pad3, pad4;
-	u_int32_t reserved1;
-#if 0
- 	u_int8_t reserved2; /* XXX: no longer used */
-#endif
-};
-/* Maximum of 24 flows per packet */
-#define NF1_MAXFLOWS		24
-#define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
-				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
-
-/*
  * Given an array of expired flows, send netflow v5 report packets
  * Returns number of packets sent or -1 on error
  */

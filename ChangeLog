@@ -2,7 +2,8 @@
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
    them for now), print addresses:port tuples unambiguously and apply correct 
    timeout for ICMPv6 flows
-
+ - (djm) Remove NetFlow v.1 types from NetFlow v.5 code
+ 
 20040913
  - (djm) Split out netflow send functions into separate files
  - (djm) Switch to a table of netflow exporter functions in preparation for 
