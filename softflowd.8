@@ -57,7 +57,8 @@ system.
 supports data export using version 1 of the NetFlow protocol. 
 .Nm 
 can also run in statistics-only mode, where it just collects summary 
-information. Currently, too few statistics are collected to make this
+information.
+Currently, too few statistics are collected to make this
 mode really useful.
 .Pp
 Network traffic may be obtained by listening on a promiscuous network
@@ -71,12 +72,14 @@ program, specified on the command-line as
 .Ar bpf_prog .
 .Pp
 .Nm
-tries to track only active traffic flows. When the
+tries to track only active traffic flows.
+When the
 flow has been quiescent for a period of time it is expired automatically. 
 Flows may also be expired early if they approach their traffic counts 
 exceed 2Gb or if the number of flows being tracked exceeds 
 .Ar max_flows
-(default: 8192). In this last case, flows are expired oldest-first. 
+(default: 8192).
+In this last case, flows are expired oldest-first. 
 .Pp
 Upon expiry, the flow information is accumulated into statistics which may
 be viewed using 
@@ -85,7 +88,8 @@ If the
 .Fl n
 option has been specified the flow informaion is formatted in a UDP datagram 
 which is compatible with version 1 of Cisco's NetFlow(tm) accounting export
-format. These records are sent to the specified
+format.
+These records are sent to the specified
 .Ar host
 and
 .Ar port .
@@ -95,11 +99,19 @@ The command-line options are as follows:
 .It Fl n Ar host:port
 Specify the 
 .Ar host
-(an IP address in dotted-quad format) and 
+and 
 .Ar port
 that the accounting datagrams are to be sent to.
+The host may be specified using a hostname or using a numeric IPv4 or 
+IPv6 address.
+Numeric IPv6 addresses should be encosed in square brackets to avoid ambiguity
+between the address and the port.
+The destination port may be a portname listed in 
+.Xr services 5
+or a numeric port.
 .It Fl i Ar interface
-Specify a network interface on which to listen for traffic. Either the 
+Specify a network interface on which to listen for traffic.
+Either the 
 .Fl i
 or the
 .Fl r 
@@ -130,11 +142,13 @@ Specify an alternate location for the remote control socket in daemon mode.
 Default is 
 .Pa /var/run/softflowd.pid
 .It Fl m Ar max_flows
-Specifies the maximum number of flow to concurrently track. If this  limit
-is exceeded, the flows which have least recently seen traffic are forcibly
-expired. In practice, the actual maximum may briefly exceed this limit by a
+Specifies the maximum number of flow to concurrently track.
+If this limit is exceeded, the flows which have least recently seen traffic
+are forcibly expired.
+In practice, the actual maximum may briefly exceed this limit by a
 small amount as  expiry processing happens less frequently than traffic
-collection. The default is 8192 flows, which corresponds to slightly less
+collection.
+The default is 8192 flows, which corresponds to slightly less
 than 800k of working data.
 .It Fl t Ar timeout_name=time
 Set the timeout names
@@ -143,7 +157,8 @@ to
 .Ar time 
 Refer to the 
 .Sx Timeouts
-section for the valid timeout names and their meanings. The 
+section for the valid timeout names and their meanings.
+The 
 .Ar time
 parameter may be specified using one of the formats explained in the 
 .Sx Time Formats
@@ -155,7 +170,8 @@ should not fork and daemonise itself.
 .It Fl D
 Places
 .Nm
-in a debugging mode. This implies the 
+in a debugging mode.
+This implies the 
 .Fl d
 flag and turns on additional debugging output.
 .It Fl h
@@ -165,15 +181,17 @@ Displays commandline usage information.
 Any further commandline arguments will be concatenated together and 
 applied as a 
 .Xr bpf 4
-packet filter. This filter will cause 
+packet filter.
+This filter will cause 
 .Nm
 to ignore the specified traffic.
 .Ss Timeouts
 .Pp
 .Nm
-will expire quiescent flows after user-configurable periods. The exact 
-timeout used depends on the nature of the flow. The various timeouts 
-that may be set from the command-line (using the 
+will expire quiescent flows after user-configurable periods.
+The exact 
+timeout used depends on the nature of the flow.
+The various timeouts that may be set from the command-line (using the 
 .Fl t 
 option) and their meanings are:
 .Bl -tag -width Ds
@@ -191,10 +209,12 @@ sent by both endpoints.
 .It Ar udp
 This is the general UDP timeout, applied to all UDP connections.
 .It Ar maxlife
-This is the maximum lifetime that a flow may exist for. All flows 
+This is the maximum lifetime that a flow may exist for.
+All flows 
 are forcibly expired when they pass
 .Ar maxlife
-seconds. To disable this feature, specify a 
+seconds.
+To disable this feature, specify a 
 .Ar maxlife
 of 0.
 .El
@@ -252,8 +272,10 @@ A daemonised
 .Nm
 instance may be controlled using the 
 .Xr softflowctl 8
-command. This interface allows one to shut down the daemon, force expiry of
-all tracked flows and extract debugging and summary data. Also, upon 
+command.
+This interface allows one to shut down the daemon, force expiry of
+all tracked flows and extract debugging and summary data.
+Also, upon 
 receipt of a 
 .Dv SIGTERM
 or 
@@ -264,8 +286,8 @@ will cause
 to exit, after expiring all flows (and thus sending flow export packets 
 if 
 .Fl -n 
-was specified on the commandline). If you do not want to export flows upon
-shutdown, clear them first with
+was specified on the commandline).
+If you do not want to export flows upon shutdown, clear them first with
 .Xr softflowctl 8 .
 
 .Sh EXAMPLES
@@ -288,7 +310,8 @@ will track to \fB65536\fP and increases the timeout for UDP flows to
 90 seconds.
 .It softflowd -i fxp0 -p /var/run/sfd.pid.fxp0 -c /var/run/sfd.ctl.fxp0
 This commandline specifies alternate locations for the control socket
-and pid file. Similar commandlines are useful when running multiple 
+and pid file.
+Similar commandlines are useful when running multiple 
 instances of 
 .Nm
 on a single machine.
@@ -298,7 +321,8 @@ on a single machine.
 .It Pa /var/run/softflowd.pid
 This file stores the process-id when
 .Nm
-is in daemon mode. This location may be overridden using the 
+is in daemon mode.
+This location may be overridden using the 
 .Fl p
 command-line option.
 .It Pa /var/run/softflowd.ctl
@@ -312,9 +336,11 @@ command-line option.
 .Sh BUGS
 Currently
 .Nm
-does not handle fragmented packets properly. It will product correct traffic
-counts when presented with fragmented packets, but will not record TCP or
-UDP port information.
+does not handle maliciously fragmented packets properly, i.e. packets 
+fragemented such that the UDP or TCP header does not fit into the first
+fragment.
+It will product correct traffic counts when presented with maliciously 
+fragmented packets, but will not record TCP or UDP port information.
 .Sh AUTHORS
 Damien Miller <djm@mindrot.org>
 .Sh SEE ALSO

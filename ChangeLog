@@ -13,6 +13,7 @@
  - (djm) IPv6 listen support for collector.pl
  - (djm) Allow v4 operation of collector.pl if v6 modules aren't present
  - (djm) More flow export fixes
+ - (djm) Tidy manpage and mention v6 export syntax
 
 20040415
  - (djm) Clear socket errors before UDP send; from pfflowd
