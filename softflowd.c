@@ -163,6 +163,17 @@ struct FLOW {
 	struct EXPIRY *expiry;			/* Pointer to expiry record */
 	FLOW_ENTRY(FLOW) trp;			/* Tree pointer */
 
+	/* Flow identity (all are in network byte order) */
+	int af;					/* Address family of flow */
+	u_int32_t ip6_flowlabel;		/* IPv6 Flowlabel */
+	union {
+		struct in_addr v4;
+		struct in6_addr v6;
+	} addr[2];				/* Endpoint addresses */
+	u_int16_t port[2];			/* Endpoint ports */
+	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
+	u_int8_t protocol;			/* Protocol */
+
 	/* Per-flow statistics (all in _host_ byte order) */
 	u_int64_t flow_seq;			/* Flow ID */
 	struct timeval flow_start;		/* Time of creation */
@@ -171,12 +182,6 @@ struct FLOW {
 	/* Per-endpoint statistics (all in _host_ byte order) */
 	u_int32_t octets[2];			/* Octets so far */
 	u_int32_t packets[2];			/* Packets so far */
-
-	/* Flow identity (all are in _network_ byte order) */
-	u_int32_t addr[2];			/* Endpoint addresses */
-	u_int16_t port[2];			/* Endpoint ports */
-	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
-	u_int8_t protocol;			/* Protocol */
 };
 
 /*
@@ -309,12 +314,19 @@ static int
 flow_compare(struct FLOW *a, struct FLOW *b)
 {
 	/* Be careful to avoid signed vs unsigned issues here */
+	int r;
 
-	if (a->addr[0] != b->addr[0])
-		return (ntohl(a->addr[0]) > ntohl(b->addr[0]) ? 1 : -1);
+	if (a->af != b->af)
+		return (a->af > b->af ? 1 : -1);
 
-	if (a->addr[1] != b->addr[1])
-		return (ntohl(a->addr[1]) > ntohl(b->addr[1]) ? 1 : -1);
+	if (a->ip6_flowlabel != b->ip6_flowlabel)
+		return (a->ip6_flowlabel > b->ip6_flowlabel ? 1 : -1);
+
+	if ((r = memcmp(&a->addr[0], &b->addr[0], sizeof(a->addr[0]))) != 0)
+		return (r > 0 ? 1 : -1);
+
+	if ((r = memcmp(&a->addr[1], &b->addr[1], sizeof(a->addr[1]))) != 0)
+		return (r > 0 ? 1 : -1);
 
 	if (a->protocol != b->protocol)
 		return (a->protocol > b->protocol ? 1 : -1);
@@ -370,15 +382,11 @@ format_time(time_t t)
 static const char *
 format_flow(struct FLOW *flow)
 {
-	struct in_addr i;
-	char addr1[16], addr2[16], stime[20], ftime[20];
+	char addr1[64], addr2[64], stime[20], ftime[20];
 	static char buf[1024];
 
-	i.s_addr = flow->addr[0];
-	snprintf(addr1, sizeof(addr1), "%s", inet_ntoa(i));
-
-	i.s_addr = flow->addr[1];
-	snprintf(addr2, sizeof(addr2), "%s", inet_ntoa(i));
+	inet_ntop(flow->af, &flow->addr[0], addr1, sizeof(addr1));
+	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
 	snprintf(stime, sizeof(ftime), "%s", 
 	    format_time(flow->flow_start.tv_sec));
@@ -403,15 +411,11 @@ format_flow(struct FLOW *flow)
 static const char *
 format_flow_brief(struct FLOW *flow)
 {
-	struct in_addr i;
-	char addr1[16], addr2[16];
+	char addr1[64], addr2[64];
 	static char buf[1024];
 
-	i.s_addr = flow->addr[0];
-	snprintf(addr1, sizeof(addr1), "%s", inet_ntoa(i));
-
-	i.s_addr = flow->addr[1];
-	snprintf(addr2, sizeof(addr2), "%s", inet_ntoa(i));
+	inet_ntop(flow->af, &flow->addr[0], addr1, sizeof(addr1));
+	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
 	snprintf(buf, sizeof(buf), 
 	    "seq:%llu %s:%hu <> %s:%hu proto:%u",
@@ -425,12 +429,16 @@ format_flow_brief(struct FLOW *flow)
 /* Convert a packet to a partial flow record (used for comparison) */
 static int
 packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
-    const size_t caplen, const size_t len, int *isfrag)
+    const size_t caplen, const size_t len, int *isfrag, int af)
 {
 	const struct ip *ip = (const struct ip *)pkt;
 	const struct tcphdr *tcp;
 	const struct udphdr *udp;
 	int ndx;
+
+	/* XXX - IPv6 support */
+	if (af != AF_INET)
+		return (-1);
 
 	if (caplen < 20 || caplen < ip->ip_hl * 4)
 		return (-1);	/* Runt packet */
@@ -442,8 +450,9 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	/* Prepare to store flow in canonical format */
 	ndx = ntohl(ip->ip_src.s_addr) > ntohl(ip->ip_dst.s_addr) ? 1 : 0;
 	
-	flow->addr[ndx] = ip->ip_src.s_addr;
-	flow->addr[ndx ^ 1] = ip->ip_dst.s_addr;
+	flow->af = af;
+	flow->addr[ndx].v4 = ip->ip_src;
+	flow->addr[ndx ^ 1].v4 = ip->ip_dst;
 	flow->protocol = ip->ip_p;
 	flow->octets[ndx] = len;
 	flow->packets[ndx] = 1;
@@ -574,14 +583,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 
 	ft->total_packets++;
 
-	/* XXX - IPv6 support */
-	if (af != AF_INET) {
-		ft->non_ip_packets++;
-		return (PP_BAD_PACKET);
-	}
-
 	/* Convert the IP packet to a flow identity */
-	if (packet_to_flowrec(&tmp, pkt, caplen, len, &frag) == -1) {
+	if (packet_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1) {
 		ft->bad_packets++;
 		return (PP_BAD_PACKET);
 	}
@@ -691,9 +694,12 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 		}		
 		flw = (struct NF1_FLOW *)(packet + offset);
 		
+		/* NetFlow v.1 doesn't do IPv6 */
+		if (flows[i]->af != AF_INET)
+			continue;
 		if (flows[i]->octets[0] > 0) {
-			flw->src_ip = flows[i]->addr[0];
-			flw->dest_ip = flows[i]->addr[1];
+			flw->src_ip = flows[i]->addr[0].v4.s_addr;
+			flw->dest_ip = flows[i]->addr[1].v4.s_addr;
 			flw->src_port = flows[i]->port[0];
 			flw->dest_port = flows[i]->port[1];
 			flw->flow_packets = htonl(flows[i]->packets[0]);
@@ -713,8 +719,8 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 		flw = (struct NF1_FLOW *)(packet + offset);
 
 		if (flows[i]->octets[1] > 0) {
-			flw->src_ip = flows[i]->addr[1];
-			flw->dest_ip = flows[i]->addr[0];
+			flw->src_ip = flows[i]->addr[1].v4.s_addr;
+			flw->dest_ip = flows[i]->addr[0].v4.s_addr;
 			flw->src_port = flows[i]->port[1];
 			flw->dest_port = flows[i]->port[0];
 			flw->flow_packets = htonl(flows[i]->packets[1]);
@@ -794,10 +800,13 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 			offset = sizeof(*hdr);
 		}		
 		flw = (struct NF5_FLOW *)(packet + offset);
-		
+
+		/* NetFlow v.5 doesn't do IPv6 */
+		if (flows[i]->af != AF_INET)
+			continue;
 		if (flows[i]->octets[0] > 0) {
-			flw->src_ip = flows[i]->addr[0];
-			flw->dest_ip = flows[i]->addr[1];
+			flw->src_ip = flows[i]->addr[0].v4.s_addr;
+			flw->dest_ip = flows[i]->addr[1].v4.s_addr;
 			flw->src_port = flows[i]->port[0];
 			flw->dest_port = flows[i]->port[1];
 			flw->flow_packets = htonl(flows[i]->packets[0]);
@@ -817,8 +826,8 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 		flw = (struct NF5_FLOW *)(packet + offset);
 
 		if (flows[i]->octets[1] > 0) {
-			flw->src_ip = flows[i]->addr[1];
-			flw->dest_ip = flows[i]->addr[0];
+			flw->src_ip = flows[i]->addr[1].v4.s_addr;
+			flw->dest_ip = flows[i]->addr[0].v4.s_addr;
 			flw->src_port = flows[i]->port[1];
 			flw->dest_port = flows[i]->port[0];
 			flw->flow_packets = htonl(flows[i]->packets[1]);
