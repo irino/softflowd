@@ -643,7 +643,8 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 		cb_ctxt->ft->non_ip_packets++;
 	} else {
 		if (process_packet(cb_ctxt->ft, pkt + s, 
-		    phdr->caplen - s, phdr->len - s, &phdr->ts, 
+		    phdr->caplen - s, phdr->len - s, 
+		    (const struct timeval *)&phdr->ts, 
 		    cb_ctxt->timeout) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
