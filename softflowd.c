@@ -167,7 +167,7 @@ static int dump_stats = 0;
 struct FLOWTRACK {
 	/* The flows and their expiry events */
 	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
-	TAILQ_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries queue */
+	RB_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
 
 	unsigned int num_flows;			/* # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
@@ -232,7 +232,7 @@ struct FLOW {
  * 
  */
 struct EXPIRY {
-	TAILQ_ENTRY(EXPIRY) next;		/* Queue pointer */
+	RB_ENTRY(EXPIRY) next;			/* Tree pointer */
 
 	u_int32_t expires_at;			/* time_t */
 	struct FLOW *flow;			/* pointer to flow */
@@ -344,6 +344,19 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 /* Generate functions for flow tree */
 RB_PROTOTYPE(FLOWS, FLOW, next, flow_compare);
 RB_GENERATE(FLOWS, FLOW, next, flow_compare);
+
+/*
+ * This is the expiry comparison function.
+ */
+static inline int
+expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
+{
+	return (a->expires_at - b->expires_at);
+}
+
+/* Generate functions for flow tree */
+RB_PROTOTYPE(EXPIRIES, EXPIRY, next, expiry_compare);
+RB_GENERATE(EXPIRIES, EXPIRY, next, expiry_compare);
 
 /* Format a time in an ISOish format */
 static const char *
@@ -519,7 +532,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		 * don't bother moving it from the head of the list
 		 */
 		if (flow->expiry->expires_at != 0)
-			TAILQ_REMOVE(&ft->expiries, flow->expiry, next);
+			RB_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
 
 		/* Update flow statistics */
 		flow->packets[0] += tmp.packets[0];
@@ -547,12 +560,11 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		if (flow->octets[0] > (1U << 31) || 
 		    flow->octets[1] > (1U << 31)) {
 			flow->expiry->expires_at = 0;
-			TAILQ_INSERT_HEAD(&ft->expiries, flow->expiry, next);
 		} else {
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    timeout;
-			TAILQ_INSERT_TAIL(&ft->expiries, flow->expiry, next);
 		}
+		RB_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 	}
 
 	return (PP_OK);
@@ -728,8 +740,8 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	if (verbose_flag)
 		syslog(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
 
-	for (expiry = TAILQ_FIRST(&ft->expiries); expiry != NULL; expiry = nexpiry) {
-		nexpiry = TAILQ_NEXT(expiry, next);
+	for(expiry = RB_MIN(EXPIRIES, &ft->expiries); expiry != NULL; expiry = nexpiry) {
+		nexpiry = RB_NEXT(EXPIRIES, &ft->expiries, expiry);
 		if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) || 
 		    (ex != CE_EXPIRE_FORCED &&
 		    (expiry->expires_at < now.tv_sec))) {
@@ -746,7 +758,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			
 			/* Remove from flow tree, destroy expiry event */
 			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
-			TAILQ_REMOVE(&ft->expiries, expiry, next);
+			RB_REMOVE(EXPIRIES, &ft->expiries, expiry);
 			expiry->flow->expiry = NULL;
 			free(expiry);
 
@@ -796,7 +808,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 		syslog(LOG_INFO, "Forcing expiry of %d flows",
 		    num_to_expire);
 
-	TAILQ_FOREACH(expiry, &ft->expiries, next) {
+	RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
 		if (num_to_expire-- <= 0)
 			break;
 		expiry->expires_at = 0;
@@ -814,7 +826,7 @@ delete_all_flows(struct FLOWTRACK *ft)
 		nflow = RB_NEXT(FLOWS, &ft->flows, flow);
 		RB_REMOVE(FLOWS, &ft->flows, flow);
 		
-		TAILQ_REMOVE(&ft->expiries, flow->expiry, next);
+		RB_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
 		free(flow->expiry);
 
 		ft->num_flows--;
@@ -878,7 +890,7 @@ log_stats(struct FLOWTRACK *ft)
 	if (verbose_flag) {
 		RB_FOREACH(flow, FLOWS, &ft->flows)
 			syslog(LOG_DEBUG, "ACTIVE %s", format_flow(flow));
-		TAILQ_FOREACH(expiry, &ft->expiries, next) {
+		RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
 			syslog(LOG_DEBUG, 
 			    "EXPIRY EVENT for flow %llu in %ld seconds",
 			    expiry->flow->flow_seq, 
@@ -1127,7 +1139,7 @@ main(int argc, char **argv)
 	memset(&flowtrack, '\0', sizeof(flowtrack));
 	flowtrack.next_flow_seq = 1;
 	RB_INIT(&flowtrack.flows);
-	TAILQ_INIT(&flowtrack.expiries);
+	RB_INIT(&flowtrack.expiries);
 
 	/* Open pcap */
 	if (dev != NULL) {
