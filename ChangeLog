@@ -1,3 +1,10 @@
+20021031
+ - (djm) Add some examples to the manpage
+
+20021030
+ - (djm) New user-friendly time specification code from OpenSSH/Kevin Steves
+ - (djm) Always use local sys-tree.h (for older OpenBSD's)
+
 20021029
  - (djm) Multiple fixes and improvements from Octavian Cerna <tavy@ylabs.com>
     - softflowd.c (connsock): Fix arguments to `connect': addr is a pointer, 
@@ -13,3 +20,5 @@
 	Initialize system_boot_time as the time at the start of capture
 	(fixme: how does this affect reading from capture files?)
 
+20021024
+ - (djm) Release softflowd-0.7.1
