@@ -99,6 +99,9 @@ static int dump_stats = 0;
 /* The name of the program */
 #define PROGNAME		"softflowd"
 
+/* The name of the program */
+#define PROGVER			"0.1"
+
 /* Default pidfile */
 #define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
 
@@ -721,7 +724,7 @@ static void
 usage(void)
 {
 	fprintf(stderr, "Usage: %s [options]\n", PROGNAME);
-	fprintf(stderr, "Options:\n");
+	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
 	fprintf(stderr, "  -i interface  Specify interface to listen on\n");
 	fprintf(stderr, "  -r pcap_file  Specify packet capture file to read\n");
 	fprintf(stderr, "  -t timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
@@ -988,7 +991,7 @@ main(int argc, char **argv)
 	signal(SIGUSR2, sighand_dump_stats);
 	signal(SIGSEGV, sighand_other);
 
-	syslog(LOG_NOTICE, "%s starting data collection", PROGNAME);
+	syslog(LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
 
 	/* Main processing loop */
 	next_expiry_check = time(NULL) + MAINLOOP_TIMEOUT;
