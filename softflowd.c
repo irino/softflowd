@@ -1007,7 +1007,6 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 		fprintf(out, "\n");
 
 		fprintf(out, "Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
-		setprotoent(1);
 		for(i = 0; i < 256; i++) {
 			if (ft->packets_pp[i]) {
 				pe = getprotobynumber(i);
@@ -1022,7 +1021,6 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 				    ft->duration_pp[i].max);
 			}
 		}
-		endprotoent();
 	}
 
 	return (0);
