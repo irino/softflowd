@@ -309,6 +309,12 @@ listens on this socket for commands from
 .Fl c
 command-line option.
 .El
+.Sh BUGS
+Currently
+.Nm
+does not handle fragmented packets properly. It will product correct traffic
+counts when presented with fragmented packets, but will not record TCP or
+UDP port information.
 .Sh AUTHORS
 Damien Miller <djm@mindrot.org>
 .Sh SEE ALSO
