@@ -72,7 +72,7 @@
 #define PROGNAME		"softflowd"
 
 /* The name of the program */
-#define PROGVER			"0.9.6"
+#define PROGVER			"0.9.7"
 
 /* Default pidfile */
 #define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
