@@ -46,11 +46,7 @@
 #include "common.h"
 #include "convtime.h"
 
-#if defined(__OpenBSD__)
-# include <sys/tree.h>
-#else
-# include "sys-tree.h"
-#endif
+#include "sys-tree.h"
 
 #include <pcap.h>
 
