@@ -49,8 +49,7 @@
  *   - We need to track TCP seqnum when we see a FIN and watch for reply
  *     - Bidirectional
  *   - RST we could do easily
- * - maybe make expiries a tree keyed by expires_at, so we can have 
- *   different expiry rates for TCP and UDP connections
+ * - Implement different expiry rates for TCP and UDP connections
  *    - e.g. heuristics to fast-expire udp transaction traffic like dns
  *    - XXX this is important - most flows are short-lived noise
  * - Flow exporter sends flow records for flows with 0 octets/packets
@@ -101,10 +100,8 @@
 
 #if defined(__OpenBSD__)
 # include <sys/tree.h>
-# include <sys/queue.h>
 #else
 # include "sys-tree.h"
-# include "sys-queue.h"
 #endif
 
 #include <pcap.h>
@@ -162,7 +159,7 @@ static int dump_stats = 0;
 /*
  * This structure is the root of the flow tracking system.
  * It holds the root of the tree of active flows and the head of the
- * queue of expiry events. It also collects miscellaneous statistics
+ * tree of expiry events. It also collects miscellaneous statistics
  */
 struct FLOWTRACK {
 	/* The flows and their expiry events */
@@ -199,7 +196,7 @@ struct FLOWTRACK {
 struct FLOW {
 	/* Housekeeping */
 	struct EXPIRY *expiry;			/* Pointer to expiry record */
-	RB_ENTRY(FLOW) next;			/* Tree pointer */
+	RB_ENTRY(FLOW) trp;			/* Tree pointer */
 
 	/* Per-flow statistics (all in _host_ byte order) */
 	u_int64_t flow_seq;			/* Flow ID */
@@ -218,21 +215,21 @@ struct FLOW {
 };
 
 /*
- * This is an entry in the queue of expiry events. The queue is used to 
+ * This is an entry in the tree of expiry events. The tree is used to 
  * avoid traversion the whole tree of active flows looking for ones to
  * expire. "expires_at" is the time at which the flow should be discarded,
  * or zero if it is scheduled for immediate disposal. 
  *
  * When a flow which hasn't been scheduled for immediate expiry registers 
- * traffic, it is deleted from its current position in the queue and 
- * appended to the end.
+ * traffic, it is deleted from its current position in the tree and 
+ * re-inserted (subject to its updated timeout).
  *
- * Expiry scans operate by starting at the head of the queue and expiring
+ * Expiry scans operate by starting at the head of the tree and expiring
  * each entry with expires_at < now
  * 
  */
 struct EXPIRY {
-	RB_ENTRY(EXPIRY) next;			/* Tree pointer */
+	RB_ENTRY(EXPIRY) trp;			/* Tree pointer */
 
 	u_int32_t expires_at;			/* time_t */
 	struct FLOW *flow;			/* pointer to flow */
@@ -337,8 +334,8 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 }
 
 /* Generate functions for flow tree */
-RB_PROTOTYPE(FLOWS, FLOW, next, flow_compare);
-RB_GENERATE(FLOWS, FLOW, next, flow_compare);
+RB_PROTOTYPE(FLOWS, FLOW, trp, flow_compare);
+RB_GENERATE(FLOWS, FLOW, trp, flow_compare);
 
 /*
  * This is the expiry comparison function.
@@ -357,8 +354,8 @@ expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 }
 
 /* Generate functions for flow tree */
-RB_PROTOTYPE(EXPIRIES, EXPIRY, next, expiry_compare);
-RB_GENERATE(EXPIRIES, EXPIRY, next, expiry_compare);
+RB_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
+RB_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 
 /* Format a time in an ISOish format */
 static const char *
@@ -726,7 +723,7 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 }
 
 /*
- * Scan the queue of expiry events and process expired flows. If zap_all
+ * Scan the tree of expiry events and process expired flows. If zap_all
  * is set, then forcibly expire all flows.
  */
 #define CE_EXPIRE_NORMAL	0  /* Normal expiry processing */
@@ -848,7 +845,7 @@ delete_all_flows(struct FLOWTRACK *ft)
 /*
  * Log our current status. 
  * Includes summary counters and (in verbose mode) the list of current flows
- * and the queue of expiry events.
+ * and the tree of expiry events.
  */
 static int
 log_stats(struct FLOWTRACK *ft)
