@@ -6,10 +6,15 @@ supplied manpages, which you can view prior to installation using
 /usr/bin/nroff -c -mandoc softflowd.8 | less
 /usr/bin/nroff -c -mandoc softflowctl.8 | less
 
-Building softflowd should be as simple as typing "make". Unfortunately 
-some systems like to make life complicated. Things work fine on the 
-systems that I develop and test on (OpenBSD 3.1/3.2 and Redhat Linux 
-7.3/8.0).
+Building softflowd should be as simple as typing:
+
+./configure
+make
+
+Unfortunately some systems like to make life complicated. Things work 
+fine on the systems that I develop and test on (OpenBSD and Linux). There
+is peliminary support for Solaris 9 (i.e. it compiled), but no testing on
+this platform has been performed.
 
 Softflowd derives from an earlier project of mine: traffic-vis. 
 Unfortunately traffic-vis is many years stale, not designed for speed and
@@ -28,3 +33,4 @@ a security bug, please report it directly by email. If you have any feedback
 or questions, please email me: 
 
 Damien Miller <djm@mindrot.org>
+
