@@ -44,6 +44,12 @@
  */
 
 /* XXX - TODO:
+ * - Implement a (configurable) maximum lifetime for flows
+ * - Statistics-only mode (no flow export)
+ * - Tidy statistics collection
+ *   - Encapsulate stats in struct (inc min/max/whatever)
+ *   - Separate update function
+ *   - Option to take histograms (maybe)
  * - Fast-expire closed TCP sessions
  *   - We track tcp flags bidirectionally
  *   - We need to track TCP seqnum when we see a FIN and watch for reply
