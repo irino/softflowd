@@ -1,4 +1,7 @@
 20040909
+ - (djm) Implement IPv6 flow tracking. Currently no export functionality.
+
+20040909
  - (djm) inline is unnecessary
  - (djm) Rework datalink processing, in preparation of IPv6 support
  - (djm) Next step in preparation of IPv6 support: make flow structure and

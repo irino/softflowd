@@ -65,9 +65,9 @@ static int graceful_shutdown_request = 0;
 
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
- * a maximally sized ip header and most of a TCP header
+ * a maximally sized ip/ipv6 header and most of a TCP header
  */
-#define LIBPCAP_SNAPLEN		96
+#define LIBPCAP_SNAPLEN		128
 
 /*
  * Timeouts
@@ -364,6 +364,23 @@ expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 EXPIRY_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 
+/* Dump a packet */
+static void
+dump_packet(const u_int8_t *p, int len)
+{
+	char buf[1024], tmp[3];
+	int i;
+
+	for (*buf = '\0', i = 0; i < len; i++) {
+		snprintf(tmp, sizeof(tmp), "%02x%s", p[i], i % 2 ? " " : "");
+		if (strlcat(buf, tmp, sizeof(buf) - 4) >= sizeof(buf) - 4) {
+			strlcat(buf, "...", sizeof(buf));
+			break;
+		}
+	}
+	logit(LOG_INFO, "packet len %d: %s", len, buf);
+}
+
 /* Format a time in an ISOish format */
 static const char *
 format_time(time_t t)
@@ -463,8 +480,8 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 
 /* Convert a IPv4 packet to a partial flow record (used for comparison) */
 static int
-ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
-    const size_t caplen, const size_t len, int *isfrag, int af)
+ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen, 
+    size_t len, int *isfrag, int af)
 {
 	const struct ip *ip = (const struct ip *)pkt;
 	int ndx;
@@ -492,6 +509,72 @@ ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 
 	return (transport_to_flowrec(flow, pkt + (ip->ip_hl * 4), 
 	    caplen - (ip->ip_hl * 4), *isfrag, ip->ip_p, ndx));
+}
+
+/* Convert a IPv6 packet to a partial flow record (used for comparison) */
+static int
+ipv6_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen, 
+    size_t len, int *isfrag, int af)
+{
+	const struct ip6_hdr *ip6 = (const struct ip6_hdr *)pkt;
+	const struct ip6_ext *eh6;
+	const struct ip6_frag *fh6;
+	int ndx, nxt;
+
+	if (caplen < sizeof(*ip6))
+		return (-1);	/* Runt packet */
+
+	if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
+		return (-1);	/* Unsupported IPv6 version */
+
+	/* Prepare to store flow in canonical format */
+	ndx = memcmp(&ip6->ip6_src, &ip6->ip6_dst,
+	    sizeof(ip6->ip6_src)) > 0 ? 1 : 0;
+	
+	flow->af = af;
+	flow->ip6_flowlabel = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
+	flow->addr[ndx].v6 = ip6->ip6_src;
+	flow->addr[ndx ^ 1].v6 = ip6->ip6_dst;
+	flow->octets[ndx] = len;
+	flow->packets[ndx] = 1;
+
+	*isfrag = 0;
+	nxt = ip6->ip6_nxt;
+	pkt += sizeof(*ip6);
+	caplen -= sizeof(*ip6);
+
+	/* Now loop through headers, looking for transport header */
+	for (;;) {
+		eh6 = (const struct ip6_ext *)pkt;
+		if (nxt == IPPROTO_HOPOPTS || 
+		    nxt == IPPROTO_ROUTING || 
+		    nxt == IPPROTO_DSTOPTS) {
+			if (caplen < sizeof(*eh6) ||
+			    caplen < (eh6->ip6e_len + 1) << 3)
+				return (1); /* Runt */
+			nxt = eh6->ip6e_nxt;
+			pkt += (eh6->ip6e_len + 1) << 3;
+			caplen -= (eh6->ip6e_len + 1) << 3;
+		} else if (nxt == IPPROTO_FRAGMENT) {
+			*isfrag = 1;
+			fh6 = (const struct ip6_frag *)eh6;
+			if (caplen < sizeof(*fh6))
+				return (1); /* Runt */
+			/*
+			 * Don't try to examine higher level headers if 
+			 * not first fragment
+			 */
+			if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
+				return (0);
+			nxt = fh6->ip6f_nxt;
+			pkt += sizeof(*fh6);
+			caplen -= sizeof(*fh6);
+		} else 
+			break;
+	}
+	flow->protocol = nxt;
+
+	return (transport_to_flowrec(flow, pkt, caplen, *isfrag, nxt, ndx));
 }
 
 static void
@@ -594,6 +677,10 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	switch (af) {
 	case AF_INET:
 		if (ipv4_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1)
+			goto bad;
+		break;
+	case AF_INET6:
+		if (ipv6_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1)
 			goto bad;
 		break;
 	default:
