@@ -7,7 +7,7 @@
 
 use strict;
 use warnings;
-use IO;
+use IO qw(Socket);
 use Socket;
 use Carp;
 use POSIX qw(strftime);
@@ -18,6 +18,48 @@ use Getopt::Long;
 sub timestamp()
 {
 	return strftime "%Y-%m-%dT%H:%M:%S", localtime;
+}
+
+sub fuptime($)
+{
+	my $t = shift;
+	my $r = "";
+	my $tmp;
+	
+	# Milliseconds
+	$tmp = $t % 1000;
+	$r = sprintf ".%03u%s", $tmp, $r;
+
+	# Seconds
+	$t = int($t / 1000);
+	$tmp = $t % 60;
+	$r = "${tmp}s${r}";
+
+	# Minutes
+	$t = int($t / 60);
+	$tmp = $t % 60;
+	$r = "${tmp}m${r}" if $tmp;
+
+	# Hours
+	$t = int($t / 60);
+	$tmp = $t % 24;
+	$r = "${tmp}h${r}" if $tmp;
+
+	# Days
+	$t = int($t / 24);
+	$tmp = $t % 7;
+	$r = "${tmp}d${r}" if $tmp;
+
+	# Weeks
+	$t = int($t / 7);
+	$tmp = $t % 52;
+	$r = "${tmp}w${r}" if $tmp;
+
+	# Years
+	$t = int($t / 52);
+	$r = "${tmp}y${r}" if $tmp;
+
+	return $r;
 }
 
 sub do_listen($)
@@ -70,8 +112,10 @@ sub process_nf_v1($$)
 		$flow{nxt} = sprintf "%u.%u.%u.%u", $nxt1, $nxt2, $nxt3, $nxt4;
 
 		printf timestamp() . " " .
-		    "from %s proto %u %s:%u > %s:%u %u packets %u octets\n",
-		    inet_ntoa($sender), 
+		    "from %s started %s finish %s proto %u %s:%u > %s:%u %u " . 
+		    "packets %u octets\n",
+		    inet_ntoa($sender),
+		    fuptime($flow{start}), fuptime($flow{finish}), 
 		    $flow{protocol}, 
 		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
 		    $flow{pkts}, $flow{bytes};

@@ -1,5 +1,6 @@
 20040415
  - (djm) Clear socket errors before UDP send; from pfflowd
+ - (djm) Print flow start and finish times in collector.pl
 
 20031111
  - (djm) Remove -Werror from CFLAGS, it causes problems in released software
