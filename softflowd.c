@@ -97,6 +97,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+#include <netdb.h>
 
 #if defined(__OpenBSD__)
 # include <sys/tree.h>
@@ -835,6 +836,7 @@ log_stats(struct FLOWTRACK *ft)
 	struct EXPIRY *expiry;
 	time_t now;
 	int i;
+	struct protoent *pe;
 
 	now = time(NULL);
 
@@ -855,12 +857,18 @@ log_stats(struct FLOWTRACK *ft)
 	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
 
 	syslog(LOG_INFO, "Per protocol statistics:");
+	setprotoent(1);
 	for(i = 0; i < 256; i++) {
 		if (ft->packets_per_proto[i]) {
-			syslog(LOG_INFO, "    Protocol %d: %llu bytes %llu packets",
-			    i, ft->octets_per_proto[i], ft->packets_per_proto[i]);
+			pe = getprotobynumber(i);
+			syslog(LOG_INFO, 
+			    "    Protocol %s(%d): %llu bytes %llu packets",
+			    pe != NULL ? pe->p_name : "", i, 
+			    ft->octets_per_proto[i], 
+			    ft->packets_per_proto[i]);
 		}
 	}
+	endprotoent();
 
 #if 0
 	syslog(LOG_INFO, "RB_EMPTY: %d", RB_EMPTY(&ft->flows));
