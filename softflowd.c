@@ -45,7 +45,6 @@
 
 /* XXX - TODO:
  * - Implement a (configurable) maximum lifetime for flows
- * - Statistics-only mode (no flow export)
  * - Tidy statistics collection
  *   - Encapsulate stats in struct (inc min/max/whatever)
  *   - Separate update function
@@ -801,9 +800,17 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	
 	/* Processing for expired flows */
 	if (num_expired > 0) {
-		r = send_netflow_v1(expired_flows, num_expired, nfsock);
-		if (verbose_flag)
-			syslog(LOG_DEBUG, "send_netflow_v1: %d packets", r);
+		if (nfsock != -1) {
+			r = send_netflow_v1(expired_flows, num_expired, nfsock);
+			if (verbose_flag)
+				syslog(LOG_DEBUG, "sent %d netflow packets", r);
+			if (r > 0) {
+				ft->flows_exported += num_expired * 2;
+				ft->packets_sent += r;
+			} else {
+				ft->flows_dropped += num_expired * 2;
+			}
+		}
 		for (i = 0; i < num_expired; i++) {
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
@@ -815,13 +822,6 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			free(expired_flows[i]);
 		}
 	
-		if (r > 0) {
-			ft->flows_exported += num_expired * 2;
-			ft->packets_sent += r;
-		} else {
-			ft->flows_dropped += num_expired * 2;
-		}
-
 		free(expired_flows);
 	}
 
@@ -909,7 +909,7 @@ log_stats(struct FLOWTRACK *ft)
 			if (ft->packets_pp[i]) {
 				pe = getprotobynumber(i);
 				syslog(LOG_INFO, 
-				    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs min/max duration",
+				    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs avg/max duration",
 				    pe != NULL ? pe->p_name : "", i, 
 				    ft->octets_pp[i], 
 				    ft->packets_pp[i],
@@ -1060,17 +1060,18 @@ main(int argc, char **argv)
 	int ch, timeout, dontfork_flag, r, linktype, sock;
 	int recheck_wait, max_flows;
 	pcap_t *pcap = NULL;
-	struct sockaddr_in target;
+	struct sockaddr_in dest;
 	struct FLOWTRACK flowtrack;
 	time_t next_expiry_check;
 	FILE *pidfile;
 	
-	memset(&target, '\0', sizeof(target));
+	memset(&dest, '\0', sizeof(dest));
 	/* XXX: this check probably isn't sufficient for all systems */
 #ifndef __GNU_LIBRARY__ 
-	target.sin_len = sizeof(target);
+	dest.sin_len = sizeof(dest);
 #endif
 
+	sock = -1;
 	dev = capfile = NULL;
 	timeout = DEFAULT_TIMEOUT;
 	recheck_wait = DEFAULT_RECHECK_WAIT;
@@ -1137,15 +1138,15 @@ main(int argc, char **argv)
 				exit(1);
 			}
 			*(value - 1) = '\0';
-			target.sin_family = AF_INET;
-			target.sin_port = atoi(value);
-			if (target.sin_port <= 0 || target.sin_port >= 65536) {
+			dest.sin_family = AF_INET;
+			dest.sin_port = atoi(value);
+			if (dest.sin_port <= 0 || dest.sin_port >= 65536) {
 				fprintf(stderr, "Invalid -n port.\n");
 				usage();
 				exit(1);
 			}
-			target.sin_port = htons(target.sin_port);
-			if (inet_aton(hostport, &target.sin_addr) == 0) {
+			dest.sin_port = htons(dest.sin_port);
+			if (inet_aton(hostport, &dest.sin_addr) == 0) {
 				fprintf(stderr, "Invalid -n host.\n");
 				usage();
 				exit(1);
@@ -1160,12 +1161,6 @@ main(int argc, char **argv)
 			usage();
 			exit(1);
 		}
-	}
-
-	if (target.sin_family == 0) {
-		fprintf(stderr, "-n option not specified.\n");
-		usage();
-		exit(1);
 	}
 
 	if (capfile == NULL && dev == NULL) {
@@ -1201,15 +1196,19 @@ main(int argc, char **argv)
 	}
 
 	/* Netflow send socket */
-	if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-		fprintf(stderr, "socket() error: %s\n", strerror(errno));
-		exit(1);
+	if (dest.sin_family != 0) {
+		if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+			fprintf(stderr, "socket() error: %s\n", 
+			    strerror(errno));
+			exit(1);
+		}
+		if (connect(sock, (struct sockaddr*)&dest, sizeof(dest)) == -1) {
+			fprintf(stderr, "connect() error: %s\n",
+			    strerror(errno));
+			exit(1);
+		}
 	}
-	if (connect(sock, (struct sockaddr *)&target, sizeof(target)) == -1) {
-		fprintf(stderr, "connect() error: %s\n", strerror(errno));
-		exit(1);
-	}
-	
+
 	if (dontfork_flag) {
 		openlog(PROGNAME, LOG_PID|LOG_PERROR, LOG_DAEMON);
 	} else {	
