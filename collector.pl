@@ -218,8 +218,8 @@ $| = 1;
 die "The -4 and -6 are mutually exclusive\n" if $af4 && $af6;
 die "You must specify a port (collector.pl -p XXX).\n" unless $port;
 
-$af = 4 if $af4 || (!$af4 && !$af6);
-$af = 6 if $af6;
+$af4 = $af = 4 if $af4 || (!$af4 && !$af6);
+$af6 = $af = 6 if $af6;
 
 # These modules aren't standard everywhere, so load them only if necessary
 
