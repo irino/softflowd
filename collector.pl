@@ -5,6 +5,8 @@
 # Netflow protocol reference:
 # http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
 
+# XXX Doesn't support NetFlow 9
+
 my $af;
 
 BEGIN {
