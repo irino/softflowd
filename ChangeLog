@@ -1,5 +1,7 @@
 20030620
  - (djm) Fixup collector timestamp printing
+ - (djm) Rework TODO, add section on planned fragment handling
+ - (djm) Add "strip" target to Makefile
 
 20030307
  - (djm) Add basic perl netflow collector

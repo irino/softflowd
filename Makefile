@@ -23,3 +23,5 @@ softflowctl: convtime.o softflowctl.o
 clean:
 	rm -f $(TARGETS) *.o core *.core
 
+strip:
+	strip $(TARGETS)
