@@ -2,6 +2,14 @@
  - (djm) Fixup collector timestamp printing
  - (djm) Rework TODO, add section on planned fragment handling
  - (djm) Add "strip" target to Makefile
+ - (djm) Add "help" keyword to recognised softflowctl responses
+ - (djm) Fix fragment handling bug: we would try to look into fragmented
+   payload on later fragments. This could cause random tcp/udp  port numbers
+   to be recorded.
+ - (djm) Fix malicious fragment handling bug: deliberately tiny fragments 
+   (e.g. http://citeseer.nj.nec.com/ptacek98insertion.html) would be ignored
+   and would not create flow entries.
+ - (djm) Count fragments that we have seen
 
 20030307
  - (djm) Add basic perl netflow collector

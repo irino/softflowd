@@ -119,6 +119,7 @@ struct FLOWTRACK {
 
 	/* Statistics */
 	u_int64_t total_packets;		/* # of good packets */
+	u_int64_t frag_packets;			/* # of fragmented packets */
 	u_int64_t non_ip_packets;		/* # of not-IP packets */
 	u_int64_t bad_packets;			/* # of bad packets */
 	u_int64_t flows_expired;		/* # expired */
@@ -373,7 +374,7 @@ format_flow_brief(struct FLOW *flow)
 /* Convert a packet to a partial flow record (used for comparison) */
 static int
 packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
-    const size_t caplen, const size_t len)
+    const size_t caplen, const size_t len, int *isfrag)
 {
 	const struct ip *ip = (const struct ip *)pkt;
 	const struct tcphdr *tcp;
@@ -396,12 +397,19 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	flow->octets[ndx] = len;
 	flow->packets[ndx] = 1;
 
+	*isfrag = (ntohs(ip->ip_off) & (IP_OFFMASK|IP_MF)) ? 1 : 0;
+
+	/* Don't try to examine higher level headers if not first fragment */
+	if (*isfrag && (ntohs(ip->ip_off) & IP_OFFMASK) != 0)
+		return (0);
+
 	switch (ip->ip_p) {
 	case IPPROTO_TCP:
 		tcp = (const struct tcphdr *)(pkt + (ip->ip_hl * 4));
 
-		if (caplen - (ip->ip_hl * 4) < sizeof(*tcp)) /* Runt packet */
-			return (-1);
+		/* Check for runt packet, but don't error out on short frags */
+		if (caplen - (ip->ip_hl * 4) < sizeof(*tcp))
+			return (isfrag ? 0 : 1);
 		flow->port[ndx] = tcp->th_sport;
 		flow->port[ndx ^ 1] = tcp->th_dport;
 		flow->tcp_flags[ndx] |= tcp->th_flags;
@@ -409,8 +417,9 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	case IPPROTO_UDP:
 		udp = (const struct udphdr *)(pkt + (ip->ip_hl * 4));
 
-		if (caplen - (ip->ip_hl * 4) < sizeof(*udp)) /* Runt packet */
-			return (-1);
+		/* Check for runt packet, but don't error out on short frags */
+		if (caplen - (ip->ip_hl * 4) < sizeof(*udp))
+			return (isfrag ? 0 : 1);
 		flow->port[ndx] = udp->uh_sport;
 		flow->port[ndx ^ 1] = udp->uh_dport;
 		break;
@@ -497,14 +506,18 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
     const struct timeval *received_time)
 {
 	struct FLOW tmp, *flow;
+	int frag;
 
 	ft->total_packets++;
 
 	/* Convert the IP packet to a flow identity */
-	if (packet_to_flowrec(&tmp, pkt, caplen, len) == -1) {
+	if (packet_to_flowrec(&tmp, pkt, caplen, len, &frag) == -1) {
 		ft->bad_packets++;
 		return (PP_BAD_PACKET);
 	}
+
+	if (frag)
+		ft->frag_packets++;
 
 	/* If a matching flow does not exist, create and insert one */
 	if ((flow = RB_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
@@ -909,6 +922,7 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 
 	fprintf(out, "Number of active flows: %d\n", ft->num_flows);
 	fprintf(out, "Packets processed: %llu\n", ft->total_packets);
+	fprintf(out, "Fragments: %llu\n", ft->frag_packets);
 	fprintf(out, "Ignored packets: %llu (%llu non-IP, %llu too short)\n",
 	    ft->non_ip_packets + ft->bad_packets, ft->non_ip_packets, ft->bad_packets);
 	fprintf(out, "Flows expired: %llu (%llu forced)\n", 
@@ -1130,7 +1144,12 @@ accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
 
 	/* XXX - use dispatch table */
 	ret = -1;
-	if (strcmp(buf, "shutdown") == 0) {
+	if (strcmp(buf, "help") == 0) {
+		fprintf(ctlf, "Valid control words are:\n");
+		fprintf(ctlf, "\tdebug+ debug- delete-all dump-flows exit expire-all\n");
+		fprintf(ctlf, "\tshutdown start-gather statistics stop-gather timeouts\n");
+		ret = 0;
+	} else if (strcmp(buf, "shutdown") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
 		graceful_shutdown_request = 1;
 		ret = 1;
