@@ -57,9 +57,6 @@ static int verbose_flag = 0;		/* Debugging flag */
 /* Signal handler flags */
 static int graceful_shutdown_request = 0;	
 
-/* "System boot" time, for SysUptime */
-static struct timeval system_boot_time;
-
 /* User to setuid to and directory to chroot to when we drop privs */
 #ifndef PRIVDROP_USER
 # define PRIVDROP_USER		"nobody"
@@ -107,6 +104,10 @@ struct FLOWTRACK {
 
 	unsigned int num_flows;			/* # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
+
+	/* Stuff related to flow export */
+	int export_ver;				/* NetFlow packet format */
+	struct timeval system_boot_time;	/* SysUptime */
 	
 	/* Flow timeouts */
 	int tcp_timeout;			/* Open TCP connections */
@@ -238,6 +239,33 @@ struct NF1_FLOW {
 #define NF1_MAXFLOWS		24
 #define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
 				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
+
+/*
+ * This is the Cisco Netflow(tm) version 5 packet format
+ * Based on:
+ * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
+ */
+struct NF5_HEADER {
+	u_int16_t version, flows;
+	u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
+	u_int8_t engine_type, engine_id, reserved1, reserved2;
+};
+struct NF5_FLOW {
+	u_int32_t src_ip, dest_ip, nexthop_ip;
+	u_int16_t if_index_in, if_index_out;
+	u_int32_t flow_packets, flow_octets;
+	u_int32_t flow_start, flow_finish;
+	u_int16_t src_port, dest_port;
+	u_int8_t pad1;
+	u_int8_t tcp_flags, protocol, tos;
+	u_int16_t src_as, dest_as;
+	u_int8_t src_mask, dst_mask;
+	u_int16_t pad2;
+};
+/* Maximum of 24 flows per packet */
+#define NF5_MAXFLOWS		24
+#define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
+				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
 
 /* Signal handlers */
 static void sighand_graceful_shutdown(int signum)
@@ -596,7 +624,8 @@ timeval_sub_ms(struct timeval *t1, struct timeval *t2)
  * Returns number of packets sent or -1 on error
  */
 static int
-send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
+send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
+    u_int64_t flows_exported, struct timeval *system_boot_time)
 {
 	struct timeval now;
 	u_int32_t uptime_ms;
@@ -607,7 +636,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	socklen_t errsz;
 	
 	gettimeofday(&now, NULL);
-	uptime_ms = timeval_sub_ms(&now, &system_boot_time);
+	uptime_ms = timeval_sub_ms(&now, system_boot_time);
 
 	hdr = (struct NF1_HEADER *)packet;
 	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
@@ -624,10 +653,6 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			num_packets++;
 		}
 		if (j == 0) {
-#if 0
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Starting on new flow packet");
-#endif
 			memset(&packet, '\0', sizeof(packet));
 			hdr->version = htons(1);
 			hdr->flows = 0; /* Filled in as we go */
@@ -639,18 +664,18 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		flw = (struct NF1_FLOW *)(packet + offset);
 		
 		if (flows[i]->octets[0] > 0) {
-#if 0
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
-#endif
 			flw->src_ip = flows[i]->addr[0];
 			flw->dest_ip = flows[i]->addr[1];
 			flw->src_port = flows[i]->port[0];
 			flw->dest_port = flows[i]->port[1];
 			flw->flow_packets = htonl(flows[i]->packets[0]);
 			flw->flow_octets = htonl(flows[i]->octets[0]);
-			flw->flow_start = htonl(timeval_sub_ms(&flows[i]->flow_start, &system_boot_time));
-			flw->flow_finish = htonl(timeval_sub_ms(&flows[i]->flow_last, &system_boot_time));
+			flw->flow_start =
+			    htonl(timeval_sub_ms(&flows[i]->flow_start,
+			    system_boot_time));
+			flw->flow_finish = 
+			    htonl(timeval_sub_ms(&flows[i]->flow_last,
+			    system_boot_time));
 			flw->protocol = flows[i]->protocol;
 			flw->tcp_flags = flows[i]->tcp_flags[0];
 			offset += sizeof(*flw);
@@ -660,18 +685,18 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		flw = (struct NF1_FLOW *)(packet + offset);
 
 		if (flows[i]->octets[1] > 0) {
-#if 0
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Flow %d of %d 1<0", i, num_flows);
-#endif
 			flw->src_ip = flows[i]->addr[1];
 			flw->dest_ip = flows[i]->addr[0];
 			flw->src_port = flows[i]->port[1];
 			flw->dest_port = flows[i]->port[0];
 			flw->flow_packets = htonl(flows[i]->packets[1]);
 			flw->flow_octets = htonl(flows[i]->octets[1]);
-			flw->flow_start = htonl(timeval_sub_ms(&flows[i]->flow_start, &system_boot_time));
-			flw->flow_finish = htonl(timeval_sub_ms(&flows[i]->flow_last, &system_boot_time));
+			flw->flow_start =
+			    htonl(timeval_sub_ms(&flows[i]->flow_start,
+			    system_boot_time));
+			flw->flow_finish =
+			    htonl(timeval_sub_ms(&flows[i]->flow_last,
+			    system_boot_time));
 			flw->protocol = flows[i]->protocol;
 			flw->tcp_flags = flows[i]->tcp_flags[1];
 			offset += sizeof(*flw);
@@ -684,6 +709,111 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	if (j != 0) {
 		if (verbose_flag)
 			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
+		hdr->flows = htons(hdr->flows);
+		errsz = sizeof(err);
+		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
+		    &err, &errsz); /* Clear ICMP errors */
+		if (send(nfsock, packet, (size_t)offset, 0) == -1)
+			return (-1);
+		num_packets++;
+	}
+
+	return (num_packets);
+}
+
+/*
+ * Given an array of expired flows, send netflow v5 report packets
+ * Returns number of packets sent or -1 on error
+ */
+static int
+send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
+    u_int64_t flows_exported, struct timeval *system_boot_time)
+{
+	struct timeval now;
+	u_int32_t uptime_ms;
+	u_int8_t packet[NF5_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
+	struct NF5_HEADER *hdr = NULL;
+	struct NF5_FLOW *flw = NULL;
+	int i, j, offset, num_packets, err;
+	socklen_t errsz;
+	
+	gettimeofday(&now, NULL);
+	uptime_ms = timeval_sub_ms(&now, system_boot_time);
+
+	hdr = (struct NF5_HEADER *)packet;
+	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
+		if (j >= NF5_MAXFLOWS - 1) {
+			if (verbose_flag)
+				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
+			hdr->flows = htons(hdr->flows);
+			errsz = sizeof(err);
+			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
+			    &err, &errsz); /* Clear ICMP errors */
+			if (send(nfsock, packet, (size_t)offset, 0) == -1)
+				return (-1);
+			j = 0;
+			num_packets++;
+		}
+		if (j == 0) {
+			memset(&packet, '\0', sizeof(packet));
+			hdr->version = htons(5);
+			hdr->flows = 0; /* Filled in as we go */
+			hdr->uptime_ms = htonl(uptime_ms);
+			hdr->time_sec = htonl(now.tv_sec);
+			hdr->time_nanosec = htonl(now.tv_usec * 1000);
+			hdr->flow_sequence = htonl(flows_exported);
+			/* Other fields are left zero */
+			offset = sizeof(*hdr);
+		}		
+		flw = (struct NF5_FLOW *)(packet + offset);
+		
+		if (flows[i]->octets[0] > 0) {
+			flw->src_ip = flows[i]->addr[0];
+			flw->dest_ip = flows[i]->addr[1];
+			flw->src_port = flows[i]->port[0];
+			flw->dest_port = flows[i]->port[1];
+			flw->flow_packets = htonl(flows[i]->packets[0]);
+			flw->flow_octets = htonl(flows[i]->octets[0]);
+			flw->flow_start =
+			    htonl(timeval_sub_ms(&flows[i]->flow_start,
+			    system_boot_time));
+			flw->flow_finish =
+			    htonl(timeval_sub_ms(&flows[i]->flow_last,
+			    system_boot_time));
+			flw->tcp_flags = flows[i]->tcp_flags[0];
+			flw->protocol = flows[i]->protocol;
+			offset += sizeof(*flw);
+			j++;
+			hdr->flows++;
+		}
+		flw = (struct NF5_FLOW *)(packet + offset);
+
+		if (flows[i]->octets[1] > 0) {
+			flw->src_ip = flows[i]->addr[1];
+			flw->dest_ip = flows[i]->addr[0];
+			flw->src_port = flows[i]->port[1];
+			flw->dest_port = flows[i]->port[0];
+			flw->flow_packets = htonl(flows[i]->packets[1]);
+			flw->flow_octets = htonl(flows[i]->octets[1]);
+			flw->flow_start =
+			    htonl(timeval_sub_ms(&flows[i]->flow_start,
+			    system_boot_time));
+			flw->flow_finish =
+			    htonl(timeval_sub_ms(&flows[i]->flow_last,
+			    system_boot_time));
+			flw->tcp_flags = flows[i]->tcp_flags[1];
+			flw->protocol = flows[i]->protocol;
+			offset += sizeof(*flw);
+			j++;
+			hdr->flows++;
+		}
+	}
+
+	/* Send any leftovers */
+	if (j != 0) {
+		if (verbose_flag)
+			logit(LOG_DEBUG, "Sending v5 flow packet len = %d",
+			    offset);
 		hdr->flows = htons(hdr->flows);
 		errsz = sizeof(err);
 		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
@@ -868,7 +998,21 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	/* Processing for expired flows */
 	if (num_expired > 0) {
 		if (nfsock != -1) {
-			r = send_netflow_v1(expired_flows, num_expired, nfsock);
+			switch (ft->export_ver) {
+			case 1:
+				r = send_netflow_v1(expired_flows, num_expired,
+				    nfsock, ft->flows_exported,
+				    &ft->system_boot_time);
+				break;
+			case 5:
+				r = send_netflow_v5(expired_flows, num_expired,
+				    nfsock, ft->flows_exported,
+				    &ft->system_boot_time);
+				break;
+			default:
+				/* Shouldn't be here */
+				r = -1;
+			}
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
@@ -1452,6 +1596,7 @@ usage(void)
 	fprintf(stderr, "  -n host:port    Send Cisco NetFlow(tm)-compatible packets to host:port\n");
 	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
 	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
+	fprintf(stderr, "  -v 1|5          NetFlow export packet version\n");
 	fprintf(stderr, "  -d              Don't daemonise\n");
 	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity\n");
 	fprintf(stderr, "  -h              Display this help\n");
@@ -1636,7 +1781,8 @@ main(int argc, char **argv)
 	pidfile_path = DEFAULT_PIDFILE;
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
-	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:c:")) != -1) {
+	flowtrack.export_ver = 1;
+	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:c:v:")) != -1) {
 		switch (ch) {
 		case 'h':
 			usage();
@@ -1688,6 +1834,16 @@ main(int argc, char **argv)
 				ctlsock_path = NULL;
 			else
 				ctlsock_path = optarg;
+			break;
+		case 'v':
+			switch ((flowtrack.export_ver = atoi(optarg))) {
+			case 1:
+			case 5:
+				break;
+			default:
+				fprintf(stderr, "Invalid NetFlow version\n");
+				exit(1);
+			}
 			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");
@@ -1755,7 +1911,7 @@ main(int argc, char **argv)
 	}
 
 	/* Main processing loop */
-	gettimeofday(&system_boot_time, NULL);
+	gettimeofday(&flowtrack.system_boot_time, NULL);
 	stop_collection_flag = 0;
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, linktype};

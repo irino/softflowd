@@ -1,3 +1,7 @@
+20040710
+ - (djm) Tidy up code: remove some debugging gunk, kill a global
+ - (djm) Add support for NetFlow v.5 export format
+
 20040430
  - (djm) Release version 0.9
 
