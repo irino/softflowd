@@ -121,7 +121,7 @@ static int dump_stats = 0;
 /*
  * How many seconds to wait for pcap data before doing housekeeping
  */
-#define MAINLOOP_TIMEOUT	8
+#define DEFAULT_RECHECK_WAIT	8
 
 /*
  * Default maximum number of flow to track simultaneously 
@@ -849,7 +849,8 @@ usage(void)
 	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
 	fprintf(stderr, "  -i interface  Specify interface to listen on\n");
 	fprintf(stderr, "  -r pcap_file  Specify packet capture file to read\n");
-	fprintf(stderr, "  -t timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
+	fprintf(stderr, "  -f timeout    Quiescent flow expiry timeout in seconds (default %d)\n", DEFAULT_TIMEOUT);
+	fprintf(stderr, "  -t check_wait Seconds between scans for expired flows (default %d)\n", DEFAULT_RECHECK_WAIT);
 	fprintf(stderr, "  -m max_flows  Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
 	fprintf(stderr, "  -n host:port  Send Cisco NetFlow(tm)-compatible packets to host:port\n");
 	fprintf(stderr, "  -d            Don't daemonise\n");
@@ -957,7 +958,8 @@ main(int argc, char **argv)
 	const char *pidfile_path;
 	char ebuf[PCAP_ERRBUF_SIZE];
 	extern char *optarg;
-	int ch, timeout, dontfork_flag, r, linktype, sock, max_flows;
+	int ch, timeout, dontfork_flag, r, linktype, sock;
+	int recheck_wait, max_flows;
 	pcap_t *pcap = NULL;
 	struct sockaddr_in target;
 	struct FLOWTRACK flowtrack;
@@ -972,10 +974,11 @@ main(int argc, char **argv)
 
 	dev = capfile = NULL;
 	timeout = DEFAULT_TIMEOUT;
+	recheck_wait = DEFAULT_RECHECK_WAIT;
 	max_flows = DEFAULT_MAX_FLOWS;
 	pidfile_path = DEFAULT_PIDFILE;
 	dontfork_flag = 0;
-	while ((ch = getopt(argc, argv, "hdDi:r:t:n:m:p:")) != -1) {
+	while ((ch = getopt(argc, argv, "hdDi:r:f:t:n:m:p:")) != -1) {
 		switch (ch) {
 		case 'h':
 			usage();
@@ -1002,9 +1005,16 @@ main(int argc, char **argv)
 			}
 			capfile = optarg;
 			break;
-		case 't':
+		case 'f':
 			if ((timeout = atoi(optarg)) < 0) {
 				fprintf(stderr, "Invalid timeout\n\n");
+				usage();
+				exit(1);
+			}
+			break;
+		case 't':
+			if ((recheck_wait = atoi(optarg)) < 0) {
+				fprintf(stderr, "Invalid expiry check wait\n\n");
 				usage();
 				exit(1);
 			}
@@ -1127,7 +1137,7 @@ main(int argc, char **argv)
 	syslog(LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
 
 	/* Main processing loop */
-	next_expiry_check = time(NULL) + MAINLOOP_TIMEOUT;
+	next_expiry_check = time(NULL) + recheck_wait;
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, timeout, linktype};
 		struct pollfd pl[1];
@@ -1141,7 +1151,8 @@ main(int argc, char **argv)
 			pl[0].fd = pcap_fileno(pcap);
 			pl[0].events = POLLIN|POLLERR|POLLHUP;
 			pl[0].revents = 0;
-			r = poll(pl, 1, MAINLOOP_TIMEOUT * 1000);
+			/* Iterate mainloop twice per recheck */
+			r = poll(pl, 1, recheck_wait * 1000 / 2);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
@@ -1196,7 +1207,7 @@ main(int argc, char **argv)
 		}
 
 		/*
-		 * Expiry processing happens every MAINLOOP_TIMEOUT seconds
+		 * Expiry processing happens every recheck_rate seconds
 		 * or whenever we have exceeded the maximum number of active 
 		 * flows
 		 */
@@ -1220,7 +1231,7 @@ expiry_check:
 				force_expire(&flowtrack, flowtrack.num_flows - max_flows);
 				goto expiry_check;
 			}
-			next_expiry_check = time(NULL) + MAINLOOP_TIMEOUT;
+			next_expiry_check = time(NULL) + recheck_wait;
 		}
 	}
 

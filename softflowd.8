@@ -33,7 +33,8 @@
 .Op Fl dDH
 .Op Fl i Ar interface
 .Op Fl r Ar pcap_file
-.Op Fl t Ar timeout
+.Op Fl f Ar timeout
+.Op Fl t Ar check_wait
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
 .Sh DESCRIPTION
@@ -56,7 +57,10 @@ seconds (default: 1 hour) the flow is expired automatically. Flows may also
 be expired early if they approach their traffic counts exceed 2Gb or if
 the number of flows being tracked exceeds 
 .Ar max_flows
-(default: 8192). In this last case, flows are expired oldest-first.
+(default: 8192). In this last case, flows are expired oldest-first. 
+Flow expiry checking is done every 
+.Ar check_wait
+seconds (default: 8).
 .Pp
 On flow expiry, the gathered statistics are formatted in a UDP datagram 
 which is compatible with version 1 of Cisco's NetFlow(tm) accounting export
@@ -93,10 +97,17 @@ file rather than a network interface.
 processes the whole capture file and only expires flows when 
 .Ar max_flows
 is exceeded.
-.It Fl t Ar timeout
-This option specified the number of seconds that a flow must be quiescent
+.It Fl f Ar timeout
+This option specifies the number of seconds that a flow must be quiescent
 (no traffic recorded) before it is considered expired. The default is one
 hour (3600 seconds).
+.It Fl t Ar check_wait
+Specify how often checks for expired events occur. Unless the flow table
+is overfull, 
+.Nm
+will check the table evern
+.Ar check_wait
+seconds looking for expired flows.
 .It Fl m Ar max_flows
 Specifies the maximum number of flow to concurrently track. If this  limit
 is exceeded, the flows which have least recently seen traffic are forcibly
