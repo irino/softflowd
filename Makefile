@@ -10,6 +10,11 @@ LDFLAGS=-g
 
 CFLAGS=-g -O $(WARNFLAGS) -I/usr/include/pcap
 
+#CFLAGS+=-DFLOW_RB		# Use red-black tree for flows
+CFLAGS+=-DFLOW_SPLAY		# Use splay tree for flows
+CFLAGS+=-DEXPIRY_RB		# Use red-black tree for expiry events
+#CFLAGS+=-DEXPIRY_SPLAY		# Use splay tree for expiry events
+
 TARGETS=softflowd softflowctl
 
 all: $(TARGETS)

@@ -1,3 +1,10 @@
+20031109
+ - (djm) Give compile-time choice over flow and expiry event tree type
+   default is splay tree for flows and red-black tree for expiry events
+   (limited benchmarking indicates that this is the fastest)
+ - (djm) Lock the BPF device to prevent changes should the unpriv child
+   be compromised (only OpenBSD supports this ioctl for now)
+
 20031001
  - (djm) Realloc audit
  - (djm) Chroot to /var/empty and drop privileges on daemonisation

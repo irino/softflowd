@@ -27,6 +27,7 @@
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/poll.h>

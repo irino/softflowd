@@ -45,10 +45,10 @@
 
 #include "common.h"
 #include "convtime.h"
-
 #include "sys-tree.h"
-
+#include "treetype.h"
 #include <pcap.h>
+
 
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
@@ -110,8 +110,8 @@ struct STATISTIC {
  */
 struct FLOWTRACK {
 	/* The flows and their expiry events */
-	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
-	RB_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
+	FLOW_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
+	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
 
 	unsigned int num_flows;			/* # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
@@ -167,7 +167,7 @@ struct FLOWTRACK {
 struct FLOW {
 	/* Housekeeping */
 	struct EXPIRY *expiry;			/* Pointer to expiry record */
-	RB_ENTRY(FLOW) trp;			/* Tree pointer */
+	FLOW_ENTRY(FLOW) trp;			/* Tree pointer */
 
 	/* Per-flow statistics (all in _host_ byte order) */
 	u_int64_t flow_seq;			/* Flow ID */
@@ -200,7 +200,7 @@ struct FLOW {
  * 
  */
 struct EXPIRY {
-	RB_ENTRY(EXPIRY) trp;			/* Tree pointer */
+	EXPIRY_ENTRY(EXPIRY) trp;		/* Tree pointer */
 	struct FLOW *flow;			/* pointer to flow */
 
 	u_int32_t expires_at;			/* time_t */
@@ -285,8 +285,8 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 }
 
 /* Generate functions for flow tree */
-RB_PROTOTYPE(FLOWS, FLOW, trp, flow_compare);
-RB_GENERATE(FLOWS, FLOW, trp, flow_compare);
+FLOW_PROTOTYPE(FLOWS, FLOW, trp, flow_compare);
+FLOW_GENERATE(FLOWS, FLOW, trp, flow_compare);
 
 /*
  * This is the expiry comparison function.
@@ -305,8 +305,8 @@ expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 }
 
 /* Generate functions for flow tree */
-RB_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
-RB_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
+EXPIRY_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
+EXPIRY_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 
 /* Format a time in an ISOish format */
 static const char *
@@ -438,11 +438,13 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 static void
 flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 {
+	EXPIRY_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
+
 	/* Flows over 2Gb traffic */
 	if (flow->octets[0] > (1U << 31) || flow->octets[1] > (1U << 31)) {
 		flow->expiry->expires_at = 0;
 		flow->expiry->reason = R_OVERBYTES;
-		return;
+		goto out;
 	}
 	
 	/* Flows over maximum life seconds */
@@ -451,7 +453,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 	    ft->maximum_lifetime) {
 		flow->expiry->expires_at = 0;
 		flow->expiry->reason = R_MAXLIFE;
-		return;
+		goto out;
 	}
 	
 	if (flow->protocol == IPPROTO_TCP) {
@@ -461,7 +463,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    ft->tcp_rst_timeout;
 			flow->expiry->reason = R_TCP_RST;
-			return;
+			goto out;
 		}
 		/* Finished TCP flows */
 		if ((flow->tcp_flags[0] & TH_FIN) &&
@@ -469,14 +471,14 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    ft->tcp_fin_timeout;
 			flow->expiry->reason = R_TCP_FIN;
-			return;
+			goto out;
 		}
 
 		/* TCP flows */
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->tcp_timeout;
 		flow->expiry->reason = R_TCP;
-		return;
+		goto out;
 	}
 
 	if (flow->protocol == IPPROTO_UDP) {
@@ -484,13 +486,16 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->udp_timeout;
 		flow->expiry->reason = R_UDP;
-		return;
+		goto out;
 	}
 
 	/* Everything else */
 	flow->expiry->expires_at = flow->flow_last.tv_sec + 
 	    ft->general_timeout;
 	flow->expiry->reason = R_GENERAL;
+
+ out:
+	EXPIRY_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 }
 
 
@@ -527,7 +532,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		ft->frag_packets++;
 
 	/* If a matching flow does not exist, create and insert one */
-	if ((flow = RB_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
+	if ((flow = FLOW_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
 		/* Allocate and fill in the flow */
 		if ((flow = malloc(sizeof(*flow))) == NULL)
 			return (PP_MALLOC_FAIL);
@@ -535,7 +540,7 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		memcpy(&flow->flow_start, received_time,
 		    sizeof(flow->flow_start));
 		flow->flow_seq = ft->next_flow_seq++;
-		RB_INSERT(FLOWS, &ft->flows, flow);
+		FLOW_INSERT(FLOWS, &ft->flows, flow);
 
 		/* Allocate and fill in the associated expiry event */
 		if ((flow->expiry = malloc(sizeof(*flow->expiry))) == NULL)
@@ -544,22 +549,12 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		/* Must be non-zero (0 means expire immediately) */
 		flow->expiry->expires_at = 1;
 		flow->expiry->reason = R_GENERAL;
+		EXPIRY_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 
 		ft->num_flows++;
 		if (verbose_flag)
 			syslog(LOG_DEBUG, "ADD FLOW %s", format_flow_brief(flow));
 	} else {
-		/*
-		 * If an entry is scheduled for immediate expiry, then 
-		 * don't bother moving it from the head of the list
-		 */
-		if (flow->expiry->expires_at != 0) {
-#if 0
-			syslog(LOG_DEBUG, "Removing expiry %p", flow->expiry);
-#endif
-			RB_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
-		}
-	
 		/* Update flow statistics */
 		flow->packets[0] += tmp.packets[0];
 		flow->octets[0] += tmp.octets[0];
@@ -571,10 +566,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	
 	memcpy(&flow->flow_last, received_time, sizeof(flow->flow_last));
 
-	if (flow->expiry->expires_at != 0) {
+	if (flow->expiry->expires_at != 0)
 		flow_update_expiry(ft, flow);
-		RB_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
-	}
 
 	return (PP_OK);
 }
@@ -806,8 +799,8 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	if (verbose_flag)
 		syslog(LOG_DEBUG, "Starting expiry scan: mode %d", ex);
 
-	for(expiry = RB_MIN(EXPIRIES, &ft->expiries); expiry != NULL; expiry = nexpiry) {
-		nexpiry = RB_NEXT(EXPIRIES, &ft->expiries, expiry);
+	for(expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries); expiry != NULL; expiry = nexpiry) {
+		nexpiry = EXPIRY_NEXT(EXPIRIES, &ft->expiries, expiry);
 		if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) || 
 		    (ex != CE_EXPIRE_FORCED &&
 		    (expiry->expires_at < now.tv_sec))) {
@@ -834,8 +827,8 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			update_expiry_stats(ft, expiry);
 
 			/* Remove from flow tree, destroy expiry event */
-			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
-			RB_REMOVE(EXPIRIES, &ft->expiries, expiry);
+			FLOW_REMOVE(FLOWS, &ft->flows, expiry->flow);
+			EXPIRY_REMOVE(EXPIRIES, &ft->expiries, expiry);
 			expiry->flow->expiry = NULL;
 			free(expiry);
 
@@ -882,20 +875,60 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 static void
 force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 {
-	struct EXPIRY *expiry;
+	struct EXPIRY *expiry, **expiryv;
+	int i;
 
 	/* XXX move all overflow processing here (maybe) */
 	if (verbose_flag)
 		syslog(LOG_INFO, "Forcing expiry of %d flows",
 		    num_to_expire);
 
-	RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
-		if (num_to_expire-- <= 0)
-			break;
-		expiry->expires_at = 0;
-		expiry->reason = R_OVERFLOWS;
-		ft->flows_force_expired++;
+	/*
+	 * Do this in two steps, as it is dangerous to change a key on 
+	 * a tree entry without first removing it and then re-adding it.
+	 * It is even worse when this has to be done during a FOREACH :)
+	 * To get around this, we make a list of expired flows and _then_ 
+	 * alter them 
+	 */
+	 
+	if ((expiryv = malloc(sizeof(*expiryv) * num_to_expire)) == NULL) {
+		/*
+		 * On malloc failure, expire ALL flows. I assume that 
+		 * setting all the keys in a tree to the same value is 
+		 * safe.
+		 */
+		syslog(LOG_ERR, "Out of memory while expiring flows - "
+		    "all flows expired");
+		EXPIRY_FOREACH(expiry, EXPIRIES, &ft->expiries) {
+			expiry->expires_at = 0;
+			expiry->reason = R_OVERFLOWS;
+			ft->flows_force_expired++;
+		}
+		return;
 	}
+	
+	/* Make the list of flows to expire */
+	i = 0;
+	EXPIRY_FOREACH(expiry, EXPIRIES, &ft->expiries) {
+		if (i >= num_to_expire)
+			break;
+		expiryv[i++] = expiry;
+	}
+	if (i < num_to_expire) {
+		syslog(LOG_ERR, "Needed to expire %d flows, "
+		    "but only %d active", num_to_expire, i);
+		num_to_expire = i;
+	}
+
+	for(i = 0; i < num_to_expire; i++) {
+		EXPIRY_REMOVE(EXPIRIES, &ft->expiries, expiryv[i]);
+		expiryv[i]->expires_at = 0;
+		expiryv[i]->reason = R_OVERFLOWS;
+		EXPIRY_INSERT(EXPIRIES, &ft->expiries, expiryv[i]);
+	}
+	ft->flows_force_expired += num_to_expire;
+	free(expiryv);
+	/* XXX - this is overcomplicated, perhaps use a separate queue */
 }
 
 /* Delete all flows that we know about without processing */
@@ -906,11 +939,11 @@ delete_all_flows(struct FLOWTRACK *ft)
 	int i;
 	
 	i = 0;
-	for(flow = RB_MIN(FLOWS, &ft->flows); flow != NULL; flow = nflow) {
-		nflow = RB_NEXT(FLOWS, &ft->flows, flow);
-		RB_REMOVE(FLOWS, &ft->flows, flow);
+	for(flow = FLOW_MIN(FLOWS, &ft->flows); flow != NULL; flow = nflow) {
+		nflow = FLOW_NEXT(FLOWS, &ft->flows, flow);
+		FLOW_REMOVE(FLOWS, &ft->flows, flow);
 		
-		RB_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
+		EXPIRY_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
 		free(flow->expiry);
 
 		ft->num_flows--;
@@ -985,11 +1018,6 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 		endprotoent();
 	}
 
-#if 0
-	fprintf(out, "RB_EMPTY: %d\n", RB_EMPTY(&ft->flows));
-	fprintf(out, "TAILQ_EMPTY: %d\n", TAILQ_EMPTY(&ft->expiries));
-#endif
-
 	return (0);
 }
 
@@ -1001,7 +1029,7 @@ dump_flows(struct FLOWTRACK *ft, FILE *out)
 
 	now = time(NULL);
 
-	RB_FOREACH(expiry, EXPIRIES, &ft->expiries) {
+	EXPIRY_FOREACH(expiry, EXPIRIES, &ft->expiries) {
 		fprintf(out, "ACTIVE %s\n", format_flow(expiry->flow));
 		if ((long int) expiry->expires_at - now < 0) {
 			fprintf(out, 
@@ -1324,6 +1352,19 @@ setup_packet_capture(struct pcap **pcap, int *linktype,
 			exit(1);
 		}
 	}
+
+#ifdef BIOCLOCK
+	/*
+	 * If we are reading from an device (not a file), then 
+	 * lock the underlying BPF device to prevent changes in the 
+	 * unprivileged child
+	 */
+	if (dev != NULL && ioctl(pcap_fileno(*pcap), BIOCLOCK) < 0) {
+		fprintf(stderr, "ioctl(BIOCLOCK) failed: %s\n",
+		    strerror(errno));
+		exit(1);
+	}
+#endif
 }
 
 static void
@@ -1332,8 +1373,8 @@ init_flowtrack(struct FLOWTRACK *ft)
 	/* Set up flow-tracking structure */
 	memset(ft, '\0', sizeof(*ft));
 	ft->next_flow_seq = 1;
-	RB_INIT(&ft->flows);
-	RB_INIT(&ft->expiries);
+	FLOW_INIT(&ft->flows);
+	EXPIRY_INIT(&ft->expiries);
 	
 	ft->tcp_timeout = DEFAULT_TCP_TIMEOUT;
 	ft->tcp_rst_timeout = DEFAULT_TCP_RST_TIMEOUT;
@@ -1528,9 +1569,9 @@ main(int argc, char **argv)
 	int ch, dontfork_flag, linktype, nfsock, ctlsock, r;
 	int max_flows, stop_collection_flag, exit_request;
 	pcap_t *pcap = NULL;
-	struct FLOWTRACK flowtrack;
 	struct sockaddr_in dest;
 	time_t next_expiry_check;
+	struct FLOWTRACK flowtrack;
 	
 	memset(&dest, '\0', sizeof(dest));
 #ifdef SOCK_HAS_LEN 
@@ -1768,4 +1809,3 @@ expiry_check:
 	
 	exit(r == 0 ? 0 : 1);
 }
-
