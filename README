@@ -4,8 +4,9 @@ Introduction
 ------------
 
 softflowd listens promiscuously on a network interface and semi-statefully
-tracks network flows. These flows can be reported using NetFlow v.1 or v.5 
-datagrams. 
+tracks network flows. These flows can be reported using NetFlow version 1, 5 
+or 9 datagrams. softflowd is fully IPv6 capable: it can track IPv6 flows and 
+export to IPv6 hosts.
 
 More details about softflowd's function and usage may be found in the
 supplied manpages, which you can view prior to installation using
@@ -18,9 +19,9 @@ softflowd's companion project "flowd" (http://www.mindrot.org/flowd.html).
 flowd is a NetFlow collector that is maintained in parallel with
 softflowd and includes a few handy features, such as the ability
 to filter flows it receives as well as Perl and Python APIs to its
-storage format. NB. You don't have to use flowd: any NetFlow v.1 or v.5
-compatible collector should work with softflowd (an example Perl one is
-included for testing purposes as collector.pl)
+storage format. NB. You don't have to use flowd: any NetFlow compatible 
+collector should work with softflowd. An example Perl collector is included 
+for testing purposes as collector.pl, but it doesn't yet support NetFlow v.9
 
 Installing
 ----------
