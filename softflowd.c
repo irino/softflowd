@@ -560,7 +560,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 
 	for(offset = j = i = 0; i < num_flows; i++) {
 		if (j == 0 || j >= 23) {
-			if (j == 0) {
+			if (j != 0) {
 				hdr->flows = htons(hdr->flows);
 				if (send(nfsock, packet, 
 				    (size_t)offset, 0) == -1)
