@@ -3,7 +3,7 @@ WARNFLAGS=\
 	-Wmissing-declarations -Wmissing-prototypes -Wno-conversion \
 	-Wpointer-arith -Wshadow -Wuninitialized -Wcast-align \
 	-Wcast-qual -WformatC=2 -Wformat-nonliteral -Wwrite-strings \
-	-Werror
+	#-Werror
 
 LIBS=-lpcap #-lefence
 LDFLAGS=-g

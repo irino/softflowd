@@ -1,3 +1,6 @@
+20031111
+ - (djm) Remove -Werror from CFLAGS, it causes problems in released software
+
 20031109
  - (djm) Give compile-time choice over flow and expiry event tree type
    default is splay tree for flows and red-black tree for expiry events
