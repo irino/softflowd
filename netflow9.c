@@ -167,8 +167,8 @@ nf9_init_template(void)
 	v6_template.r[8].length = htons(1);
 	v6_template.r[9].type = htons(NF9_TCP_FLAGS);
 	v6_template.r[9].length = htons(1);
-	v4_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
-	v4_template.r[10].length = htons(1);
+	v6_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v6_template.r[10].length = htons(1);
 }
 
 static int

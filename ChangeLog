@@ -8,6 +8,7 @@
  - (djm) Don't bother tracking IPv6 flows if NetFlow export version 
    doesn't support it
  - (djm) Don't crank up pcap snaplen unless we are interested in IPv6 either
+ - (djm) Unbreak v6 flow export
 
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
