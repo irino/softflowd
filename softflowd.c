@@ -1212,10 +1212,8 @@ setup_packet_capture(struct pcap **pcap, int *linktype,
 			fprintf(stderr, "pcap_open_live: %s\n", ebuf);
 			exit(1);
 		}
-		if (pcap_lookupnet(dev, &bpf_net, &bpf_mask, ebuf) == -1) {
-			fprintf(stderr, "pcap_lookupnet: %s\n", ebuf);
-			exit(1);
-		}
+		if (pcap_lookupnet(dev, &bpf_net, &bpf_mask, ebuf) == -1)
+			bpf_net = bpf_mask = 0;
 	} else {
 		if ((*pcap = pcap_open_offline(capfile, ebuf)) == NULL) {
 			fprintf(stderr, "pcap_open_offline(%s): %s\n", 
