@@ -50,7 +50,6 @@
 #include "log.h"
 #include <pcap.h>
 
-
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
 
@@ -265,6 +264,30 @@ struct NF5_FLOW {
 #define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
+
+/* Describes a datalink header and how to extract v4/v6 frames from it */
+struct DATALINK {
+	int dlt;		/* BPF datalink type */
+	int skiplen;		/* Number of bytes to skip datalink header */
+	int ft_off;		/* Datalink frametype offset */
+	int ft_len;		/* Datalink frametype length */
+	int ft_is_be;		/* Set if frametype is big-endian */
+	u_int32_t ft_mask;	/* Mask applied to frametype */
+	u_int32_t ft_v4;	/* IPv4 frametype */
+	u_int32_t ft_v6;	/* IPv6 frametype */
+};
+
+/* Datalink types that we know about */
+static const struct DATALINK lt[] = {
+	{ DLT_EN10MB,	14, 12,  2,  1, 0xffffffff,  0x0800,   0x86dd },
+	{ DLT_PPP,	 5,  3,  2,  1, 0xffffffff,  0x0021,   0x0057 },
+	{ DLT_RAW,	 0,  0,  1,  1, 0x000000f0,  0x0004,   0x0006 },
+	{ DLT_NULL,	 4,  0,  4,  0, 0xffffffff, AF_INET, AF_INET6 },
+#ifdef DLT_LOOP
+	{ DLT_LOOP,	 4,  0,  4,  1, 0xffffffff, AF_INET, AF_INET6 },
+#endif
+	{ -1,		-1, -1, -1, -1, 0x00000000,  0xffff,   0xffff },
+};
 
 /* Signal handlers */
 static void sighand_graceful_shutdown(int signum)
@@ -542,7 +565,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
  * (the actual expiry is performed elsewhere)
  */
 static int
-process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, 
+process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
     const u_int32_t caplen, const u_int32_t len, 
     const struct timeval *received_time)
 {
@@ -550,6 +573,12 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	int frag;
 
 	ft->total_packets++;
+
+	/* XXX - IPv6 support */
+	if (af != AF_INET) {
+		ft->non_ip_packets++;
+		return (PP_BAD_PACKET);
+	}
 
 	/* Convert the IP packet to a flow identity */
 	if (packet_to_flowrec(&tmp, pkt, caplen, len, &frag) == -1) {
@@ -1216,76 +1245,48 @@ dump_flows(struct FLOWTRACK *ft, FILE *out)
 
 /*
  * Figure out how many bytes to skip from front of packet to get past 
- * datalink headers. If pkt is specified, also check whether it is an 
- * IP packet. 
+ * datalink headers. If pkt is specified, also check whether determine
+ * whether or not it is one that we are interested in (IPv4 or IPv6 for now)
  *
  * Returns number of bytes to skip or -1 to indicate that entire 
  * packet should be skipped
  */
 static int 
-datalink_skip(int linktype, const u_int8_t *pkt, u_int32_t caplen)
+datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af)
 {
-	int skiplen;
+	int i, j;
+	u_int32_t frametype;
 
-	/* Figure out how many bytes to skip */
-	switch(linktype) {
-		case DLT_EN10MB:
-			skiplen = 6+6+2;
-			break;
-		case DLT_PPP:
-			skiplen = 5;
-			break;
-		case DLT_RAW:
-			skiplen = 0;
-			break;
-#ifdef DLT_LOOP
-		case DLT_LOOP:
-#endif
-		case DLT_NULL:
-			skiplen = 4;
-			break;
-		default:
-			skiplen = -1;
-			break;
+	for (i = 0; lt[i].dlt != linktype && lt[i].dlt != -1; i++)
+		;	
+	if (lt[i].dlt == -1 || pkt == NULL)
+		return (lt[i].dlt);
+	if (caplen <= lt[i].skiplen)
+		return (-1);
+
+	/* Suck out the frametype */
+	frametype = 0;
+	if (lt[i].ft_is_be) {
+		for (j = 0; j < lt[i].ft_len; j++) {
+			frametype <<= 8;
+			frametype |= pkt[j + lt[i].ft_off];
+		}
+	} else {
+		for (j = lt[i].ft_len - 1; j >= 0 ; j--) {
+			frametype <<= 8;
+			frametype |= pkt[j + lt[i].ft_off];
+		}
 	}
-	
-	if (pkt == NULL || skiplen <= 0)
-		return (skiplen);
-	
-	if (caplen <= skiplen)
+	frametype &= lt[i].ft_mask;
+
+	if (frametype == lt[i].ft_v4)
+		*af = AF_INET;
+	else if (frametype == lt[i].ft_v6)
+		*af = AF_INET6;
+	else
 		return (-1);
 	
-	/* Test the supplied packet to determine if it is IP */	
-	switch(linktype) {
-		case DLT_EN10MB:
-			if (ntohs(*(const u_int16_t*)(pkt + 12)) != 0x0800)
-				skiplen = -1;
-			break;
-		case DLT_PPP:
-			/* XXX: untested */
-			if (ntohs(*(const u_int16_t*)(pkt + 3)) != 0x21)
-				skiplen = -1;
-			break;
-		case DLT_NULL:
-			/* XXX: untested */
-			if (*(const u_int32_t*)pkt != AF_INET)
-				skiplen = -1;
-			break;
-#ifdef DLT_LOOP
-		case DLT_LOOP:
-#endif
-			if (ntohl(*(const u_int32_t*)pkt) != AF_INET)
-				skiplen = -1;
-			break;
-		case DLT_RAW:
-			/* XXX: untested */
-			break;
-		default:
-			skiplen = -1;
-			break;
-	}
-	
-	return (skiplen);
+	return (lt[i].skiplen);
 }
 
 /*
@@ -1296,15 +1297,18 @@ static void
 flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr, 
     const u_char *pkt)
 {
-	int s;
+	int s, af;
 	struct CB_CTXT *cb_ctxt = (struct CB_CTXT *)user_data;
-	
-	if ((s = datalink_skip(cb_ctxt->linktype, pkt, phdr->caplen)) == -1) {
+	struct timeval tv;
+
+	s = datalink_check(cb_ctxt->linktype, pkt, phdr->caplen, &af);
+	if (s < 0) {
 		cb_ctxt->ft->non_ip_packets++;
 	} else {
-		if (process_packet(cb_ctxt->ft, pkt + s, 
-		    phdr->caplen - s, phdr->len - s, 
-		    (const struct timeval *)&phdr->ts) == PP_MALLOC_FAIL)
+		tv.tv_sec = phdr->ts.tv_sec;
+		tv.tv_usec = phdr->ts.tv_usec;
+		if (process_packet(cb_ctxt->ft, pkt + s, af,
+		    phdr->caplen - s, phdr->len - s, &tv) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
 }
@@ -1504,7 +1508,7 @@ setup_packet_capture(struct pcap **pcap, int *linktype,
 		bpf_net = bpf_mask = 0;
 	}
 	*linktype = pcap_datalink(*pcap);
-	if (datalink_skip(*linktype, NULL, 0) == -1) {
+	if (datalink_check(*linktype, NULL, 0, NULL) == -1) {
 		fprintf(stderr, "Unsupported datalink type %d\n", *linktype);
 		exit(1);
 	}

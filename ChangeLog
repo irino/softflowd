@@ -1,5 +1,6 @@
 20040909
  - (djm) inline is unnecessary
+ - (djm) Rework datalink processing, in preparation of IPv6 support
 
 20040901
  - (djm) Fix a tiny, stupid bug that prevents flow export
