@@ -44,12 +44,33 @@
  */
 
 /* XXX - TODO:
- * - Properly fast-expire closed TCP sessions
- * - Flow exporter sends flow records for flows with 0 octets/packets
- * - IPv6 support (I don't think netflow supports it yet)
+ * - Fast-expire closed TCP sessions
+ *   - We track tcp flags bidirectionally
+ *   - We need to track TCP seqnum when we see a FIN and watch for reply
+ *     - Bidirectional
+ *   - RST we could do easily
  * - maybe make expiries a tree keyed by expires_at, so we can have 
  *   different expiry rates for TCP and UDP connections
  *    - e.g. heuristics to fast-expire udp transaction traffic like dns
+ *    - XXX this is important - most flows are short-lived noise
+ * - Flow exporter sends flow records for flows with 0 octets/packets
+ * - IPv6 support (I don't think netflow supports it yet)
+ * - Enqueue expired flows in struct FLOWTRACK rather than sending 
+ *   immediately upon expiry
+ *   - Ability to set soft mininum number of flow records per packet
+ *   - Need timeout so the queue doesn't rot
+ *   - Benefits of queue vs leaving them in flow table???
+ * - FIFO/socket interface
+ *   - Move from signals to socket interface
+ *     - Kill the global variables
+ *   - Real-time dump of flowtable (shm/mmap fd pass?)
+ *   - Diagnostics without syslog spam
+ *   - Supply companion softflowdctl as interface
+ *   - ntop like view
+ * - Collect more statistics
+ *   - Per-protocol
+ *   - Per well-known-port
+ *   - Moving averages
  */
 
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
@@ -700,25 +721,24 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 		if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) || 
 		    (ex != CE_EXPIRE_FORCED &&
 		    (expiry->expires_at < now.tv_sec))) {
+			/* Flow has expired */
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "Queuing flow seq:%llu (%p) for expiry",
 				   expiry->flow->flow_seq, expiry->flow);
 
-			/* Flow has expired */
-			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
-			TAILQ_REMOVE(&ft->expiries, expiry, next);
-
-			ft->num_flows--;
-
 			/* Add to array of expired flows */
-
 			expired_flows = realloc(expired_flows,
 			    sizeof(*expired_flows) * (num_expired + 1));
 			expired_flows[num_expired] = expiry->flow;
 			num_expired++;
 			
+			/* Remove from flow tree, destroy expiry event */
+			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
+			TAILQ_REMOVE(&ft->expiries, expiry, next);
 			expiry->flow->expiry = NULL;
 			free(expiry);
+
+			ft->num_flows--;
 		}
 	}
 
@@ -814,13 +834,13 @@ log_stats(struct FLOWTRACK *ft)
 	syslog(LOG_INFO, "Flow export packets dropped: %llu", ft->flows_dropped);
 	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
 
-	syslog(LOG_INFO, "Flow duration: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
+	syslog(LOG_INFO, "Duration: %0.2f / %0.2f / %0.2f", 
 	    ft->min_dur, ft->mean_dur, ft->max_dur);
-	syslog(LOG_INFO, "Flow bytes: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	syslog(LOG_INFO, "Flow bytes: %0.2f / %0.2f / %0.2f", 
 	    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
-	syslog(LOG_INFO, "Flow packets: %0.2f / %0.2f / %0.2f (min / mean / max)", 
+	syslog(LOG_INFO, "Flow packets: %0.2f / %0.2f / %0.2f", 
 	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
-
 
 #if 0
 	syslog(LOG_INFO, "RB_EMPTY: %d", RB_EMPTY(&ft->flows));
