@@ -707,16 +707,8 @@ update_statistic(struct STATISTIC *s, double new, double n)
 	s->min = MIN(s->min, new);
 	s->max = MAX(s->max, new);
 
-	/*
-	 * XXX I think this method of calculating the a new mean from an 
-	 * existing mean is correct but I don't have my stats book handy
-	 *
-	 * I use this instead of "Mnew = ((Mold * n - 1) + S) / n" to 
-	 * avoid accumulating fp rounding errors. Maybe I'm misguided :)
-	 */
 	s->mean = s->mean + ((new - s->mean) / n);
 }
-
 
 /* Update global statistics */
 static void
