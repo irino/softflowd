@@ -709,7 +709,7 @@ dump_flows(struct FLOWTRACK *ft)
 			syslog(LOG_DEBUG, 
 			    "EXPIRY EVENT for flow %llu in %ld seconds",
 			    expiry->flow->flow_seq, 
-			    expiry->expires_at - now);
+			    (long int) expiry->expires_at - now);
 		}
 	}
 
