@@ -32,6 +32,7 @@ softflowd
   - Ability to read more than one pcap file
   - Option for no statistics mode? (for decreased CPU)
   - Option for fixed expiry timers? (for decreased per-packet CPU)
+  - Fork for ctlsock actions? (don't block mainloop)
 
 softflowctl
 -----------
