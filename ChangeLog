@@ -1,4 +1,7 @@
 20040417
+ - (djm) Fix invalid packet bug
+
+20040417
  - (djm) Eliminate periodic expiry scans, wait in poll() only until the next 
    scheduled expiry event
  - (djm) Separate timeout for ICMP traffic, generic timeout is too long

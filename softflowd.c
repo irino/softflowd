@@ -410,7 +410,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 
 		/* Check for runt packet, but don't error out on short frags */
 		if (caplen - (ip->ip_hl * 4) < sizeof(*tcp))
-			return (isfrag ? 0 : 1);
+			return (*isfrag ? 0 : 1);
 		flow->port[ndx] = tcp->th_sport;
 		flow->port[ndx ^ 1] = tcp->th_dport;
 		flow->tcp_flags[ndx] |= tcp->th_flags;
@@ -420,7 +420,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 
 		/* Check for runt packet, but don't error out on short frags */
 		if (caplen - (ip->ip_hl * 4) < sizeof(*udp))
-			return (isfrag ? 0 : 1);
+			return (*isfrag ? 0 : 1);
 		flow->port[ndx] = udp->uh_sport;
 		flow->port[ndx ^ 1] = udp->uh_dport;
 		break;
