@@ -39,6 +39,7 @@
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
 .Op Fl c Ar ctl_sock
+.Op Fl L Ar hoplimit
 .Op bpf_program
 .Sh DESCRIPTION
 .Nm
@@ -96,6 +97,7 @@ These records are sent to the specified
 .Ar host
 and
 .Ar port .
+The host may represent a unicast host or a multicast group.
 .Pp
 The command-line options are as follows:
 .Bl -tag -width Ds
@@ -187,6 +189,13 @@ and
 flags and turns on additional debugging output.
 .It Fl h
 Displays commandline usage information.
+.It Fl L Ar hoplimit
+Sets the IPv4 TTL or the IPv6 hop limit to
+.Ar hoplimit .
+.Nm
+will use the default system TTL when exporting flows to a unicast host.
+When exporting to a multicast group, the default TTL will be 1
+(i.e. link-local).
 .El
 .Pp
 Any further commandline arguments will be concatenated together and 
@@ -325,6 +334,11 @@ This commandline increases the number of concurrent flows that
 .Nm
 will track to \fB65536\fP and increases the timeout for UDP flows to 
 90 seconds.
+.It softflowd -v 9 -i fxp0 -n224.0.1.20:4432 -L 64
+This commandline will export NetFlow v.9 flows to the multicast group 
+224.0.1.20.
+The export datagrams will have their TTL set to 64, so multicast receivers
+can be many hops away.
 .It softflowd -i fxp0 -p /var/run/sfd.pid.fxp0 -c /var/run/sfd.ctl.fxp0
 This commandline specifies alternate locations for the control socket
 and pid file.

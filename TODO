@@ -3,6 +3,8 @@ Things yet to do:
 softflowd
 ---------
 
+ - Use strtonum()
+
  Flow tracking engine
   - Verify checksums (maybe. perhaps bad for accounting, good for flow tracking)
   - Fragment processing
@@ -53,7 +55,6 @@ softflowd
     - Needs XDR encoding
   - Ability to export to multiple hosts
     - Partly done, just need to keep a list of targets instead of a single one
-  - Ability to export to multicast address
   - Ability to directly write to file (maybe. If so, reuse flowd store code)
 
  Statistics code

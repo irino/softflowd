@@ -1168,9 +1168,13 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 }
 
 static int
-connsock(struct sockaddr_storage *addr, socklen_t len)
+connsock(struct sockaddr_storage *addr, socklen_t len, int hoplimit)
 {
 	int s;
+	unsigned int h6;
+	unsigned char h4;
+	struct sockaddr_in *in4 = (struct sockaddr_in *)addr;
+	struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
 
 	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) == -1) {
 		fprintf(stderr, "socket() error: %s\n", 
@@ -1181,6 +1185,36 @@ connsock(struct sockaddr_storage *addr, socklen_t len)
 		fprintf(stderr, "connect() error: %s\n",
 		    strerror(errno));
 		exit(1);
+	}
+
+	switch (addr->ss_family) {
+	case AF_INET:
+		/* Default to link-local TTL for multicast addresses */
+		if (hoplimit == -1 && IN_MULTICAST(in4->sin_addr.s_addr))
+			hoplimit = 1;
+		if (hoplimit == -1)
+			break;
+		h4 = hoplimit;
+		if (setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL,
+		    &h4, sizeof(h4)) == -1) {
+			fprintf(stderr, "setsockopt(IP_MULTICAST_TTL, "
+			    "%u): %s\n", h4, strerror(errno));
+			exit(1);
+		}
+		break;
+	case AF_INET6:
+		/* Default to link-local hoplimit for multicast addresses */
+		if (hoplimit == -1 && IN6_IS_ADDR_MULTICAST(&in6->sin6_addr))
+			hoplimit = 1;
+		if (hoplimit == -1)
+			break;
+		h6 = hoplimit;
+		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+		    &h6, sizeof(h6)) == -1) {
+			fprintf(stderr, "setsockopt(IPV6_MULTICAST_HOPS, %u): "
+			"%s\n", h6, strerror(errno));
+			exit(1);
+		}
 	}
 
 	return(s);
@@ -1349,6 +1383,7 @@ usage(void)
 	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
 	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
 	fprintf(stderr, "  -v 1|5|9        NetFlow export packet version\n");
+	fprintf(stderr, "  -L hoplimit     Set TTL/hoplimit for export datagrams\n");
 	fprintf(stderr, "  -6              Track IPv6 flows, regardless of whether selected \n"
 	                "                  NetFlow export protocol supports it\n");
 	fprintf(stderr, "  -d              Don't daemonise\n");
@@ -1532,7 +1567,7 @@ main(int argc, char **argv)
 	extern char *optarg;
 	extern int optind;
 	int ch, dontfork_flag, linktype, ctlsock, i, r, err, always_v6;
-	int max_flows, stop_collection_flag, exit_request;
+	int max_flows, stop_collection_flag, exit_request, hoplimit;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
 	struct FLOWTRACK flowtrack;
@@ -1549,6 +1584,7 @@ main(int argc, char **argv)
 	memset(&target, '\0', sizeof(target));
 	target.fd = -1;
 	target.dialect = &nf[0];
+	hoplimit = -1;
 	bpf_prog = NULL;
 	ctlsock = -1;
 	dev = capfile = NULL;
@@ -1557,7 +1593,7 @@ main(int argc, char **argv)
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
 	always_v6 = 0;
-	while ((ch = getopt(argc, argv, "6hdDi:r:f:t:n:m:p:c:v:")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:i:r:f:t:n:m:p:c:v:")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
@@ -1593,6 +1629,14 @@ main(int argc, char **argv)
 		case 't':
 			/* Will exit on failure */
 			set_timeout(&flowtrack, optarg); 
+			break;
+		case 'L':
+			hoplimit = atoi(optarg);
+			if (hoplimit < 0 || hoplimit > 255) {
+				fprintf(stderr, "Invalid hop limit\n\n");
+				usage();
+				exit(1);
+			}
 			break;
 		case 'm':
 			if ((max_flows = atoi(optarg)) < 0) {
@@ -1655,7 +1699,7 @@ main(int argc, char **argv)
 			fprintf(stderr, "getnameinfo: %d\n", err);
 			exit(1);
 		}
-		target.fd = connsock(&dest, dest_len); /* Will exit on fail */
+		target.fd = connsock(&dest, dest_len, hoplimit);
 	}
 	
 	/* Control socket */
