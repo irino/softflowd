@@ -106,45 +106,6 @@ struct NF9_SOFTFLOWD_DATA_V6 {
 
 #define NF9_DEFAULT_TEMPLATE_INTERVAL	16
 
-
-
-
-/* XXX */
-/* Format data to a hex string */
-static const char *
-data_ntoa(const u_int8_t *p, int len)
-{
-	static char buf[2048];
-	char tmp[8];
-	int i;
-
-	for (*buf = '\0', i = 0; i < len; i++) {
-		snprintf(tmp, sizeof(tmp), "%02x%s", p[i], 
-		     i % 4 == 3 ? " " : "");
-		if (strlcat(buf, tmp, sizeof(buf) - 4) >= sizeof(buf) - 4) {
-			strlcat(buf, "...", sizeof(buf));
-			break;
-		}
-	}
-	return (buf);
-}
-
-/* Dump a packet */
-void
-dump_packet(const char *tag, const u_int8_t *p, int len)
-{
-	if (tag == NULL)
-		logit(LOG_INFO, "packet len %d: %s", len, data_ntoa(p, len));
-	else {
-		logit(LOG_INFO, "%s: packet len %d: %s", 
-		    tag, len, data_ntoa(p, len));
-	}
-}
-/* XXX */
-
-
-
-
 static struct NF9_SOFTFLOWD_TEMPLATE v4_template;
 static struct NF9_SOFTFLOWD_TEMPLATE v6_template;
 static int nf9_pkts_until_template = -1;
