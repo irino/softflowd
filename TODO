@@ -60,6 +60,7 @@ softflowd
   - Remote control over network (requires SSL)
   - Multiple interface support
     - Requires some way to avoid duplicate recording of flows (IP ID)
+  - Track IPsec SPIs
 
  Statistics code
   - Collect more statistics (maybe)
