@@ -68,9 +68,10 @@
  *   - Supply companion softflowdctl as interface
  *   - ntop like view
  * - Collect more statistics
- *   - Per-protocol
+ *   - Flow bandwidth
  *   - Per well-known-port
  *   - Moving averages
+ * - Ability to freeze/resume state (maybe)
  */
 
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
@@ -163,8 +164,14 @@ static int dump_stats = 0;
  * queue of expiry events. It also collects miscellaneous statistics
  */
 struct FLOWTRACK {
+	/* The flows and their expiry events */
+	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
+	TAILQ_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries queue */
+
 	unsigned int num_flows;			/* # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
+	
+	/* Statistics */
 	u_int64_t total_packets;		/* # of good packets */
 	u_int64_t non_ip_packets;		/* # of not-IP packets */
 	u_int64_t bad_packets;			/* # of bad packets */
@@ -174,8 +181,10 @@ struct FLOWTRACK {
 	double max_dur, min_dur, mean_dur;	/* flow duration */
 	double max_bytes, min_bytes, mean_bytes;/* flow bytes (both ways) */
 	double max_pkts, min_pkts, mean_pkts;	/* flow packets (both ways) */
-	RB_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
-	TAILQ_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries queue */
+
+	/* Per protocol statistics */
+	u_int64_t octets_per_proto[256];
+	u_int64_t packets_per_proto[256];		
 };
 
 /*
@@ -673,6 +682,7 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	}
 
 	tmp = flow->octets[0] + flow->octets[1];
+	ft->octets_per_proto[flow->protocol % 256] += tmp;
 	if (n == 1.0) {
 		ft->min_bytes = ft->mean_bytes = ft->max_bytes = tmp;
 	} else {
@@ -682,6 +692,7 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	}
 
 	tmp = flow->packets[0] + flow->packets[1];
+	ft->packets_per_proto[flow->protocol % 256] += tmp;
 	if (n == 1.0) {
 		ft->min_pkts = ft->mean_pkts = ft->max_pkts = tmp;
 	} else {
@@ -823,7 +834,8 @@ log_stats(struct FLOWTRACK *ft)
 	struct FLOW *flow;
 	struct EXPIRY *expiry;
 	time_t now;
-	
+	int i;
+
 	now = time(NULL);
 
 	syslog(LOG_INFO, "Number of active flows: %d", ft->num_flows);
@@ -835,12 +847,20 @@ log_stats(struct FLOWTRACK *ft)
 	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
 
 	syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
-	syslog(LOG_INFO, "Duration: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "    Duration: %0.2f / %0.2f / %0.2f", 
 	    ft->min_dur, ft->mean_dur, ft->max_dur);
-	syslog(LOG_INFO, "Flow bytes: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "    Flow bytes: %0.2f / %0.2f / %0.2f", 
 	    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
-	syslog(LOG_INFO, "Flow packets: %0.2f / %0.2f / %0.2f", 
+	syslog(LOG_INFO, "    Flow packets: %0.2f / %0.2f / %0.2f", 
 	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
+
+	syslog(LOG_INFO, "Per protocol statistics:");
+	for(i = 0; i < 256; i++) {
+		if (ft->packets_per_proto[i]) {
+			syslog(LOG_INFO, "    Protocol %d: %llu bytes %llu packets",
+			    i, ft->octets_per_proto[i], ft->packets_per_proto[i]);
+		}
+	}
 
 #if 0
 	syslog(LOG_INFO, "RB_EMPTY: %d", RB_EMPTY(&ft->flows));
