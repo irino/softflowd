@@ -1,5 +1,6 @@
 20040901
  - (djm) Fix a tiny, stupid bug that prevents flow export
+ - (djm) Release version 0.9.2
 
 20040827
  - (djm) NetFlow v.5 supports 30 flows per packet
@@ -119,3 +120,5 @@
 
 20021024
  - (djm) Release softflowd-0.7.1
+
+$Id$
