@@ -3,6 +3,7 @@
    them for now), print addresses:port tuples unambiguously and apply correct 
    timeout for ICMPv6 flows
  - (djm) Remove NetFlow v.1 types from NetFlow v.5 code
+ - (djm) NetFlow v.9 support
  
 20040913
  - (djm) Split out netflow send functions into separate files

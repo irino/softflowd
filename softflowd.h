@@ -191,5 +191,8 @@ int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
     u_int64_t flows_exported, struct timeval *system_boot_time,
     int verbose_flag);
+int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
+    u_int64_t flows_exported, struct timeval *system_boot_time,
+    int verbose_flag);
 
 #endif /* _SOFTFLOWD_H */

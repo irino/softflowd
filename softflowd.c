@@ -103,6 +103,7 @@ struct NETFLOW_SENDER {
 static const struct NETFLOW_SENDER nf[] = {
 	{ 5, send_netflow_v5, 0 },
 	{ 1, send_netflow_v1, 0 },
+	{ 9, send_netflow_v9, 1 },
 	{ -1, NULL, 0 },
 };
 
