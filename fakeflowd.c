@@ -67,7 +67,7 @@
  * and the first four bytes of a TCP/UDP header (source and 
  * destination port numbers)
  */
-#define LIBPCAP_SNAPLEN		64
+#define LIBPCAP_SNAPLEN		80
 
 /*
  * Default timeout: Quiescent flows which have not seen traffic for 
@@ -96,6 +96,9 @@
 /* XXX - TODO:
  * - IPv6 support (I don't think netflow supports it yet)
  * - maybe track flows bidirectionally, to save FLOWTRACK entries
+ *  - This looks like it is necessary to properly fast-expire TCP sessions
+ * - maybe make expiries a tree keyed by expires_at, so we can have 
+ *   different expiry rates for TCP and UDP connections
  */
 
 struct FLOWTRACK {
@@ -117,9 +120,10 @@ struct FLOW {
 	/* Flow identity (all are in _network_ byte order) */
 	u_int32_t src;				/* Source address */
 	u_int32_t dst;				/* Destination address */
-	u_int8_t protocol;			/* Protocol */
 	u_int16_t src_port;			/* Source port */
 	u_int16_t dst_port;			/* Destination port */
+	u_int8_t protocol;			/* Protocol */
+	u_int8_t tcp_flags_seen;		/* Cumulative OR of flags */
 
 	/* Flow statistics (all in _host_ byte order) */
 	u_int32_t octets;			/* Octets so far */
@@ -269,12 +273,13 @@ format_flow(struct FLOW *flow)
 	    format_time(flow->flow_last.tv_sec));
 
 	snprintf(buf, sizeof(buf), 
-	    "seq:%llu %s:%hu > %s:%hu proto:%u octets:%u packets:%u start:%s.%03ld finish:%s.%03ld",
+	    "seq:%llu %s:%hu > %s:%hu proto:%u octets:%u packets:%u start:%s.%03ld finish:%s.%03ld tcp:%02x",
 	    flow->flow_seq,
 	    addr1, ntohs(flow->src_port), addr2, ntohs(flow->dst_port),
 	    (int)flow->protocol, flow->octets, flow->packets, 
 	    stime, (flow->flow_start.tv_usec + 500) / 1000, 
-	    ftime, (flow->flow_start.tv_usec + 500) / 1000);
+	    ftime, (flow->flow_start.tv_usec + 500) / 1000,
+	    flow->tcp_flags_seen);
 
 	return (buf);
 }
@@ -327,6 +332,7 @@ packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, const size_t len)
 			return (-1);
 		flow->src_port = tcp->th_sport;
 		flow->dst_port = tcp->th_dport;
+		flow->tcp_flags_seen |= tcp->th_flags;
 		break;
 	case IPPROTO_UDP:
 		udp = (const struct udphdr *)(pkt + (ip->ip_hl * 4));
@@ -395,6 +401,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	memcpy(&flow->flow_last, received_time, sizeof(flow->flow_last));
 
 	/*
+	 * Here we do fast-expiry of certain flows.
+	 *
 	 * This is a bit of a kludge: avoid octet counter overflow
 	 * by expiring flows early which are halfway toward overflow 
 	 * (2Gb of traffic). If the real traffic flow continues, the 
@@ -450,6 +458,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			flw->flow_start = htonl(flows[j + i]->flow_start.tv_sec);
 			flw->flow_finish = htonl(flows[j + i]->flow_last.tv_sec);
 			flw->protocol = flows[j + i]->protocol;
+			flw->tcp_flags = flows[j + i]->tcp_flags_seen;
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "EXPIRED: %s", format_flow(flows[j + i]));
 		}
