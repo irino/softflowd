@@ -45,8 +45,13 @@
 #include <unistd.h>
 #include <signal.h>
 
-#include "sys-tree.h"
-#include "sys-queue.h"
+#if defined(__OpenBSD__)
+# include <sys/tree.h>
+# include <sys/queue.h>
+#else
+# include "sys-tree.h"
+# include "sys-queue.h"
+#endif
 
 #include <pcap.h>
 
