@@ -44,7 +44,6 @@ main(int argc, char **argv)
 	extern char *optarg;
 	extern int optind;
 
-	/* XXX: use getopt */
 	ctlsock_path = DEFAULT_CTLSOCK;
 	while ((ch = getopt(argc, argv, "hc:")) != -1) {
 		switch (ch) {
