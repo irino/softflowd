@@ -5,15 +5,19 @@
 # Netflow protocol reference:
 # http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
 
-use strict;
-use warnings;
-use IO qw(Socket);
-use Socket;
-use Carp;
-use POSIX qw(strftime);
-use Getopt::Long;
-
 my $af;
+
+BEGIN {
+	use strict;
+	use warnings;
+	use IO qw(Socket);
+	use Socket;
+	use Carp;
+	use POSIX qw(strftime);
+	use Getopt::Long;
+	eval "use IO::Socket::INET6;";
+	eval "use Socket6;";
+}
 
 ############################################################################
 
@@ -145,6 +149,7 @@ my $debug = 0;
 my $af4 = 0;
 my $af6 = 0;
 my $port;
+
 #		Long option		Short option
 GetOptions(	'debug+' => \$debug,	'd+' => \$debug,
 					'4+' => \$af4,
@@ -155,16 +160,12 @@ GetOptions(	'debug+' => \$debug,	'd+' => \$debug,
 $| = 1;
 
 die "The -4 and -6 are mutually exclusive\n" if $af4 && $af6;
-
 die "You must specify a port (collector.pl -p XXX).\n" unless $port;
 
-
-$af = 4 if $af4;
+$af = 4 if $af4 || (!$af4 && !$af6);
 $af = 6 if $af6;
 
 # These modules aren't standard everywhere, so load them only if necessary
-if ($af6) { use IO::Socket::INET6 } 
-if ($af6) { use Socket6 }
 
 # Main loop - receive and process a packet
 for (;;) {
