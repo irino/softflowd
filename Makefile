@@ -12,7 +12,7 @@ WARNFLAGS=\
 	-Wuninitialized \
 	-Wcast-align \
 	-Wcast-qual \
-	-WformatC=2-security \
+	-WformatC=2 \
 	-Wformat-nonliteral \
 	-Wwrite-strings \
 	-Wconversion \
