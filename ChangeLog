@@ -1,3 +1,7 @@
+20050110
+ - (djm) Fix endianness problem in NetFlow v.9 port number export. Found and 
+   fixed by paolo.lucente AT ic.cnr.it
+
 20041109
  - (djm) Test for struct ip6_ext in autoconf and define a replacement if 
    missing, some systems lack it

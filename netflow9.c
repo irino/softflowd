@@ -217,8 +217,8 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[1]->bytes = htonl(flow->octets[1]);
 	dc[0]->packets = htonl(flow->packets[0]);
 	dc[1]->packets = htonl(flow->packets[1]);
-	dc[0]->src_port = dc[1]->dst_port = htons(flow->port[0]);
-	dc[1]->src_port = dc[0]->dst_port = htons(flow->port[1]);
+	dc[0]->src_port = dc[1]->dst_port = flow->port[0];
+	dc[1]->src_port = dc[0]->dst_port = flow->port[1];
 	dc[0]->protocol = dc[1]->protocol = flow->protocol;
 	dc[0]->tcp_flags = flow->tcp_flags[0];
 	dc[1]->tcp_flags = flow->tcp_flags[1];
