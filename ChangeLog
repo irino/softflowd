@@ -10,6 +10,7 @@
    (e.g. http://citeseer.nj.nec.com/ptacek98insertion.html) would be ignored
    and would not create flow entries.
  - (djm) Count fragments that we have seen
+ - (djm) Release version 0.8.1
 
 20030307
  - (djm) Add basic perl netflow collector
