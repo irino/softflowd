@@ -30,7 +30,8 @@ softflowd
   - Ability to freeze/resume state (maybe)
   - Ability to open more than one interface (maybe)
   - Ability to read more than one pcap file
-  - Split out control sock handling from main loop more
+  - Option for no statistics mode? (for decreased CPU)
+  - Option for fixed expiry timers? (for decreased per-packet CPU)
 
 softflowctl
 -----------

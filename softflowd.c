@@ -83,7 +83,7 @@ static struct timeval system_boot_time;
 /*
  * How many seconds to wait in poll
  */
-#define POLL_WAIT	(EXPIRY_WAIT / 2)
+#define POLL_WAIT	((EXPIRY_WAIT * 1000) / 2)
 
 /*
  * Default maximum number of flow to track simultaneously 
@@ -858,7 +858,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 {
 	struct EXPIRY *expiry;
 
-	/* XXX move all overflow processing here */
+	/* XXX move all overflow processing here (maybe) */
 	if (verbose_flag)
 		syslog(LOG_INFO, "Forcing expiry of %d flows",
 		    num_to_expire);
@@ -1086,25 +1086,41 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	}
 }
 
-#define CTL_SHUTDOWN		1
-#define CTL_EXIT		2
-#define CTL_EXPIRE_NOW		3
-#define CTL_DELETE_ALL		4
-#define CTL_STATISTICS		5
-#define CTL_INCREASE_DEBUG	6
-#define CTL_DECREASE_DEBUG	7
-#define CTL_STOP_COLLECTION	8
-#define CTL_START_COLLECTION	9
-#define CTL_DUMP_FLOWS		10
-#define CTL_TIMEOUTS		11
+static void
+print_timeouts(struct FLOWTRACK *ft, FILE *out)
+{
+	fprintf(out, "           TCP timeout: %ds\n", ft->tcp_timeout);
+	fprintf(out, "  TCP post-RST timeout: %ds\n", ft->tcp_rst_timeout);
+	fprintf(out, "  TCP post-FIN timeout: %ds\n", ft->tcp_fin_timeout);
+	fprintf(out, "           UDP timeout: %ds\n", ft->udp_timeout);
+	fprintf(out, "       General timeout: %ds\n", ft->general_timeout);
+	fprintf(out, "      Maximum lifetime: %ds\n", ft->maximum_lifetime);
+}
+
 static int
-accept_control(FILE *ctlf)
+accept_control(int lsock, int nfsock, struct FLOWTRACK *ft,
+    int *exit_request, int *stop_collection_flag)
 {
 	unsigned char buf[64], *p;
+	FILE *ctlf;
+	int fd, ret;
+
+	if ((fd = accept(lsock, NULL, NULL)) == -1) {
+		syslog(LOG_ERR, "ctl accept: %s - exiting",
+		    strerror(errno));
+		return(-1);
+	}
+	if ((ctlf = fdopen(fd, "r+")) == NULL) {
+		syslog(LOG_ERR, "fdopen: %s - exiting\n",
+		    strerror(errno));
+		close(fd);
+		return (-1);
+	}
+	setlinebuf(ctlf);
 
 	if (fgets(buf, sizeof(buf), ctlf) == NULL) {
 		syslog(LOG_ERR, "Control socket yielded no data");
-		return (-1);
+		return (0);
 	}
 	if ((p = strchr(buf, '\n')) != NULL)
 		*p = '\0';
@@ -1112,32 +1128,68 @@ accept_control(FILE *ctlf)
 	if (verbose_flag)
 		syslog(LOG_DEBUG, "Control socket \"%s\"", buf);
 
-	if (strcmp(buf, "shutdown") == 0)
-		return (CTL_SHUTDOWN);
-	else if (strcmp(buf, "exit") == 0)
-		return (CTL_EXIT);
-	else if (strcmp(buf, "expire-all") == 0)
-		return (CTL_EXPIRE_NOW);
-	else if (strcmp(buf, "delete-all") == 0)
-		return (CTL_DELETE_ALL);
-	else if (strcmp(buf, "statistics") == 0)
-		return (CTL_STATISTICS);
-	else if (strcmp(buf, "debug+") == 0)
-		return (CTL_INCREASE_DEBUG);
-	else if (strcmp(buf, "debug-") == 0)
-		return (CTL_DECREASE_DEBUG);
-	else if (strcmp(buf, "stop-gather") == 0)
-		return (CTL_STOP_COLLECTION);
-	else if (strcmp(buf, "start-gather") == 0)
-		return (CTL_START_COLLECTION);
-	else if (strcmp(buf, "dump-flows") == 0)
-		return (CTL_DUMP_FLOWS);
-	else if (strcmp(buf, "timeouts") == 0)
-		return (CTL_TIMEOUTS);
+	/* XXX - use dispatch table */
+	ret = -1;
+	if (strcmp(buf, "shutdown") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
+		graceful_shutdown_request = 1;
+		ret = 1;
+	} else if (strcmp(buf, "exit") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Exiting now...\n", getpid());
+		*exit_request = 1;
+		ret = 1;
+	} else if (strcmp(buf, "expire-all") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", getpid(), 
+		    check_expired(ft, nfsock, CE_EXPIRE_ALL));
+		ret = 0;
+	} else if (strcmp(buf, "delete-all") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", getpid(), 
+		    delete_all_flows(ft));
+		ret = 0;
+	} else if (strcmp(buf, "statistics") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Accumulated statistics:\n", 
+		    getpid());
+		statistics(ft, ctlf);
+		ret = 0;
+	} else if (strcmp(buf, "debug+") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Debug level increased.\n",
+		    getpid());
+		verbose_flag = 1;
+		ret = 0;
+	} else if (strcmp(buf, "debug-") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Debug level decreased.\n",
+		    getpid());
+		verbose_flag = 0;
+		ret = 0;
+	} else if (strcmp(buf, "stop-gather") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Data collection stopped.\n",
+		    getpid());
+		*stop_collection_flag = 1;
+		ret = 0;
+	} else if (strcmp(buf, "start-gather") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Data collection resumed.\n",
+		    getpid());
+		*stop_collection_flag = 0;
+		ret = 0;
+	} else if (strcmp(buf, "dump-flows") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Dumping flow data:\n",
+		    getpid());
+		dump_flows(ft, ctlf);
+		ret = 0;
+	} else if (strcmp(buf, "timeouts") == 0) {
+		fprintf(ctlf, "softflowd[%u]: Printing timeouts:\n",
+		    getpid());
+		print_timeouts(ft, ctlf);
+		ret = 0;
+	} else {
+		fprintf(ctlf, "Unknown control commmand \"%s\"\n", buf);
+		ret = 0;
+	}
 
-	fprintf(ctlf, "Unknown control commmand \"%s\"\n", buf);
+	fclose(ctlf);
+	close(fd);
 	
-	return (0);
+	return (ret);
 }
 
 static int
@@ -1285,17 +1337,6 @@ argv_join(int argc, char **argv)
 	}
 
 	return (ret);
-}
-
-static void
-print_timeouts(struct FLOWTRACK *ft, FILE *out)
-{
-	fprintf(out, "           TCP timeout: %ds\n", ft->tcp_timeout);
-	fprintf(out, "  TCP post-RST timeout: %ds\n", ft->tcp_rst_timeout);
-	fprintf(out, "  TCP post-FIN timeout: %ds\n", ft->tcp_fin_timeout);
-	fprintf(out, "           UDP timeout: %ds\n", ft->udp_timeout);
-	fprintf(out, "       General timeout: %ds\n", ft->general_timeout);
-	fprintf(out, "      Maximum lifetime: %ds\n", ft->maximum_lifetime);
 }
 
 /* Display commandline usage information */
@@ -1533,7 +1574,7 @@ main(int argc, char **argv)
 
 	/* Main processing loop */
 	gettimeofday(&system_boot_time, NULL);
-	exit_request = stop_collection_flag = 0;
+	stop_collection_flag = 0;
 	next_expiry_check = time(NULL) + EXPIRY_WAIT;
 	for(;;) {
 		struct CB_CTXT cb_ctxt = {&flowtrack, linktype};
@@ -1544,19 +1585,20 @@ main(int argc, char **argv)
 		 * do it here (only if we are reading live)
 		 */
 		r = 0;
-		if (capfile == NULL) { 
-			pl[1].fd = ctlsock;
-			pl[1].events = POLLIN|POLLERR|POLLHUP;
-			pl[1].revents = 0;
+		if (capfile == NULL) {
+			memset(pl, '\0', sizeof(pl));
 
-			pl[0].fd = pcap_fileno(pcap);
-			pl[0].events = POLLIN|POLLERR|POLLHUP;
-			pl[0].revents = 0;
-			if (stop_collection_flag)
-				pl[0].events = 0;
+			/* This can only be set via the control socket */
+			if (!stop_collection_flag) {
+				pl[0].events = POLLIN|POLLERR|POLLHUP;
+				pl[0].fd = pcap_fileno(pcap);
+			}
+			if (ctlsock != -1) {
+				pl[1].fd = ctlsock;
+				pl[1].events = POLLIN|POLLERR|POLLHUP;
+			}
 
-			/* Iterate mainloop twice per recheck */
-			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT * 1000);
+			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));
@@ -1564,88 +1606,16 @@ main(int argc, char **argv)
 			}
 		}
 
-#if 0
-		syslog(LOG_DEBUG, "Post poll ctl = %x pcap = %x",
-		    pl[1].revents, pl[0].revents);
-#endif
-
 		/* Accept connection on control socket if present */
 		if (ctlsock != -1 && pl[1].revents != 0) {
-			FILE *ctlf;
-
-			if ((r = accept(ctlsock, NULL, NULL)) == -1) {
-				syslog(LOG_ERR, "ctl accept %s - exiting",
-				    strerror(errno));
+			if (accept_control(ctlsock, nfsock, &flowtrack, 
+			    &exit_request, &stop_collection_flag) != 0)
 				break;
-			}
-			if ((ctlf = fdopen(r, "r+")) == NULL) {
-				syslog(LOG_ERR, "fdopen: %s\n", strerror(errno));
-				return (-1);
-			}
-			setlinebuf(ctlf);
-			switch (accept_control(ctlf)) {
-			case CTL_SHUTDOWN:
-				fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
-				graceful_shutdown_request = 1;
-				break;
-			case CTL_EXIT:
-				fprintf(ctlf, "softflowd[%u]: Exiting now...\n", getpid());
-				exit_request = 1;
-				break;
-			case CTL_EXPIRE_NOW:
-				fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", 
-				    getpid(), check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL));
-				break;
-			case CTL_DELETE_ALL:
-				fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", 
-				    getpid(), delete_all_flows(&flowtrack));
-				break;
-			case CTL_STATISTICS:
-				fprintf(ctlf, "softflowd[%u]: Accumulated statistics:\n", getpid());
-				statistics(&flowtrack, ctlf);
-				break;
-			case CTL_INCREASE_DEBUG:
-				fprintf(ctlf, "softflowd[%u]: Debug level increased.\n", getpid());
-				verbose_flag = 1;
-				break;
-			case CTL_DECREASE_DEBUG:
-				fprintf(ctlf, "softflowd[%u]: Debug level decreased.\n", getpid());
-				verbose_flag = 0;
-				break;
-			case CTL_STOP_COLLECTION:
-				fprintf(ctlf, "softflowd[%u]: Data collection stopped.\n", getpid());
-				stop_collection_flag = 1;
-				pl[0].revents = 0;
-				break;
-			case CTL_START_COLLECTION:
-				fprintf(ctlf, "softflowd[%u]: Data collection resumed.\n", getpid());
-				stop_collection_flag = 0;
-				break;
-			case CTL_DUMP_FLOWS:
-				fprintf(ctlf, "softflowd[%u]: Dumping flow data:\n", getpid());
-				dump_flows(&flowtrack, ctlf);
-				break;
-			case CTL_TIMEOUTS:
-				fprintf(ctlf, "softflowd[%u]: Printing timeouts:\n", getpid());
-				print_timeouts(&flowtrack, ctlf);
-				break;
-			}
-			fclose(ctlf);
-			close(r);
-		}
-
-		/* Flags set by signal handlers or control socket */
-		if (graceful_shutdown_request) {
-			syslog(LOG_WARNING, "Shutting down on user request");
-			break;
-		}
-		if (exit_request) {
-			syslog(LOG_WARNING, "Exiting immediately on user request");
-			break;
 		}
 
 		/* If we have data, run it through libpcap */
-		if (capfile != NULL || pl[0].revents != 0) {
+		if (!stop_collection_flag && 
+		    (capfile != NULL || pl[0].revents != 0)) {
 			r = pcap_dispatch(pcap, max_flows, flow_cb, (void*)&cb_ctxt);
 			if (r == -1) {
 				syslog(LOG_ERR, "Exiting on pcap_dispatch: %s", 
@@ -1694,9 +1664,15 @@ expiry_check:
 		}
 	}
 
-	if (graceful_shutdown_request)
+	/* Flags set by signal handlers or control socket */
+	if (graceful_shutdown_request) {
+		syslog(LOG_WARNING, "Shutting down on user request");
 		check_expired(&flowtrack, nfsock, CE_EXPIRE_ALL);
-
+	} else if (exit_request)
+		syslog(LOG_WARNING, "Exiting immediately on user request");
+	else
+		syslog(LOG_ERR, "Exiting immediately on internal error");
+		
 	if (capfile != NULL && dontfork_flag)
 		statistics(&flowtrack, stdout);
 
@@ -1708,7 +1684,6 @@ expiry_check:
 	unlink(pidfile_path);
 	if (ctlsock_path != NULL)
 		unlink(ctlsock_path);
-
 	
 	exit(r == 0 ? 0 : 1);
 }
