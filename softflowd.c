@@ -1557,7 +1557,7 @@ drop_privs(void)
 	}
 #if defined(HAVE_SETRESGID)
 	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
-#elsif defined(HAVE_SETREGID)
+#elif defined(HAVE_SETREGID)
 	if (setregid(pw->pw_gid, pw->pw_gid) == -1) {
 #else
 	if (setegid(pw->pw_gid) == -1 || setgid(pw->pw_gid) == -1) {
@@ -1569,7 +1569,7 @@ drop_privs(void)
 
 #if defined(HAVE_SETRESUID)
 	if (setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
-#elsif defined(HAVE_SETREUID)
+#elif defined(HAVE_SETREUID)
 	if (setreuid(pw->pw_uid, pw->pw_uid) == -1) {
 #else
 	if (seteuid(pw->pw_uid) == -1 || setuid(pw->pw_uid) == -1) {

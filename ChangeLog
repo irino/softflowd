@@ -1,11 +1,4 @@
-20040415
- - (djm) Clear socket errors before UDP send; from pfflowd
- - (djm) Print flow start and finish times in collector.pl
- - (djm) Linux needs grp.h for setgroups()
- - (djm) Never endprotoent()
- - (djm) Use autoconf to detect various things; in preparation of more 
-   portability
- - (djm) Detect int and define standard int types in configure
+20040416
  - (djm) A bunch of changes necessary to support building on Solaris 9 (though
    the resultant binary doesn't seem to work properly):
         - Use getaddrinfo instead of inet_aton to parse host/port for export
@@ -14,6 +7,16 @@
         - Provide our own logit() function, because Solaris syslog() doesn't 
           support LOG_PERROR
         - A heap of configure and common.h additions and fixes
+ - (djm) Fix busted preprocessor
+
+20040415
+ - (djm) Clear socket errors before UDP send; from pfflowd
+ - (djm) Print flow start and finish times in collector.pl
+ - (djm) Linux needs grp.h for setgroups()
+ - (djm) Never endprotoent()
+ - (djm) Use autoconf to detect various things; in preparation of more 
+   portability
+ - (djm) Detect int and define standard int types in configure
 
 20031111
  - (djm) Remove -Werror from CFLAGS, it causes problems in released software
