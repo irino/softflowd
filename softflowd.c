@@ -1263,7 +1263,7 @@ connsock(struct sockaddr_storage *addr)
 {
 	int s;
 
-	if ((s = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) < 0) {
 		fprintf(stderr, "socket() error: %s\n", 
 		    strerror(errno));
 		exit(1);
@@ -1492,20 +1492,27 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 static void
 parse_hostport(const char *s, struct sockaddr_storage *addr)
 {
-	char *host, *port;
+	char *orig, *host, *port;
 	struct addrinfo hints, *res;
 	int herr;
 
-	if ((host = strdup(s)) == NULL) {
+	if ((host = orig = strdup(s)) == NULL) {
 		fprintf(stderr, "Out of memory\n");
 		exit(1);
 	}
-	if ((port = strchr(host, ':')) == NULL || *(++port) == '\0') {
-		fprintf(stderr, "Invalid -n option.\n");
+	if ((port = strchr(host, ':')) == NULL ||
+	    *(++port) == '\0' || *host == '\0') {
+		fprintf(stderr, "Invalid -n argument.\n");
 		usage();
 		exit(1);
 	}
 	*(port - 1) = '\0';
+	
+	/* Accept [host]:port for numeric IPv6 addresses */
+	if (*host == '[' && *(port - 2) == ']') {
+		host++;
+		*(port - 2) = '\0';
+	}
 
 	memset(&hints, '\0', sizeof(hints));
 	hints.ai_socktype = SOCK_DGRAM;
@@ -1519,7 +1526,7 @@ parse_hostport(const char *s, struct sockaddr_storage *addr)
 		exit(1);
 	}
 	memcpy(addr, res->ai_addr, res->ai_addrlen);
-	free(host);
+	free(orig);
 }
 
 /* 
