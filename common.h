@@ -79,9 +79,26 @@
 /* Default control socket */
 #define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
 
+#define RCSID(msg) \
+	static /**/const char *const flowd_rcsid[] =		\
+	    { (const char *)flowd_rcsid, "\100(#)" msg }	\
+
 #ifndef IP_OFFMASK
 # define IP_OFFMASK		0x1fff	/* mask for fragmenting bits */
 #endif
+#ifndef IPV6_VERSION
+#define IPV6_VERSION		0x60
+#endif
+#ifndef IPV6_VERSION_MASK
+#define IPV6_VERSION_MASK	0xf0
+#endif
+#ifndef IPV6_FLOWINFO_MASK
+#define IPV6_FLOWINFO_MASK	ntohl(0x0fffffff)
+#endif
+#ifndef IPV6_FLOWLABEL_MASK
+#define IPV6_FLOWLABEL_MASK	ntohl(0x000fffff)
+#endif
+
 
 #ifndef _PATH_DEVNULL
 # define _PATH_DEVNULL		"/dev/null"
@@ -120,6 +137,16 @@ typedef OUR_CFG_U_INT32_T u_int32_t;
 #endif
 #if !defined(HAVE_U_INT64_T) && defined(OUR_CFG_U_INT64_T)
 typedef OUR_CFG_U_INT64_T u_int64_t;
+#endif
+
+#ifndef HAVE_STRLCPY
+size_t strlcpy(char *dst, const char *src, size_t siz);
+#endif
+#ifndef HAVE_STRLCAT
+size_t strlcat(char *dst, const char *src, size_t siz);
+#endif
+#ifndef HAVE_CLOSEFROM
+void closefrom(int lowfd);
 #endif
 
 #endif /* _SFD_COMMON_H */

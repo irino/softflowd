@@ -50,6 +50,8 @@
 #include "log.h"
 #include <pcap.h>
 
+RCSID("$Id$");
+
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
 
@@ -1886,6 +1888,8 @@ main(int argc, char **argv)
 	struct sockaddr_storage dest;
 	struct FLOWTRACK flowtrack;
 	socklen_t dest_len;
+
+	closefrom(STDERR_FILENO + 1);
 
 	init_flowtrack(&flowtrack);
 

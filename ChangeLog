@@ -1,5 +1,6 @@
 20040909
  - (djm) Implement IPv6 flow tracking. Currently no export functionality.
+ - (djm) Portability fixes for Linux, add closefrom()
 
 20040909
  - (djm) inline is unnecessary

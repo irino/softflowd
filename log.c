@@ -28,6 +28,8 @@
 #include "log.h"
 #include <stdarg.h>
 
+RCSID("$Id$");
+
 static int logstderr = 0;
 
 void

@@ -22,9 +22,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $Id$ */
-
 #include "common.h"
+
+RCSID("$Id$");
 
 static void
 usage(void)
