@@ -540,6 +540,14 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	gettimeofday(&now, NULL);
 
 	for(offset = j = i = 0; i < num_flows; i++) {
+		if (j >= NF1_MAXFLOWS) {
+			if (verbose_flag)
+				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
+			hdr->flows = htons(hdr->flows);
+			if (send(nfsock, packet, (size_t)offset, 0) == -1)
+				return (-1);
+			j = 0;
+		}
 		if (j == 0) {
 #if 0
 			if (verbose_flag)
@@ -596,14 +604,15 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			j++;
 			hdr->flows++;
 		}
-		if (j >= NF1_MAXFLOWS) {
-			if (verbose_flag)
-				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
-			hdr->flows = htons(hdr->flows);
-			if (send(nfsock, packet, (size_t)offset, 0) == -1)
-				return (-1);
-			j = 0;
-		}
+	}
+
+	/* Send any leftovers */
+	if (j != 0) {
+		if (verbose_flag)
+			syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
+		hdr->flows = htons(hdr->flows);
+		if (send(nfsock, packet, (size_t)offset, 0) == -1)
+			return (-1);
 	}
 
 	return (0);
