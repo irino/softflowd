@@ -539,8 +539,9 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	
 	gettimeofday(&now, NULL);
 
+	hdr = (struct NF1_HEADER *)packet;
 	for(offset = j = i = 0; i < num_flows; i++) {
-		if (j >= NF1_MAXFLOWS) {
+		if (j >= NF1_MAXFLOWS - 1) {
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
 			hdr->flows = htons(hdr->flows);
@@ -554,7 +555,6 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 				syslog(LOG_DEBUG, "Starting on new flow packet");
 #endif
 			memset(&packet, '\0', sizeof(packet));
-			hdr = (struct NF1_HEADER *)packet;
 			hdr->version = htons(1);
 			hdr->flows = 0; /* Filled in as we go */
 			hdr->uptime_ms = 0;
@@ -1231,6 +1231,8 @@ expiry_check:
 	close(sock);
 
 	log_stats(&flowtrack);
+
+	unlink(pidfile_path);
 	
 	exit(r == 0 ? 0 : 1);
 }
