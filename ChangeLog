@@ -11,6 +11,7 @@
  - (djm) Unbreak v6 flow export
  - (djm) Unbreak compilation on non-OpenBSD
  - (djm) Update README with recent changes (NetFlow v.9, v6 flows)
+ - (djm) Release 0.9.6
 
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
