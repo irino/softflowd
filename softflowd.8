@@ -267,6 +267,32 @@ if
 was specified on the commandline). If you do not want to export flows upon
 shutdown, clear them first with
 .Xr softflowctl 8 .
+
+.Sh EXAMPLES
+.Bl -tag -width Ds
+.It softflowd -i fxp0
+This commandlie will cause 
+.Nm
+to listen on interface \fBfxp0\fP and
+to run in statistics gathering mode only (i.e no NetFlow data export).
+.It softflowd -i fxp0 -n10.1.0.2:4432
+This commandlie will cause
+.Nm
+to listen on interface \fBfxp0\fP and
+to export NetFlow datagrams on flow expiry to a flow collector running
+on \fB10.1.0.2\fP port \fB4432\fP.
+.It softflowd -i fxp0 -n10.1.0.2:4432 -m 65536 -t udp=1m30s
+This commandline increases the number of concurrent flows that 
+.Nm
+will track to \fB65536\fP and increases the timeout for UDP flows to 
+90 seconds.
+.It softflowd -i fxp0 -p /var/run/sfd.pid.fxp0 -c /var/run/sfd.ctl.fxp0
+This commandline specifies alternate locations for the control socket
+and pid file. Similar commandlines are useful when running multiple 
+instances of 
+.Nm
+on a single machine.
+.El
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa /var/run/softflowd.pid
