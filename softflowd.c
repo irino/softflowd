@@ -316,27 +316,22 @@ static void sighand_other(int signum)
 static inline int
 flow_compare(struct FLOW *a, struct FLOW *b)
 {
-	int n;
+	/* Be careful to avoid signed vs unsigned issues here */
 
-	n = ntohl(a->addr[0]) - ntohl(b->addr[0]);
-	if (n != 0)
-		return (n);
+	if (a->addr[0] != b->addr[0])
+		return (ntohl(a->addr[0]) > ntohl(b->addr[0]) ? 1 : -1);
 
-	n = ntohl(a->addr[1]) - ntohl(b->addr[1]);
-	if (n != 0)
-		return (n);
+	if (a->addr[1] != b->addr[1])
+		return (ntohl(a->addr[1]) > ntohl(b->addr[1]) ? 1 : -1);
 
-	n = a->protocol - b->protocol;
-	if (n != 0)
-		return (n);
-	
-	n = ntohs(a->port[0]) - ntohs(b->port[0]);
-	if (n != 0)
-		return (n);
+	if (a->protocol != b->protocol)
+		return (a->protocol > b->protocol ? 1 : -1);
 
-	n = ntohs(a->port[1]) - ntohs(b->port[1]);
-	if (n != 0)
-		return (n);
+	if (a->port[0] != b->port[0])
+		return (ntohs(a->port[0]) > ntohs(b->port[0]) ? 1 : -1);
+
+	if (a->port[1] != b->port[1])
+		return (ntohs(a->port[1]) > ntohs(b->port[1]) ? 1 : -1);
 
 	return (0);
 }
@@ -351,7 +346,14 @@ RB_GENERATE(FLOWS, FLOW, next, flow_compare);
 static inline int
 expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 {
-	return (a->expires_at - b->expires_at);
+	if (a->expires_at != b->expires_at)
+		return (a->expires_at > b->expires_at ? 1 : -1);
+
+	/* Make expiry entries unique by comparing flow sequence */
+	if (a->flow->flow_seq != b->flow->flow_seq)
+		return (a->flow->flow_seq > b->flow->flow_seq ? 1 : -1);
+
+	return (0);
 }
 
 /* Generate functions for flow tree */
@@ -531,9 +533,13 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 		 * If an entry is scheduled for immediate expiry, then 
 		 * don't bother moving it from the head of the list
 		 */
-		if (flow->expiry->expires_at != 0)
+		if (flow->expiry->expires_at != 0) {
+#if 0
+			syslog(LOG_DEBUG, "Removing expiry %p", flow->expiry);
+#endif
 			RB_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
-
+		}
+	
 		/* Update flow statistics */
 		flow->packets[0] += tmp.packets[0];
 		flow->octets[0] += tmp.octets[0];
@@ -564,6 +570,9 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 			flow->expiry->expires_at = flow->flow_last.tv_sec + 
 			    timeout;
 		}
+#if 0
+		syslog(LOG_DEBUG, "Adding expiry %p", flow->expiry);
+#endif
 		RB_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 	}
 
