@@ -58,6 +58,7 @@ softflowd
     - Need timeout so the queue doesn't rot
     - Benefits of queue vs leaving them in flow table???
   - Ability to export to multiple hosts
+    - Partly done, just need to keep a list of targets instead of a single one
   - Ability to export to multicat address
   - Ability to directly write to file (maybe. If so, reuse flowd store code)
 
@@ -102,3 +103,4 @@ softflowctl
   - Real-time binary dump of flowtable (shm/mmap fd pass?)
     - ntop like view
     - Spiffy GUI (separate tool)
+
