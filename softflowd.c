@@ -80,6 +80,7 @@ static struct timeval system_boot_time;
 #define DEFAULT_TCP_RST_TIMEOUT		120
 #define DEFAULT_TCP_FIN_TIMEOUT		300
 #define DEFAULT_UDP_TIMEOUT		300
+#define DEFAULT_ICMP_TIMEOUT		300
 #define DEFAULT_GENERAL_TIMEOUT		3600
 #define DEFAULT_MAXIMUM_LIFETIME	(3600*24*7)
 
@@ -112,6 +113,7 @@ struct FLOWTRACK {
 	int tcp_rst_timeout;			/* TCP flows after RST */
 	int tcp_fin_timeout;			/* TCP flows after bidi FIN */
 	int udp_timeout;			/* UDP flows */
+	int icmp_timeout;			/* ICMP flows */
 	int general_timeout;			/* Everything else */
 	int maximum_lifetime;			/* Maximum life for flows */
 
@@ -141,6 +143,7 @@ struct FLOWTRACK {
 	u_int64_t expired_tcp_rst;
 	u_int64_t expired_tcp_fin;
 	u_int64_t expired_udp;
+	u_int64_t expired_icmp;
 	u_int64_t expired_maxlife;
 	u_int64_t expired_overbytes;
 	u_int64_t expired_maxflows;
@@ -196,7 +199,7 @@ struct EXPIRY {
 
 	u_int32_t expires_at;			/* time_t */
 	enum { 
-		R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, 
+		R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, R_ICMP, 
 		R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH
 	} reason;
 };
@@ -480,6 +483,14 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 		goto out;
 	}
 
+	if (flow->protocol == IPPROTO_ICMP) {
+		/* UDP flows */
+		flow->expiry->expires_at = flow->flow_last.tv_sec + 
+		    ft->icmp_timeout;
+		flow->expiry->reason = R_ICMP;
+		goto out;
+	}
+
 	/* Everything else */
 	flow->expiry->expires_at = flow->flow_last.tv_sec + 
 	    ft->general_timeout;
@@ -758,6 +769,9 @@ update_expiry_stats(struct FLOWTRACK *ft, struct EXPIRY *e)
 	case R_UDP:
 		ft->expired_udp++;
 		break;
+	case R_ICMP:
+		ft->expired_icmp++;
+		break;
 	case R_MAXLIFE:
 		ft->expired_maxlife++;
 		break;
@@ -1011,8 +1025,9 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 		fprintf(out, "Expired flow reasons:\n");
 		fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   tcp.fin = %9llu\n", 
 		    ft->expired_tcp, ft->expired_tcp_rst, ft->expired_tcp_fin);
-		fprintf(out, "       udp = %9llu   general = %9llu   maxlife = %9llu\n",
-		    ft->expired_udp, ft->expired_general, ft->expired_maxlife);
+		fprintf(out, "       udp = %9llu      icmp = %9llu   general = %9llu\n",
+		    ft->expired_udp, ft->expired_icmp, ft->expired_general);
+		fprintf(out, "   maxlife = %9llu\n", ft->expired_maxlife);
 		fprintf(out, "  over 2Gb = %9llu\n", ft->expired_overbytes);
 		fprintf(out, "  maxflows = %9llu\n", ft->expired_maxflows);
 		fprintf(out, "   flushed = %9llu\n", ft->expired_flush);
@@ -1166,6 +1181,7 @@ print_timeouts(struct FLOWTRACK *ft, FILE *out)
 	fprintf(out, "  TCP post-RST timeout: %ds\n", ft->tcp_rst_timeout);
 	fprintf(out, "  TCP post-FIN timeout: %ds\n", ft->tcp_fin_timeout);
 	fprintf(out, "           UDP timeout: %ds\n", ft->udp_timeout);
+	fprintf(out, "          ICMP timeout: %ds\n", ft->icmp_timeout);
 	fprintf(out, "       General timeout: %ds\n", ft->general_timeout);
 	fprintf(out, "      Maximum lifetime: %ds\n", ft->maximum_lifetime);
 }
@@ -1398,6 +1414,7 @@ init_flowtrack(struct FLOWTRACK *ft)
 	ft->tcp_rst_timeout = DEFAULT_TCP_RST_TIMEOUT;
 	ft->tcp_fin_timeout = DEFAULT_TCP_FIN_TIMEOUT;
 	ft->udp_timeout = DEFAULT_UDP_TIMEOUT;
+	ft->icmp_timeout = DEFAULT_ICMP_TIMEOUT;
 	ft->general_timeout = DEFAULT_GENERAL_TIMEOUT;
 	ft->maximum_lifetime = DEFAULT_MAXIMUM_LIFETIME;
 }
@@ -1452,6 +1469,7 @@ usage(void)
 	fprintf(stderr, "  tcp.rst (default %d) ", DEFAULT_TCP_RST_TIMEOUT);
 	fprintf(stderr, "  tcp.fin (default %d)\n", DEFAULT_TCP_FIN_TIMEOUT);
 	fprintf(stderr, "  udp     (default %d) ", DEFAULT_UDP_TIMEOUT);
+	fprintf(stderr, "  icmp    (default %d) ", DEFAULT_ICMP_TIMEOUT);
 	fprintf(stderr, "  general (default %d)", DEFAULT_GENERAL_TIMEOUT);
 	fprintf(stderr, "  maxlife (default %d)\n", DEFAULT_MAXIMUM_LIFETIME);
 	fprintf(stderr, "\n");
@@ -1488,6 +1506,8 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 		ft->tcp_fin_timeout = timeout;
 	else if (strcmp(name, "udp") == 0)
 		ft->udp_timeout = timeout;
+	else if (strcmp(name, "icmp") == 0)
+		ft->icmp_timeout = timeout;
 	else if (strcmp(name, "general") == 0)
 		ft->general_timeout = timeout;
 	else if (strcmp(name, "maxlife") == 0)

@@ -1,6 +1,7 @@
 20040417
  - (djm) Eliminate periodic expiry scans, wait in poll() only until the next 
    scheduled expiry event
+ - (djm) Separate timeout for ICMP traffic, generic timeout is too long
 
 20040416
  - (djm) A bunch of changes necessary to support building on Solaris 9 (though
