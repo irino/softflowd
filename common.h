@@ -26,7 +26,7 @@
 
 /* XXX: this check probably isn't sufficient for all systems */
 #ifndef __GNU_LIBRARY__ 
-# #define SOCK_HAS_LEN 
+# define SOCK_HAS_LEN 
 #endif
 
 /* The name of the program */

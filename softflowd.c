@@ -781,17 +781,17 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			    sizeof(*expired_flows) * (num_expired + 1));
 			expired_flows[num_expired] = expiry->flow;
 			num_expired++;
-			
-			/* Remove from flow tree, destroy expiry event */
-			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
-			RB_REMOVE(EXPIRIES, &ft->expiries, expiry);
-			expiry->flow->expiry = NULL;
-			free(expiry);
 
 			if (ex == CE_EXPIRE_ALL)
 				expiry->reason = R_FLUSH;
 
 			update_expiry_stats(ft, expiry);
+
+			/* Remove from flow tree, destroy expiry event */
+			RB_REMOVE(FLOWS, &ft->flows, expiry->flow);
+			RB_REMOVE(EXPIRIES, &ft->expiries, expiry);
+			expiry->flow->expiry = NULL;
+			free(expiry);
 
 			ft->num_flows--;
 		}
@@ -1533,7 +1533,7 @@ main(int argc, char **argv)
 				pl[0].events = 0;
 
 			/* Iterate mainloop twice per recheck */
-			r = poll(pl, (ctlsock == -1) ? 1U : 2U, POLL_WAIT);
+			r = poll(pl, (ctlsock == -1) ? 1 : 2, POLL_WAIT);
 			if (r == -1 && errno != EINTR) {
 				syslog(LOG_ERR, "Exiting on poll: %s", 
 				    strerror(errno));

@@ -75,7 +75,7 @@ main(int argc, char **argv)
 	ctllen = offsetof(struct sockaddr_un, sun_path) +
             strlen(ctlsock_path) + 1;
 #ifdef SOCK_HAS_LEN 
-	ctl.sun_len = socklen;
+	ctl.sun_len = ctllen;
 #endif
 	if ((ctlsock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
 		fprintf(stderr, "ctl socket() error: %s\n", 
