@@ -262,8 +262,7 @@ struct NF5_FLOW {
 	u_int8_t src_mask, dst_mask;
 	u_int16_t pad2;
 };
-/* Maximum of 24 flows per packet */
-#define NF5_MAXFLOWS		24
+#define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
 
@@ -1659,7 +1658,7 @@ set_timeout(struct FLOWTRACK *ft, const char *to_spec)
 }
 
 static void
-parse_hostport(const char *s, struct sockaddr_storage *addr, socklen_t *len)
+parse_hostport(const char *s, struct sockaddr *addr, socklen_t *len)
 {
 	char *orig, *host, *port;
 	struct addrinfo hints, *res;
@@ -1692,6 +1691,10 @@ parse_hostport(const char *s, struct sockaddr_storage *addr, socklen_t *len)
 	}
 	if (res == NULL || res->ai_addr == NULL) {
 		fprintf(stderr, "No addresses found for %s:%s\n", host, port);
+		exit(1);
+	}
+	if (res->ai_addrlen > *len) {
+		fprintf(stderr, "Address too long\n");
 		exit(1);
 	}
 	memcpy(addr, res->ai_addr, res->ai_addrlen);
@@ -1824,7 +1827,8 @@ main(int argc, char **argv)
 			break;
 		case 'n':
 			/* Will exit on failure */
-			parse_hostport(optarg, &dest, &dest_len);
+			parse_hostport(optarg, (struct sockaddr *)&dest,
+			    &dest_len);
 			break;
 		case 'p':
 			pidfile_path = optarg;

@@ -1,3 +1,8 @@
+20040827
+ - (djm) NetFlow v.5 supports 30 flows per packet
+ - (djm) Use struct sockaddr in arguments (not sockaddr_storage), properly 
+   check length
+
 20040716
  - (djm) Fix collector.pl when no address family specified on commandline
    spotted by pgennai AT netstarnetworks.com
