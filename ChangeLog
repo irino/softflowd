@@ -10,6 +10,7 @@
  - (djm) Fix busted preprocessor
  - (djm) Support "[host]:port" syntax to specify numeric IPv6 export target
  - (djm) Fix connect() for IPv6 export targets
+ - (djm) IPv6 listen support for collector.pl
 
 20040415
  - (djm) Clear socket errors before UDP send; from pfflowd

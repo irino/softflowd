@@ -13,6 +13,8 @@ use Carp;
 use POSIX qw(strftime);
 use Getopt::Long;
 
+my $af;
+
 ############################################################################
 
 sub timestamp()
@@ -62,12 +64,22 @@ sub fuptime($)
 	return $r;
 }
 
-sub do_listen($)
+sub do_listen($$)
 {
 	my $port = shift
 		or confess "No UDP port specified";
-        my $socket = IO::Socket::INET->new (Proto=>'udp', LocalPort=>$port)
-		or croak "Couldn't open UDP socket: $!";
+
+        my $socket;
+
+	if ($af == 4) {
+		$socket = IO::Socket::INET->new(Proto=>'udp', LocalPort=>$port)
+			or croak "Couldn't open UDP socket: $!";
+	} elsif ($af == 6) {
+		$socket = IO::Socket::INET6->new(Proto=>'udp', LocalPort=>$port)
+			or croak "Couldn't open UDP socket: $!";
+ 	} else {
+		croak "Unsupported AF";
+	}
 
 	return $socket;
 }
@@ -78,8 +90,12 @@ sub process_nf_v1($$)
 	my $pkt = shift;
 	my %header;
 	my %flow;
-	
+	my $sender_s;
+
 	%header = qw();
+
+	$sender_s = inet_ntoa($sender) if $af == 4;
+	$sender_s = inet_ntop(AF_INET6, $sender) if $af == 6;
 
 	($header{ver}, $header{flows}, $header{uptime}, $header{secs}, 
 	 $header{nsecs}) = unpack("nnNNNNCC", $pkt);
@@ -114,7 +130,7 @@ sub process_nf_v1($$)
 		printf timestamp() . " " .
 		    "from %s started %s finish %s proto %u %s:%u > %s:%u %u " . 
 		    "packets %u octets\n",
-		    inet_ntoa($sender),
+		    $sender_s,
 		    fuptime($flow{start}), fuptime($flow{finish}), 
 		    $flow{protocol}, 
 		    $flow{src}, $flow{src_port}, $flow{dst}, $flow{dst_port}, 
@@ -126,15 +142,29 @@ sub process_nf_v1($$)
 
 # Commandline options
 my $debug = 0;
+my $af4 = 0;
+my $af6 = 0;
 my $port;
 #		Long option		Short option
 GetOptions(	'debug+' => \$debug,	'd+' => \$debug,
+					'4+' => \$af4,
+					'6+' => \$af6,
 		'port=i' => \$port,	'p=i' => \$port);
 
 # Unbuffer output
 $| = 1;
 
+die "The -4 and -6 are mutually exclusive\n" if $af4 && $af6;
+
 die "You must specify a port (collector.pl -p XXX).\n" unless $port;
+
+
+$af = 4 if $af4;
+$af = 6 if $af6;
+
+# These modules aren't standard everywhere, so load them only if necessary
+if ($af6) { use IO::Socket::INET6 } 
+if ($af6) { use Socket6 }
 
 # Main loop - receive and process a packet
 for (;;) {
@@ -148,12 +178,13 @@ for (;;) {
 	my $sender;
 
 	# Open the listening port if we haven't already
-	$socket = do_listen($port) unless defined $socket;
+	$socket = do_listen($port, $af) unless defined $socket;
 
 	# Fetch a packet
 	$from = $socket->recv($payload, 8192, 0);
 	
-	($junk, $sender) = unpack_sockaddr_in($from);
+	($junk, $sender) = unpack_sockaddr_in($from) if $af4;
+	($junk, $sender) = unpack_sockaddr_in6($from) if $af6;
 
 	# Reopen listening socket on error
 	if (!defined $from) {
