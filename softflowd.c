@@ -173,9 +173,11 @@ struct FLOWTRACK {
 	u_int64_t total_packets;		/* # of good packets */
 	u_int64_t non_ip_packets;		/* # of not-IP packets */
 	u_int64_t bad_packets;			/* # of bad packets */
+	u_int64_t flows_expired;		/* # expired */
 	u_int64_t flows_exported;		/* # of flows sent */
 	u_int64_t flows_dropped;		/* # of flows dropped */
 	u_int64_t flows_force_expired;		/* # of flows forced out */
+	u_int64_t packets_sent;			/* # netflow packets sent */
 	double max_dur, min_dur, mean_dur;	/* flow duration */
 	double max_bytes, min_bytes, mean_bytes;/* flow bytes (both ways) */
 	double max_pkts, min_pkts, mean_pkts;	/* flow packets (both ways) */
@@ -578,7 +580,10 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt,
 	return (PP_OK);
 }
 
-/* Given an array of expired flows, send netflow v1 report packets */
+/*
+ * Given an array of expired flows, send netflow v1 report packets
+ * Returns number of packets sent or -1 on error
+ */
 static int
 send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 {
@@ -586,12 +591,12 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
 	struct NF1_HEADER *hdr = NULL;
 	struct NF1_FLOW *flw = NULL;
-	int i, j, offset;
+	int i, j, offset, num_packets;
 	
 	gettimeofday(&now, NULL);
 
 	hdr = (struct NF1_HEADER *)packet;
-	for(offset = j = i = 0; i < num_flows; i++) {
+	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
 		if (j >= NF1_MAXFLOWS - 1) {
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
@@ -599,6 +604,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			if (send(nfsock, packet, (size_t)offset, 0) == -1)
 				return (-1);
 			j = 0;
+			num_packets++;
 		}
 		if (j == 0) {
 #if 0
@@ -666,7 +672,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			return (-1);
 	}
 
-	return (0);
+	return (num_packets);
 }
 
 static double 
@@ -694,6 +700,7 @@ update_statistics(struct FLOWTRACK *ft, struct FLOW *flow)
 	tmp -= (double)flow->flow_start.tv_sec +
 	    ((double)flow->flow_start.tv_usec / 1000000.0);
 
+	ft->flows_expired++;
 	ft->flows_pp[flow->protocol % 256]++;
 
 	if (n == 1.0) {
@@ -791,7 +798,7 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	if (num_expired > 0) {
 		r = send_netflow_v1(expired_flows, num_expired, nfsock);
 		if (verbose_flag)
-			syslog(LOG_DEBUG, "send_netflow_v1: %d", r);
+			syslog(LOG_DEBUG, "send_netflow_v1: %d packets", r);
 		for (i = 0; i < num_expired; i++) {
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
@@ -803,10 +810,12 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 			free(expired_flows[i]);
 		}
 	
-		if (r == 0)
+		if (r > 0) {
 			ft->flows_exported += num_expired * 2;
-		else
+			ft->packets_sent += r;
+		} else {
 			ft->flows_dropped += num_expired * 2;
+		}
 
 		free(expired_flows);
 	}
@@ -870,36 +879,41 @@ log_stats(struct FLOWTRACK *ft)
 
 	now = time(NULL);
 
-	syslog(LOG_INFO, "Number of active flows: %d", ft->num_flows);
-	syslog(LOG_INFO, "Total packets processed: %llu", ft->total_packets);
-	syslog(LOG_INFO, "Ignored non-ip packets: %llu", ft->non_ip_packets);
-	syslog(LOG_INFO, "Ignored illegible packets: %llu", ft->bad_packets);
-	syslog(LOG_INFO, "Total flows exported: %llu", ft->flows_exported);
+	syslog(LOG_INFO, "Number of active flows: %d from %llu packets processed", 
+	    ft->num_flows, ft->total_packets);
+	syslog(LOG_INFO, "Ignored packets: %llu (%llu non-IP, %llu too short)",
+	    ft->non_ip_packets + ft->bad_packets, ft->non_ip_packets, ft->bad_packets);
+	syslog(LOG_INFO, "Total flows expired: %llu (%llu forced out)", 
+	    ft->flows_expired, ft->flows_force_expired);
+	syslog(LOG_INFO, "Total flows exported: %llu in %llu packets",
+	    ft->flows_exported, ft->packets_sent);
 	syslog(LOG_INFO, "Flow export packets dropped: %llu", ft->flows_dropped);
-	syslog(LOG_INFO, "Flows forcibly expired: %llu", ft->flows_force_expired);
 
-	syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
-	syslog(LOG_INFO, "  Duration: %0.2f / %0.2f / %0.2f", 
-	    ft->min_dur, ft->mean_dur, ft->max_dur);
-	syslog(LOG_INFO, "  Flow bytes: %0.2f / %0.2f / %0.2f", 
-	    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
-	syslog(LOG_INFO, "  Flow packets: %0.2f / %0.2f / %0.2f", 
-	    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
+	if (ft->flows_expired != 0) {
+		syslog(LOG_INFO, "Expired flow statistics (min / mean / max)");
+		syslog(LOG_INFO, "  Duration: %0.2f / %0.2f / %0.2f", 
+		    ft->min_dur, ft->mean_dur, ft->max_dur);
+		syslog(LOG_INFO, "  Flow bytes: %0.2f / %0.2f / %0.2f", 
+		    ft->min_bytes, ft->mean_bytes, ft->max_bytes);
+		syslog(LOG_INFO, "  Flow packets: %0.2f / %0.2f / %0.2f", 
+		    ft->min_pkts, ft->mean_pkts, ft->max_pkts);
 
-	syslog(LOG_INFO, "Per protocol statistics:");
-	setprotoent(1);
-	for(i = 0; i < 256; i++) {
-		if (ft->packets_pp[i]) {
-			pe = getprotobynumber(i);
-			syslog(LOG_INFO, 
-			    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs min/max duration",
-			    pe != NULL ? pe->p_name : "", i, 
-			    ft->octets_pp[i], 
-			    ft->packets_pp[i],
-			    ft->mean_dur_pp[i],
-			    ft->max_dur_pp[i]);
+		syslog(LOG_INFO, "Per protocol statistics:");
+		setprotoent(1);
+		for(i = 0; i < 256; i++) {
+			if (ft->packets_pp[i]) {
+				pe = getprotobynumber(i);
+				syslog(LOG_INFO, 
+				    "  Protocol %s(%d): %llu bytes %llu pkts %0.2fs/%0.2fs min/max duration",
+				    pe != NULL ? pe->p_name : "", i, 
+				    ft->octets_pp[i], 
+				    ft->packets_pp[i],
+				    ft->mean_dur_pp[i],
+				    ft->max_dur_pp[i]);
+			}
 		}
 	}
+
 	endprotoent();
 
 #if 0
