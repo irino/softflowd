@@ -220,11 +220,11 @@ struct CB_CTXT {
  * Based on:
  * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
  */
-struct NETFLOW_HEADER_V1 {
+struct NF1_HEADER {
 	u_int16_t version, flows;
 	u_int32_t uptime_ms, time_sec, time_nanosec;
 };
-struct NETFLOW_FLOW_V1 {
+struct NF1_FLOW {
 	u_int32_t src_ip, dest_ip, nexthop_ip;
 	u_int16_t if_index_in, if_index_out;
 	u_int32_t flow_packets, flow_octets;
@@ -238,7 +238,10 @@ struct NETFLOW_FLOW_V1 {
  	u_int8_t reserved2; /* XXX: no longer used */
 #endif
 };
-
+/* Maximum of 24 flows per packet */
+#define NF1_MAXFLOWS		24
+#define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
+				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
 
 /* Signal handlers */
 static void sighand_graceful_shutdown(int signum)
@@ -529,23 +532,27 @@ static int
 send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 {
 	struct timeval now;
-	u_int8_t packet[1152];	/* Maximum allowed packet size (24 flows) */
-	struct NETFLOW_HEADER_V1 *hdr = NULL;
-	struct NETFLOW_FLOW_V1 *flw = NULL;
+	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
+	struct NF1_HEADER *hdr = NULL;
+	struct NF1_FLOW *flw = NULL;
 	int i, j, offset;
 	
 	gettimeofday(&now, NULL);
 
 	for(offset = j = i = 0; i < num_flows; i++) {
-		if (j == 0 || j >= 23) {
+		if (j == 0 || j >= (NF1_MAXFLOWS - 1)) {
 			if (j != 0) {
+				if (verbose_flag)
+					syslog(LOG_DEBUG, "Sending flow packet len = %d", offset);
 				hdr->flows = htons(hdr->flows);
 				if (send(nfsock, packet, 
 				    (size_t)offset, 0) == -1)
 					return (-1);
 			}
+			if (verbose_flag)
+				syslog(LOG_DEBUG, "Starting on new flow packet");
 			memset(&packet, '\0', sizeof(packet));
-			hdr = (struct NETFLOW_HEADER_V1 *)packet;
+			hdr = (struct NF1_HEADER *)packet;
 			hdr->version = htons(1);
 			hdr->flows = 0; /* Filled in as we go */
 			hdr->uptime_ms = 0;
@@ -554,9 +561,11 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			offset = sizeof(*hdr);
 			j = 0;
 		}		
-		flw = (struct NETFLOW_FLOW_V1 *)(packet + offset);
+		flw = (struct NF1_FLOW *)(packet + offset);
 		
 		if (flows[i]->octets[0] > 0) {
+			if (verbose_flag)
+				syslog(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
 			flw->src_ip = flows[i]->addr[0];
 			flw->dest_ip = flows[i]->addr[1];
 			flw->src_port = flows[i]->port[0];
@@ -571,9 +580,11 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 			j++;
 			hdr->flows++;
 		}
-		flw = (struct NETFLOW_FLOW_V1 *)(packet + offset);
+		flw = (struct NF1_FLOW *)(packet + offset);
 
 		if (flows[i]->octets[1] > 0) {
+			if (verbose_flag)
+				syslog(LOG_DEBUG, "Flow %d of %d 0>1", i, num_flows);
 			flw->src_ip = flows[i]->addr[1];
 			flw->dest_ip = flows[i]->addr[0];
 			flw->src_port = flows[i]->port[1];
