@@ -255,8 +255,9 @@ for (;;) {
 	# Open the listening port if we haven't already
 	$socket = do_listen($$config{"port"}) unless defined $socket;
 
-	$db = DBI->connect($$config{"db"}, $$config{"db-user"},
-	    $$config{"db-port"}) unless defined $db;
+#	$db = DBI->connect($$config{"db"}, $$config{"db-user"},
+#    $$config{"db-port"}) unless defined $db;
+	$db = "blah";
 
 	# Fetch a packet
 	$from = $socket->recv($payload, 8192, 0);

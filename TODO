@@ -48,3 +48,13 @@ softflowctl
     - Spiffy GUI (separate tool)
   - Ability to start up softflowd (maybe)
 
+collector
+---------
+
+  - Make it work
+  - Remove db support
+  - Fix time printing
+  - Line buffered output
+  - Nicer output format
+
+
