@@ -88,10 +88,11 @@ packet capture (such as one created with the
 .Fl w
 option of 
 .Xr tcpdump 8 )
-file rather than a network interface. In this mode, 
-.Nm reads the entire packet capture file without performing early expiry
-of flows. This may cause it to use significant amounts of memory if the
-packet capture file is large.
+file rather than a network interface. 
+.Nm
+processes the whole capture file and only expires flows when 
+.Ar max_flows
+is exceeded.
 .It Fl t Ar timeout
 This option specified the number of seconds that a flow must be quiescent
 (no traffic recorded) before it is considered expired. The default is one

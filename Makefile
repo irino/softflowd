@@ -1,27 +1,16 @@
 WARNFLAGS=\
-	-Wall \
-	-Waggregate-return \
-	-Wcast-align \
-	-Wcast-qual \
-	-Werror \
-	-Wmissing-declarations \
-	-Wmissing-prototypes \
-	-Wno-conversion \
-	-Wpointer-arith \
-	-Wshadow \
-	-Wuninitialized \
-	-Wcast-align \
-	-Wcast-qual \
-	-WformatC=2 \
-	-Wformat-nonliteral \
-	-Wwrite-strings \
+	-Wall -Waggregate-return -Wcast-align -Wcast-qual \
+	-Wmissing-declarations -Wmissing-prototypes -Wno-conversion \
+	-Wpointer-arith -Wshadow -Wuninitialized -Wcast-align \
+	-Wcast-qual -WformatC=2 -Wformat-nonliteral -Wwrite-strings \
 	-Wconversion \
-	-Winline \
+	-Werror \
+#	-Winline \
 #	-Wunreachable-code \
 #	-Wredundant-decls \
-#	-Wpadded 	
+#	-Wpadded  
 
-LIBS=-lpcap
+LIBS=-lpcap #-lefence
 
 CFLAGS=-g -O $(WARNFLAGS)
 
