@@ -1,6 +1,7 @@
 20040909
  - (djm) Implement IPv6 flow tracking. Currently no export functionality.
  - (djm) Portability fixes for Linux, add closefrom()
+ - (djm) Use strlcat/strlcpy instead of strn* functions
 
 20040909
  - (djm) inline is unnecessary

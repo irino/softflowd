@@ -68,7 +68,11 @@ main(int argc, char **argv)
 	command = argv[optind];
 
 	memset(&ctl, '\0', sizeof(ctl));
-	strncpy(ctl.sun_path, ctlsock_path, sizeof(ctl.sun_path));
+	if (strlcpy(ctl.sun_path, ctlsock_path, sizeof(ctl.sun_path)) >= 
+	    sizeof(ctl.sun_path)) {
+		fprintf(stderr, "Control socket path too long.\n");
+		exit(1);
+	}
 	ctl.sun_path[sizeof(ctl.sun_path) - 1] = '\0';
 	ctl.sun_family = AF_UNIX;
 	ctllen = offsetof(struct sockaddr_un, sun_path) +

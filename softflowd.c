@@ -1565,7 +1565,12 @@ unix_listener(const char *path)
 	memset(&addr, '\0', sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	
-	strncpy(addr.sun_path, path, sizeof(addr.sun_path));
+	if (strlcpy(addr.sun_path, path, sizeof(addr.sun_path)) >=
+	    sizeof(addr.sun_path)) {
+		fprintf(stderr, "control socket path too long\n");
+		exit(1);
+	}
+	
 	addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 	
 	addrlen = offsetof(struct sockaddr_un, sun_path) + strlen(path) + 1;
@@ -1688,10 +1693,10 @@ argv_join(int argc, char **argv)
 			ret[0] = '\0';
 		else {
 			ret_len++; /* Make room for ' ' */
-			strncat(ret, " ", ret_len + 1);
+			strlcat(ret, " ", ret_len + 1);
 		}
 			
-		strncat(ret, argv[i], ret_len + 1);
+		strlcat(ret, argv[i], ret_len + 1);
 	}
 
 	return (ret);
