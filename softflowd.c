@@ -126,11 +126,10 @@ static int dump_stats = 0;
 #define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
 
 /*
- * Capture length for libpcap: Must fit a maximally sized ip header 
- * and the first four bytes of a TCP/UDP header (source and 
- * destination port numbers)
+ * Capture length for libpcap: Must fit the link layer header, plus 
+ * a maximally sized ip header and most of a TCP header
  */
-#define LIBPCAP_SNAPLEN		80
+#define LIBPCAP_SNAPLEN		96
 
 /*
  * Default timeout: Quiescent flows which have not seen traffic for 
