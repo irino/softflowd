@@ -703,6 +703,8 @@ check_expired(struct FLOWTRACK *ft, int nfsock, int ex)
 	/* Processing for expired flows */
 	if (num_expired > 0) {
 		r = send_netflow_v1(expired_flows, num_expired, nfsock);
+		if (verbose_flag)
+			syslog(LOG_DEBUG, "send_netflow_v1: %s", r);
 		for (i = 0; i < num_expired; i++) {
 			if (verbose_flag)
 				syslog(LOG_DEBUG, "EXPIRED: %s (%p)", 
