@@ -1,0 +1,125 @@
+.\" $Id$
+.\"
+.\" Copyright (c) 2002 Damien Miller.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+.\" IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+.\" OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+.\" IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+.\" INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+.\" NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+.\" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+.\" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+.\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+.\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+.\"
+.Dd October 14, 2002
+.Dt SOFTFLOWD 8
+.Os
+.Sh NAME
+.Nm softflowd
+.Nd Traffic flow accounting compatible with Cisco NetFlow(tm)
+.Sh SYNOPSIS
+.Nm softflowd
+.Op Fl dDH
+.Op Fl i Ar interface
+.Op Fl r Ar pcap_file
+.Op Fl t Ar timeout
+.Op Fl m Ar max_flows
+.Op Fl n Ar host:port
+.Sh DESCRIPTION
+.Nm
+is a software implementation of a flow-based network traffic accounting
+collector. 
+.Nm
+listens on a promiscuous network interface (using
+.Xr pcap 3 )
+and gathers information about active traffic flows. 
+A "traffic flow" is 
+communication between two IP addresses or (if the overlying protocol is 
+TCP or UDP) IP address/port number tuples. 
+.Pp
+.Nm
+will aggregate data within specific flow during their lifetime. When the
+flow has been quiescent for at least 
+.Ar timeout
+seconds (default: 1 hour) the flow is expired automatically. Flows may also
+be expired early if they approach their traffic counts exceed 2Gb or if
+the number of flows being tracked exceeds 
+.Ar max_flows
+(default: 8192). In this last case, flows are expired oldest-first.
+.Pp
+On flow expiry, the gathered statistics are formatted in a UDP datagram 
+which is compatible with version 1 of Cisco's NetFlow(tm) accounting export
+format. These records are sent to the specified
+.Ar host
+and
+.Ar port .
+.Pp
+The commandline options are as follows:
+.Bl -tag -width Ds
+.It Fl n Ar host:port
+Specify the 
+.Ar host
+(an IP address in dotted-quad format) and 
+.Ar port
+that the accounting datagrams are to be sent to. This option is mandatory.
+.It Fl i Ar interface
+Specify a network interface on which to listen for traffic. Either the 
+.Fl i
+or the
+.Fl r 
+options must be specified.
+.It Fl r Ar pcap_file
+Specify that
+.Nm
+should read from a 
+.Xr pcap 3
+packet capture (such as one created with the 
+.Fl w
+option of 
+.Xr tcpdump 8 )
+file rather than a network interface. In this mode, 
+.Nm reads the entire packet capture file without performing early expiry
+of flows. This may cause it to use significant amounts of memory if the
+packet capture file is large.
+.It Fl t Ar timeout
+This option specified the number of seconds that a flow must be quiescent
+(no traffic recorded) before it is considered expired. The default is one
+hour (3600 seconds).
+.It Fl m Ar max_flows
+Specifies the maximum number of flow to concurrently track. If this  limit
+is exceeded, the flows which have least recently seen traffic are forcibly
+expired. In practice, the actual maximum may briefly exceed this limit by a
+small amount as  expiry processing happens less frequently than traffic
+collection. The default is 8192 flows, which corresponds to slightly less
+than 800k of working data.
+.It Fl d
+Specify that 
+.Nm
+should not fork and daemonise itself.
+.It Fl D
+Places
+.Nm
+in a debugging mode. This implies the 
+.Fl d
+flag and turns on additional debugging output.
+.It Fl h
+Displays commandline usage information.
+.El
+.Sh AUTHORS
+Damien Miller <djm@mindrot.org>
+.Sh SEE ALSO
+.Xr tcpdump 8 ,
+.Xr pcap 3 
+.Bd -literal
+http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
