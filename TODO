@@ -13,7 +13,6 @@ softflowd
   - Option for fixed expiry timers? (for decreased per-packet CPU)
 
  Exporter features
-  - NetFlow v.5
   - NetFlow v.9 (IPv6!)
     - Subject to asshole IPR claim: 
       http://www.ietf.org/ietf/IPR/cisco-claise-netflow.txt
