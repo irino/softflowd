@@ -421,13 +421,13 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 	u_int8_t packet[1152];	/* Maximum allowed packet size (24 flows) */
 	struct NETFLOW_HEADER_V1 *hdr;
 	struct NETFLOW_FLOW_V1 *flw;
-	int i, offset, flows_to_send;
+	int i, j, offset, flows_to_send;
 	
 	gettimeofday(&now, NULL);
 
 	hdr = (struct NETFLOW_HEADER_V1 *)packet;
 
-	for(; num_flows > 0;) {
+	for(j = 0; num_flows > 0;) {
 		/* Max 24 flows per packet */
 		flows_to_send = MIN(num_flows, 24);
 	
@@ -441,18 +441,19 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock)
 		for(i = 0; i < flows_to_send; i++) {
 			offset = (i * sizeof(*flw)) + sizeof(*hdr);
 			flw = (struct NETFLOW_FLOW_V1 *)(packet + offset);
-			flw->src_ip = flows[i]->src;
-			flw->dest_ip = flows[i]->dst;
-			flw->src_port = flows[i]->src_port;
-			flw->dest_port = flows[i]->dst_port;
-			flw->flow_packets = htonl(flows[i]->packets);
-			flw->flow_octets = htonl(flows[i]->octets);
-			flw->flow_start = htonl(flows[i]->flow_start.tv_sec);
-			flw->flow_finish = htonl(flows[i]->flow_last.tv_sec);
-			flw->protocol = flows[i]->protocol;
+			flw->src_ip = flows[j + i]->src;
+			flw->dest_ip = flows[j + i]->dst;
+			flw->src_port = flows[j + i]->src_port;
+			flw->dest_port = flows[j + i]->dst_port;
+			flw->flow_packets = htonl(flows[j + i]->packets);
+			flw->flow_octets = htonl(flows[j + i]->octets);
+			flw->flow_start = htonl(flows[j + i]->flow_start.tv_sec);
+			flw->flow_finish = htonl(flows[j + i]->flow_last.tv_sec);
+			flw->protocol = flows[j + i]->protocol;
 			if (verbose_flag)
-				syslog(LOG_DEBUG, "EXPIRED: %s", format_flow(flows[i]));
+				syslog(LOG_DEBUG, "EXPIRED: %s", format_flow(flows[j + i]));
 		}
+		j += flows_to_send;
 		num_flows -= flows_to_send;
 		
 		if (send(nfsock, packet, sizeof(*hdr) + 
