@@ -461,25 +461,19 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	return (0);
 }
 
-/* Convert a packet to a partial flow record (used for comparison) */
+/* Convert a IPv4 packet to a partial flow record (used for comparison) */
 static int
-packet_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
+ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, 
     const size_t caplen, const size_t len, int *isfrag, int af)
 {
 	const struct ip *ip = (const struct ip *)pkt;
 	int ndx;
-
-	/* XXX - IPv6 support */
-	if (af != AF_INET)
-		return (-1);
 
 	if (caplen < 20 || caplen < ip->ip_hl * 4)
 		return (-1);	/* Runt packet */
 	if (ip->ip_v != 4)
 		return (-1);	/* Unsupported IP version */
 	
-	memset(flow, '\0', sizeof(*flow));
-
 	/* Prepare to store flow in canonical format */
 	ndx = memcmp(&ip->ip_src, &ip->ip_dst, sizeof(ip->ip_src)) > 0 ? 1 : 0;
 	
@@ -596,7 +590,14 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	ft->total_packets++;
 
 	/* Convert the IP packet to a flow identity */
-	if (packet_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1) {
+	memset(&tmp, 0, sizeof(tmp));
+	switch (af) {
+	case AF_INET:
+		if (ipv4_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1)
+			goto bad;
+		break;
+	default:
+ bad: 
 		ft->bad_packets++;
 		return (PP_BAD_PACKET);
 	}

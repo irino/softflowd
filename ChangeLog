@@ -7,6 +7,7 @@
  - (djm) Another step on the road: factor out transport-layer protocol parsing
    from IPv4 parsing code
  - (djm) Be more careful about putting flows into canonical format
+ - (djm) Prepare for IPv6 packet to flow conversion routine
 
 20040901
  - (djm) Fix a tiny, stupid bug that prevents flow export
