@@ -51,6 +51,7 @@
 #include <signal.h>
 #include <netdb.h>
 #include <pwd.h>
+#include <grp.h>
 
 /* XXX: this check probably isn't sufficient for all systems */
 #ifndef __GNU_LIBRARY__ 
