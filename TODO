@@ -33,7 +33,7 @@ softflowd
   - Track ToS / DSCP
   - Make counters 64 bits
     - We can report these directly for NetFlow v.9
-    - Flow older NetFlow, report by sending multiple flows until counter < 2^32
+    - For older NetFlow, report by sending multiple flows until counter < 2^32
 
  Misc features
   - Ability to open more than one interface (maybe)
@@ -49,20 +49,11 @@ softflowd
   - Profile and see where the hot spots are
 
  Exporter features
-  - NetFlow v.9 (IPv6!)
-    - Subject to asshole IPR claim: 
-      http://www.ietf.org/ietf/IPR/cisco-claise-netflow.txt
   - sflow support (www.sflow.org)
     - Needs XDR encoding
-    - But will give us IPv6 flow export support
-  - Enqueue expired flows in struct FLOWTRACK rather than sending 
-    immediately upon expiry
-    - Ability to set soft mininum number of flow records per packet
-    - Need timeout so the queue doesn't rot
-    - Benefits of queue vs leaving them in flow table???
   - Ability to export to multiple hosts
     - Partly done, just need to keep a list of targets instead of a single one
-  - Ability to export to multicat address
+  - Ability to export to multicast address
   - Ability to directly write to file (maybe. If so, reuse flowd store code)
 
  Statistics code
