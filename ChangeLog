@@ -1,3 +1,9 @@
+20030307
+ - (djm) Add basic perl netflow collector
+
+20021110
+ - (djm) Refactor, dramatically shrink mainloop
+
 20021105
  - (djm) Don't exit on failure to lookup net/mask. From Alejandro Roman 
    <aroman@uyr.com.ar>
