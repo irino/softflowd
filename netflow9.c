@@ -73,9 +73,10 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_IPV6_SRC_ADDR		27
 #define NF9_IPV6_DST_ADDR		28
 /* ... */
+#define NF9_IP_PROTOCOL_VERSION		60
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	10
+#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	11
 struct NF9_SOFTFLOWD_TEMPLATE {
 	struct NF9_TEMPLATE_FLOWSET_HEADER h;
 	struct NF9_TEMPLATE_FLOWSET_RECORD r[NF9_SOFTFLOWD_TEMPLATE_NRECORDS];
@@ -86,7 +87,7 @@ struct NF9_SOFTFLOWD_DATA_COMMON {
 	u_int32_t last_switched, first_switched;
 	u_int32_t bytes, packets;
 	u_int16_t src_port, dst_port;
-	u_int8_t protocol, tcp_flags;
+	u_int8_t protocol, tcp_flags, ipproto;
 } __packed;
 
 struct NF9_SOFTFLOWD_DATA_V4 {
@@ -138,6 +139,8 @@ nf9_init_template(void)
 	v4_template.r[8].length = htons(1);
 	v4_template.r[9].type = htons(NF9_TCP_FLAGS);
 	v4_template.r[9].length = htons(1);
+	v4_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v4_template.r[10].length = htons(1);
 
 	bzero(&v6_template, sizeof(v6_template));
 	v6_template.h.c.flowset_id = htons(0);
@@ -164,6 +167,8 @@ nf9_init_template(void)
 	v6_template.r[8].length = htons(1);
 	v6_template.r[9].type = htons(NF9_TCP_FLAGS);
 	v6_template.r[9].length = htons(1);
+	v4_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v4_template.r[10].length = htons(1);
 }
 
 static int
@@ -188,6 +193,7 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 		memcpy(&d[1].d4.dst_addr, &flow->addr[0].v4, 4);
 		dc[0] = &d[0].d4.c;
 		dc[1] = &d[1].d4.c;
+		dc[0]->ipproto = dc[1]->ipproto = 4;
 		break;
 	case AF_INET6:
 		freclen = sizeof(struct NF9_SOFTFLOWD_DATA_V6);
@@ -197,6 +203,7 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 		memcpy(&d[1].d6.dst_addr, &flow->addr[0].v6, 16);
 		dc[0] = &d[0].d6.c;
 		dc[1] = &d[1].d6.c;
+		dc[0]->ipproto = dc[1]->ipproto = 6;
 		break;
 	default:
 		return (-1);

@@ -4,6 +4,7 @@
  - (djm) Add a timeout to cluster expiry expiry events, so we get more flows 
     per packet. Default is to check for expiries every 60s
  - (djm) Allow timouts to be disabled (by setting them to 0)
+ - (djm) Include IP_PROTOCOL_VERSION field in NetFlow v.9 packets
 
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
