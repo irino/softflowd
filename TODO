@@ -7,6 +7,11 @@ general
 softflowd
 ---------
 
+  - See if we can reduce per-packet overhead more
+    - Cost of expiry remove and re-add per packet
+  - Stop run-time malloc (maybe)
+    - Preallocate a pool of expiry events and flow entries
+    - Maintain bitmap freelist (one for both types)
   - NetFlow v.5
   - NetFlow v.9 (IPv6!)
   - We don't handle fragments right
@@ -72,6 +77,7 @@ softflowd
       - 288 10-minute blocks (2 days) (2304 bytes)
       - 336 1-hour blocks (2 weeks)   (2688 bytes)
         - Total 10kb worst-case per-flow
+
 softflowctl
 -----------
 
