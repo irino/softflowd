@@ -55,7 +55,11 @@ softflowctl
 collector
 ---------
 
-  - Make it work
-  - Fix time printing
-  - Nicer output format
+ - More / better logging
+ - Compact binary logs
+   - time / sender / src addr / dst addr / octets / proto / src port / dst port
+   - u32  / u32    / u32      / u32      / u32      u16   / u16      / u16
+   - u16 of zero padding to 224 bytes per record
+   - Reader tool required
+   - Daemon mode
 
