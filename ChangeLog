@@ -1,3 +1,6 @@
+20040930
+ - (djm) Increase caplen a little for IPv6
+
 20040929
  - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on 
    them for now), print addresses:port tuples unambiguously and apply correct 
