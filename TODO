@@ -61,6 +61,7 @@ softflowd
   - Multiple interface support
     - Requires some way to avoid duplicate recording of flows (IP ID)
   - Track IPsec SPIs
+  - ToS / DSCP
 
  Statistics code
   - Collect more statistics (maybe)
