@@ -1,3 +1,7 @@
+20050505
+ - (djm) Fix bug in sequence number generation. Reported by 
+   b.ghita AT jack.see.plymouth.ac.uk and mwlucas AT blackhelicopters.org
+
 20050114
  - (djm) Release 0.9.7
 

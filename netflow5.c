@@ -63,7 +63,7 @@ struct NF5_FLOW {
  */
 int
 send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time,
+    u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag)
 {
 	struct timeval now;
@@ -78,7 +78,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 	uptime_ms = timeval_sub_ms(&now, system_boot_time);
 
 	hdr = (struct NF5_HEADER *)packet;
-	for(num_packets = offset = j = i = 0; i < num_flows; i++) {
+	for (num_packets = offset = j = i = 0; i < num_flows; i++) {
 		if (j >= NF5_MAXFLOWS - 1) {
 			if (verbose_flag)
 				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
@@ -88,6 +88,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 			    &err, &errsz); /* Clear ICMP errors */
 			if (send(nfsock, packet, (size_t)offset, 0) == -1)
 				return (-1);
+			*flows_exported += j;
 			j = 0;
 			num_packets++;
 		}
@@ -98,7 +99,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 			hdr->uptime_ms = htonl(uptime_ms);
 			hdr->time_sec = htonl(now.tv_sec);
 			hdr->time_nanosec = htonl(now.tv_usec * 1000);
-			hdr->flow_sequence = htonl(flows_exported);
+			hdr->flow_sequence = htonl(*flows_exported);
 			/* Other fields are left zero */
 			offset = sizeof(*hdr);
 		}		
@@ -163,6 +164,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 		num_packets++;
 	}
 
+	*flows_exported += j;
 	return (num_packets);
 }
 

@@ -92,7 +92,7 @@ static const struct DATALINK lt[] = {
 };
 
 /* Netflow send functions */
-typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int64_t,
+typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int64_t *,
     struct timeval *, int);
 struct NETFLOW_SENDER {
 	int version;
@@ -774,12 +774,11 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 	if (num_expired > 0) {
 		if (target != NULL && target->fd != -1) {
 			r = target->dialect->func(expired_flows, num_expired, 
-			    target->fd, ft->flows_exported, 
+			    target->fd, &ft->flows_exported, 
 			    &ft->system_boot_time,  verbose_flag);
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
-				ft->flows_exported += num_expired * 2;
 				ft->packets_sent += r;
 				/* XXX what if r < num_expired * 2 ? */
 			} else {

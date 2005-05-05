@@ -189,13 +189,13 @@ u_int32_t timeval_sub_ms(const struct timeval *t1, const struct timeval *t2);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time, 
+    u_int64_t *flows_exported, struct timeval *system_boot_time, 
     int verbose_flag);
 int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time,
+    u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag);
 int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time,
+    u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag);
 
 #endif /* _SOFTFLOWD_H */

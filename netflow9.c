@@ -248,7 +248,7 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
  */
 int
 send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time,
+    u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag)
 {
 	struct NF9_HEADER *nf9;
@@ -275,7 +275,7 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 		nf9->flows = 0; /* Filled as we go, htons at end */
 		nf9->uptime_ms = htonl(timeval_sub_ms(&now, system_boot_time));
 		nf9->time_sec = htonl(time(NULL));
-		nf9->package_sequence = htonl(flows_exported);
+		nf9->package_sequence = htonl(*flows_exported + j);
 		nf9->source_id = 0;
 		offset = sizeof(*nf9);
 
@@ -365,5 +365,6 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 		j += i;
 	}
 
+	*flows_exported += j;
 	return (num_packets);
 }

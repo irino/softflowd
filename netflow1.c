@@ -65,7 +65,7 @@ struct NF1_FLOW {
  */
 int
 send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-    u_int64_t flows_exported, struct timeval *system_boot_time, 
+    u_int64_t *flows_exported, struct timeval *system_boot_time, 
     int verbose_flag)
 {
 	struct timeval now;
@@ -90,6 +90,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 			    &err, &errsz); /* Clear ICMP errors */
 			if (send(nfsock, packet, (size_t)offset, 0) == -1)
 				return (-1);
+			*flows_exported += j;
 			j = 0;
 			num_packets++;
 		}
@@ -162,5 +163,6 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 		num_packets++;
 	}
 
+	*flows_exported += j;
 	return (num_packets);
 }
