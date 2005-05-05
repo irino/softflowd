@@ -893,11 +893,12 @@ delete_all_flows(struct FLOWTRACK *ft)
  * and the tree of expiry events.
  */
 static int
-statistics(struct FLOWTRACK *ft, FILE *out)
+statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 {
 	int i;
 	struct protoent *pe;
 	char proto[32];
+	struct pcap_stat ps;
 
 	fprintf(out, "Number of active flows: %d\n", ft->num_flows);
 	fprintf(out, "Packets processed: %llu\n", ft->total_packets);
@@ -908,6 +909,15 @@ statistics(struct FLOWTRACK *ft, FILE *out)
 	    ft->flows_expired, ft->flows_force_expired);
 	fprintf(out, "Flows exported: %llu in %llu packets (%llu failures)\n",
 	    ft->flows_exported, ft->packets_sent, ft->flows_dropped);
+
+	if (pcap_stats(pcap, &ps) == 0) {
+		fprintf(out, "Packets received by libpcap: %lu\n",
+		    (unsigned long)ps.ps_recv);
+		fprintf(out, "Packets dropped by libpacp: %lu\n",
+		    (unsigned long)ps.ps_drop);
+		fprintf(out, "Packets dropped by interface: %lu\n",
+		    (unsigned long)ps.ps_ifdrop);
+	}
 
 	fprintf(out, "\n");
 
@@ -1068,7 +1078,7 @@ print_timeouts(struct FLOWTRACK *ft, FILE *out)
 
 static int
 accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
-    int *exit_request, int *stop_collection_flag)
+    pcap_t *pcap, int *exit_request, int *stop_collection_flag)
 {
 	unsigned char buf[64], *p;
 	FILE *ctlf;
@@ -1123,7 +1133,7 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 	} else if (strcmp(buf, "statistics") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Accumulated statistics:\n", 
 		    getpid());
-		statistics(ft, ctlf);
+		statistics(ft, ctlf, pcap);
 		ret = 0;
 	} else if (strcmp(buf, "debug+") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Debug level increased.\n",
@@ -1772,7 +1782,7 @@ main(int argc, char **argv)
 
 		/* Accept connection on control socket if present */
 		if (ctlsock != -1 && pl[1].revents != 0) {
-			if (accept_control(ctlsock, &target, &flowtrack, 
+			if (accept_control(ctlsock, &target, &flowtrack, pcap,
 			    &exit_request, &stop_collection_flag) != 0)
 				break;
 		}
@@ -1837,7 +1847,7 @@ expiry_check:
 		logit(LOG_ERR, "Exiting immediately on internal error");
 		
 	if (capfile != NULL && dontfork_flag)
-		statistics(&flowtrack, stdout);
+		statistics(&flowtrack, stdout, pcap);
 
 	pcap_close(pcap);
 	
