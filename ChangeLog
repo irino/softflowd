@@ -1,4 +1,7 @@
 20050505
+ - (djm) Fix time printing bug in debug mode
+
+20050505
  - (djm) Fix bug in sequence number generation. Reported by 
    b.ghita AT jack.see.plymouth.ac.uk and mwlucas AT blackhelicopters.org
  - (djm) Report pcap stats in statistics display

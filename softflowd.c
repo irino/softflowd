@@ -249,7 +249,7 @@ format_flow(struct FLOW *flow)
 	    flow->octets[0], flow->packets[0], 
 	    flow->octets[1], flow->packets[1], 
 	    stime, (flow->flow_start.tv_usec + 500) / 1000, 
-	    ftime, (flow->flow_start.tv_usec + 500) / 1000,
+	    ftime, (flow->flow_last.tv_usec + 500) / 1000,
 	    flow->tcp_flags[0], flow->tcp_flags[1],
 	    flow->ip6_flowlabel[0], flow->ip6_flowlabel[1]);
 
