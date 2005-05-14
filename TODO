@@ -48,6 +48,7 @@ softflowd
     - Cost of expiry remove and re-add per packet
   - Stop run-time malloc (maybe)
     - Preallocate a pool of expiry events and flow entries
+      - keep a queue, pick/push first from head
   - Profile and see where the hot spots are
 
  Exporter features
