@@ -1,5 +1,6 @@
 20050505
  - (djm) Fix time printing bug in debug mode
+ - (djm) Fix reversed NetFlow v.9 first_switched and last_switched times
 
 20050505
  - (djm) Fix bug in sequence number generation. Reported by 
