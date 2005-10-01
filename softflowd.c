@@ -913,7 +913,7 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 	if (pcap_stats(pcap, &ps) == 0) {
 		fprintf(out, "Packets received by libpcap: %lu\n",
 		    (unsigned long)ps.ps_recv);
-		fprintf(out, "Packets dropped by libpacp: %lu\n",
+		fprintf(out, "Packets dropped by libpcap: %lu\n",
 		    (unsigned long)ps.ps_drop);
 		fprintf(out, "Packets dropped by interface: %lu\n",
 		    (unsigned long)ps.ps_ifdrop);
