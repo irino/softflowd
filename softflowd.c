@@ -83,6 +83,9 @@ struct DATALINK {
 static const struct DATALINK lt[] = {
 	{ DLT_EN10MB,	14, 12,  2,  1, 0xffffffff,  0x0800,   0x86dd },
 	{ DLT_PPP,	 5,  3,  2,  1, 0xffffffff,  0x0021,   0x0057 },
+#ifdef DLT_LINUX_SLL
+	{ DLT_LINUX_SLL,16, 14,  2,  1, 0xffffffff,  0x0800,   0x86dd },
+#endif
 	{ DLT_RAW,	 0,  0,  1,  1, 0x000000f0,  0x0004,   0x0006 },
 	{ DLT_NULL,	 4,  0,  4,  0, 0xffffffff, AF_INET, AF_INET6 },
 #ifdef DLT_LOOP

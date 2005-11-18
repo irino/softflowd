@@ -1,5 +1,7 @@
 20051118
  - (djm) Some extra paranoia and verbosity on malloc failures
+ - (djm) Support Linux "cooked socket" datalink type, from Tony Lewis 
+   gnutered AT yahoo.com.au
 
 20051001
  - (djm) Fix typo, from rbreathe AT brookes.ac.uk
