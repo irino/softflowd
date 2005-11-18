@@ -1,3 +1,6 @@
+20051118
+ - (djm) Some extra paranoia and verbosity on malloc failures
+
 20051001
  - (djm) Fix typo, from rbreathe AT brookes.ac.uk
 

@@ -533,8 +533,11 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	/* If a matching flow does not exist, create and insert one */
 	if ((flow = FLOW_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
 		/* Allocate and fill in the flow */
-		if ((flow = malloc(sizeof(*flow))) == NULL)
+		if ((flow = malloc(sizeof(*flow))) == NULL) {
+			logit(LOG_ERR, "process_packet: flow malloc(%u) fail",
+			    sizeof(*flow));
 			return (PP_MALLOC_FAIL);
+		}
 		memcpy(flow, &tmp, sizeof(*flow));
 		memcpy(&flow->flow_start, received_time,
 		    sizeof(flow->flow_start));
@@ -542,8 +545,11 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 		FLOW_INSERT(FLOWS, &ft->flows, flow);
 
 		/* Allocate and fill in the associated expiry event */
-		if ((flow->expiry = malloc(sizeof(*flow->expiry))) == NULL)
+		if ((flow->expiry = malloc(sizeof(*flow->expiry))) == NULL) {
+			logit(LOG_ERR, "process_packet: expiry malloc(%u) fail",
+			    sizeof(*flow->expiry));
 			return (PP_MALLOC_FAIL);
+		}
 		flow->expiry->flow = flow;
 		/* Must be non-zero (0 means expire immediately) */
 		flow->expiry->expires_at = 1;
@@ -1749,6 +1755,7 @@ main(int argc, char **argv)
 	/* Main processing loop */
 	gettimeofday(&flowtrack.system_boot_time, NULL);
 	stop_collection_flag = 0;
+	memset(&cb_ctxt, '\0', sizeof(cb_ctxt));
 	cb_ctxt.ft = &flowtrack;
 	cb_ctxt.linktype = linktype;
 	cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
