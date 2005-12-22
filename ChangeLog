@@ -1,3 +1,7 @@
+20051206
+ - (djm) Make sure installation directories exist, spotted by
+   alshu AT tut.by
+
 20051118
  - (djm) Some extra paranoia and verbosity on malloc failures
  - (djm) Support Linux "cooked socket" datalink type, from Tony Lewis 

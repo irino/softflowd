@@ -49,8 +49,10 @@ strip:
 	strip $(TARGETS)
 
 install:
+	$(srcdir)/mkinstalldirs $(sbindir)
 	$(INSTALL) -m 0755 -s softflowd $(sbindir)/softflowd
 	$(INSTALL) -m 0755 -s softflowctl $(sbindir)/softflowctl
+	$(srcdir)/mkinstalldirs $(mandir)/man8
 	$(INSTALL) -m 0644 softflowd.8 $(mandir)/man8/softflowd.8
 	$(INSTALL) -m 0644 softflowctl.8 $(mandir)/man8/softflowctl.8
 
