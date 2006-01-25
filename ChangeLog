@@ -1,3 +1,7 @@
+20060126
+ - (djm) Correctly expire quiescent flows when they hit maximum_lifetime; 
+   bug noticed and patch tested by andreas.brillisauer AT hetzner.de
+
 20051206
  - (djm) Make sure installation directories exist, spotted by
    alshu AT tut.by

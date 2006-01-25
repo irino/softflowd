@@ -473,7 +473,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 	if (ft->icmp_timeout != 0 &&
 	    ((flow->af == AF_INET && flow->protocol == IPPROTO_ICMP) || 
 	    ((flow->af == AF_INET6 && flow->protocol == IPPROTO_ICMPV6)))) {
-		/* UDP flows */
+		/* ICMP flows */
 		flow->expiry->expires_at = flow->flow_last.tv_sec + 
 		    ft->icmp_timeout;
 		flow->expiry->reason = R_ICMP;
@@ -486,6 +486,11 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 	flow->expiry->reason = R_GENERAL;
 
  out:
+	if (ft->maximum_lifetime != 0 && flow->expiry->expires_at != 0) {
+		flow->expiry->expires_at = MIN(flow->expiry->expires_at,
+		    flow->flow_start.tv_sec + ft->maximum_lifetime);
+	}
+
 	EXPIRY_INSERT(EXPIRIES, &ft->expiries, flow->expiry);
 }
 
@@ -745,9 +750,18 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 		    (ex != CE_EXPIRE_FORCED &&
 		    (expiry->expires_at < now.tv_sec))) {
 			/* Flow has expired */
+
+			if (ft->maximum_lifetime != 0 && 
+	    		    expiry->flow->flow_last.tv_sec - 
+			    expiry->flow->flow_start.tv_sec >= 
+	    		    ft->maximum_lifetime)
+					expiry->reason = R_MAXLIFE;
+
 			if (verbose_flag)
-				logit(LOG_DEBUG, "Queuing flow seq:%llu (%p) for expiry",
-				   expiry->flow->flow_seq, expiry->flow);
+				logit(LOG_DEBUG,
+				    "Queuing flow seq:%llu (%p) for expiry "
+				    "reason %d", expiry->flow->flow_seq,
+				    expiry->flow, expiry->reason);
 
 			/* Add to array of expired flows */
 			oldexp = expired_flows;
