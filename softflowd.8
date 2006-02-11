@@ -40,6 +40,7 @@
 .Op Fl p Ar pidfile
 .Op Fl c Ar ctl_sock
 .Op Fl L Ar hoplimit
+.Op Fl T Ar track_level
 .Op bpf_program
 .Sh DESCRIPTION
 .Nm
@@ -196,6 +197,24 @@ Sets the IPv4 TTL or the IPv6 hop limit to
 will use the default system TTL when exporting flows to a unicast host.
 When exporting to a multicast group, the default TTL will be 1
 (i.e. link-local).
+.It Fl T Ar track_level
+Specifies what flow elements
+.Nm
+should be used to define a flow.
+.Ar track_level
+may be one of:
+.Dq full
+(track everything in the flow, the default),
+.Dq proto
+(track source and destination addresses and protocol), or
+.Dq ip
+(only track source and destination addresses).
+Selecting either of the latter options will produce flows with less information
+in them (e.g. TCP/UDP ports will not be recorded).
+This will cause flows to be consolidated, reducing the quantity of output 
+and CPU load that
+.Nm
+will place on the system at the cost of some detail.
 .El
 .Pp
 Any further commandline arguments will be concatenated together and 

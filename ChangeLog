@@ -1,3 +1,8 @@
+20060211
+ - (djm) Add option to ignore port and protocol information from flows,
+   allowing flows from the same IP addresses to be automatically
+   coalesced
+
 20060126
  - (djm) Correctly expire quiescent flows when they hit maximum_lifetime; 
    bug noticed and patch tested by andreas.brillisauer AT hetzner.de

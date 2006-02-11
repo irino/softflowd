@@ -66,6 +66,11 @@ struct STATISTIC {
 	double min, mean, max;
 };
 
+/* Flow tracking levels */
+#define TRACK_FULL		1	/* src/dst/addr/port/proto 5-tuple */
+#define TRACK_IP_PROTO		2	/* src/dst/proto 3-tuple */
+#define TRACK_IP_ONLY		3	/* src/dst tuple */
+
 /*
  * This structure is the root of the flow tracking system.
  * It holds the root of the tree of active flows and the head of the
@@ -81,7 +86,8 @@ struct FLOWTRACK {
 
 	/* Stuff related to flow export */
 	struct timeval system_boot_time;	/* SysUptime */
-	
+	int track_level;			/* See TRACK_* above */
+
 	/* Flow timeouts */
 	int tcp_timeout;			/* Open TCP connections */
 	int tcp_rst_timeout;			/* TCP flows after RST */

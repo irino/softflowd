@@ -538,6 +538,19 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	if (frag)
 		ft->frag_packets++;
 
+	/* Zero out bits of the flow that aren't relevant to tracking level */
+	switch (ft->track_level) {
+	case TRACK_IP_ONLY:
+		tmp.protocol = 0;
+		/* FALLTHROUGH */
+	case TRACK_IP_PROTO:
+		tmp.port[0] = tmp.port[1] = 0;
+		tmp.tcp_flags[0] = tmp.tcp_flags[1] = 0;
+		/* FALLTHROUGH */
+	case TRACK_FULL:
+		break;
+	}
+
 	/* If a matching flow does not exist, create and insert one */
 	if ((flow = FLOW_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
 		/* Allocate and fill in the flow */
@@ -1363,6 +1376,8 @@ init_flowtrack(struct FLOWTRACK *ft)
 	FLOW_INIT(&ft->flows);
 	EXPIRY_INIT(&ft->expiries);
 	
+	ft->track_level = TRACK_FULL;
+
 	ft->tcp_timeout = DEFAULT_TCP_TIMEOUT;
 	ft->tcp_rst_timeout = DEFAULT_TCP_RST_TIMEOUT;
 	ft->tcp_fin_timeout = DEFAULT_TCP_FIN_TIMEOUT;
@@ -1407,20 +1422,21 @@ usage(void)
 {
 	fprintf(stderr, "Usage: %s [options] [bpf_program]\n", PROGNAME);
 	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
-	fprintf(stderr, "  -i interface    Specify interface to listen on\n");
-	fprintf(stderr, "  -r pcap_file    Specify packet capture file to read\n");
-	fprintf(stderr, "  -t timeout=time Specify named timeout\n");
-	fprintf(stderr, "  -m max_flows    Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
-	fprintf(stderr, "  -n host:port    Send Cisco NetFlow(tm)-compatible packets to host:port\n");
-	fprintf(stderr, "  -p pidfile      Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
-	fprintf(stderr, "  -c pidfile      Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
-	fprintf(stderr, "  -v 1|5|9        NetFlow export packet version\n");
-	fprintf(stderr, "  -L hoplimit     Set TTL/hoplimit for export datagrams\n");
-	fprintf(stderr, "  -6              Track IPv6 flows, regardless of whether selected \n"
-	                "                  NetFlow export protocol supports it\n");
-	fprintf(stderr, "  -d              Don't daemonise\n");
-	fprintf(stderr, "  -D              Debug mode: don't daemonise + verbosity + track v6 flows\n");
-	fprintf(stderr, "  -h              Display this help\n");
+	fprintf(stderr, "  -i interface     Specify interface to listen on\n");
+	fprintf(stderr, "  -r pcap_file     Specify packet capture file to read\n");
+	fprintf(stderr, "  -t timeout=time  Specify named timeout\n");
+	fprintf(stderr, "  -m max_flows     Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
+	fprintf(stderr, "  -n host:port     Send Cisco NetFlow(tm)-compatible packets to host:port\n");
+	fprintf(stderr, "  -p pidfile       Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
+	fprintf(stderr, "  -c pidfile       Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
+	fprintf(stderr, "  -v 1|5|9         NetFlow export packet version\n");
+	fprintf(stderr, "  -L hoplimit      Set TTL/hoplimit for export datagrams\n");
+	fprintf(stderr, "  -T full|proto|ip Set flow tracking level (default: full)\n");
+	fprintf(stderr, "  -6               Track IPv6 flows, regardless of whether selected \n"
+	                "                   NetFlow export protocol supports it\n");
+	fprintf(stderr, "  -d               Don't daemonise\n");
+	fprintf(stderr, "  -D               Debug mode: don't daemonise + verbosity + track v6 flows\n");
+	fprintf(stderr, "  -h               Display this help\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Valid timeout names and default values:\n");
 	fprintf(stderr, "  tcp     (default %6d)", DEFAULT_TCP_TIMEOUT);
@@ -1661,6 +1677,19 @@ main(int argc, char **argv)
 		case 't':
 			/* Will exit on failure */
 			set_timeout(&flowtrack, optarg); 
+			break;
+		case 'T':
+			if (strcasecmp(optarg, "full") == 0)
+				flowtrack.track_level = TRACK_FULL;
+			else if (strcasecmp(optarg, "proto") == 0)
+				flowtrack.track_level = TRACK_IP_PROTO;
+			else if (strcasecmp(optarg, "ip") == 0)
+				flowtrack.track_level = TRACK_IP_ONLY;
+			else {
+				fprintf(stderr, "Unknown flow tracking level\n");
+				usage();
+				exit(1);
+			}
 			break;
 		case 'L':
 			hoplimit = atoi(optarg);
