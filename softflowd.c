@@ -1641,7 +1641,7 @@ main(int argc, char **argv)
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
 	always_v6 = 0;
-	while ((ch = getopt(argc, argv, "6hdDL:i:r:f:t:n:m:p:c:v:")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
