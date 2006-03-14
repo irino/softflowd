@@ -1,5 +1,7 @@
 20060315
  - (djm) Fix DLT_RAW support, from jhanna AT shaw.ca 
+ - (djm) Support ${DESTDIR} in Makefile install target, from
+   ssnodgra AT pheran.com
 
 20060214
  - (djm) Add missing getopt() bit for flowtrack mode
