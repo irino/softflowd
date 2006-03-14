@@ -5,6 +5,7 @@
  - (djm) Encode ICMP type and code into port numbers (apparently this is
    what Cisco exporters do), patch from ssnodgra AT pheran.com slightly
    tweaked by me
+ - (djm) Crank version number to 0.9.8
 
 20060214
  - (djm) Add missing getopt() bit for flowtrack mode
