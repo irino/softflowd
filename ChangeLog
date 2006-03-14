@@ -1,3 +1,6 @@
+20060315
+ - (djm) Fix DLT_RAW support, from jhanna AT shaw.ca 
+
 20060214
  - (djm) Add missing getopt() bit for flowtrack mode
 
