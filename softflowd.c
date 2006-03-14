@@ -285,6 +285,7 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 {
 	const struct tcphdr *tcp = (const struct tcphdr *)pkt;
 	const struct udphdr *udp = (const struct udphdr *)pkt;
+	const struct icmp *icmp = (const struct icmp *)pkt;
 
 	/*
 	 * XXX to keep flow in proper canonical format, it may be necessary
@@ -308,6 +309,15 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 			return (isfrag ? 0 : 1);
 		flow->port[ndx] = udp->uh_sport;
 		flow->port[ndx ^ 1] = udp->uh_dport;
+		break;
+	case IPPROTO_ICMP:
+		/*
+		 * Encode ICMP type * 256 + code into dest port like
+		 * Cisco routers
+		 */
+		flow->port[ndx] = 0;
+		flow->port[ndx ^ 1] = htons(icmp->icmp_type * 256 +
+		    icmp->icmp_code);
 		break;
 	}
 	return (0);
