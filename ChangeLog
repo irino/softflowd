@@ -1,4 +1,8 @@
 20060315
+ - (djm) Add "send-template" softflowctl command to resend a NetFlow 9
+   template record immediately
+
+20060315
  - (djm) Fix DLT_RAW support, from jhanna AT shaw.ca 
  - (djm) Support ${DESTDIR} in Makefile install target, from
    ssnodgra AT pheran.com

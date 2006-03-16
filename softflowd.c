@@ -1157,8 +1157,11 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 	ret = -1;
 	if (strcmp(buf, "help") == 0) {
 		fprintf(ctlf, "Valid control words are:\n");
-		fprintf(ctlf, "\tdebug+ debug- delete-all dump-flows exit expire-all\n");
-		fprintf(ctlf, "\tshutdown start-gather statistics stop-gather timeouts\n");
+		fprintf(ctlf, "\tdebug+ debug- delete-all dump-flows exit "
+		    "expire-all\n");
+		fprintf(ctlf, "\tshutdown start-gather statistics stop-gather "
+		    "timeouts\n");
+		fprintf(ctlf, "\tsend-template\n");
 		ret = 0;
 	} else if (strcmp(buf, "shutdown") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
@@ -1169,8 +1172,14 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 		*exit_request = 1;
 		ret = 1;
 	} else if (strcmp(buf, "expire-all") == 0) {
+		netflow9_resend_template();
 		fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", getpid(), 
 		    check_expired(ft, target, CE_EXPIRE_ALL));
+		ret = 0;
+	} else if (strcmp(buf, "send-template") == 0) {
+		netflow9_resend_template();
+		fprintf(ctlf, "softflowd[%u]: Template will be sent at "
+		    "next flow export\n", getpid());
 		ret = 0;
 	} else if (strcmp(buf, "delete-all") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", getpid(), 

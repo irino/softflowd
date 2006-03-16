@@ -204,4 +204,7 @@ int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
     u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag);
 
+/* Force a resend of the flow template */
+void netflow9_resend_template(void);
+
 #endif /* _SOFTFLOWD_H */

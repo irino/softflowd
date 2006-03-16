@@ -368,3 +368,10 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 	*flows_exported += j;
 	return (num_packets);
 }
+
+void
+netflow9_resend_template(void)
+{
+	if (nf9_pkts_until_template > 0)
+		nf9_pkts_until_template = 0;
+}
