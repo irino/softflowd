@@ -1,4 +1,4 @@
-/*	$OpenBSD: tree.h,v 1.6 2002/06/11 22:09:52 provos Exp $	*/
+/*	$OpenBSD: tree.h,v 1.9 2004/11/24 18:10:42 tdeval Exp $	*/
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * All rights reserved.
@@ -287,7 +287,7 @@ void name##_SPLAY_MINMAX(struct name *head, int __comp) \
 	     (x) != NULL;						\
 	     (x) = SPLAY_NEXT(name, head, x))
 
-/* Macros that define a red-back tree */
+/* Macros that define a red-black tree */
 #define RB_HEAD(name, type)						\
 struct name {								\
 	struct type *rbh_root; /* root of the tree */			\
@@ -343,12 +343,13 @@ struct {								\
 			RB_LEFT(RB_PARENT(elm, field), field) = (tmp);	\
 		else							\
 			RB_RIGHT(RB_PARENT(elm, field), field) = (tmp);	\
-		RB_AUGMENT(RB_PARENT(elm, field));			\
 	} else								\
 		(head)->rbh_root = (tmp);				\
 	RB_LEFT(tmp, field) = (elm);					\
 	RB_PARENT(elm, field) = (tmp);					\
 	RB_AUGMENT(tmp);						\
+	if ((RB_PARENT(tmp, field)))					\
+		RB_AUGMENT(RB_PARENT(tmp, field));			\
 } while (0)
 
 #define RB_ROTATE_RIGHT(head, elm, tmp, field) do {			\
@@ -362,12 +363,13 @@ struct {								\
 			RB_LEFT(RB_PARENT(elm, field), field) = (tmp);	\
 		else							\
 			RB_RIGHT(RB_PARENT(elm, field), field) = (tmp);	\
-		RB_AUGMENT(RB_PARENT(elm, field));			\
 	} else								\
 		(head)->rbh_root = (tmp);				\
 	RB_RIGHT(tmp, field) = (elm);					\
 	RB_PARENT(elm, field) = (tmp);					\
 	RB_AUGMENT(tmp);						\
+	if ((RB_PARENT(tmp, field)))					\
+		RB_AUGMENT(RB_PARENT(tmp, field));			\
 } while (0)
 
 /* Generates prototypes and inline functions */
@@ -377,7 +379,7 @@ void name##_RB_REMOVE_COLOR(struct name *, struct type *, struct type *);\
 struct type *name##_RB_REMOVE(struct name *, struct type *);		\
 struct type *name##_RB_INSERT(struct name *, struct type *);		\
 struct type *name##_RB_FIND(struct name *, struct type *);		\
-struct type *name##_RB_NEXT(struct name *, struct type *);		\
+struct type *name##_RB_NEXT(struct type *);				\
 struct type *name##_RB_MINMAX(struct name *, int);			\
 									\
 
@@ -622,7 +624,7 @@ name##_RB_FIND(struct name *head, struct type *elm)			\
 }									\
 									\
 struct type *								\
-name##_RB_NEXT(struct name *head, struct type *elm)			\
+name##_RB_NEXT(struct type *elm)					\
 {									\
 	if (RB_RIGHT(elm, field)) {					\
 		elm = RB_RIGHT(elm, field);				\
@@ -663,14 +665,13 @@ name##_RB_MINMAX(struct name *head, int val)				\
 #define RB_INSERT(name, x, y)	name##_RB_INSERT(x, y)
 #define RB_REMOVE(name, x, y)	name##_RB_REMOVE(x, y)
 #define RB_FIND(name, x, y)	name##_RB_FIND(x, y)
-#define RB_NEXT(name, x, y)	name##_RB_NEXT(x, y)
+#define RB_NEXT(name, x, y)	name##_RB_NEXT(y)
 #define RB_MIN(name, x)		name##_RB_MINMAX(x, RB_NEGINF)
 #define RB_MAX(name, x)		name##_RB_MINMAX(x, RB_INF)
 
 #define RB_FOREACH(x, name, head)					\
 	for ((x) = RB_MIN(name, head);					\
 	     (x) != NULL;						\
-	     (x) = name##_RB_NEXT(head, x))
+	     (x) = name##_RB_NEXT(x))
 
 #endif	/* _SYS_TREE_H_ */
-
