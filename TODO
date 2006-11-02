@@ -44,12 +44,13 @@ softflowd
   - Remote control over network (requires SSL)
 
  Performance
+  - Profile and see where the hot spots are
+  - Fast "new flow" test using a bloom filter
   - See if we can reduce per-packet overhead more
     - Cost of expiry remove and re-add per packet
   - Stop run-time malloc (maybe)
     - Preallocate a pool of expiry events and flow entries
       - keep a queue, pick/push first from head
-  - Profile and see where the hot spots are
 
  Exporter features
   - sflow support (www.sflow.org)
