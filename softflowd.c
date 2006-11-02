@@ -870,7 +870,7 @@ force_expire(struct FLOWTRACK *ft, u_int32_t num_to_expire)
 	 * alter them 
 	 */
 	 
-	if ((expiryv = malloc(sizeof(*expiryv) * num_to_expire)) == NULL) {
+	if ((expiryv = calloc(num_to_expire, sizeof(*expiryv))) == NULL) {
 		/*
 		 * On malloc failure, expire ALL flows. I assume that 
 		 * setting all the keys in a tree to the same value is 
