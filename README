@@ -46,7 +46,7 @@ files for details). The code in sys-tree.h is Copyright Niels Provos
 comes is Copyright Kevin Steves and comes from OpenSSH (misc.c). Both
 of these files are licensed under two-term BSD licenses too. strlcpy.c,
 strlcat.c and closefrom.c also come from OpenBSD CVS and are Copyright
-Todd C. Miller. Please refer to the licenses in each file for details.
+Todd C. Miller. Please refer to the LICENSE file for full details.
 
 Reporting Bugs
 --------------
