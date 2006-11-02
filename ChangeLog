@@ -1,3 +1,6 @@
+20061101
+ - (djm) Collect licenses into LICENSE file
+
 20060315
  - (djm) Add "send-template" softflowctl command to resend a NetFlow 9
    template record immediately
