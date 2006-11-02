@@ -32,15 +32,16 @@
 .Sh SYNOPSIS
 .Nm softflowd
 .Op Fl 6dDh
+.Op Fl L Ar hoplimit
+.Op Fl T Ar track_level
+.Op Fl c Ar ctl_sock
 .Op Fl i Ar interface
-.Op Fl r Ar pcap_file
-.Op Fl t Ar timeout_name=seconds
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
-.Op Fl c Ar ctl_sock
-.Op Fl L Ar hoplimit
-.Op Fl T Ar track_level
+.Op Fl r Ar pcap_file
+.Op Fl t Ar timeout_name=seconds
+.Op Fl v Ar netflow_version
 .Op bpf_program
 .Sh DESCRIPTION
 .Nm
@@ -215,6 +216,11 @@ This will cause flows to be consolidated, reducing the quantity of output
 and CPU load that
 .Nm
 will place on the system at the cost of some detail.
+.It Fl v Ar netflow_version
+Specifies which version of the NetFlow(tm) protocol
+.Nm
+should use for export of the flow data. Supported versions are 1, 5 and 9.
+Default is version 5.
 .El
 .Pp
 Any further commandline arguments will be concatenated together and 
@@ -334,7 +340,6 @@ if
 was specified on the commandline).
 If you do not want to export flows upon shutdown, clear them first with
 .Xr softflowctl 8 .
-
 .Sh EXAMPLES
 .Bl -tag -width Ds
 .It softflowd -i fxp0
@@ -400,3 +405,4 @@ Damien Miller <djm@mindrot.org>
 .Xr bpf 4
 .Bd -literal
 http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
+.Ed

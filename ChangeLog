@@ -1,3 +1,7 @@
+20061102
+ - (djm) Document -v option and close Ed in manpage; from Nino Jogun
+   nino80 AT gmail.com
+
 20061101
  - (djm) Collect licenses into LICENSE file
  - (djm) malloc(x*y) -> calloc(x, y)
