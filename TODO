@@ -59,6 +59,7 @@ softflowd
     - Partly done, just need to keep a list of targets instead of a single one
   - Ability to directly write to file (maybe. If so, reuse flowd store code)
   - NetFlow v.9 field selection
+  - Get AS numbers from bgpd and fill in to Netflow packets
 
  Statistics code
   - Collect more statistics (maybe)
@@ -89,7 +90,6 @@ softflowd
       - 288 10-minute blocks (2 days) (2304 bytes)
       - 336 1-hour blocks (2 weeks)   (2688 bytes)
         - Total 10kb worst-case per-flow (scary, probably overkill)
-  - Get AS numbers from bgpd and fill in to Netflow packets
 
 softflowctl
 -----------
