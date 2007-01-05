@@ -89,6 +89,7 @@ softflowd
       - 288 10-minute blocks (2 days) (2304 bytes)
       - 336 1-hour blocks (2 weeks)   (2688 bytes)
         - Total 10kb worst-case per-flow (scary, probably overkill)
+  - Get AS numbers from bgpd and fill in to Netflow packets
 
 softflowctl
 -----------
