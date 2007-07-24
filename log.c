@@ -38,7 +38,7 @@ loginit(const char *ident, int to_stderr)
 	if (to_stderr)
 		logstderr = 1;
 	else
-		openlog(PROGNAME, LOG_PID, LOG_DAEMON);
+		openlog(PROGNAME, LOG_PID|LOG_NDELAY, LOG_DAEMON);
 }
 
 void

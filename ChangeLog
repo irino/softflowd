@@ -1,6 +1,8 @@
 20070725
  - (djm) KNF
  - (djm) Correctly exit from mainloop on signal - patch from Florian Weimer
+ - (djm) openlog with LOG_NDELAY so socket is connected before privdrop - 
+   patch from Florian Weimer
 
 20061102
  - (djm) Document -v option and close Ed in manpage; from Nino Jogun
