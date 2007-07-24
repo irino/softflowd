@@ -25,21 +25,22 @@
 /* $Id$ */
 
 /*
- * This is software implementation of Cisco's NetFlow(tm) traffic 
- * reporting system. It operates by listening (via libpcap) on a 
- * promiscuous interface and tracking traffic flows. 
+ * This is software implementation of Cisco's NetFlow(tm) traffic       
+ * reporting system. It operates by listening (via libpcap) on a        
+ * promiscuous interface and tracking traffic flows.                    
  *
- * Traffic flows are recorded by source/destination/protocol IP address or, in the
- * case of TCP and UDP, by src_addr:src_port/dest_addr:dest_port/protocol
+ * Traffic flows are recorded by source/destination/protocol
+ * IP address or, in the case of TCP and UDP, by
+ * src_addr:src_port/dest_addr:dest_port/protocol
  *
- * Flows expire automatically after a period of inactivity (default: 1 hour)
- * They may also be evicted (in order of age) in situations where there are 
- * more flows than slots available.
+ * Flows expire automatically after a period of inactivity (default: 1
+ * hour) They may also be evicted (in order of age) in situations where
+ * there are more flows than slots available.
  *
- * Netflow version 1 compatible packets are sent to a specified target 
- * host upon flow expiry.
+ * Netflow compatible packets are sent to a specified target host upon
+ * flow expiry.
  *
- * As this implementation watches traffic promiscuously, it is likely to 
+ * As this implementation watches traffic promiscuously, it is likely to
  * place significant load on hosts or gateways on which it is installed.
  */
 
@@ -126,7 +127,8 @@ static void sighand_graceful_shutdown(int signum)
 static void sighand_other(int signum)
 {
 	/* XXX: this may not be completely safe */
-	logit(LOG_WARNING, "Exiting immediately on unexpected signal %d", signum);
+	logit(LOG_WARNING, "Exiting immediately on unexpected signal %d",
+	    signum);
 	_exit(0);
 }
 
@@ -288,9 +290,9 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 	const struct icmp *icmp = (const struct icmp *)pkt;
 
 	/*
-	 * XXX to keep flow in proper canonical format, it may be necessary
-	 * to swap the array slots based on the order of the port numbers
-	 * does this matter in practice??? I don't think so - return flows will
+	 * XXX to keep flow in proper canonical format, it may be necessary to
+	 * swap the array slots based on the order of the port numbers does
+	 * this matter in practice??? I don't think so - return flows will
 	 * always match, because of their symmetrical addr/ports
 	 */
 
@@ -589,7 +591,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 
 		ft->num_flows++;
 		if (verbose_flag)
-			logit(LOG_DEBUG, "ADD FLOW %s", format_flow_brief(flow));
+			logit(LOG_DEBUG, "ADD FLOW %s",
+			    format_flow_brief(flow));
 	} else {
 		/* Update flow statistics */
 		flow->packets[0] += tmp.packets[0];
@@ -814,7 +817,8 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 	}
 
 	if (verbose_flag)
-		logit(LOG_DEBUG, "Finished scan %d flow(s) to be evicted", num_expired);
+		logit(LOG_DEBUG, "Finished scan %d flow(s) to be evicted",
+		    num_expired);
 	
 	/* Processing for expired flows */
 	if (num_expired > 0) {
@@ -978,10 +982,12 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 
 		fprintf(out, "\n");
 		fprintf(out, "Expired flow reasons:\n");
-		fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   tcp.fin = %9llu\n", 
-		    ft->expired_tcp, ft->expired_tcp_rst, ft->expired_tcp_fin);
-		fprintf(out, "       udp = %9llu      icmp = %9llu   general = %9llu\n",
-		    ft->expired_udp, ft->expired_icmp, ft->expired_general);
+		fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   "
+		    "tcp.fin = %9llu\n", ft->expired_tcp, ft->expired_tcp_rst,
+		    ft->expired_tcp_fin);
+		fprintf(out, "       udp = %9llu      icmp = %9llu   "
+		    "general = %9llu\n", ft->expired_udp, ft->expired_icmp,
+		    ft->expired_general);
 		fprintf(out, "   maxlife = %9llu\n", ft->expired_maxlife);
 		fprintf(out, "  over 2Gb = %9llu\n", ft->expired_overbytes);
 		fprintf(out, "  maxflows = %9llu\n", ft->expired_maxflows);
@@ -989,15 +995,15 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 
 		fprintf(out, "\n");
 
-		fprintf(out, "Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
+		fprintf(out, "Per-protocol statistics:     Octets      "
+		    "Packets   Avg Life    Max Life\n");
 		for(i = 0; i < 256; i++) {
 			if (ft->packets_pp[i]) {
 				pe = getprotobynumber(i);
 				snprintf(proto, sizeof(proto), "%s (%d)", 
 				    pe != NULL ? pe->p_name : "Unknown", i);
-				fprintf(out, 
-				    "  %17s: %14llu %12llu   %8.2fs %10.2fs\n",
-				    proto,
+				fprintf(out, "  %17s: %14llu %12llu   %8.2fs "
+				    "%10.2fs\n", proto,
 				    ft->octets_pp[i], 
 				    ft->packets_pp[i],
 				    ft->duration_pp[i].mean,
@@ -1164,7 +1170,8 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 		fprintf(ctlf, "\tsend-template\n");
 		ret = 0;
 	} else if (strcmp(buf, "shutdown") == 0) {
-		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", getpid());
+		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", 
+		    getpid());
 		graceful_shutdown_request = 1;
 		ret = 1;
 	} else if (strcmp(buf, "exit") == 0) {
@@ -1439,34 +1446,42 @@ argv_join(int argc, char **argv)
 static void
 usage(void)
 {
-	fprintf(stderr, "Usage: %s [options] [bpf_program]\n", PROGNAME);
-	fprintf(stderr, "This is %s version %s. Valid commandline options:\n", PROGNAME, PROGVER);
-	fprintf(stderr, "  -i interface     Specify interface to listen on\n");
-	fprintf(stderr, "  -r pcap_file     Specify packet capture file to read\n");
-	fprintf(stderr, "  -t timeout=time  Specify named timeout\n");
-	fprintf(stderr, "  -m max_flows     Specify maximum number of flows to track (default %d)\n", DEFAULT_MAX_FLOWS);
-	fprintf(stderr, "  -n host:port     Send Cisco NetFlow(tm)-compatible packets to host:port\n");
-	fprintf(stderr, "  -p pidfile       Record pid in specified file (default: %s)\n", DEFAULT_PIDFILE);
-	fprintf(stderr, "  -c pidfile       Location of control socket (default: %s)\n", DEFAULT_CTLSOCK);
-	fprintf(stderr, "  -v 1|5|9         NetFlow export packet version\n");
-	fprintf(stderr, "  -L hoplimit      Set TTL/hoplimit for export datagrams\n");
-	fprintf(stderr, "  -T full|proto|ip Set flow tracking level (default: full)\n");
-	fprintf(stderr, "  -6               Track IPv6 flows, regardless of whether selected \n"
-	                "                   NetFlow export protocol supports it\n");
-	fprintf(stderr, "  -d               Don't daemonise\n");
-	fprintf(stderr, "  -D               Debug mode: don't daemonise + verbosity + track v6 flows\n");
-	fprintf(stderr, "  -h               Display this help\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "Valid timeout names and default values:\n");
-	fprintf(stderr, "  tcp     (default %6d)", DEFAULT_TCP_TIMEOUT);
-	fprintf(stderr, "  tcp.rst (default %6d)", DEFAULT_TCP_RST_TIMEOUT);
-	fprintf(stderr, "  tcp.fin (default %6d)\n", DEFAULT_TCP_FIN_TIMEOUT);
-	fprintf(stderr, "  udp     (default %6d)", DEFAULT_UDP_TIMEOUT);
-	fprintf(stderr, "  icmp    (default %6d)", DEFAULT_ICMP_TIMEOUT);
-	fprintf(stderr, "  general (default %6d)\n", DEFAULT_GENERAL_TIMEOUT);
-	fprintf(stderr, "  maxlife (default %6d)", DEFAULT_MAXIMUM_LIFETIME);
-	fprintf(stderr, "  expint  (default %6d)\n", DEFAULT_EXPIRY_INTERVAL);
-	fprintf(stderr, "\n");
+	fprintf(stderr, 
+"Usage: %s [options] [bpf_program]\n"
+"This is %s version %s. Valid commandline options:\n"
+"  -i interface     Specify interface to listen on\n"
+"  -r pcap_file     Specify packet capture file to read\n"
+"  -t timeout=time  Specify named timeout\n"
+"  -m max_flows     Specify maximum number of flows to track (default %d)\n"
+"  -n host:port     Send Cisco NetFlow(tm)-compatible packets to host:port\n"
+"  -p pidfile       Record pid in specified file\n"
+"                   (default: %s)\n"
+"  -c pidfile       Location of control socket\n"
+"                   (default: %s)\n"
+"  -v 1|5|9         NetFlow export packet version\n"
+"  -L hoplimit      Set TTL/hoplimit for export datagrams\n"
+"  -T full|proto|ip Set flow tracking level (default: full)\n"
+"  -6               Track IPv6 flows, regardless of whether selected \n"
+"                   NetFlow export protocol supports it\n"
+"  -d               Don't daemonise\n"
+"  -D               Debug mode: don't daemonise + verbosity + track v6 flows\n"
+"  -h               Display this help\n"
+"\n"
+"Valid timeout names and default values:\n"
+"  tcp     (default %6d)"
+"  tcp.rst (default %6d)"
+"  tcp.fin (default %6d)\n"
+"  udp     (default %6d)"
+"  icmp    (default %6d)"
+"  general (default %6d)\n"
+"  maxlife (default %6d)"
+"  expint  (default %6d)\n"
+"\n" ,
+	    PROGNAME, PROGNAME, PROGVER, DEFAULT_MAX_FLOWS, DEFAULT_PIDFILE,
+	    DEFAULT_CTLSOCK, DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
+	    DEFAULT_TCP_FIN_TIMEOUT, DEFAULT_UDP_TIMEOUT, DEFAULT_ICMP_TIMEOUT,
+	    DEFAULT_GENERAL_TIMEOUT, DEFAULT_MAXIMUM_LIFETIME,
+	    DEFAULT_EXPIRY_INTERVAL);
 }
 
 static void
@@ -1660,6 +1675,7 @@ main(int argc, char **argv)
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
 	always_v6 = 0;
+
 	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:")) != -1) {
 		switch (ch) {
 		case '6':
@@ -1677,7 +1693,8 @@ main(int argc, char **argv)
 			break;
 		case 'i':
 			if (capfile != NULL || dev != NULL) {
-				fprintf(stderr, "Packet source already specified.\n\n");
+				fprintf(stderr, "Packet source already "
+				    "specified.\n\n");
 				usage();
 				exit(1);
 			}
@@ -1685,7 +1702,8 @@ main(int argc, char **argv)
 			break;
 		case 'r':
 			if (capfile != NULL || dev != NULL) {
-				fprintf(stderr, "Packet source already specified.\n\n");
+				fprintf(stderr, "Packet source already "
+				    "specified.\n\n");
 				usage();
 				exit(1);
 			}
@@ -1705,7 +1723,8 @@ main(int argc, char **argv)
 			else if (strcasecmp(optarg, "ip") == 0)
 				flowtrack.track_level = TRACK_IP_ONLY;
 			else {
-				fprintf(stderr, "Unknown flow tracking level\n");
+				fprintf(stderr, "Unknown flow tracking "
+				    "level\n");
 				usage();
 				exit(1);
 			}
@@ -1862,13 +1881,15 @@ main(int argc, char **argv)
 		/* If we have data, run it through libpcap */
 		if (!stop_collection_flag && 
 		    (capfile != NULL || pl[0].revents != 0)) {
-			r = pcap_dispatch(pcap, max_flows, flow_cb, (void*)&cb_ctxt);
+			r = pcap_dispatch(pcap, max_flows, flow_cb,
+			    (void*)&cb_ctxt);
 			if (r == -1) {
 				logit(LOG_ERR, "Exiting on pcap_dispatch: %s", 
 				    pcap_geterr(pcap));
 				break;
 			} else if (r == 0) {
-				logit(LOG_NOTICE, "Shutting down after pcap EOF");
+				logit(LOG_NOTICE, "Shutting down after "
+				    "pcap EOF");
 				graceful_shutdown_request = 1;
 				break;
 			}
@@ -1895,7 +1916,8 @@ expiry_check:
 			 * expire flows when the flow table is full. 
 			 */
 			if (check_expired(&flowtrack, &target, 
-			    capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) < 0)
+			    capfile == NULL ? CE_EXPIRE_NORMAL :
+			    CE_EXPIRE_FORCED) < 0)
 				logit(LOG_WARNING, "Unable to export flows");
 	
 			/*
@@ -1903,7 +1925,8 @@ expiry_check:
 			 * out first and immediately reprocess to evict them
 			 */
 			if (flowtrack.num_flows > max_flows) {
-				force_expire(&flowtrack, flowtrack.num_flows - max_flows);
+				force_expire(&flowtrack,
+				    flowtrack.num_flows - max_flows);
 				goto expiry_check;
 			}
 		}
