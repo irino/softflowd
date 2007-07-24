@@ -58,7 +58,7 @@ RCSID("$Id$");
 static int verbose_flag = 0;		/* Debugging flag */
 
 /* Signal handler flags */
-static int graceful_shutdown_request = 0;	
+static volatile sig_atomic_t graceful_shutdown_request = 0;	
 
 /* Context for libpcap callback functions */
 struct CB_CTXT {
@@ -1843,7 +1843,8 @@ main(int argc, char **argv)
 	cb_ctxt.ft = &flowtrack;
 	cb_ctxt.linktype = linktype;
 	cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
-	for(;;) {
+
+	while (graceful_shutdown_request == 0) {
 		/*
 		 * Silly libpcap's timeout function doesn't work, so we
 		 * do it here (only if we are reading live)
