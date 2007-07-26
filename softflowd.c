@@ -196,6 +196,40 @@ expiry_compare(struct EXPIRY *a, struct EXPIRY *b)
 EXPIRY_PROTOTYPE(EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 
+static struct FLOW *
+flow_get(struct FLOWTRACK *ft)
+{
+	struct FLOW *ret;
+
+	/* This will use a pool eventually */
+	ret = calloc(1, sizeof(*ret));
+	return ret;
+}
+
+static void
+flow_put(struct FLOWTRACK *ft, struct FLOW *flow)
+{
+	/* This will return the flow to a pool eventually */
+	free(flow);
+}
+
+static struct EXPIRY *
+expiry_get(struct FLOWTRACK *ft)
+{
+	struct EXPIRY *ret;
+
+	/* This will use a pool eventually */
+	ret = calloc(1, sizeof(*ret));
+	return ret;
+}
+
+static void
+expiry_put(struct FLOWTRACK *ft, struct EXPIRY *expiry)
+{
+	/* This will return the expiry event to a pool eventually */
+	free(expiry);
+}
+
 #if 0
 /* Dump a packet */
 static void
@@ -566,8 +600,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	/* If a matching flow does not exist, create and insert one */
 	if ((flow = FLOW_FIND(FLOWS, &ft->flows, &tmp)) == NULL) {
 		/* Allocate and fill in the flow */
-		if ((flow = malloc(sizeof(*flow))) == NULL) {
-			logit(LOG_ERR, "process_packet: flow malloc(%u) fail",
+		if ((flow = flow_get(ft)) == NULL) {
+			logit(LOG_ERR, "process_packet: flow_get failed",
 			    sizeof(*flow));
 			return (PP_MALLOC_FAIL);
 		}
@@ -578,8 +612,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 		FLOW_INSERT(FLOWS, &ft->flows, flow);
 
 		/* Allocate and fill in the associated expiry event */
-		if ((flow->expiry = malloc(sizeof(*flow->expiry))) == NULL) {
-			logit(LOG_ERR, "process_packet: expiry malloc(%u) fail",
+		if ((flow->expiry = expiry_get(ft)) == NULL) {
+			logit(LOG_ERR, "process_packet: expiry_get failed",
 			    sizeof(*flow->expiry));
 			return (PP_MALLOC_FAIL);
 		}
@@ -810,7 +844,7 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 			FLOW_REMOVE(FLOWS, &ft->flows, expiry->flow);
 			EXPIRY_REMOVE(EXPIRIES, &ft->expiries, expiry);
 			expiry->flow->expiry = NULL;
-			free(expiry);
+			expiry_put(ft, expiry);
 
 			ft->num_flows--;
 		}
@@ -842,8 +876,7 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 				    expired_flows[i]);
 			}
 			update_statistics(ft, expired_flows[i]);
-
-			free(expired_flows[i]);
+			flow_put(ft, expired_flows[i]);
 		}
 	
 		free(expired_flows);
@@ -927,10 +960,10 @@ delete_all_flows(struct FLOWTRACK *ft)
 		FLOW_REMOVE(FLOWS, &ft->flows, flow);
 		
 		EXPIRY_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
-		free(flow->expiry);
+		expiry_put(ft, flow->expiry);
 
 		ft->num_flows--;
-		free(flow);
+		flow_put(ft, flow);
 		i++;
 	}
 	

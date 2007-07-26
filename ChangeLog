@@ -1,3 +1,10 @@
+20070726
+ - (djm) Add flow_get/flow_put and expiry_get/expiry_put functions to 
+   allocate and deallocate flows and expiry events, instead of calling
+   malloc/free directly. Right now these functions just call malloc/free
+   anyway, but they will soon be used to implemented pooled flow/expiry
+   allocations.
+
 20070725
  - (djm) KNF
  - (djm) Correctly exit from mainloop on signal - patch from Florian Weimer
