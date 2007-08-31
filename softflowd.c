@@ -1435,6 +1435,8 @@ init_flowtrack(struct FLOWTRACK *ft)
 	FLOW_INIT(&ft->flows);
 	EXPIRY_INIT(&ft->expiries);
 	
+	ft->max_flows = DEFAULT_MAX_FLOWS;
+
 	ft->track_level = TRACK_FULL;
 
 	ft->tcp_timeout = DEFAULT_TCP_TIMEOUT;
@@ -1682,7 +1684,7 @@ main(int argc, char **argv)
 	extern char *optarg;
 	extern int optind;
 	int ch, dontfork_flag, linktype, ctlsock, i, r, err, always_v6;
-	int max_flows, stop_collection_flag, exit_request, hoplimit;
+	int stop_collection_flag, exit_request, hoplimit;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
 	struct FLOWTRACK flowtrack;
@@ -1703,7 +1705,6 @@ main(int argc, char **argv)
 	bpf_prog = NULL;
 	ctlsock = -1;
 	dev = capfile = NULL;
-	max_flows = DEFAULT_MAX_FLOWS;
 	pidfile_path = DEFAULT_PIDFILE;
 	ctlsock_path = DEFAULT_CTLSOCK;
 	dontfork_flag = 0;
@@ -1771,7 +1772,7 @@ main(int argc, char **argv)
 			}
 			break;
 		case 'm':
-			if ((max_flows = atoi(optarg)) < 0) {
+			if ((flowtrack.max_flows = atoi(optarg)) < 0) {
 				fprintf(stderr, "Invalid maximum flows\n\n");
 				usage();
 				exit(1);
@@ -1915,7 +1916,7 @@ main(int argc, char **argv)
 		/* If we have data, run it through libpcap */
 		if (!stop_collection_flag && 
 		    (capfile != NULL || pl[0].revents != 0)) {
-			r = pcap_dispatch(pcap, max_flows, flow_cb,
+			r = pcap_dispatch(pcap, flowtrack.max_flows, flow_cb,
 			    (void*)&cb_ctxt);
 			if (r == -1) {
 				logit(LOG_ERR, "Exiting on pcap_dispatch: %s", 
@@ -1941,7 +1942,7 @@ main(int argc, char **argv)
 		 * or whenever we have exceeded the maximum number of active 
 		 * flows
 		 */
-		if (flowtrack.num_flows > max_flows || 
+		if (flowtrack.num_flows > flowtrack.max_flows || 
 		    next_expire(&flowtrack) == 0) {
 expiry_check:
 			/*
@@ -1958,9 +1959,9 @@ expiry_check:
 			 * If we are over max_flows, force-expire the oldest 
 			 * out first and immediately reprocess to evict them
 			 */
-			if (flowtrack.num_flows > max_flows) {
+			if (flowtrack.num_flows > flowtrack.max_flows) {
 				force_expire(&flowtrack,
-				    flowtrack.num_flows - max_flows);
+				    flowtrack.num_flows - flowtrack.max_flows);
 				goto expiry_check;
 			}
 		}

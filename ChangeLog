@@ -1,3 +1,6 @@
+200708-31
+ - (djm) Move max_flows into struct FLOWTRACK
+
 20070726
  - (djm) Add flow_get/flow_put and expiry_get/expiry_put functions to 
    allocate and deallocate flows and expiry events, instead of calling

@@ -82,6 +82,7 @@ struct FLOWTRACK {
 	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
 
 	unsigned int num_flows;			/* # of active flows */
+	unsigned int max_flows;			/* Max # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
 
 	/* Stuff related to flow export */
