@@ -1,4 +1,8 @@
-200708-31
+20070901
+ - (djm) Implement a very simple freelist allocator for flows and expiry
+   events
+
+20070831
  - (djm) Move max_flows into struct FLOWTRACK
 
 20070726

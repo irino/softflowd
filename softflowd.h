@@ -27,6 +27,7 @@
 
 #include "common.h"
 #include "sys-tree.h"
+#include "freelist.h"
 #include "treetype.h"
 
 /* User to setuid to and directory to chroot to when we drop privs */
@@ -80,6 +81,9 @@ struct FLOWTRACK {
 	/* The flows and their expiry events */
 	FLOW_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
 	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
+
+	struct freelist flow_freelist;		/* Freelist for flows */
+	struct freelist expiry_freelist;	/* Freelist for expiry events */
 
 	unsigned int num_flows;			/* # of active flows */
 	unsigned int max_flows;			/* Max # of active flows */

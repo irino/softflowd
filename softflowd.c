@@ -49,6 +49,7 @@
 #include "convtime.h"
 #include "softflowd.h"
 #include "treetype.h"
+#include "freelist.h"
 #include "log.h"
 #include <pcap.h>
 
@@ -199,35 +200,25 @@ EXPIRY_GENERATE(EXPIRIES, EXPIRY, trp, expiry_compare);
 static struct FLOW *
 flow_get(struct FLOWTRACK *ft)
 {
-	struct FLOW *ret;
-
-	/* This will use a pool eventually */
-	ret = calloc(1, sizeof(*ret));
-	return ret;
+	return freelist_get(&ft->flow_freelist);
 }
 
 static void
 flow_put(struct FLOWTRACK *ft, struct FLOW *flow)
 {
-	/* This will return the flow to a pool eventually */
-	free(flow);
+	return freelist_put(&ft->flow_freelist, flow);
 }
 
 static struct EXPIRY *
 expiry_get(struct FLOWTRACK *ft)
 {
-	struct EXPIRY *ret;
-
-	/* This will use a pool eventually */
-	ret = calloc(1, sizeof(*ret));
-	return ret;
+	return freelist_get(&ft->expiry_freelist);
 }
 
 static void
 expiry_put(struct FLOWTRACK *ft, struct EXPIRY *expiry)
 {
-	/* This will return the expiry event to a pool eventually */
-	free(expiry);
+	return freelist_put(&ft->expiry_freelist, expiry);
 }
 
 #if 0
@@ -1435,6 +1426,9 @@ init_flowtrack(struct FLOWTRACK *ft)
 	FLOW_INIT(&ft->flows);
 	EXPIRY_INIT(&ft->expiries);
 	
+	freelist_init(&ft->flow_freelist, sizeof(struct FLOW));
+	freelist_init(&ft->expiry_freelist, sizeof(struct EXPIRY));
+
 	ft->max_flows = DEFAULT_MAX_FLOWS;
 
 	ft->track_level = TRACK_FULL;

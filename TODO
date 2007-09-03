@@ -6,6 +6,8 @@ softflowd
  - Use strtonum()
 
  Flow tracking engine
+  - Calculate hash over flow and use it as a key to avoid lots of
+    cache-trashing comparisons
   - Verify checksums (maybe. perhaps bad for accounting, good for flow tracking)
   - Fragment processing
     - We don't handle fragments right
