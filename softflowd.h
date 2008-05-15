@@ -35,8 +35,9 @@
 # define PRIVDROP_USER		"nobody"
 #endif
 
-#define PRIVDROP_CHROOT_DIR	"/var/empty"
-
+#ifndef PRIVDROP_CHROOT_DIR
+# define PRIVDROP_CHROOT_DIR	"/var/empty"
+#endif
 /*
  * Capture length for libpcap: Must fit the link layer header, plus 
  * a maximally sized ip/ipv6 header and most of a TCP header

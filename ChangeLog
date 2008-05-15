@@ -1,3 +1,9 @@
+20080515
+ - (djm) Fix typo in manpage for PID file location; patch from
+    ice AT extreme.hu
+ - (djm) Make privsep directory compile-time configurable; patch from
+    ice AT extreme.hu
+
 20070901
  - (djm) Implement a very simple freelist allocator for flows and expiry
    events
