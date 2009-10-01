@@ -4,6 +4,8 @@
    as the input and output interface of all flows generated. Patch from
    kempf AT rpi.edu
  - (djm) One more manpage tweak from Tamas TEVESZ.
+ - (djm) Display softflowd start time in "softflowctl statistics" display.
+   Suggestion from Tamas TEVESZ.
 
 20080515
  - (djm) Fix typo in manpage for PID file location; patch from

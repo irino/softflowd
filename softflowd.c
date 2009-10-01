@@ -246,9 +246,9 @@ static const char *
 format_time(time_t t)
 {
 	struct tm *tm;
-	static char buf[20];
+	static char buf[32];
 
-	tm = localtime(&t);
+	tm = gmtime(&t);
 	strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", tm);
 
 	return (buf);
@@ -259,7 +259,7 @@ format_time(time_t t)
 static const char *
 format_flow(struct FLOW *flow)
 {
-	char addr1[64], addr2[64], stime[20], ftime[20];
+	char addr1[64], addr2[64], stime[32], ftime[32];
 	static char buf[1024];
 
 	inet_ntop(flow->af, &flow->addr[0], addr1, sizeof(addr1));
@@ -1218,8 +1218,9 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 		    delete_all_flows(ft));
 		ret = 0;
 	} else if (strcmp(buf, "statistics") == 0) {
-		fprintf(ctlf, "softflowd[%u]: Accumulated statistics:\n", 
-		    getpid());
+		fprintf(ctlf, "softflowd[%u]: Accumulated statistics "
+		    "since %s UTC:\n", getpid(),
+		    format_time(ft->system_boot_time.tv_sec));
 		statistics(ft, ctlf, pcap);
 		ret = 0;
 	} else if (strcmp(buf, "debug+") == 0) {
