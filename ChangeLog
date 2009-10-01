@@ -1,5 +1,8 @@
 20091001
  - (djm) Lots of manpage tweaks from Tamas TEVESZ, ice AT extreme.hu
+ - (djm) Support manual specification of an interface index to be used
+   as the input and output interface of all flows generated. Patch from
+   kempf AT rpi.edu
 
 20080515
  - (djm) Fix typo in manpage for PID file location; patch from

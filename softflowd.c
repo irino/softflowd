@@ -57,6 +57,7 @@ RCSID("$Id$");
 
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */
+static u_int16_t if_index = 0;		/* "manual" interface index */
 
 /* Signal handler flags */
 static volatile sig_atomic_t graceful_shutdown_request = 0;	
@@ -97,8 +98,8 @@ static const struct DATALINK lt[] = {
 };
 
 /* Netflow send functions */
-typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int64_t *,
-    struct timeval *, int);
+typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int16_t,
+	u_int64_t *, struct timeval *, int);
 struct NETFLOW_SENDER {
 	int version;
 	netflow_send_func_t *func;
@@ -849,7 +850,7 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 	if (num_expired > 0) {
 		if (target != NULL && target->fd != -1) {
 			r = target->dialect->func(expired_flows, num_expired, 
-			    target->fd, &ft->flows_exported, 
+			    target->fd, if_index, &ft->flows_exported, 
 			    &ft->system_boot_time,  verbose_flag);
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
@@ -1478,23 +1479,23 @@ usage(void)
 	fprintf(stderr, 
 "Usage: %s [options] [bpf_program]\n"
 "This is %s version %s. Valid commandline options:\n"
-"  -i interface     Specify interface to listen on\n"
-"  -r pcap_file     Specify packet capture file to read\n"
-"  -t timeout=time  Specify named timeout\n"
-"  -m max_flows     Specify maximum number of flows to track (default %d)\n"
-"  -n host:port     Send Cisco NetFlow(tm)-compatible packets to host:port\n"
-"  -p pidfile       Record pid in specified file\n"
-"                   (default: %s)\n"
-"  -c pidfile       Location of control socket\n"
-"                   (default: %s)\n"
-"  -v 1|5|9         NetFlow export packet version\n"
-"  -L hoplimit      Set TTL/hoplimit for export datagrams\n"
-"  -T full|proto|ip Set flow tracking level (default: full)\n"
-"  -6               Track IPv6 flows, regardless of whether selected \n"
-"                   NetFlow export protocol supports it\n"
-"  -d               Don't daemonise\n"
-"  -D               Debug mode: don't daemonise + verbosity + track v6 flows\n"
-"  -h               Display this help\n"
+"  -i [idx:]interface Specify interface to listen on\n"
+"  -r pcap_file       Specify packet capture file to read\n"
+"  -t timeout=time    Specify named timeout\n"
+"  -m max_flows       Specify maximum number of flows to track (default %d)\n"
+"  -n host:port       Send Cisco NetFlow(tm)-compatible packets to host:port\n"
+"  -p pidfile         Record pid in specified file\n"
+"                     (default: %s)\n"
+"  -c pidfile         Location of control socket\n"
+"                     (default: %s)\n"
+"  -v 1|5|9           NetFlow export packet version\n"
+"  -L hoplimit        Set TTL/hoplimit for export datagrams\n"
+"  -T full|proto|ip   Set flow tracking level (default: full)\n"
+"  -6                 Track IPv6 flows, regardless of whether selected \n"
+"                     NetFlow export protocol supports it\n"
+"  -d                 Don't daemonise (run in foreground)\n"
+"  -D                 Debug mode: foreground + verbosity + track v6 flows\n"
+"  -h                 Display this help\n"
 "\n"
 "Valid timeout names and default values:\n"
 "  tcp     (default %6d)"
@@ -1726,7 +1727,13 @@ main(int argc, char **argv)
 				usage();
 				exit(1);
 			}
-			dev = optarg;
+			dev = strsep(&optarg, ":");
+			if (optarg != NULL) {
+				if_index = (u_int16_t) atoi(dev);
+				dev = optarg;
+			}
+			if (verbose_flag)
+				fprintf(stderr, "Using %s (idx: %d)\n", dev, if_index);
 			break;
 		case 'r':
 			if (capfile != NULL || dev != NULL) {

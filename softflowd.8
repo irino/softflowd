@@ -35,7 +35,14 @@
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
 .Op Fl c Ar ctl_sock
-.Op Fl i Ar interface
+.Ek
+.Oo Fl i\ \&
+.Sm off
+.Oo Ar if_ndx : Oc
+.Ar interface
+.Sm on
+.Oc
+.Bk words
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
@@ -115,7 +122,12 @@ between the address and the port.
 The destination port may be a portname listed in
 .Xr services 5
 or a numeric port.
-.It Fl i Ar interface
+.It Fl i Xo
+.Sm off
+.Oo Ar if_ndx : Oc
+.Ar interface
+.Sm on
+.Xc
 Specify a network interface on which to listen for traffic.
 Either the
 .Fl i

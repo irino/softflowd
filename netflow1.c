@@ -64,7 +64,7 @@ struct NF1_FLOW {
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
+send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
     u_int64_t *flows_exported, struct timeval *system_boot_time, 
     int verbose_flag)
 {
@@ -103,8 +103,10 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 			hdr->time_nanosec = htonl(now.tv_usec * 1000);
 			offset = sizeof(*hdr);
 		}		
+
 		flw = (struct NF1_FLOW *)(packet + offset);
-		
+		flw->if_index_in = flw->if_index_out = htons(ifidx);
+
 		/* NetFlow v.1 doesn't do IPv6 */
 		if (flows[i]->af != AF_INET)
 			continue;
@@ -127,8 +129,9 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 			j++;
 			hdr->flows++;
 		}
-		flw = (struct NF1_FLOW *)(packet + offset);
 
+		flw = (struct NF1_FLOW *)(packet + offset);
+		flw->if_index_in = flw->if_index_out = htons(ifidx);
 		if (flows[i]->octets[1] > 0) {
 			flw->src_ip = flows[i]->addr[1].v4.s_addr;
 			flw->dest_ip = flows[i]->addr[0].v4.s_addr;

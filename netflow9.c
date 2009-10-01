@@ -64,8 +64,11 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_L4_SRC_PORT			7
 #define NF9_IPV4_SRC_ADDR		8
 /* ... */
+#define NF9_IF_INDEX_IN			10
 #define NF9_L4_DST_PORT			11
 #define NF9_IPV4_DST_ADDR		12
+/* ... */
+#define NF9_IF_INDEX_OUT		14
 /* ... */
 #define NF9_LAST_SWITCHED		21
 #define NF9_FIRST_SWITCHED		22
@@ -86,6 +89,7 @@ struct NF9_SOFTFLOWD_TEMPLATE {
 struct NF9_SOFTFLOWD_DATA_COMMON {
 	u_int32_t first_switched, last_switched;
 	u_int32_t bytes, packets;
+	u_int32_t if_index_in, if_index_out;
 	u_int16_t src_port, dst_port;
 	u_int8_t protocol, tcp_flags, ipproto;
 } __packed;
@@ -131,16 +135,20 @@ nf9_init_template(void)
 	v4_template.r[4].length = htons(4);
 	v4_template.r[5].type = htons(NF9_IN_PACKETS);
 	v4_template.r[5].length = htons(4);
-	v4_template.r[6].type = htons(NF9_L4_SRC_PORT);
-	v4_template.r[6].length = htons(2);
-	v4_template.r[7].type = htons(NF9_L4_DST_PORT);
-	v4_template.r[7].length = htons(2);
-	v4_template.r[8].type = htons(NF9_IN_PROTOCOL);
-	v4_template.r[8].length = htons(1);
-	v4_template.r[9].type = htons(NF9_TCP_FLAGS);
-	v4_template.r[9].length = htons(1);
-	v4_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v4_template.r[6].type = htons(NF9_IF_INDEX_IN);
+	v4_template.r[6].length = htons(4);
+	v4_template.r[7].type = htons(NF9_IF_INDEX_OUT);
+	v4_template.r[7].length = htons(4);
+	v4_template.r[8].type = htons(NF9_L4_SRC_PORT);
+	v4_template.r[8].length = htons(2);
+	v4_template.r[9].type = htons(NF9_L4_DST_PORT);
+	v4_template.r[9].length = htons(2);
+	v4_template.r[10].type = htons(NF9_IN_PROTOCOL);
 	v4_template.r[10].length = htons(1);
+	v4_template.r[11].type = htons(NF9_TCP_FLAGS);
+	v4_template.r[11].length = htons(1);
+	v4_template.r[12].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v4_template.r[12].length = htons(1);
 
 	bzero(&v6_template, sizeof(v6_template));
 	v6_template.h.c.flowset_id = htons(0);
@@ -159,21 +167,25 @@ nf9_init_template(void)
 	v6_template.r[4].length = htons(4);
 	v6_template.r[5].type = htons(NF9_IN_PACKETS);
 	v6_template.r[5].length = htons(4);
-	v6_template.r[6].type = htons(NF9_L4_SRC_PORT);
-	v6_template.r[6].length = htons(2);
-	v6_template.r[7].type = htons(NF9_L4_DST_PORT);
-	v6_template.r[7].length = htons(2);
-	v6_template.r[8].type = htons(NF9_IN_PROTOCOL);
-	v6_template.r[8].length = htons(1);
-	v6_template.r[9].type = htons(NF9_TCP_FLAGS);
-	v6_template.r[9].length = htons(1);
-	v6_template.r[10].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v4_template.r[6].type = htons(NF9_IF_INDEX_IN);
+	v4_template.r[6].length = htons(4);
+	v4_template.r[7].type = htons(NF9_IF_INDEX_OUT);
+	v4_template.r[7].length = htons(4);
+	v6_template.r[8].type = htons(NF9_L4_SRC_PORT);
+	v6_template.r[8].length = htons(2);
+	v6_template.r[9].type = htons(NF9_L4_DST_PORT);
+	v6_template.r[9].length = htons(2);
+	v6_template.r[10].type = htons(NF9_IN_PROTOCOL);
 	v6_template.r[10].length = htons(1);
+	v6_template.r[11].type = htons(NF9_TCP_FLAGS);
+	v6_template.r[11].length = htons(1);
+	v6_template.r[12].type = htons(NF9_IP_PROTOCOL_VERSION);
+	v6_template.r[12].length = htons(1);
 }
 
 static int
 nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
-    const struct timeval *system_boot_time, u_int *len_used)
+    u_int16_t ifidx, const struct timeval *system_boot_time, u_int *len_used)
 {
 	union {
 		struct NF9_SOFTFLOWD_DATA_V4 d4;
@@ -217,6 +229,8 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[1]->bytes = htonl(flow->octets[1]);
 	dc[0]->packets = htonl(flow->packets[0]);
 	dc[1]->packets = htonl(flow->packets[1]);
+	dc[0]->if_index_in = dc[0]->if_index_out = htonl(ifidx);
+	dc[1]->if_index_in = dc[1]->if_index_out = htonl(ifidx);
 	dc[0]->src_port = dc[1]->dst_port = flow->port[0];
 	dc[1]->src_port = dc[0]->dst_port = flow->port[1];
 	dc[0]->protocol = dc[1]->protocol = flow->protocol;
@@ -247,7 +261,7 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
+send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
     u_int64_t *flows_exported, struct timeval *system_boot_time,
     int verbose_flag)
 {
@@ -321,7 +335,7 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 			}
 
 			r = nf_flow_to_flowset(flows[i + j], packet + offset,
-			    sizeof(packet) - offset, system_boot_time, &inc);
+			    sizeof(packet) - offset, ifidx, system_boot_time, &inc);
 			if (r <= 0) {
 				/* yank off data header, if we had to go back */
 				if (last_valid)
