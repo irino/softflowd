@@ -36,17 +36,17 @@
 .Sh DESCRIPTION
 .Nm
 is a remote control program used to control a running
-.Xr softflowd 8 
+.Xr softflowd 8
 daemon.
 .Pp
-The command-line options are as follows:
+The command line options are as follows:
 .Bl -tag -width Ds
 .It Fl c Ar ctlsock
 Specify an alternate location for the remote control socket.
-Default is 
+Default is
 .Pa /var/run/softflowd.ctl
 .It Fl h
-Displays commandline usage information.
+Display command line usage information.
 .El
 .Pp
 .Sh COMMANDS
@@ -54,25 +54,27 @@ Displays commandline usage information.
 .It Pa shutdown
 Ask
 .Xr softflowd 8
-to gracefully exit. This is equivalent to sending it a 
-.Dv SIGTERM 
-or 
+to gracefully exit.
+This is equivalent to sending it a
+.Dv SIGTERM
+or
 .Dv SIGINT .
 .It Pa exit
 Ask
 .Xr softflowd 8
-to immediately exit. No flow expiry processing or data export is performed.
+to immediately exit.
+No flow expiry processing or data export is performed.
 .It Pa expire-all
 Immediately expire all tracked flows.
 .It Pa delete-all
-Immediately delete all tracked flows. No flow expiry processing or data 
-export is performed.
+Immediately delete all tracked flows.
+No flow expiry processing or data export is performed.
 .It Pa statistics
-Return statistics collected by 
+Return statistics collected by
 .Xr softflowd 8
 on expired flows.
 .It Pa debug+
-Increase the debugging level of 
+Increase the debugging level of
 .Xr softflowd 8
 .It Pa debug-
 Decrease the debugging level.
@@ -90,6 +92,6 @@ Resend a NetFlow v.9 template record before the next flow export.
 Has no effect for other flow export versions.
 .El
 .Sh AUTHORS
-Damien Miller <djm@mindrot.org>
+.An Damien Miller Aq djm@mindrot.org
 .Sh SEE ALSO
 .Xr softflowd 8

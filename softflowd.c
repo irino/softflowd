@@ -454,7 +454,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
 {
 	EXPIRY_REMOVE(EXPIRIES, &ft->expiries, flow->expiry);
 
-	/* Flows over 2Gb traffic */
+	/* Flows over 2 GiB traffic */
 	if (flow->octets[0] > (1U << 31) || flow->octets[1] > (1U << 31)) {
 		flow->expiry->expires_at = 0;
 		flow->expiry->reason = R_OVERBYTES;
@@ -1013,7 +1013,7 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 		    "general = %9llu\n", ft->expired_udp, ft->expired_icmp,
 		    ft->expired_general);
 		fprintf(out, "   maxlife = %9llu\n", ft->expired_maxlife);
-		fprintf(out, "  over 2Gb = %9llu\n", ft->expired_overbytes);
+		fprintf(out, "over 2 GiB = %9llu\n", ft->expired_overbytes);
 		fprintf(out, "  maxflows = %9llu\n", ft->expired_maxflows);
 		fprintf(out, "   flushed = %9llu\n", ft->expired_flush);
 
