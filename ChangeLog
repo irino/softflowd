@@ -1,3 +1,8 @@
+20100504
+ - (djm) Swap nf9 last/first switched. They were reversed in the struct
+   vs our template flowset. Patch from stephen AT sfnelson.org.
+   https://bugzilla.mindrot.org/show_bug.cgi?id=1760
+
 20091001
  - (djm) Lots of manpage tweaks from Tamas TEVESZ, ice AT extreme.hu
  - (djm) Support manual specification of an interface index to be used

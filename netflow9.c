@@ -87,7 +87,7 @@ struct NF9_SOFTFLOWD_TEMPLATE {
 
 /* softflowd data flowset types */
 struct NF9_SOFTFLOWD_DATA_COMMON {
-	u_int32_t first_switched, last_switched;
+	u_int32_t last_switched, first_switched;
 	u_int32_t bytes, packets;
 	u_int32_t if_index_in, if_index_out;
 	u_int16_t src_port, dst_port;
