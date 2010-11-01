@@ -1679,7 +1679,7 @@ main(int argc, char **argv)
 	const char *pidfile_path, *ctlsock_path;
 	extern char *optarg;
 	extern int optind;
-	int ch, dontfork_flag, linktype, ctlsock, i, r, err, always_v6;
+	int ch, dontfork_flag, linktype, ctlsock, i, err, always_v6, r;
 	int stop_collection_flag, exit_request, hoplimit;
 	pcap_t *pcap = NULL;
 	struct sockaddr_storage dest;
@@ -1694,6 +1694,7 @@ main(int argc, char **argv)
 	init_flowtrack(&flowtrack);
 
 	memset(&dest, '\0', sizeof(dest));
+	dest_len = 0;
 	memset(&target, '\0', sizeof(target));
 	target.fd = -1;
 	target.dialect = &nf[0];
@@ -1880,12 +1881,11 @@ main(int argc, char **argv)
 	cb_ctxt.linktype = linktype;
 	cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
 
-	while (graceful_shutdown_request == 0) {
+	for (r = 0; graceful_shutdown_request == 0; r = 0) {
 		/*
 		 * Silly libpcap's timeout function doesn't work, so we
 		 * do it here (only if we are reading live)
 		 */
-		r = 0;
 		if (capfile == NULL) {
 			memset(pl, '\0', sizeof(pl));
 
