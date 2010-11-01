@@ -62,6 +62,9 @@ Softflowd has an extensive TODO list of interesting features, large and
 small, that are waiting to be implemented. If you are interested in
 helping, please contact me.
 
+The latest source code may be obtained from Google Code:
+http://code.google.com/p/softflowd/
+
 Damien Miller <djm@mindrot.org>
 
 $Id$
