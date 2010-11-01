@@ -26,7 +26,7 @@ WFLAGS="-Wall -Waggregate-return -Wcast-align -Wcast-qual"
 WFLAGS="$WFLAGS -Wmissing-declarations -Wmissing-prototypes"
 WFLAGS="$WFLAGS -Wno-conversion -Wpointer-arith -Wshadow"
 WFLAGS="$WFLAGS -Wuninitialized -Wcast-align -Wcast-qual"
-WFLAGS="$WFLAGS -WformatC=2 -Wformat-nonliteral -Wwrite-strings" 
+WFLAGS="$WFLAGS -Wformat=2 -Wformat-nonliteral -Wwrite-strings" 
 
 # Process flag arguments early, so they are available for tests later
 AC_ARG_ENABLE(gcc-warnings,
