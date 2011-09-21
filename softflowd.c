@@ -1924,7 +1924,7 @@ main(int argc, char **argv)
 				logit(LOG_ERR, "Exiting on pcap_dispatch: %s", 
 				    pcap_geterr(pcap));
 				break;
-			} else if (r == 0) {
+			} else if (r == 0 && capfile != NULL) {
 				logit(LOG_NOTICE, "Shutting down after "
 				    "pcap EOF");
 				graceful_shutdown_request = 1;
