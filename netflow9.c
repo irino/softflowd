@@ -79,7 +79,7 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_IP_PROTOCOL_VERSION		60
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	11
+#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	13
 struct NF9_SOFTFLOWD_TEMPLATE {
 	struct NF9_TEMPLATE_FLOWSET_HEADER h;
 	struct NF9_TEMPLATE_FLOWSET_RECORD r[NF9_SOFTFLOWD_TEMPLATE_NRECORDS];
@@ -167,10 +167,10 @@ nf9_init_template(void)
 	v6_template.r[4].length = htons(4);
 	v6_template.r[5].type = htons(NF9_IN_PACKETS);
 	v6_template.r[5].length = htons(4);
-	v4_template.r[6].type = htons(NF9_IF_INDEX_IN);
-	v4_template.r[6].length = htons(4);
-	v4_template.r[7].type = htons(NF9_IF_INDEX_OUT);
-	v4_template.r[7].length = htons(4);
+	v6_template.r[6].type = htons(NF9_IF_INDEX_IN);
+	v6_template.r[6].length = htons(4);
+	v6_template.r[7].type = htons(NF9_IF_INDEX_OUT);
+	v6_template.r[7].length = htons(4);
 	v6_template.r[8].type = htons(NF9_L4_SRC_PORT);
 	v6_template.r[8].length = htons(2);
 	v6_template.r[9].type = htons(NF9_L4_DST_PORT);
