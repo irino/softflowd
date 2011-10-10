@@ -270,7 +270,7 @@ format_flow(struct FLOW *flow)
 	snprintf(ftime, sizeof(ftime), "%s", 
 	    format_time(flow->flow_last.tv_sec));
 
-	snprintf(buf, sizeof(buf),  "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u "
+	snprintf(buf, sizeof(buf),  "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u "
 	    "octets>:%u packets>:%u octets<:%u packets<:%u "
 	    "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
 	    "flowlabel>:%08x flowlabel<:%08x ",
@@ -298,7 +298,7 @@ format_flow_brief(struct FLOW *flow)
 	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
 	snprintf(buf, sizeof(buf), 
-	    "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u",
+	    "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u",
 	    flow->flow_seq,
 	    addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
 	    (int)flow->protocol);
@@ -811,7 +811,7 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 
 			if (verbose_flag)
 				logit(LOG_DEBUG,
-				    "Queuing flow seq:%llu (%p) for expiry "
+				    "Queuing flow seq:%"PRIu64" (%p) for expiry "
 				    "reason %d", expiry->flow->flow_seq,
 				    expiry->flow, expiry->reason);
 
@@ -976,16 +976,16 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 	struct pcap_stat ps;
 
 	fprintf(out, "Number of active flows: %d\n", ft->num_flows);
-	fprintf(out, "Packets processed: %llu\n", ft->total_packets);
+	fprintf(out, "Packets processed: %"PRIu64"\n", ft->total_packets);
 	if (ft->non_sampled_packets) 
-		fprintf(out, "Packets non-sampled: %llu\n",
+		fprintf(out, "Packets non-sampled: %"PRIu64"\n",
 			ft->non_sampled_packets);
-	fprintf(out, "Fragments: %llu\n", ft->frag_packets);
-	fprintf(out, "Ignored packets: %llu (%llu non-IP, %llu too short)\n",
+	fprintf(out, "Fragments: %"PRIu64"\n", ft->frag_packets);
+	fprintf(out, "Ignored packets: %"PRIu64" (%"PRIu64" non-IP, %"PRIu64" too short)\n",
 	    ft->non_ip_packets + ft->bad_packets, ft->non_ip_packets, ft->bad_packets);
-	fprintf(out, "Flows expired: %llu (%llu forced)\n", 
+	fprintf(out, "Flows expired: %"PRIu64" (%"PRIu64" forced)\n", 
 	    ft->flows_expired, ft->flows_force_expired);
-	fprintf(out, "Flows exported: %llu in %llu packets (%llu failures)\n",
+	fprintf(out, "Flows exported: %"PRIu64" in %"PRIu64" packets (%"PRIu64" failures)\n",
 	    ft->flows_exported, ft->packets_sent, ft->flows_dropped);
 
 	if (pcap_stats(pcap, &ps) == 0) {
@@ -1010,16 +1010,16 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 
 		fprintf(out, "\n");
 		fprintf(out, "Expired flow reasons:\n");
-		fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   "
-		    "tcp.fin = %9llu\n", ft->expired_tcp, ft->expired_tcp_rst,
+		fprintf(out, "       tcp = %9"PRIu64"   tcp.rst = %9"PRIu64"   "
+		    "tcp.fin = %9"PRIu64"\n", ft->expired_tcp, ft->expired_tcp_rst,
 		    ft->expired_tcp_fin);
-		fprintf(out, "       udp = %9llu      icmp = %9llu   "
-		    "general = %9llu\n", ft->expired_udp, ft->expired_icmp,
+		fprintf(out, "       udp = %9"PRIu64"      icmp = %9"PRIu64"   "
+		    "general = %9"PRIu64"\n", ft->expired_udp, ft->expired_icmp,
 		    ft->expired_general);
-		fprintf(out, "   maxlife = %9llu\n", ft->expired_maxlife);
-		fprintf(out, "over 2 GiB = %9llu\n", ft->expired_overbytes);
-		fprintf(out, "  maxflows = %9llu\n", ft->expired_maxflows);
-		fprintf(out, "   flushed = %9llu\n", ft->expired_flush);
+		fprintf(out, "   maxlife = %9"PRIu64"\n", ft->expired_maxlife);
+		fprintf(out, "over 2 GiB = %9"PRIu64"\n", ft->expired_overbytes);
+		fprintf(out, "  maxflows = %9"PRIu64"\n", ft->expired_maxflows);
+		fprintf(out, "   flushed = %9"PRIu64"\n", ft->expired_flush);
 
 		fprintf(out, "\n");
 
@@ -1030,7 +1030,7 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 				pe = getprotobynumber(i);
 				snprintf(proto, sizeof(proto), "%s (%d)", 
 				    pe != NULL ? pe->p_name : "Unknown", i);
-				fprintf(out, "  %17s: %14llu %12llu   %8.2fs "
+				fprintf(out, "  %17s: %14"PRIu64" %12"PRIu64"   %8.2fs "
 				    "%10.2fs\n", proto,
 				    ft->octets_pp[i], 
 				    ft->packets_pp[i],
@@ -1055,12 +1055,12 @@ dump_flows(struct FLOWTRACK *ft, FILE *out)
 		fprintf(out, "ACTIVE %s\n", format_flow(expiry->flow));
 		if ((long int) expiry->expires_at - now < 0) {
 			fprintf(out, 
-			    "EXPIRY EVENT for flow %llu now%s\n",
+			    "EXPIRY EVENT for flow %"PRIu64" now%s\n",
 			    expiry->flow->flow_seq, 
 			    expiry->expires_at == 0 ? " (FORCED)": "");
 		} else {
 			fprintf(out, 
-			    "EXPIRY EVENT for flow %llu in %ld seconds\n",
+			    "EXPIRY EVENT for flow %"PRIu64" in %ld seconds\n",
 			    expiry->flow->flow_seq, 
 			    (long int) expiry->expires_at - now);
 		}
@@ -1864,7 +1864,7 @@ main(int argc, char **argv)
 	} else {	
 		FILE *pidfile;
 
-		daemon(0, 0);
+		r = daemon(0, 0);
 		loginit(PROGNAME, 0);
 
 		if ((pidfile = fopen(pidfile_path, "w")) == NULL) {
