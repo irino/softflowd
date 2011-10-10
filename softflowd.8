@@ -49,6 +49,7 @@
 .Op Fl r Ar pcap_file
 .Op Fl t Ar timeout_name=seconds
 .Op Fl v Ar netflow_version
+.Op Fl s Ar sampling_rate
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -234,6 +235,8 @@ Specify which version of the NetFlow(tm) protocol
 should use for export of the flow data.
 Supported versions are 1, 5 and 9.
 Default is version 5.
+.It Fl s Ar sampling_rate
+Specify periodical sampling rate (denominator).
 .El
 .Pp
 Any further command-line arguments will be concatenated together and
