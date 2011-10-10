@@ -99,7 +99,7 @@ static const struct DATALINK lt[] = {
 
 /* Netflow send functions */
 typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int16_t,
-	u_int64_t *, struct timeval *, int);
+	u_int64_t *, struct timeval *, int, struct OPTION *);
 struct NETFLOW_SENDER {
 	int version;
 	netflow_send_func_t *func;
@@ -851,7 +851,7 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 		if (target != NULL && target->fd != -1) {
 			r = target->dialect->func(expired_flows, num_expired, 
 			    target->fd, if_index, &ft->flows_exported, 
-			    &ft->system_boot_time,  verbose_flag);
+			    &ft->system_boot_time,  verbose_flag, &ft->option);
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
@@ -977,6 +977,9 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 
 	fprintf(out, "Number of active flows: %d\n", ft->num_flows);
 	fprintf(out, "Packets processed: %llu\n", ft->total_packets);
+	if (ft->non_sampled_packets) 
+		fprintf(out, "Packets non-sampled: %llu\n",
+			ft->non_sampled_packets);
 	fprintf(out, "Fragments: %llu\n", ft->frag_packets);
 	fprintf(out, "Ignored packets: %llu (%llu non-IP, %llu too short)\n",
 	    ft->non_ip_packets + ft->bad_packets, ft->non_ip_packets, ft->bad_packets);
@@ -1128,6 +1131,13 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	struct CB_CTXT *cb_ctxt = (struct CB_CTXT *)user_data;
 	struct timeval tv;
 
+	if (cb_ctxt->ft->option.sample &&
+	    (cb_ctxt->ft->total_packets +
+	     cb_ctxt->ft->non_sampled_packets) %
+	    cb_ctxt->ft->option.sample > 0) {
+		cb_ctxt->ft->non_sampled_packets++;
+		return;
+	}
 	s = datalink_check(cb_ctxt->linktype, pkt, phdr->caplen, &af);
 	if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
 		cb_ctxt->ft->non_ip_packets++;
@@ -1496,6 +1506,7 @@ usage(void)
 "                     NetFlow export protocol supports it\n"
 "  -d                 Don't daemonise (run in foreground)\n"
 "  -D                 Debug mode: foreground + verbosity + track v6 flows\n"
+"  -s sampling_rate   Specify periodical sampling rate (denominator)\n"
 "  -h                 Display this help\n"
 "\n"
 "Valid timeout names and default values:\n"
@@ -1707,7 +1718,7 @@ main(int argc, char **argv)
 	dontfork_flag = 0;
 	always_v6 = 0;
 
-	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
@@ -1806,6 +1817,12 @@ main(int argc, char **argv)
 				exit(1);
 			}
 			target.dialect = &nf[i];
+			break;
+		case 's':
+			flowtrack.option.sample = atoi(optarg);
+			if (flowtrack.option.sample < 2) {
+				flowtrack.option.sample = 0;
+			}
 			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");

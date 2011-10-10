@@ -74,6 +74,13 @@ struct STATISTIC {
 #define TRACK_IP_ONLY		3	/* src/dst tuple */
 
 /*
+ * This structure contains optional information carried by Option Data
+ * Record.
+ */
+struct OPTION {
+	uint32_t sample;
+};
+/*
  * This structure is the root of the flow tracking system.
  * It holds the root of the tree of active flows and the head of the
  * tree of expiry events. It also collects miscellaneous statistics
@@ -106,6 +113,7 @@ struct FLOWTRACK {
 
 	/* Statistics */
 	u_int64_t total_packets;		/* # of good packets */
+	u_int64_t non_sampled_packets;		/* # of not sampled packets */
 	u_int64_t frag_packets;			/* # of fragmented packets */
 	u_int64_t non_ip_packets;		/* # of not-IP packets */
 	u_int64_t bad_packets;			/* # of bad packets */
@@ -135,6 +143,9 @@ struct FLOWTRACK {
 	u_int64_t expired_overbytes;
 	u_int64_t expired_maxflows;
 	u_int64_t expired_flush;
+
+	/* Optional information */
+	struct OPTION option;
 };
 
 /*
@@ -202,13 +213,13 @@ u_int32_t timeval_sub_ms(const struct timeval *t1, const struct timeval *t2);
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
     u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time, 
-    int verbose_flag);
+    int verbose_flag, struct OPTION *option);
 int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
     u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag);
+    int verbose_flag, struct OPTION *option);
 int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
     u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag);
+    int verbose_flag, struct OPTION *option);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);

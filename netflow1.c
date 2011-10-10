@@ -66,7 +66,7 @@ struct NF1_FLOW {
 int
 send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
     u_int64_t *flows_exported, struct timeval *system_boot_time, 
-    int verbose_flag)
+    int verbose_flag, struct OPTION *option)
 {
 	struct timeval now;
 	u_int32_t uptime_ms;

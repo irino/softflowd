@@ -39,7 +39,8 @@ RCSID("$Id$");
 struct NF5_HEADER {
 	u_int16_t version, flows;
 	u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
-	u_int8_t engine_type, engine_id, reserved1, reserved2;
+	u_int8_t engine_type, engine_id;
+	u_int16_t sampling_interval;
 };
 struct NF5_FLOW {
 	u_int32_t src_ip, dest_ip, nexthop_ip;
@@ -64,7 +65,7 @@ struct NF5_FLOW {
 int
 send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
     u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag)
+    int verbose_flag, struct OPTION *option)
 {
 	struct timeval now;
 	u_int32_t uptime_ms;
@@ -100,6 +101,10 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 			hdr->time_sec = htonl(now.tv_sec);
 			hdr->time_nanosec = htonl(now.tv_usec * 1000);
 			hdr->flow_sequence = htonl(*flows_exported);
+			if (option->sample > 0) {
+				hdr->sampling_interval =
+					htons(0x01 << 14 | option->sample & 0x3FFF);
+			}
 			/* Other fields are left zero */
 			offset = sizeof(*hdr);
 		}		
