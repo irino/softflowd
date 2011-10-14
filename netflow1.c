@@ -34,7 +34,7 @@ RCSID("$Id$");
 /*
  * This is the Cisco Netflow(tm) version 1 packet format
  * Based on:
- * http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
+ * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
 struct NF1_HEADER {
 	u_int16_t version, flows;

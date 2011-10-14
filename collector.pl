@@ -3,7 +3,7 @@
 # This is a Cisco NetFlow datagram collector
 
 # Netflow protocol reference:
-# http://www.cisco.com/univercd/cc/td/doc/product/rtrmgmt/nfc/nfc_3_0/nfc_ug/nfcform.htm
+# http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
 
 # XXX Doesn't support NetFlow 9
 
