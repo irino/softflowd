@@ -35,14 +35,14 @@
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
 .Op Fl c Ar ctl_sock
-.Ek
+.Bk -words
 .Oo Fl i\ \&
 .Sm off
 .Oo Ar if_ndx : Oc
 .Ar interface
 .Sm on
 .Oc
-.Bk words
+.Ek
 .Op Fl m Ar max_flows
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
@@ -162,7 +162,7 @@ Specify an alternate location for the remote control socket in daemon mode.
 Default is
 .Pa /var/run/softflowd.ctl
 .It Fl m Ar max_flows
-Specify the maximum number of flow to concurrently track.
+Specify the maximum number of flows to concurrently track.
 If this limit is exceeded, the flows which have least recently seen traffic
 are forcibly expired.
 In practice, the actual maximum may briefly exceed this limit by a
@@ -174,7 +174,7 @@ than 800k of working data.
 Set the timeout names
 .Ar timeout_name
 to
-.Ar time
+.Ar time .
 Refer to the
 .Sx Timeouts
 section for the valid timeout names and their meanings.
@@ -190,7 +190,7 @@ should not fork and daemonise itself.
 .It Fl 6
 Force
 .Nm
-To track IPv6 flows even if the NetFlow export protocol does not support
+to track IPv6 flows even if the NetFlow export protocol does not support
 reporting them.
 This is useful for debugging and statistics gathering only.
 .It Fl D
@@ -339,11 +339,10 @@ instance may be controlled using the
 command.
 This interface allows one to shut down the daemon, force expiry of
 all tracked flows and extract debugging and summary data.
-Also, upon receipt of a
+Also, receipt of a
 .Dv SIGTERM
 or
-.DV SIGINT
-.Nm
+.Dv SIGINT
 will cause
 .Nm
 to exit, after expiring all flows (and thus sending flow export packets
