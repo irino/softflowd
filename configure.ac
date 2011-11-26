@@ -49,6 +49,10 @@ AC_ARG_WITH(libs,
 	[  --with-libs             Specify additional libraries to link with],
 	[ if test "x$withval" != "xno" ; then LIBS="$LIBS $withval"; fi ]	
 )
+AC_ARG_WITH(chrootdir,
+	[  --with-chrootdir        Specify chroot directory],
+	[ AC_DEFINE_UNQUOTED([PRIVDROP_CHROOT_DIR], ["${withval}"], [privdrop chroot directory]) ]	
+)
 
 AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h)
 
