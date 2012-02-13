@@ -22,14 +22,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $Id$ */
-
 #include "common.h"
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
-
-RCSID("$Id$");
 
 /*
  * This is the Cisco Netflow(tm) version 1 packet format

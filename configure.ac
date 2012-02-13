@@ -1,5 +1,3 @@
-# $Id$
-#
 # Copyright (c) 2004 Damien Miller
 #
 # Permission to use, copy, modify, and distribute this software for any

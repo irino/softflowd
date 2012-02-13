@@ -22,13 +22,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $Id$ */
-
 #include "common.h"
 #include "log.h"
 #include <stdarg.h>
-
-RCSID("$Id$");
 
 static int logstderr = 0;
 

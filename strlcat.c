@@ -21,8 +21,6 @@
 #include "common.h"
 #ifndef HAVE_STRLCAT
 
-RCSID("$Id$");
-
 #if defined(LIBC_SCCS) && !defined(lint)
 static char *rcsid = "$OpenBSD: strlcat.c,v 1.11 2003/06/17 21:56:24 millert Exp $";
 #endif /* LIBC_SCCS and not lint */

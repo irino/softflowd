@@ -24,8 +24,6 @@
 
 #include "common.h"
 
-RCSID("$Id$");
-
 static void
 usage(void)
 {

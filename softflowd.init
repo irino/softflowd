@@ -1,7 +1,6 @@
 #!/bin/bash
 #
 # softflowd	Starts softflowd NetFlow probe
-# $Id$
 #
 # chkconfig: 2345 95 02
 # description: Starts and stops the softflowd Netflow probe

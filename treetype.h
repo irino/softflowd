@@ -22,8 +22,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $Id$ */
-
 /* Select our tree types for various data structures */
 
 #if defined(FLOW_RB)

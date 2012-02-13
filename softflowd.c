@@ -22,8 +22,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* $Id$ */
-
 /*
  * This is software implementation of Cisco's NetFlow(tm) traffic       
  * reporting system. It operates by listening (via libpcap) on a        
@@ -52,8 +50,6 @@
 #include "freelist.h"
 #include "log.h"
 #include <pcap.h>
-
-RCSID("$Id$");
 
 /* Global variables */
 static int verbose_flag = 0;		/* Debugging flag */

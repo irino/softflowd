@@ -22,8 +22,6 @@
 
 #ifndef HAVE_STRLCPY
 
-RCSID("$Id$");
-
 #if defined(LIBC_SCCS) && !defined(lint)
 static char *rcsid = "$OpenBSD: strlcpy.c,v 1.8 2003/06/17 21:56:24 millert Exp $";
 #endif /* LIBC_SCCS and not lint */

@@ -1,5 +1,3 @@
-# $Id$
-
 # Figure out release tag (e.g. rhel3, fc1) based on redhat-release file
 %global _RHTAG %(sed 's/(.*)//;s/ [A-Z]* //;s/[a-z ]*//g' /etc/redhat-release | tr '[:upper:]' '[:lower:]')
 
