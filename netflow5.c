@@ -99,7 +99,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 			hdr->flow_sequence = htonl(*flows_exported);
 			if (option->sample > 0) {
 				hdr->sampling_interval =
-					htons(0x01 << 14 | option->sample & 0x3FFF);
+					htons((0x01 << 14) | (option->sample & 0x3FFF));
 			}
 			/* Other fields are left zero */
 			offset = sizeof(*hdr);

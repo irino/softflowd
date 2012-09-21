@@ -255,15 +255,15 @@ format_time(time_t t)
 static const char *
 format_flow(struct FLOW *flow)
 {
-	char addr1[64], addr2[64], stime[32], ftime[32];
+	char addr1[64], addr2[64], start_time[32], fin_time[32];
 	static char buf[1024];
 
 	inet_ntop(flow->af, &flow->addr[0], addr1, sizeof(addr1));
 	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
-	snprintf(stime, sizeof(ftime), "%s", 
+	snprintf(start_time, sizeof(start_time), "%s", 
 	    format_time(flow->flow_start.tv_sec));
-	snprintf(ftime, sizeof(ftime), "%s", 
+	snprintf(fin_time, sizeof(fin_time), "%s", 
 	    format_time(flow->flow_last.tv_sec));
 
 	snprintf(buf, sizeof(buf),  "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u "
@@ -275,8 +275,8 @@ format_flow(struct FLOW *flow)
 	    (int)flow->protocol, 
 	    flow->octets[0], flow->packets[0], 
 	    flow->octets[1], flow->packets[1], 
-	    stime, (flow->flow_start.tv_usec + 500) / 1000, 
-	    ftime, (flow->flow_last.tv_usec + 500) / 1000,
+	    start_time, (flow->flow_start.tv_usec + 500) / 1000, 
+	    fin_time, (flow->flow_last.tv_usec + 500) / 1000,
 	    flow->tcp_flags[0], flow->tcp_flags[1],
 	    flow->ip6_flowlabel[0], flow->ip6_flowlabel[1]);
 
@@ -1163,7 +1163,7 @@ static int
 accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
     pcap_t *pcap, int *exit_request, int *stop_collection_flag)
 {
-	unsigned char buf[64], *p;
+	char buf[64], *p;
 	FILE *ctlf;
 	int fd, ret;
 
@@ -1202,61 +1202,61 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 		ret = 0;
 	} else if (strcmp(buf, "shutdown") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Shutting down gracefully...\n", 
-		    getpid());
+		    (unsigned int)getpid());
 		graceful_shutdown_request = 1;
 		ret = 1;
 	} else if (strcmp(buf, "exit") == 0) {
-		fprintf(ctlf, "softflowd[%u]: Exiting now...\n", getpid());
+		fprintf(ctlf, "softflowd[%u]: Exiting now...\n", (unsigned int)getpid());
 		*exit_request = 1;
 		ret = 1;
 	} else if (strcmp(buf, "expire-all") == 0) {
 		netflow9_resend_template();
-		fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", getpid(), 
+		fprintf(ctlf, "softflowd[%u]: Expired %d flows.\n", (unsigned int)getpid(), 
 		    check_expired(ft, target, CE_EXPIRE_ALL));
 		ret = 0;
 	} else if (strcmp(buf, "send-template") == 0) {
 		netflow9_resend_template();
 		fprintf(ctlf, "softflowd[%u]: Template will be sent at "
-		    "next flow export\n", getpid());
+		    "next flow export\n", (unsigned int)getpid());
 		ret = 0;
 	} else if (strcmp(buf, "delete-all") == 0) {
-		fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", getpid(), 
+		fprintf(ctlf, "softflowd[%u]: Deleted %d flows.\n", (unsigned int)getpid(), 
 		    delete_all_flows(ft));
 		ret = 0;
 	} else if (strcmp(buf, "statistics") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Accumulated statistics "
-		    "since %s UTC:\n", getpid(),
+		    "since %s UTC:\n", (unsigned int)getpid(),
 		    format_time(ft->system_boot_time.tv_sec));
 		statistics(ft, ctlf, pcap);
 		ret = 0;
 	} else if (strcmp(buf, "debug+") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Debug level increased.\n",
-		    getpid());
+		    (unsigned int)getpid());
 		verbose_flag = 1;
 		ret = 0;
 	} else if (strcmp(buf, "debug-") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Debug level decreased.\n",
-		    getpid());
+		    (unsigned int)getpid());
 		verbose_flag = 0;
 		ret = 0;
 	} else if (strcmp(buf, "stop-gather") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Data collection stopped.\n",
-		    getpid());
+		    (unsigned int)getpid());
 		*stop_collection_flag = 1;
 		ret = 0;
 	} else if (strcmp(buf, "start-gather") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Data collection resumed.\n",
-		    getpid());
+		    (unsigned int)getpid());
 		*stop_collection_flag = 0;
 		ret = 0;
 	} else if (strcmp(buf, "dump-flows") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Dumping flow data:\n",
-		    getpid());
+		    (unsigned int)getpid());
 		dump_flows(ft, ctlf);
 		ret = 0;
 	} else if (strcmp(buf, "timeouts") == 0) {
 		fprintf(ctlf, "softflowd[%u]: Printing timeouts:\n",
-		    getpid());
+		    (unsigned int)getpid());
 		print_timeouts(ft, ctlf);
 		ret = 0;
 	} else {
@@ -1868,7 +1868,7 @@ main(int argc, char **argv)
 			    pidfile_path, strerror(errno));
 			exit(1);
 		}
-		fprintf(pidfile, "%u\n", getpid());
+		fprintf(pidfile, "%u\n", (unsigned int)getpid());
 		fclose(pidfile);
 
 		signal(SIGINT, sighand_graceful_shutdown);

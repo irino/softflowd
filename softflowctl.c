@@ -36,7 +36,9 @@ main(int argc, char **argv)
 	const char *ctlsock_path;
 	char buf[8192], *command;
 	struct sockaddr_un ctl;
+#ifdef SOCK_HAS_LEN 
 	socklen_t ctllen;
+#endif
 	int ctlsock, ch;
 	FILE *ctlf;
 	extern char *optarg;
@@ -73,9 +75,9 @@ main(int argc, char **argv)
 	}
 	ctl.sun_path[sizeof(ctl.sun_path) - 1] = '\0';
 	ctl.sun_family = AF_UNIX;
+#ifdef SOCK_HAS_LEN 
 	ctllen = offsetof(struct sockaddr_un, sun_path) +
             strlen(ctlsock_path) + 1;
-#ifdef SOCK_HAS_LEN 
 	ctl.sun_len = ctllen;
 #endif
 	if ((ctlsock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {

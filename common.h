@@ -57,6 +57,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <syslog.h>
 #include <time.h>
 
@@ -164,6 +165,15 @@ struct ip6_ext {
 	u_int8_t ip6e_nxt;
 	u_int8_t ip6e_len;
 } __packed;
+#endif
+
+
+/* following lines are copy from unistd.h in Linux for avoidance warnings in compilation */
+#if defined(HAVE_SETRESGID) && !defined(_GNU_SOURCE)
+extern int setresgid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
+#endif
+#if defined(HAVE_SETRESUID) && !defined(_GNU_SOURCE)
+extern int setresuid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
 #endif
 
 #endif /* _SFD_COMMON_H */
