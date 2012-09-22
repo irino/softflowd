@@ -1736,7 +1736,11 @@ main(int argc, char **argv)
 				usage();
 				exit(1);
 			}
+#if defined(HAVE_STRSEP)
 			dev = strsep(&optarg, ":");
+#else /* defined(HAVE_STRSEP) */
+			dev = strtok(optarg, ":");
+#endif /* defined(HAVE_STRSEP) */
 			if (optarg != NULL) {
 				if_index = (u_int16_t) atoi(dev);
 				dev = optarg;
