@@ -80,19 +80,8 @@ struct STATISTIC {
 struct OPTION {
 	uint32_t sample;
 };
-/*
- * This structure is the root of the flow tracking system.
- * It holds the root of the tree of active flows and the head of the
- * tree of expiry events. It also collects miscellaneous statistics
- */
-struct FLOWTRACK {
-	/* The flows and their expiry events */
-	FLOW_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
-	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
 
-	struct freelist flow_freelist;		/* Freelist for flows */
-	struct freelist expiry_freelist;	/* Freelist for expiry events */
-
+struct FLOWTRACKPARAMETERS {
 	unsigned int num_flows;			/* # of active flows */
 	unsigned int max_flows;			/* Max # of active flows */
 	u_int64_t next_flow_seq;		/* Next flow ID */
@@ -146,6 +135,21 @@ struct FLOWTRACK {
 
 	/* Optional information */
 	struct OPTION option;
+};
+/*
+ * This structure is the root of the flow tracking system.
+ * It holds the root of the tree of active flows and the head of the
+ * tree of expiry events. It also collects miscellaneous statistics
+ */
+struct FLOWTRACK {
+	/* The flows and their expiry events */
+	FLOW_HEAD(FLOWS, FLOW) flows;		/* Top of flow tree */
+	EXPIRY_HEAD(EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
+
+	struct freelist flow_freelist;		/* Freelist for flows */
+	struct freelist expiry_freelist;	/* Freelist for expiry events */
+
+	struct FLOWTRACKPARAMETERS param;
 };
 
 /*
@@ -212,14 +216,14 @@ u_int32_t timeval_sub_ms(const struct timeval *t1, const struct timeval *t2);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-    u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time, 
-    int verbose_flag, struct OPTION *option);
+		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+		    int verbose_flag);
 int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
-    u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag, struct OPTION *option);
+		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+		    int verbose_flag);
 int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
-    u_int16_t ifidx, u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag, struct OPTION *option);
+		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+		    int verbose_flag);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);

@@ -316,9 +316,9 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
-    u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag, struct OPTION *option)
+send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
+		u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+		int verbose_flag)
 {
 	struct NF9_HEADER *nf9;
 	struct NF9_DATA_FLOWSET_HEADER *dh;
@@ -327,6 +327,10 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 	socklen_t errsz;
 	int err, r;
 	u_char packet[NF9_SOFTFLOWD_MAX_PACKET_SIZE];
+	struct timeval *system_boot_time = &param->system_boot_time;
+	u_int64_t *flows_exported = &param->flows_exported;
+	u_int64_t *packets_sent = &param->packets_sent;
+	struct OPTION *option = &param->option;
 
 	gettimeofday(&now, NULL);
 
@@ -347,7 +351,6 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 		nf9->flows = 0; /* Filled as we go, htons at end */
 		nf9->uptime_ms = htonl(timeval_sub_ms(&now, system_boot_time));
 		nf9->time_sec = htonl(time(NULL));
-		nf9->package_sequence = htonl(*flows_exported + j);
 		nf9->source_id = 0;
 		offset = sizeof(*nf9);
 
@@ -432,6 +435,7 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 			dh->c.length = htons(dh->c.length);
 		}
 		nf9->flows = htons(nf9->flows);
+		nf9->package_sequence = htonl(*packets_sent + num_packets + 1);
 
 		if (verbose_flag)
 			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);

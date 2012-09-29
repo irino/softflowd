@@ -59,9 +59,9 @@ struct NF5_FLOW {
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
-    u_int64_t *flows_exported, struct timeval *system_boot_time,
-    int verbose_flag, struct OPTION *option)
+send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
+		u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+		int verbose_flag)
 {
 	struct timeval now;
 	u_int32_t uptime_ms;
@@ -70,6 +70,9 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock, u_int16_t ifidx,
 	struct NF5_FLOW *flw = NULL;
 	int i, j, offset, num_packets, err;
 	socklen_t errsz;
+	struct timeval *system_boot_time = &param->system_boot_time;
+	u_int64_t *flows_exported = &param->flows_exported;
+	struct OPTION *option = &param->option;
 	
 	gettimeofday(&now, NULL);
 	uptime_ms = timeval_sub_ms(&now, system_boot_time);
