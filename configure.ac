@@ -52,7 +52,7 @@ AC_ARG_WITH(chrootdir,
 	[ AC_DEFINE_UNQUOTED([PRIVDROP_CHROOT_DIR], ["${withval}"], [privdrop chroot directory]) ]	
 )
 
-AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h)
+AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h sys/endian.h endian.h)
 
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)
 dnl 
@@ -87,7 +87,7 @@ AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)
 AC_CHECK_LIB(pcap, pcap_open_live)
 
-AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep)
+AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep htobe64 htonll)
 
 AC_CHECK_TYPES([u_int64_t, int64_t, uint64_t, u_int32_t, int32_t, uint32_t])
 AC_CHECK_TYPES([u_int16_t, int16_t, uint16_t, u_int8_t, int8_t, uint8_t])

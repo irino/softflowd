@@ -79,6 +79,7 @@ struct STATISTIC {
  */
 struct OPTION {
 	uint32_t sample;
+	pid_t meteringProcessId;
 };
 
 struct FLOWTRACKPARAMETERS {
@@ -224,6 +225,9 @@ int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
 		    int verbose_flag);
+int send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
+	       u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+	       int verbose_flag);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);

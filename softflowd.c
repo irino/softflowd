@@ -107,6 +107,7 @@ static const struct NETFLOW_SENDER nf[] = {
 	{ 5, send_netflow_v5, 0 },
 	{ 1, send_netflow_v1, 0 },
 	{ 9, send_netflow_v9, 1 },
+	{ 10, send_ipfix, 1 },
 	{ -1, NULL, 0 },
 };
 
@@ -1494,7 +1495,7 @@ usage(void)
 "                     (default: %s)\n"
 "  -c pidfile         Location of control socket\n"
 "                     (default: %s)\n"
-"  -v 1|5|9           NetFlow export packet version\n"
+"  -v 1|5|9|10        NetFlow export packet version\n"
 "  -L hoplimit        Set TTL/hoplimit for export datagrams\n"
 "  -T full|proto|ip   Set flow tracking level (default: full)\n"
 "  -6                 Track IPv6 flows, regardless of whether selected \n"
@@ -1888,6 +1889,7 @@ main(int argc, char **argv)
 		logit(LOG_NOTICE, "Exporting flows to [%s]:%s",
 		    dest_addr, dest_serv);
 	}
+	flowtrack.param.option.meteringProcessId = getpid();
 
 	/* Main processing loop */
 	gettimeofday(&flowtrack.param.system_boot_time, NULL);

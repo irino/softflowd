@@ -25,7 +25,7 @@ CFLAGS+=-DEXPIRY_RB		# Use red-black tree for expiry events
 TARGETS=softflowd${EXEEXT} softflowctl${EXEEXT}
 
 COMMON=convtime.o strlcpy.o strlcat.o closefrom.o daemon.o
-SOFTFLOWD=softflowd.o log.o netflow1.o netflow5.o netflow9.o freelist.o
+SOFTFLOWD=softflowd.o log.o netflow1.o netflow5.o netflow9.o ipfix.o freelist.o
 
 all: $(TARGETS)
 

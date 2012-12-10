@@ -70,6 +70,12 @@
 #include <inttypes.h>
 #endif
 
+#if defined(HAVE_SYS_ENDIAN_H)
+#include <sys/endian.h>
+#elif defined(HAVE_ENDIAN_H)
+#include <endian.h>
+#endif
+
 /* The name of the program */
 #define PROGNAME		"softflowd"
 
