@@ -69,9 +69,10 @@ struct STATISTIC {
 };
 
 /* Flow tracking levels */
-#define TRACK_FULL		1	/* src/dst/addr/port/proto 5-tuple */
-#define TRACK_IP_PROTO		2	/* src/dst/proto 3-tuple */
-#define TRACK_IP_ONLY		3	/* src/dst tuple */
+#define TRACK_FULL		1	/* src/dst/addr/port/proto/tos 6-tuple */
+#define TRACK_IP_PROTO_PORT	2	/* src/dst/addr/port/proto 5-tuple */
+#define TRACK_IP_PROTO		3	/* src/dst/proto 3-tuple */
+#define TRACK_IP_ONLY		4	/* src/dst tuple */
 
 /*
  * This structure contains optional information carried by Option Data
@@ -136,6 +137,7 @@ struct FLOWTRACKPARAMETERS {
 
 	/* Optional information */
 	struct OPTION option;
+	char time_format;
 };
 /*
  * This structure is the root of the flow tracking system.
@@ -166,6 +168,15 @@ struct FLOW {
 	struct EXPIRY *expiry;			/* Pointer to expiry record */
 	FLOW_ENTRY(FLOW) trp;			/* Tree pointer */
 
+	/* Per-flow statistics (all in _host_ byte order) */
+	u_int64_t flow_seq;			/* Flow ID */
+	struct timeval flow_start;		/* Time of creation */
+	struct timeval flow_last;		/* Time of last traffic */
+
+	/* Per-endpoint statistics (all in _host_ byte order) */
+	u_int32_t octets[2];			/* Octets so far */
+	u_int32_t packets[2];			/* Packets so far */
+
 	/* Flow identity (all are in network byte order) */
 	int af;					/* Address family of flow */
 	u_int32_t ip6_flowlabel[2];		/* IPv6 Flowlabel */
@@ -175,16 +186,8 @@ struct FLOW {
 	} addr[2];				/* Endpoint addresses */
 	u_int16_t port[2];			/* Endpoint ports */
 	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
+	u_int8_t tos[2];			/* Tos */
 	u_int8_t protocol;			/* Protocol */
-
-	/* Per-flow statistics (all in _host_ byte order) */
-	u_int64_t flow_seq;			/* Flow ID */
-	struct timeval flow_start;		/* Time of creation */
-	struct timeval flow_last;		/* Time of last traffic */
-
-	/* Per-endpoint statistics (all in _host_ byte order) */
-	u_int32_t octets[2];			/* Octets so far */
-	u_int32_t packets[2];			/* Packets so far */
 };
 
 /*

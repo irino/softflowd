@@ -28,6 +28,11 @@
 #include "treetype.h"
 #include "softflowd.h"
 
+#if defined (HAVE_HTONLL) && !defined (HAVE_HTOBE64)
+#define htobe64 htonll
+#endif
+#define JAN_1970        2208988800UL /* 1970 - 1900 in seconds */
+
 /* IPFIX a.k.a. Netflow v.10 */
 struct IPFIX_HEADER {
 	u_int16_t version, length;
@@ -62,6 +67,7 @@ struct IPFIX_FIELD_SPECIFIER {
 #define IPFIX_packetDeltaCount		2
 /* ... */
 #define IPFIX_protocolIdentifier	4
+#define IPFIX_ipClassOfService		5
 /* ... */
 #define IPFIX_tcpControlBits		6
 #define IPFIX_sourceTransportPort	7
@@ -77,12 +83,23 @@ struct IPFIX_FIELD_SPECIFIER {
 #define IPFIX_flowStartSysUpTime	22
 /* ... */
 #define IPFIX_sourceIPv6Address		27
-#define IPFIX_destinationIPv6Address		28
+#define IPFIX_destinationIPv6Address	28
 /* ... */
-#define IPFIX_ipVersion		60
-
+#define IPFIX_ipVersion			60
+/* ... */
 #define IPFIX_meteringProcessId		143
+/* ... */
+#define IPFIX_flowStartSeconds		150
+#define IPFIX_flowEndSeconds		151
+#define IPFIX_flowStartMilliSeconds	152
+#define IPFIX_flowEndMilliSeconds	153
+#define IPFIX_flowStartMicroSeconds	154
+#define IPFIX_flowEndMicroSeconds	155
+#define IPFIX_flowStartNanoSeconds	156
+#define IPFIX_flowEndNanoSeconds	157
+/* ... */
 #define IPFIX_systemInitTimeMilliseconds	160
+/* ... */
 #define PSAMP_selectorAlgorithm		304
 #define PSAMP_samplingPacketInterval	305
 #define PSAMP_samplingPacketSpace	306
@@ -90,7 +107,7 @@ struct IPFIX_FIELD_SPECIFIER {
 #define PSAMP_selectorAlgorithm_count	1
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS	13
+#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS	14
 struct IPFIX_SOFTFLOWD_TEMPLATE {
 	struct IPFIX_TEMPLATE_SET_HEADER h;
 	struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];
@@ -106,22 +123,35 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
 
 /* softflowd data set */
 struct IPFIX_SOFTFLOWD_DATA_COMMON {
-	u_int32_t flowEndSysUpTime, flowStartSysUpTime;
 	u_int32_t octetDeltaCount, packetDeltaCount;
 	u_int32_t ingressInterface, egressInterface;
 	u_int16_t sourceTransportPort, destinationTransportPort;
-	u_int8_t protocolIdentifier, tcpControlBits, ipVersion;
+	u_int8_t protocolIdentifier, tcpControlBits, ipVersion, ipClassOfService;
+	//u_int32_t flowEndSysUpTime, flowStartSysUpTime;
 } __packed;
+
+union IPFIX_SOFTFLOWD_DATA_TIME {
+	struct {
+		u_int32_t start;
+		u_int32_t end;
+	} u32;
+	struct {
+		u_int64_t start;
+		u_int64_t end;
+	} u64;
+};
 
 struct IPFIX_SOFTFLOWD_DATA_V4 {
 	u_int32_t sourceIPv4Address, destinationIPv4Address;
 	struct IPFIX_SOFTFLOWD_DATA_COMMON c;
+	union  IPFIX_SOFTFLOWD_DATA_TIME t;
 } __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_V6 {
 	//u_int8_t src_addr[16], dst_addr[16];
 	struct in6_addr sourceIPv6Address, destinationIPv6Address;
 	struct IPFIX_SOFTFLOWD_DATA_COMMON c;
+	union  IPFIX_SOFTFLOWD_DATA_TIME t;
 } __packed;
 
 struct IPFIX_SOFTFLOWD_OPTION_DATA {
@@ -159,7 +189,7 @@ static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 static int ipfix_pkts_until_template = -1;
 
 static void
-ipfix_init_template(void)
+ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 {
 	bzero(&v4_template, sizeof(v4_template));
 	v4_template.h.c.set_id = htons(IPFIX_TEMPLATE_SET_ID);
@@ -170,28 +200,52 @@ ipfix_init_template(void)
 	v4_template.r[0].length = htons(4);
 	v4_template.r[1].ie = htons(IPFIX_destinationIPv4Address);
 	v4_template.r[1].length = htons(4);
-	v4_template.r[2].ie = htons(IPFIX_flowEndSysUpTime);
+	v4_template.r[2].ie = htons(IPFIX_octetDeltaCount);
 	v4_template.r[2].length = htons(4);
-	v4_template.r[3].ie = htons(IPFIX_flowStartSysUpTime);
+	v4_template.r[3].ie = htons(IPFIX_packetDeltaCount);
 	v4_template.r[3].length = htons(4);
-	v4_template.r[4].ie = htons(IPFIX_octetDeltaCount);
+	v4_template.r[4].ie = htons(IPFIX_ingressInterface);
 	v4_template.r[4].length = htons(4);
-	v4_template.r[5].ie = htons(IPFIX_packetDeltaCount);
+	v4_template.r[5].ie = htons(IPFIX_egressInterface);
 	v4_template.r[5].length = htons(4);
-	v4_template.r[6].ie = htons(IPFIX_ingressInterface);
-	v4_template.r[6].length = htons(4);
-	v4_template.r[7].ie = htons(IPFIX_egressInterface);
-	v4_template.r[7].length = htons(4);
-	v4_template.r[8].ie = htons(IPFIX_sourceTransportPort);
-	v4_template.r[8].length = htons(2);
-	v4_template.r[9].ie = htons(IPFIX_destinationTransportPort);
-	v4_template.r[9].length = htons(2);
-	v4_template.r[10].ie = htons(IPFIX_protocolIdentifier);
+	v4_template.r[6].ie = htons(IPFIX_sourceTransportPort);
+	v4_template.r[6].length = htons(2);
+	v4_template.r[7].ie = htons(IPFIX_destinationTransportPort);
+	v4_template.r[7].length = htons(2);
+	v4_template.r[8].ie = htons(IPFIX_protocolIdentifier);
+	v4_template.r[8].length = htons(1);
+	v4_template.r[9].ie = htons(IPFIX_tcpControlBits);
+	v4_template.r[9].length = htons(1);
+	v4_template.r[10].ie = htons(IPFIX_ipVersion);
 	v4_template.r[10].length = htons(1);
-	v4_template.r[11].ie = htons(IPFIX_tcpControlBits);
+	v4_template.r[11].ie = htons(IPFIX_ipClassOfService);
 	v4_template.r[11].length = htons(1);
-	v4_template.r[12].ie = htons(IPFIX_ipVersion);
-	v4_template.r[12].length = htons(1);
+	if (param->time_format == 's') {
+		v4_template.r[12].ie = htons(IPFIX_flowStartSeconds);
+		v4_template.r[12].length = htons(sizeof(u_int32_t));
+		v4_template.r[13].ie = htons(IPFIX_flowEndSeconds);
+		v4_template.r[13].length = htons(sizeof(u_int32_t));
+	} else if (param->time_format == 'm') {
+		v4_template.r[12].ie = htons(IPFIX_flowStartMilliSeconds);
+		v4_template.r[12].length = htons(sizeof(u_int64_t));
+		v4_template.r[13].ie = htons(IPFIX_flowEndMilliSeconds);
+		v4_template.r[13].length = htons(sizeof(u_int64_t));
+	} else if (param->time_format == 'M') {
+		v4_template.r[12].ie = htons(IPFIX_flowStartMicroSeconds);
+		v4_template.r[12].length = htons(sizeof(u_int64_t));
+		v4_template.r[13].ie = htons(IPFIX_flowEndMicroSeconds);
+		v4_template.r[13].length = htons(sizeof(u_int64_t));
+	} else if (param->time_format == 'n') {
+		v4_template.r[12].ie = htons(IPFIX_flowStartNanoSeconds);
+		v4_template.r[12].length = htons(sizeof(u_int64_t));
+		v4_template.r[13].ie = htons(IPFIX_flowEndNanoSeconds);
+		v4_template.r[13].length = htons(sizeof(u_int64_t));
+	} else {
+		v4_template.r[12].ie = htons(IPFIX_flowStartSysUpTime);
+		v4_template.r[12].length = htons(sizeof(u_int32_t));
+		v4_template.r[13].ie = htons(IPFIX_flowEndSysUpTime);
+		v4_template.r[13].length = htons(sizeof(u_int32_t));
+	}
 
 	bzero(&v6_template, sizeof(v6_template));
 	v6_template.h.c.set_id = htons(IPFIX_TEMPLATE_SET_ID);
@@ -202,28 +256,52 @@ ipfix_init_template(void)
 	v6_template.r[0].length = htons(16);
 	v6_template.r[1].ie = htons(IPFIX_destinationIPv6Address);
 	v6_template.r[1].length = htons(16);
-	v6_template.r[2].ie = htons(IPFIX_flowEndSysUpTime);
+	v6_template.r[2].ie = htons(IPFIX_octetDeltaCount);
 	v6_template.r[2].length = htons(4);
-	v6_template.r[3].ie = htons(IPFIX_flowStartSysUpTime);
+	v6_template.r[3].ie = htons(IPFIX_packetDeltaCount);
 	v6_template.r[3].length = htons(4);
-	v6_template.r[4].ie = htons(IPFIX_octetDeltaCount);
+	v6_template.r[4].ie = htons(IPFIX_ingressInterface);
 	v6_template.r[4].length = htons(4);
-	v6_template.r[5].ie = htons(IPFIX_packetDeltaCount);
+	v6_template.r[5].ie = htons(IPFIX_egressInterface);
 	v6_template.r[5].length = htons(4);
-	v6_template.r[6].ie = htons(IPFIX_ingressInterface);
-	v6_template.r[6].length = htons(4);
-	v6_template.r[7].ie = htons(IPFIX_egressInterface);
-	v6_template.r[7].length = htons(4);
-	v6_template.r[8].ie = htons(IPFIX_sourceTransportPort);
-	v6_template.r[8].length = htons(2);
-	v6_template.r[9].ie = htons(IPFIX_destinationTransportPort);
-	v6_template.r[9].length = htons(2);
-	v6_template.r[10].ie = htons(IPFIX_protocolIdentifier);
+	v6_template.r[6].ie = htons(IPFIX_sourceTransportPort);
+	v6_template.r[6].length = htons(2);
+	v6_template.r[7].ie = htons(IPFIX_destinationTransportPort);
+	v6_template.r[7].length = htons(2);
+	v6_template.r[8].ie = htons(IPFIX_protocolIdentifier);
+	v6_template.r[8].length = htons(1);
+	v6_template.r[9].ie = htons(IPFIX_tcpControlBits);
+	v6_template.r[9].length = htons(1);
+	v6_template.r[10].ie = htons(IPFIX_ipVersion);
 	v6_template.r[10].length = htons(1);
-	v6_template.r[11].ie = htons(IPFIX_tcpControlBits);
+	v6_template.r[11].ie = htons(IPFIX_ipClassOfService);
 	v6_template.r[11].length = htons(1);
-	v6_template.r[12].ie = htons(IPFIX_ipVersion);
-	v6_template.r[12].length = htons(1);
+	if (param->time_format == 's') {
+		v6_template.r[12].ie = htons(IPFIX_flowStartSeconds);
+		v6_template.r[12].length = htons(sizeof(u_int32_t));
+		v6_template.r[13].ie = htons(IPFIX_flowEndSeconds);
+		v6_template.r[13].length = htons(sizeof(u_int32_t));
+	} else if (param->time_format == 'm') {
+		v6_template.r[12].ie = htons(IPFIX_flowStartMilliSeconds);
+		v6_template.r[12].length = htons(sizeof(u_int64_t));
+		v6_template.r[13].ie = htons(IPFIX_flowEndMilliSeconds);
+		v6_template.r[13].length = htons(sizeof(u_int64_t));
+	} else if (param->time_format == 'M') {
+		v6_template.r[12].ie = htons(IPFIX_flowStartMicroSeconds);
+		v6_template.r[12].length = htons(sizeof(u_int64_t));
+		v6_template.r[13].ie = htons(IPFIX_flowEndMicroSeconds);
+		v6_template.r[13].length = htons(sizeof(u_int64_t));
+	} else if (param->time_format == 'n') {
+		v6_template.r[12].ie = htons(IPFIX_flowStartNanoSeconds);
+		v6_template.r[12].length = htons(sizeof(u_int64_t));
+		v6_template.r[13].ie = htons(IPFIX_flowEndNanoSeconds);
+		v6_template.r[13].length = htons(sizeof(u_int64_t));
+	} else {
+		v6_template.r[12].ie = htons(IPFIX_flowStartSysUpTime);
+		v6_template.r[12].length = htons(sizeof(u_int32_t));
+		v6_template.r[13].ie = htons(IPFIX_flowEndSysUpTime);
+		v6_template.r[13].length = htons(sizeof(u_int32_t));
+	}
 }
 
 static void
@@ -249,10 +327,8 @@ ipfix_init_option(struct timeval *system_boot_time, struct OPTION *option) {
 	option_data.c.set_id = htons(IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
 	option_data.c.length = htons(sizeof(option_data));
 	option_data.scope_pid = htonl((u_int32_t)option->meteringProcessId);
-#if defined HAVE_HTOBE64
+#if defined (_BSD_SOURCE) && defined (HAVE_ENDIAN_H) || defined (HAVE_HTOBE64) || defined (HAVE_HTONLL)
 	option_data.systemInitTimeMilliseconds = htobe64((u_int64_t)system_boot_time->tv_sec * 1000 + (u_int64_t)system_boot_time->tv_usec / 1000);
-#elif defined HAVE_HTONLL
-	option_data.systemInitTimeMilliseconds = htonll((u_int64_t)system_boot_time->tv_sec * 1000 + (u_int64_t)system_boot_time->tv_usec / 1000);
 #endif
 	option_data.samplingAlgorithm = htons(PSAMP_selectorAlgorithm_count);
 	option_data.samplingInterval = htons(1);
@@ -260,13 +336,15 @@ ipfix_init_option(struct timeval *system_boot_time, struct OPTION *option) {
 }
 static int
 ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
-    u_int16_t ifidx, const struct timeval *system_boot_time, u_int *len_used)
+    u_int16_t ifidx, const struct timeval *system_boot_time, u_int *len_used,
+    struct FLOWTRACKPARAMETERS *param)
 {
 	union {
 		struct IPFIX_SOFTFLOWD_DATA_V4 d4;
 		struct IPFIX_SOFTFLOWD_DATA_V6 d6;
 	} d[2];
 	struct IPFIX_SOFTFLOWD_DATA_COMMON *dc[2];
+	union IPFIX_SOFTFLOWD_DATA_TIME *dt[2];
 	u_int freclen, ret_len, nflows;
 
 	bzero(d, sizeof(d));
@@ -274,32 +352,68 @@ ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	switch (flow->af) {
 	case AF_INET:
 		freclen = sizeof(struct IPFIX_SOFTFLOWD_DATA_V4);
+		if (!(param->time_format == 'm' || param->time_format == 'M' || param->time_format == 'n')) {
+			freclen -= (sizeof(u_int64_t) - sizeof(u_int32_t)) * 2;
+		}
 		memcpy(&d[0].d4.sourceIPv4Address, &flow->addr[0].v4, 4);
 		memcpy(&d[0].d4.destinationIPv4Address, &flow->addr[1].v4, 4);
 		memcpy(&d[1].d4.sourceIPv4Address, &flow->addr[1].v4, 4);
 		memcpy(&d[1].d4.destinationIPv4Address, &flow->addr[0].v4, 4);
 		dc[0] = &d[0].d4.c;
 		dc[1] = &d[1].d4.c;
+		dt[0] = &d[0].d4.t;
+		dt[1] = &d[1].d4.t;
 		dc[0]->ipVersion = dc[1]->ipVersion = 4;
 		break;
 	case AF_INET6:
 		freclen = sizeof(struct IPFIX_SOFTFLOWD_DATA_V6);
+		if (!(param->time_format == 'm' || param->time_format == 'M' || param->time_format == 'n')) {
+			freclen -= (sizeof(u_int64_t) - sizeof(u_int32_t)) * 2;
+		}
 		memcpy(&d[0].d6.sourceIPv6Address, &flow->addr[0].v6, 16);
 		memcpy(&d[0].d6.destinationIPv6Address, &flow->addr[1].v6, 16);
 		memcpy(&d[1].d6.sourceIPv6Address, &flow->addr[1].v6, 16);
 		memcpy(&d[1].d6.destinationIPv6Address, &flow->addr[0].v6, 16);
 		dc[0] = &d[0].d6.c;
 		dc[1] = &d[1].d6.c;
+		dt[0] = &d[0].d6.t;
+		dt[1] = &d[1].d6.t;
 		dc[0]->ipVersion = dc[1]->ipVersion = 6;
 		break;
 	default:
 		return (-1);
 	}
 
-	dc[0]->flowStartSysUpTime = dc[1]->flowStartSysUpTime = 
-	    htonl(timeval_sub_ms(&flow->flow_start, system_boot_time));
-	dc[0]->flowEndSysUpTime = dc[1]->flowEndSysUpTime = 
-	    htonl(timeval_sub_ms(&flow->flow_last, system_boot_time));
+	if (param->time_format == 's') {
+		dt[0]->u32.start = dt[1]->u32.start = 
+		    htonl(flow->flow_start.tv_sec);
+		dt[0]->u32.end = dt[1]->u32.end = 
+		    htonl(flow->flow_last.tv_sec);
+	}
+#if defined (_BSD_SOURCE) && defined (HAVE_ENDIAN_H) || defined (HAVE_HTOBE64) || defined (HAVE_HTONLL)
+	else if (param->time_format == 'm') { /* milliseconds */
+		dt[0]->u64.start = dt[1]->u64.start = 
+		    htobe64((u_int64_t)flow->flow_start.tv_sec * 1000 + (u_int64_t)flow->flow_start.tv_usec / 1000);
+		dt[0]->u64.end = dt[1]->u64.end = 
+		    htobe64((u_int64_t)flow->flow_last.tv_sec * 1000 + (u_int64_t)flow->flow_last.tv_usec / 1000);
+	} else if (param->time_format == 'M') { /* microseconds */
+		dt[0]->u64.start = dt[1]->u64.start = 
+		    htobe64(((u_int64_t)(flow->flow_start.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec << 32)/ 1e6));
+		dt[0]->u64.end = dt[1]->u64.end = 
+		    htobe64(((u_int64_t)(flow->flow_last.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec << 32)/ 1e6));
+	} else if (param->time_format == 'n') { /* nanoseconds */
+		dt[0]->u64.start = dt[1]->u64.start = 
+		    htobe64(((u_int64_t)(flow->flow_start.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec * 1000 << 32)/ 1e9));
+		dt[0]->u64.end = dt[1]->u64.end = 
+		    htobe64(((u_int64_t)(flow->flow_last.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec * 1000 << 32)/ 1e9));
+	}
+#endif
+	else {
+		dt[0]->u32.start = dt[1]->u32.start = 
+		    htonl(timeval_sub_ms(&flow->flow_start, system_boot_time));
+		dt[0]->u32.end = dt[1]->u32.end = 
+		    htonl(timeval_sub_ms(&flow->flow_last, system_boot_time));
+	}
 	dc[0]->octetDeltaCount = htonl(flow->octets[0]);
 	dc[1]->octetDeltaCount = htonl(flow->octets[1]);
 	dc[0]->packetDeltaCount = htonl(flow->packets[0]);
@@ -311,6 +425,8 @@ ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[0]->protocolIdentifier = dc[1]->protocolIdentifier = flow->protocol;
 	dc[0]->tcpControlBits = flow->tcp_flags[0];
 	dc[1]->tcpControlBits = flow->tcp_flags[1];
+	dc[0]->ipClassOfService = flow->tos[0];
+	dc[1]->ipClassOfService = flow->tos[1];
 
 	if (flow->octets[0] > 0) {
 		if (ret_len + freclen > len)
@@ -355,7 +471,7 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 	gettimeofday(&now, NULL);
 
 	if (ipfix_pkts_until_template == -1) {
-		ipfix_init_template();
+		ipfix_init_template(param);
 		ipfix_pkts_until_template = 0;
 		if (option != NULL){
 			ipfix_init_option(system_boot_time, option);
@@ -424,7 +540,7 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 			}
 
 			r = ipfix_flow_to_flowset(flows[i + j], packet + offset,
-			    sizeof(packet) - offset, ifidx, system_boot_time, &inc);
+			    sizeof(packet) - offset, ifidx, system_boot_time, &inc, param);
 			if (r <= 0) {
 				/* yank off data header, if we had to go back */
 				if (last_valid)

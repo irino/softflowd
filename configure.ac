@@ -52,6 +52,7 @@ AC_ARG_WITH(chrootdir,
 	[ AC_DEFINE_UNQUOTED([PRIVDROP_CHROOT_DIR], ["${withval}"], [privdrop chroot directory]) ]	
 )
 
+AC_DEFINE([_BSD_SOURCE], [], [Define BSD SOURCE for Linux])
 AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h sys/endian.h endian.h)
 
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)

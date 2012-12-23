@@ -128,6 +128,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 			    system_boot_time));
 			flw->tcp_flags = flows[i]->tcp_flags[0];
 			flw->protocol = flows[i]->protocol;
+			flw->tos = flows[i]->tos[0];
 			offset += sizeof(*flw);
 			j++;
 			hdr->flows++;
@@ -151,6 +152,7 @@ send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 			    system_boot_time));
 			flw->tcp_flags = flows[i]->tcp_flags[1];
 			flw->protocol = flows[i]->protocol;
+			flw->tos = flows[i]->tos[1];
 			offset += sizeof(*flw);
 			j++;
 			hdr->flows++;

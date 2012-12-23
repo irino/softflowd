@@ -1271,7 +1271,7 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 }
 
 static int
-connsock(struct sockaddr_storage *addr, socklen_t len, int hoplimit)
+connsock(struct sockaddr_storage *addr, socklen_t len, int hoplimit, int protocol)
 {
 	int s;
 	unsigned int h6;
@@ -1279,7 +1279,7 @@ connsock(struct sockaddr_storage *addr, socklen_t len, int hoplimit)
 	struct sockaddr_in *in4 = (struct sockaddr_in *)addr;
 	struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
 
-	if ((s = socket(addr->ss_family, SOCK_DGRAM, 0)) == -1) {
+	if ((s = socket(addr->ss_family, protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM, protocol)) == -1) {
 		fprintf(stderr, "socket() error: %s\n", 
 		    strerror(errno));
 		exit(1);
@@ -1486,24 +1486,28 @@ usage(void)
 	fprintf(stderr, 
 "Usage: %s [options] [bpf_program]\n"
 "This is %s version %s. Valid commandline options:\n"
-"  -i [idx:]interface Specify interface to listen on\n"
-"  -r pcap_file       Specify packet capture file to read\n"
-"  -t timeout=time    Specify named timeout\n"
-"  -m max_flows       Specify maximum number of flows to track (default %d)\n"
-"  -n host:port       Send Cisco NetFlow(tm)-compatible packets to host:port\n"
-"  -p pidfile         Record pid in specified file\n"
-"                     (default: %s)\n"
-"  -c pidfile         Location of control socket\n"
-"                     (default: %s)\n"
-"  -v 1|5|9|10        NetFlow export packet version\n"
-"  -L hoplimit        Set TTL/hoplimit for export datagrams\n"
-"  -T full|proto|ip   Set flow tracking level (default: full)\n"
-"  -6                 Track IPv6 flows, regardless of whether selected \n"
-"                     NetFlow export protocol supports it\n"
-"  -d                 Don't daemonise (run in foreground)\n"
-"  -D                 Debug mode: foreground + verbosity + track v6 flows\n"
-"  -s sampling_rate   Specify periodical sampling rate (denominator)\n"
-"  -h                 Display this help\n"
+"  -i [idx:]interface      Specify interface to listen on\n"
+"  -r pcap_file            Specify packet capture file to read\n"
+"  -t timeout=time         Specify named timeout\n"
+"  -m max_flows            Specify maximum number of flows to track (default %d)\n"
+"  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
+"  -p pidfile              Record pid in specified file\n"
+"                          (default: %s)\n"
+"  -c pidfile              Location of control socket\n"
+"                          (default: %s)\n"
+"  -v 1|5|9|10             NetFlow export packet version\n"
+"                          (10 means IPFI)\n"
+"  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
+"  -T full|port|proto|ip   Set flow tracking level (default: full)\n"
+"  -6                      Track IPv6 flows, regardless of whether selected \n"
+"                          NetFlow export protocol supports it\n"
+"  -d                      Don't daemonise (run in foreground)\n"
+"  -D                      Debug mode: foreground + verbosity + track v6 flows\n"
+"  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
+"  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
+"  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
+"  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
+"  -h                      Display this help\n"
 "\n"
 "Valid timeout names and default values:\n"
 "  tcp     (default %6d)"
@@ -1695,6 +1699,7 @@ main(int argc, char **argv)
 	struct NETFLOW_TARGET target;
 	struct CB_CTXT cb_ctxt;
 	struct pollfd pl[2];
+	int protocol = IPPROTO_UDP;
 
 	closefrom(STDERR_FILENO + 1);
 
@@ -1714,7 +1719,7 @@ main(int argc, char **argv)
 	dontfork_flag = 0;
 	always_v6 = 0;
 
-	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
@@ -1766,6 +1771,8 @@ main(int argc, char **argv)
 		case 'T':
 			if (strcasecmp(optarg, "full") == 0)
 				flowtrack.param.track_level = TRACK_FULL;
+			else if (strcasecmp(optarg, "port") == 0)
+				flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
 			else if (strcasecmp(optarg, "proto") == 0)
 				flowtrack.param.track_level = TRACK_IP_PROTO;
 			else if (strcasecmp(optarg, "ip") == 0)
@@ -1824,6 +1831,38 @@ main(int argc, char **argv)
 				flowtrack.param.option.sample = 0;
 			}
 			break;
+		case 'P':
+			if (strcasecmp(optarg, "udp") == 0)
+				protocol = IPPROTO_UDP;
+			else if (strcasecmp(optarg, "tcp") == 0)
+				protocol = IPPROTO_TCP;
+#ifdef IPPROTO_SCTP
+			else if (strcasecmp(optarg, "sctp") == 0)
+				protocol = IPPROTO_SCTP;
+#endif
+			else {
+				fprintf(stderr, "Unknown transport layer protocol"
+				    "\n");
+				usage();
+				exit(1);
+			}
+			break;
+		case 'A':
+			if (strcasecmp(optarg, "sec") == 0)
+				flowtrack.param.time_format = 's';
+			else if (strcasecmp(optarg, "milli") == 0)
+				flowtrack.param.time_format = 'm';
+			else if (strcasecmp(optarg, "micro") == 0)
+				flowtrack.param.time_format = 'M';
+			else if (strcasecmp(optarg, "nano") == 0)
+				flowtrack.param.time_format = 'n';
+			else {
+				fprintf(stderr, "Unknown time format"
+				    "\n");
+				usage();
+				exit(1);
+			}
+			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");
 			usage();
@@ -1852,7 +1891,7 @@ main(int argc, char **argv)
 			fprintf(stderr, "getnameinfo: %d\n", err);
 			exit(1);
 		}
-		target.fd = connsock(&dest, dest_len, hoplimit);
+		target.fd = connsock(&dest, dest_len, hoplimit, protocol);
 	}
 	
 	/* Control socket */

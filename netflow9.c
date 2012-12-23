@@ -58,7 +58,8 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_IN_BYTES			1
 #define NF9_IN_PACKETS			2
 /* ... */
-#define NF9_IN_PROTOCOL			4
+#define NF9_PROTOCOL			4
+#define NF9_TOS				5
 /* ... */
 #define NF9_TCP_FLAGS			6
 #define NF9_L4_SRC_PORT			7
@@ -102,7 +103,7 @@ struct NF9_SOFTFLOWD_DATA_COMMON {
 	u_int32_t bytes, packets;
 	u_int32_t if_index_in, if_index_out;
 	u_int16_t src_port, dst_port;
-	u_int8_t protocol, tcp_flags, ipproto;
+	u_int8_t protocol, tcp_flags, ipproto, tos;
 } __packed;
 
 struct NF9_SOFTFLOWD_DATA_V4 {
@@ -176,12 +177,14 @@ nf9_init_template(void)
 	v4_template.r[8].length = htons(2);
 	v4_template.r[9].type = htons(NF9_L4_DST_PORT);
 	v4_template.r[9].length = htons(2);
-	v4_template.r[10].type = htons(NF9_IN_PROTOCOL);
+	v4_template.r[10].type = htons(NF9_PROTOCOL);
 	v4_template.r[10].length = htons(1);
 	v4_template.r[11].type = htons(NF9_TCP_FLAGS);
 	v4_template.r[11].length = htons(1);
 	v4_template.r[12].type = htons(NF9_IP_PROTOCOL_VERSION);
 	v4_template.r[12].length = htons(1);
+	v4_template.r[13].type = htons(NF9_TOS);
+	v4_template.r[13].length = htons(1);
 
 	bzero(&v6_template, sizeof(v6_template));
 	v6_template.h.c.flowset_id = htons(NF9_TEMPLATE_FLOWSET_ID);
@@ -208,12 +211,14 @@ nf9_init_template(void)
 	v6_template.r[8].length = htons(2);
 	v6_template.r[9].type = htons(NF9_L4_DST_PORT);
 	v6_template.r[9].length = htons(2);
-	v6_template.r[10].type = htons(NF9_IN_PROTOCOL);
+	v6_template.r[10].type = htons(NF9_PROTOCOL);
 	v6_template.r[10].length = htons(1);
 	v6_template.r[11].type = htons(NF9_TCP_FLAGS);
 	v6_template.r[11].length = htons(1);
 	v6_template.r[12].type = htons(NF9_IP_PROTOCOL_VERSION);
 	v6_template.r[12].length = htons(1);
+	v6_template.r[13].type = htons(NF9_TOS);
+	v6_template.r[13].length = htons(1);
 }
 
 static void
@@ -291,6 +296,8 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[0]->protocol = dc[1]->protocol = flow->protocol;
 	dc[0]->tcp_flags = flow->tcp_flags[0];
 	dc[1]->tcp_flags = flow->tcp_flags[1];
+	dc[0]->tos = flow->tos[0];
+	dc[1]->tos = flow->tos[1];
 
 	if (flow->octets[0] > 0) {
 		if (ret_len + freclen > len)
