@@ -31,6 +31,11 @@ AC_ARG_ENABLE(gcc-warnings,
 	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
+AC_ARG_ENABLE(nf9-vlan,
+              AC_HELP_STRING([--enable-nf9-vlan],
+                             [enable exporting VLAN (and ICMP_TYPE) field in NetFlow v9 (default is NO)]),
+              AC_DEFINE([ENABLE_NF9_VLAN], 1, [enable exporting VLAN (and ICMP_TYPE) field in NetFlow v9]))
+
 AC_ARG_WITH(cflags,
 	[  --with-cflags           Specify additional compiler flags],
 	[ if test "x$withval" != "xno" ; then CFLAGS="$CFLAGS $withval"; fi ]	

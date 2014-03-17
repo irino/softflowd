@@ -85,7 +85,14 @@ struct IPFIX_FIELD_SPECIFIER {
 #define IPFIX_sourceIPv6Address		27
 #define IPFIX_destinationIPv6Address	28
 /* ... */
+#define IPFIX_icmpTypeCodeIPv4		32
+/* ... */
+/* ... */
+#define IPFIX_vlanId			58
+
 #define IPFIX_ipVersion			60
+/* ... */
+#define IPFIX_icmpTypeCodeIPv6		139
 /* ... */
 #define IPFIX_meteringProcessId		143
 /* ... */
@@ -107,7 +114,7 @@ struct IPFIX_FIELD_SPECIFIER {
 #define PSAMP_selectorAlgorithm_count	1
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS	14
+#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS	16
 struct IPFIX_SOFTFLOWD_TEMPLATE {
 	struct IPFIX_TEMPLATE_SET_HEADER h;
 	struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];
@@ -127,6 +134,7 @@ struct IPFIX_SOFTFLOWD_DATA_COMMON {
 	u_int32_t ingressInterface, egressInterface;
 	u_int16_t sourceTransportPort, destinationTransportPort;
 	u_int8_t protocolIdentifier, tcpControlBits, ipVersion, ipClassOfService;
+	u_int16_t icmpTypeCode, vlanId;
 	//u_int32_t flowEndSysUpTime, flowStartSysUpTime;
 } __packed;
 
@@ -220,31 +228,35 @@ ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 	v4_template.r[10].length = htons(1);
 	v4_template.r[11].ie = htons(IPFIX_ipClassOfService);
 	v4_template.r[11].length = htons(1);
+	v4_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv4);
+	v4_template.r[12].length = htons(2);
+	v4_template.r[13].ie = htons(IPFIX_vlanId);
+	v4_template.r[13].length = htons(2);
 	if (param->time_format == 's') {
-		v4_template.r[12].ie = htons(IPFIX_flowStartSeconds);
-		v4_template.r[12].length = htons(sizeof(u_int32_t));
-		v4_template.r[13].ie = htons(IPFIX_flowEndSeconds);
-		v4_template.r[13].length = htons(sizeof(u_int32_t));
+		v4_template.r[14].ie = htons(IPFIX_flowStartSeconds);
+		v4_template.r[14].length = htons(sizeof(u_int32_t));
+		v4_template.r[15].ie = htons(IPFIX_flowEndSeconds);
+		v4_template.r[15].length = htons(sizeof(u_int32_t));
 	} else if (param->time_format == 'm') {
-		v4_template.r[12].ie = htons(IPFIX_flowStartMilliSeconds);
-		v4_template.r[12].length = htons(sizeof(u_int64_t));
-		v4_template.r[13].ie = htons(IPFIX_flowEndMilliSeconds);
-		v4_template.r[13].length = htons(sizeof(u_int64_t));
+		v4_template.r[14].ie = htons(IPFIX_flowStartMilliSeconds);
+		v4_template.r[14].length = htons(sizeof(u_int64_t));
+		v4_template.r[15].ie = htons(IPFIX_flowEndMilliSeconds);
+		v4_template.r[15].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'M') {
-		v4_template.r[12].ie = htons(IPFIX_flowStartMicroSeconds);
-		v4_template.r[12].length = htons(sizeof(u_int64_t));
-		v4_template.r[13].ie = htons(IPFIX_flowEndMicroSeconds);
-		v4_template.r[13].length = htons(sizeof(u_int64_t));
+		v4_template.r[14].ie = htons(IPFIX_flowStartMicroSeconds);
+		v4_template.r[14].length = htons(sizeof(u_int64_t));
+		v4_template.r[15].ie = htons(IPFIX_flowEndMicroSeconds);
+		v4_template.r[15].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'n') {
-		v4_template.r[12].ie = htons(IPFIX_flowStartNanoSeconds);
-		v4_template.r[12].length = htons(sizeof(u_int64_t));
-		v4_template.r[13].ie = htons(IPFIX_flowEndNanoSeconds);
-		v4_template.r[13].length = htons(sizeof(u_int64_t));
+		v4_template.r[14].ie = htons(IPFIX_flowStartNanoSeconds);
+		v4_template.r[14].length = htons(sizeof(u_int64_t));
+		v4_template.r[15].ie = htons(IPFIX_flowEndNanoSeconds);
+		v4_template.r[15].length = htons(sizeof(u_int64_t));
 	} else {
-		v4_template.r[12].ie = htons(IPFIX_flowStartSysUpTime);
-		v4_template.r[12].length = htons(sizeof(u_int32_t));
-		v4_template.r[13].ie = htons(IPFIX_flowEndSysUpTime);
-		v4_template.r[13].length = htons(sizeof(u_int32_t));
+		v4_template.r[14].ie = htons(IPFIX_flowStartSysUpTime);
+		v4_template.r[14].length = htons(sizeof(u_int32_t));
+		v4_template.r[15].ie = htons(IPFIX_flowEndSysUpTime);
+		v4_template.r[15].length = htons(sizeof(u_int32_t));
 	}
 
 	bzero(&v6_template, sizeof(v6_template));
@@ -276,31 +288,35 @@ ipfix_init_template(struct FLOWTRACKPARAMETERS *param)
 	v6_template.r[10].length = htons(1);
 	v6_template.r[11].ie = htons(IPFIX_ipClassOfService);
 	v6_template.r[11].length = htons(1);
+	v6_template.r[12].ie = htons(IPFIX_icmpTypeCodeIPv6);
+	v6_template.r[12].length = htons(2);
+	v6_template.r[13].ie = htons(IPFIX_vlanId);
+	v6_template.r[13].length = htons(2);
 	if (param->time_format == 's') {
-		v6_template.r[12].ie = htons(IPFIX_flowStartSeconds);
-		v6_template.r[12].length = htons(sizeof(u_int32_t));
-		v6_template.r[13].ie = htons(IPFIX_flowEndSeconds);
-		v6_template.r[13].length = htons(sizeof(u_int32_t));
+		v6_template.r[14].ie = htons(IPFIX_flowStartSeconds);
+		v6_template.r[14].length = htons(sizeof(u_int32_t));
+		v6_template.r[15].ie = htons(IPFIX_flowEndSeconds);
+		v6_template.r[15].length = htons(sizeof(u_int32_t));
 	} else if (param->time_format == 'm') {
-		v6_template.r[12].ie = htons(IPFIX_flowStartMilliSeconds);
-		v6_template.r[12].length = htons(sizeof(u_int64_t));
-		v6_template.r[13].ie = htons(IPFIX_flowEndMilliSeconds);
-		v6_template.r[13].length = htons(sizeof(u_int64_t));
+		v6_template.r[14].ie = htons(IPFIX_flowStartMilliSeconds);
+		v6_template.r[14].length = htons(sizeof(u_int64_t));
+		v6_template.r[15].ie = htons(IPFIX_flowEndMilliSeconds);
+		v6_template.r[15].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'M') {
-		v6_template.r[12].ie = htons(IPFIX_flowStartMicroSeconds);
-		v6_template.r[12].length = htons(sizeof(u_int64_t));
-		v6_template.r[13].ie = htons(IPFIX_flowEndMicroSeconds);
-		v6_template.r[13].length = htons(sizeof(u_int64_t));
+		v6_template.r[14].ie = htons(IPFIX_flowStartMicroSeconds);
+		v6_template.r[14].length = htons(sizeof(u_int64_t));
+		v6_template.r[15].ie = htons(IPFIX_flowEndMicroSeconds);
+		v6_template.r[15].length = htons(sizeof(u_int64_t));
 	} else if (param->time_format == 'n') {
-		v6_template.r[12].ie = htons(IPFIX_flowStartNanoSeconds);
-		v6_template.r[12].length = htons(sizeof(u_int64_t));
-		v6_template.r[13].ie = htons(IPFIX_flowEndNanoSeconds);
-		v6_template.r[13].length = htons(sizeof(u_int64_t));
+		v6_template.r[14].ie = htons(IPFIX_flowStartNanoSeconds);
+		v6_template.r[14].length = htons(sizeof(u_int64_t));
+		v6_template.r[15].ie = htons(IPFIX_flowEndNanoSeconds);
+		v6_template.r[15].length = htons(sizeof(u_int64_t));
 	} else {
-		v6_template.r[12].ie = htons(IPFIX_flowStartSysUpTime);
-		v6_template.r[12].length = htons(sizeof(u_int32_t));
-		v6_template.r[13].ie = htons(IPFIX_flowEndSysUpTime);
-		v6_template.r[13].length = htons(sizeof(u_int32_t));
+		v6_template.r[14].ie = htons(IPFIX_flowStartSysUpTime);
+		v6_template.r[14].length = htons(sizeof(u_int32_t));
+		v6_template.r[15].ie = htons(IPFIX_flowEndSysUpTime);
+		v6_template.r[15].length = htons(sizeof(u_int32_t));
 	}
 }
 
@@ -427,6 +443,11 @@ ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 	dc[1]->tcpControlBits = flow->tcp_flags[1];
 	dc[0]->ipClassOfService = flow->tos[0];
 	dc[1]->ipClassOfService = flow->tos[1];
+	if (flow->protocol == IPPROTO_ICMP || flow->protocol == IPPROTO_ICMPV6) {
+	  dc[0]->icmpTypeCode = dc[0]->destinationTransportPort;
+	  dc[1]->icmpTypeCode = dc[1]->destinationTransportPort;
+	}
+	dc[0]->vlanId = dc[1]->vlanId = htons(flow->vlanid);
 
 	if (flow->octets[0] > 0) {
 		if (ret_len + freclen > len)

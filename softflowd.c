@@ -140,6 +140,9 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 	/* Be careful to avoid signed vs unsigned issues here */
 	int r;
 
+	if (a->vlanid != b->vlanid)
+		return (a->vlanid > b->vlanid ? 1 : -1);
+
 	if (a->af != b->af)
 		return (a->af > b->af ? 1 : -1);
 
@@ -336,6 +339,7 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 		flow->port[ndx ^ 1] = udp->uh_dport;
 		break;
 	case IPPROTO_ICMP:
+	case IPPROTO_ICMPV6:
 		/*
 		 * Encode ICMP type * 256 + code into dest port like
 		 * Cisco routers
@@ -351,7 +355,7 @@ transport_to_flowrec(struct FLOW *flow, const u_int8_t *pkt,
 /* Convert a IPv4 packet to a partial flow record (used for comparison) */
 static int
 ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen, 
-    size_t len, int *isfrag, int af)
+		size_t len, int *isfrag, int af, u_int16_t vlanid)
 {
 	const struct ip *ip = (const struct ip *)pkt;
 	int ndx;
@@ -370,6 +374,7 @@ ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 	flow->protocol = ip->ip_p;
 	flow->octets[ndx] = len;
 	flow->packets[ndx] = 1;
+	flow->vlanid = vlanid;
 
 	*isfrag = (ntohs(ip->ip_off) & (IP_OFFMASK|IP_MF)) ? 1 : 0;
 
@@ -384,7 +389,7 @@ ipv4_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 /* Convert a IPv6 packet to a partial flow record (used for comparison) */
 static int
 ipv6_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen, 
-    size_t len, int *isfrag, int af)
+		size_t len, int *isfrag, int af, u_int16_t vlanid)
 {
 	const struct ip6_hdr *ip6 = (const struct ip6_hdr *)pkt;
 	const struct ip6_ext *eh6;
@@ -407,6 +412,7 @@ ipv6_to_flowrec(struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 	flow->addr[ndx ^ 1].v6 = ip6->ip6_dst;
 	flow->octets[ndx] = len;
 	flow->packets[ndx] = 1;
+	flow->vlanid = vlanid;
 
 	*isfrag = 0;
 	nxt = ip6->ip6_nxt;
@@ -545,7 +551,7 @@ flow_update_expiry(struct FLOWTRACK *ft, struct FLOW *flow)
  */
 static int
 process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
-    const u_int32_t caplen, const u_int32_t len, 
+	       const u_int32_t caplen, const u_int32_t len, u_int16_t vlanid,
     const struct timeval *received_time)
 {
 	struct FLOW tmp, *flow;
@@ -557,11 +563,11 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 	memset(&tmp, 0, sizeof(tmp));
 	switch (af) {
 	case AF_INET:
-		if (ipv4_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1)
+	  if (ipv4_to_flowrec(&tmp, pkt, caplen, len, &frag, af, vlanid) == -1)
 			goto bad;
 		break;
 	case AF_INET6:
-		if (ipv6_to_flowrec(&tmp, pkt, caplen, len, &frag, af) == -1)
+	  if (ipv6_to_flowrec(&tmp, pkt, caplen, len, &frag, af, vlanid) == -1)
 			goto bad;
 		break;
 	default:
@@ -583,6 +589,8 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 		tmp.tcp_flags[0] = tmp.tcp_flags[1] = 0;
 		/* FALLTHROUGH */
 	case TRACK_FULL:
+		tmp.vlanid = 0;
+	case TRACK_FULL_VLAN:
 		break;
 	}
 
@@ -1073,10 +1081,12 @@ dump_flows(struct FLOWTRACK *ft, FILE *out)
  * packet should be skipped
  */
 static int 
-datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af)
+datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af, u_int16_t *vlanid)
 {
 	int i, j;
 	u_int32_t frametype;
+	int add_offset = 0;
+
 	static const struct DATALINK *dl = NULL;
 
 	/* Try to cache last used linktype */
@@ -1092,15 +1102,24 @@ datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af)
 
 	/* Suck out the frametype */
 	frametype = 0;
+
+	/* Processing 802.1Q vlan in ethernet */
+	if (linktype == DLT_EN10MB && ntohs(*(u_int16_t *)(pkt + dl->ft_off)) == 0x8100) {
+	  add_offset = 4;
+	  if (caplen <= dl->skiplen + add_offset)
+	    return (-1);
+	  *vlanid = ntohs(*(u_int16_t *)(pkt + dl->ft_off + 2)) & 0x0fff;
+	}
+
 	if (dl->ft_is_be) {
 		for (j = 0; j < dl->ft_len; j++) {
 			frametype <<= 8;
-			frametype |= pkt[j + dl->ft_off];
+			frametype |= pkt[j + dl->ft_off + add_offset];
 		}
 	} else {
 		for (j = dl->ft_len - 1; j >= 0 ; j--) {
 			frametype <<= 8;
-			frametype |= pkt[j + dl->ft_off];
+			frametype |= pkt[j + dl->ft_off + add_offset];
 		}
 	}
 	frametype &= dl->ft_mask;
@@ -1112,7 +1131,7 @@ datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af)
 	else
 		return (-1);
 	
-	return (dl->skiplen);
+	return (dl->skiplen + add_offset);
 }
 
 /*
@@ -1123,9 +1142,10 @@ static void
 flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr, 
     const u_char *pkt)
 {
-	int s, af;
+	int s, af = 0;
 	struct CB_CTXT *cb_ctxt = (struct CB_CTXT *)user_data;
 	struct timeval tv;
+	u_int16_t vlanid = 0;
 
 	if (cb_ctxt->ft->param.option.sample &&
 	    (cb_ctxt->ft->param.total_packets +
@@ -1134,14 +1154,14 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 		cb_ctxt->ft->param.non_sampled_packets++;
 		return;
 	}
-	s = datalink_check(cb_ctxt->linktype, pkt, phdr->caplen, &af);
+	s = datalink_check(cb_ctxt->linktype, pkt, phdr->caplen, &af, &vlanid);
 	if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
 		cb_ctxt->ft->param.non_ip_packets++;
 	} else {
 		tv.tv_sec = phdr->ts.tv_sec;
 		tv.tv_usec = phdr->ts.tv_usec;
-		if (process_packet(cb_ctxt->ft, pkt + s, af,
-		    phdr->caplen - s, phdr->len - s, &tv) == PP_MALLOC_FAIL)
+		if (process_packet(cb_ctxt->ft, pkt + s, af, phdr->caplen - s, 
+				   phdr->len - s, vlanid, &tv) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
 }
@@ -1393,7 +1413,7 @@ setup_packet_capture(struct pcap **pcap, int *linktype,
 		bpf_net = bpf_mask = 0;
 	}
 	*linktype = pcap_datalink(*pcap);
-	if (datalink_check(*linktype, NULL, 0, NULL) == -1) {
+	if (datalink_check(*linktype, NULL, 0, NULL, NULL) == -1) {
 		fprintf(stderr, "Unsupported datalink type %d\n", *linktype);
 		exit(1);
 	}
@@ -1496,14 +1516,14 @@ usage(void)
 "  -c pidfile              Location of control socket\n"
 "                          (default: %s)\n"
 "  -v 1|5|9|10             NetFlow export packet version\n"
-"                          (10 means IPFI)\n"
+"                          (10 means IPFIX)\n"
 "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
-"  -T full|port|proto|ip   Set flow tracking level (default: full)\n"
+"  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
+"     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
 "  -6                      Track IPv6 flows, regardless of whether selected \n"
 "                          NetFlow export protocol supports it\n"
 "  -d                      Don't daemonise (run in foreground)\n"
 "  -D                      Debug mode: foreground + verbosity + track v6 flows\n"
-"  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
 "  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
 "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
 "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
@@ -1777,6 +1797,8 @@ main(int argc, char **argv)
 				flowtrack.param.track_level = TRACK_IP_PROTO;
 			else if (strcasecmp(optarg, "ip") == 0)
 				flowtrack.param.track_level = TRACK_IP_ONLY;
+			else if (strcasecmp(optarg, "vlan") == 0)
+				flowtrack.param.track_level = TRACK_FULL_VLAN;
 			else {
 				fprintf(stderr, "Unknown flow tracking "
 				    "level\n");
