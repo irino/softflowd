@@ -989,8 +989,8 @@ statistics(struct FLOWTRACK *ft, FILE *out, pcap_t *pcap)
 	    ft->param.non_ip_packets + ft->param.bad_packets, ft->param.non_ip_packets, ft->param.bad_packets);
 	fprintf(out, "Flows expired: %"PRIu64" (%"PRIu64" forced)\n", 
 	    ft->param.flows_expired, ft->param.flows_force_expired);
-	fprintf(out, "Flows exported: %"PRIu64" in %"PRIu64" packets (%"PRIu64" failures)\n",
-	    ft->param.flows_exported, ft->param.packets_sent, ft->param.flows_dropped);
+	fprintf(out, "Flows exported: %"PRIu64" (%"PRIu64" records) in %"PRIu64" packets (%"PRIu64" failures)\n",
+	    ft->param.flows_exported, ft->param.records_sent, ft->param.packets_sent, ft->param.flows_dropped);
 
 	if (pcap_stats(pcap, &ps) == 0) {
 		fprintf(out, "Packets received by libpcap: %lu\n",

@@ -82,6 +82,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 		if (j >= NF1_MAXFLOWS - 1) {
 			if (verbose_flag)
 				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
+			param->records_sent += hdr->flows;
 			hdr->flows = htons(hdr->flows);
 			errsz = sizeof(err);
 			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
@@ -157,6 +158,7 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 	if (j != 0) {
 		if (verbose_flag)
 			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
+		param->records_sent += hdr->flows;
 		hdr->flows = htons(hdr->flows);
 		errsz = sizeof(err);
 		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,

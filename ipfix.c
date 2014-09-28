@@ -28,7 +28,7 @@
 #include "treetype.h"
 #include "softflowd.h"
 
-#if defined (HAVE_HTONLL) && !defined (HAVE_HTOBE64)
+#if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
 #define htobe64 htonll
 #endif
 #define JAN_1970        2208988800UL /* 1970 - 1900 in seconds */
@@ -343,7 +343,7 @@ ipfix_init_option(struct timeval *system_boot_time, struct OPTION *option) {
 	option_data.c.set_id = htons(IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
 	option_data.c.length = htons(sizeof(option_data));
 	option_data.scope_pid = htonl((u_int32_t)option->meteringProcessId);
-#if defined (_BSD_SOURCE) && defined (HAVE_ENDIAN_H) || defined (HAVE_HTOBE64) || defined (HAVE_HTONLL)
+#if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
 	option_data.systemInitTimeMilliseconds = htobe64((u_int64_t)system_boot_time->tv_sec * 1000 + (u_int64_t)system_boot_time->tv_usec / 1000);
 #endif
 	option_data.samplingAlgorithm = htons(PSAMP_selectorAlgorithm_count);
@@ -406,22 +406,22 @@ ipfix_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
 		dt[0]->u32.end = dt[1]->u32.end = 
 		    htonl(flow->flow_last.tv_sec);
 	}
-#if defined (_BSD_SOURCE) && defined (HAVE_ENDIAN_H) || defined (HAVE_HTOBE64) || defined (HAVE_HTONLL)
+#if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
 	else if (param->time_format == 'm') { /* milliseconds */
 		dt[0]->u64.start = dt[1]->u64.start = 
 		    htobe64((u_int64_t)flow->flow_start.tv_sec * 1000 + (u_int64_t)flow->flow_start.tv_usec / 1000);
 		dt[0]->u64.end = dt[1]->u64.end = 
 		    htobe64((u_int64_t)flow->flow_last.tv_sec * 1000 + (u_int64_t)flow->flow_last.tv_usec / 1000);
 	} else if (param->time_format == 'M') { /* microseconds */
-		dt[0]->u64.start = dt[1]->u64.start = 
-		    htobe64(((u_int64_t)(flow->flow_start.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec << 32)/ 1e6));
-		dt[0]->u64.end = dt[1]->u64.end = 
-		    htobe64(((u_int64_t)(flow->flow_last.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec << 32)/ 1e6));
+	  dt[0]->u64.start = dt[1]->u64.start = 
+	    htobe64(((u_int64_t)flow->flow_start.tv_sec + JAN_1970) << 32 | (u_int32_t)(((u_int64_t)flow->flow_start.tv_usec << 32) / 1e6));
+	  dt[0]->u64.end = dt[1]->u64.end = 
+	    htobe64(((u_int64_t)flow->flow_last.tv_sec + JAN_1970) << 32 | (u_int32_t)(((u_int64_t)flow->flow_last.tv_usec << 32) / 1e6));
 	} else if (param->time_format == 'n') { /* nanoseconds */
-		dt[0]->u64.start = dt[1]->u64.start = 
-		    htobe64(((u_int64_t)(flow->flow_start.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec * 1000 << 32)/ 1e9));
-		dt[0]->u64.end = dt[1]->u64.end = 
-		    htobe64(((u_int64_t)(flow->flow_last.tv_sec + JAN_1970) << 32) + (u_int64_t)((flow->flow_start.tv_usec * 1000 << 32)/ 1e9));
+	  dt[0]->u64.start = dt[1]->u64.start = 
+	    htobe64(((u_int64_t)flow->flow_start.tv_sec + JAN_1970) << 32 | (u_int32_t)(((u_int64_t)flow->flow_start.tv_usec << 32) / 1e9));
+	  dt[0]->u64.end = dt[1]->u64.end = 
+	    htobe64(((u_int64_t)flow->flow_last.tv_sec + JAN_1970) << 32 | (u_int32_t)(((u_int64_t)flow->flow_last.tv_usec << 32) / 1e9));
 	}
 #endif
 	else {
@@ -483,10 +483,12 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 	u_int offset, last_af, i, j, num_packets, inc, last_valid;
 	socklen_t errsz;
 	int err, r;
+	u_int records;
 	u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
 	struct timeval *system_boot_time = &param->system_boot_time;
 	u_int64_t *flows_exported = &param->flows_exported;
 	u_int64_t *packets_sent = &param->packets_sent;
+	u_int64_t *records_sent = &param->records_sent;
 	struct OPTION *option = &param->option;
 
 	gettimeofday(&now, NULL);
@@ -532,6 +534,7 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 
 		dh = NULL;
 		last_af = 0;
+		records = 0;
 		for (i = 0; i + j < num_flows; i++) {
 			if (dh == NULL || flows[i + j]->af != last_af) {
 				if (dh != NULL) {
@@ -568,6 +571,7 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 					offset = last_valid;
 				break;
 			}
+			records += (u_int)r;
 			offset += inc;
 			dh->length += inc;
 			last_valid = 0; /* Don't clobber this header now */
@@ -590,7 +594,8 @@ send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 			dh->length = htons(dh->length);
 		}
 		ipfix->length = htons(offset);
-		ipfix->sequence = htonl(*packets_sent + num_packets + 1);
+		*records_sent += records;
+		ipfix->sequence = htonl((u_int32_t)(*records_sent & 0x00000000ffffffff));
 
 		if (verbose_flag)
 			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);

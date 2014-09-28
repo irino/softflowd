@@ -114,6 +114,7 @@ struct FLOWTRACKPARAMETERS {
 	u_int64_t flows_dropped;		/* # of flows dropped */
 	u_int64_t flows_force_expired;		/* # of flows forced out */
 	u_int64_t packets_sent;			/* # netflow packets sent */
+	u_int64_t records_sent;			/* # netflow records sent */
 	struct STATISTIC duration;		/* Flow duration */
 	struct STATISTIC octets;		/* Bytes (bidir) */
 	struct STATISTIC packets;		/* Packets (bidir) */

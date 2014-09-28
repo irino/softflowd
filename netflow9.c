@@ -473,8 +473,9 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 			/* Finalise last header */
 			dh->c.length = htons(dh->c.length);
 		}
+		param->records_sent += nf9->flows;
 		nf9->flows = htons(nf9->flows);
-		nf9->package_sequence = htonl(*packets_sent + num_packets + 1);
+		nf9->package_sequence = htonl((u_int32_t)((*packets_sent + num_packets + 1) & 0x00000000ffffffff));
 
 		if (verbose_flag)
 			logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
