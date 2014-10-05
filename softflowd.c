@@ -99,16 +99,17 @@ typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int16_t,
 struct NETFLOW_SENDER {
 	int version;
 	netflow_send_func_t *func;
+	netflow_send_func_t *bidir_func;
 	int v6_capable;
 };
 
 /* Array of NetFlow export function that we know of. NB. nf[0] is default */
 static const struct NETFLOW_SENDER nf[] = {
-	{ 5, send_netflow_v5, 0 },
-	{ 1, send_netflow_v1, 0 },
-	{ 9, send_netflow_v9, 1 },
-	{ 10, send_ipfix, 1 },
-	{ -1, NULL, 0 },
+	{ 5, send_netflow_v5, NULL, 0 },
+	{ 1, send_netflow_v1, NULL, 0 },
+	{ 9, send_netflow_v9, NULL, 1 },
+	{ 10, send_ipfix, send_ipfix_bidirection, 1 },
+	{ -1, NULL, NULL, 0 },
 };
 
 /* Describes a location where we send NetFlow packets to */
@@ -854,8 +855,15 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 	/* Processing for expired flows */
 	if (num_expired > 0) {
 		if (target != NULL && target->fd != -1) {
-			r = target->dialect->func(expired_flows, num_expired, 
-						  target->fd, if_index, &ft->param, verbose_flag);
+			netflow_send_func_t *func = 
+				ft->param.bidirection == 1 ? 
+				target->dialect->bidir_func :
+				target->dialect->func;
+			if (func == NULL) {
+				func = target->dialect->func;
+			}
+			r = func(expired_flows, num_expired, 
+				 target->fd, if_index, &ft->param, verbose_flag);
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
@@ -1085,7 +1093,7 @@ datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af, u_i
 {
 	int i, j;
 	u_int32_t frametype;
-	int add_offset = 0;
+	int vlan_size = 0;
 
 	static const struct DATALINK *dl = NULL;
 
@@ -1104,22 +1112,31 @@ datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af, u_i
 	frametype = 0;
 
 	/* Processing 802.1Q vlan in ethernet */
-	if (linktype == DLT_EN10MB && ntohs(*(u_int16_t *)(pkt + dl->ft_off)) == 0x8100) {
-	  add_offset = 4;
-	  if (caplen <= dl->skiplen + add_offset)
-	    return (-1);
-	  *vlanid = ntohs(*(u_int16_t *)(pkt + dl->ft_off + 2)) & 0x0fff;
+	if (linktype == DLT_EN10MB) {
+		for (j = 0; j < dl->ft_len; j++) {
+			frametype <<= 8;
+			frametype |= pkt[j + dl->ft_off];
+		}
+		frametype &= dl->ft_mask;
+		if (frametype == 0x8100) {
+			for (j = 0; j < 2; j++) {
+				*vlanid <<= 8;
+				*vlanid |= pkt[j + dl->skiplen];
+			}
+			vlan_size = 4;
+		}
 	}
+	frametype = 0;
 
 	if (dl->ft_is_be) {
 		for (j = 0; j < dl->ft_len; j++) {
 			frametype <<= 8;
-			frametype |= pkt[j + dl->ft_off + add_offset];
+			frametype |= pkt[j + dl->ft_off + vlan_size];
 		}
 	} else {
 		for (j = dl->ft_len - 1; j >= 0 ; j--) {
 			frametype <<= 8;
-			frametype |= pkt[j + dl->ft_off + add_offset];
+			frametype |= pkt[j + dl->ft_off + vlan_size];
 		}
 	}
 	frametype &= dl->ft_mask;
@@ -1131,7 +1148,7 @@ datalink_check(int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af, u_i
 	else
 		return (-1);
 	
-	return (dl->skiplen + add_offset);
+	return (dl->skiplen + vlan_size);
 }
 
 /*
@@ -1739,7 +1756,7 @@ main(int argc, char **argv)
 	dontfork_flag = 0;
 	always_v6 = 0;
 
-	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:b")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
@@ -1884,6 +1901,9 @@ main(int argc, char **argv)
 				usage();
 				exit(1);
 			}
+			break;
+		case 'b':
+			flowtrack.param.bidirection = 1;
 			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");

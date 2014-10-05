@@ -140,6 +140,7 @@ struct FLOWTRACKPARAMETERS {
 	/* Optional information */
 	struct OPTION option;
 	char time_format;
+	u_int8_t bidirection;
 };
 /*
  * This structure is the root of the flow tracking system.
@@ -234,6 +235,10 @@ int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 int send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
 	       u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
 	       int verbose_flag);
+int send_ipfix_bidirection(struct FLOW **flows, int num_flows, int nfsock,
+			   u_int16_t ifidx, 
+			   struct FLOWTRACKPARAMETERS *param,
+			   int verbose_flag);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);
