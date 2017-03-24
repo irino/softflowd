@@ -90,6 +90,9 @@ static const struct DATALINK lt[] = {
 #ifdef DLT_LOOP
 	{ DLT_LOOP,	 4,  0,  4,  1, 0xffffffff, AF_INET, AF_INET6 },
 #endif
+#ifdef DLT_PFLOG
+        { DLT_PFLOG,    48,  1,  1,  0, 0x000000ff, AF_INET, AF_INET6 },
+#endif
 	{ -1,		-1, -1, -1, -1, 0x00000000,  0xffff,   0xffff },
 };
 
@@ -1297,7 +1300,7 @@ accept_control(int lsock, struct NETFLOW_TARGET *target, struct FLOWTRACK *ft,
 		print_timeouts(ft, ctlf);
 		ret = 0;
 	} else {
-		fprintf(ctlf, "Unknown control commmand \"%s\"\n", buf);
+		fprintf(ctlf, "Unknown control command \"%s\"\n", buf);
 		ret = 0;
 	}
 
