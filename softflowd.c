@@ -1951,6 +1951,19 @@ main(int argc, char **argv)
 		r = daemon(0, 0);
 		loginit(PROGNAME, 0);
 
+		if ((pidfile = fopen(pidfile_path, "r")) != NULL) {
+			int pid;
+			fscanf(pidfile,"%d", &pid);
+			fclose(pidfile);
+			
+			/* Check if the pid exists */
+			int pidfree = (kill(pid, 0) && errno == ESRCH);
+			if (!pidfree) {
+				fprintf(stderr, "Already running under pid %d\n",
+					pid);
+				exit(1);
+			}
+                }
 		if ((pidfile = fopen(pidfile_path, "w")) == NULL) {
 			fprintf(stderr, "Couldn't open pidfile %s: %s\n",
 			    pidfile_path, strerror(errno));
