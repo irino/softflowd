@@ -1953,13 +1953,13 @@ main(int argc, char **argv)
 
 		if ((pidfile = fopen(pidfile_path, "r")) != NULL) {
 			int pid;
-			fscanf(pidfile,"%d", &pid);
+			fscanf(pidfile,"%u", &pid);
 			fclose(pidfile);
 			
 			/* Check if the pid exists */
 			int pidfree = (kill(pid, 0) && errno == ESRCH);
 			if (!pidfree) {
-				fprintf(stderr, "Already running under pid %d\n",
+				fprintf(stderr, "Already running under pid %u\n",
 					pid);
 				exit(1);
 			}
