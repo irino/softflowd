@@ -74,6 +74,7 @@ struct STATISTIC {
 #define TRACK_IP_PROTO		3	/* src/dst/proto 3-tuple */
 #define TRACK_IP_ONLY		4	/* src/dst tuple */
 #define TRACK_FULL_VLAN		5	/* src/dst/addr/port/proto/tos/vlanid 7-tuple */
+#define TRACK_FULL_VLAN_ETHER		6	/* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
 
 /*
  * This structure contains optional information carried by Option Data
@@ -190,7 +191,8 @@ struct FLOW {
 	u_int16_t port[2];			/* Endpoint ports */
 	u_int8_t tcp_flags[2];			/* Cumulative OR of flags */
 	u_int8_t tos[2];			/* Tos */
-        u_int16_t vlanid;                       /* vlanid */
+	u_int16_t vlanid[2];                       /* vlanid */
+	uint8_t ethermac[2][6];
 	u_int8_t protocol;			/* Protocol */
 };
 
@@ -232,13 +234,16 @@ int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
 int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
 		    int verbose_flag);
+int send_nflow9(struct FLOW **flows, int num_flows, int nfsock,
+				  u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
+				  int verbose_flag);
 int send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
-	       u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-	       int verbose_flag);
-int send_ipfix_bidirection(struct FLOW **flows, int num_flows, int nfsock,
-			   u_int16_t ifidx, 
-			   struct FLOWTRACKPARAMETERS *param,
+			   u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
 			   int verbose_flag);
+int send_ipfix_bi(struct FLOW **flows, int num_flows, int nfsock,
+				  u_int16_t ifidx,
+				  struct FLOWTRACKPARAMETERS *param,
+				  int verbose_flag);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);

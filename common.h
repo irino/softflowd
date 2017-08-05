@@ -45,6 +45,7 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <net/ethernet.h>
 
 #include <unistd.h>
 #include <stdlib.h>
