@@ -28,6 +28,7 @@
 #include "config.h"
 
 #define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
+#define _DEFAULT_SOURCE /* It is recommended to use instead of _BSD_SOURCE on Linux */
 
 #include <sys/types.h>
 #include <sys/stat.h>
