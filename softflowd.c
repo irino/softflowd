@@ -1834,8 +1834,15 @@ main(int argc, char **argv)
 			dev = strtok(optarg, ":");
 #endif /* defined(HAVE_STRSEP) */
 			if (optarg != NULL) {
-				if_index = (u_int16_t) atoi(dev);
+				if (strlen(dev) > 0) {
+					if_index = (u_int16_t) atoi(dev);
+				}
 				dev = optarg;
+			}
+			if (strlen(dev) == 0) {
+				fprintf(stderr, "Wrong interface is specified.\n\n");
+				usage();
+				exit(1);
 			}
 			if (verbose_flag)
 				fprintf(stderr, "Using %s (idx: %d)\n", dev, if_index);
