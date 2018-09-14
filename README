@@ -15,7 +15,7 @@ supplied manpages, which you can view prior to installation using
 /usr/bin/nroff -c -mandoc softflowctl.8 | less
 
 If you are in need of a NetFlow collector, you may be interested in 
-softflowd's companion project "flowd" (http://www.mindrot.org/flowd.html). 
+softflowd's companion project "flowd" (http://www.mindrot.org/projects/flowd/). 
 flowd is a NetFlow collector that is maintained in parallel with
 softflowd and includes a few handy features, such as the ability
 to filter flows it receives as well as Perl and Python APIs to its
@@ -51,6 +51,10 @@ Todd C. Miller. Please refer to the LICENSE file for full details.
 Reporting Bugs
 --------------
 
+Please report bugs in softflowd (https://github.com/irino/softflowd/)
+to https://github.com/irino/softflowd/issues
+
+Following descriptions are historical information:
 Please report bugs in softflowd to http://bugzilla.mindrot.org/ If you
 find a security bug, please report it directly by email. If you have any
 feedback or questions, please email me:
@@ -62,7 +66,12 @@ Softflowd has an extensive TODO list of interesting features, large and
 small, that are waiting to be implemented. If you are interested in
 helping, please contact me.
 
-The latest source code may be obtained from Google Code:
-http://code.google.com/p/softflowd/
+The latest source code may be obtained from Github:
+https://github.com/irino/softflowd/
+(This repository was forked from http://code.google.com/p/softflowd/)
 
+Original creator:
 Damien Miller <djm@mindrot.org>
+
+Current maintainer:
+Hitoshi Irino <irino@sfc.wide.ad.jp>
