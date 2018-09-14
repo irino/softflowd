@@ -9,7 +9,12 @@ or 9 datagrams. softflowd is fully IPv6 capable: it can track IPv6 flows and
 export to IPv6 hosts.
 
 More details about softflowd's function and usage may be found in the
-supplied manpages, which you can view prior to installation using
+supplied PDF manpages. They were built with:
+
+man -t ./softflowd.8 | ps2pdf - softflowd.pdf
+man -t ./softflowctl.8 | ps2pdf - softflowctl.pdf
+
+You can view those pages prior to installation using:
 
 /usr/bin/nroff -c -mandoc softflowd.8 | less
 /usr/bin/nroff -c -mandoc softflowctl.8 | less
