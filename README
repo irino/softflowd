@@ -33,6 +33,8 @@ Installing
 
 Building softflowd should be as simple as typing:
 
+autoconf
+autoreconf
 ./configure
 make
 make install
