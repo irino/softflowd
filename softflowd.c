@@ -55,6 +55,9 @@
 static int verbose_flag = 0;		/* Debugging flag */
 static u_int16_t if_index = 0;		/* "manual" interface index */
 
+static u_int8_t is_first_packet = 1;
+static int track_level;
+
 /* Signal handler flags */
 static volatile sig_atomic_t graceful_shutdown_request = 0;	
 
@@ -97,8 +100,12 @@ static const struct DATALINK lt[] = {
 };
 
 /* Netflow send functions */
+/*
 typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int16_t,
 				  struct FLOWTRACKPARAMETERS *, int);
+*/
+typedef int (netflow_send_func_t)(struct SENDPARAMETER);
+
 struct NETFLOW_SENDER {
 	int version;
 	netflow_send_func_t *func;
@@ -144,15 +151,21 @@ flow_compare(struct FLOW *a, struct FLOW *b)
 {
 	/* Be careful to avoid signed vs unsigned issues here */
 	int r;
+	if (track_level == TRACK_FULL_VLAN || track_level == TRACK_FULL_VLAN_ETHER) {
+		if (a->vlanid[0] != b->vlanid[0])
+			return (a->vlanid[0] > b->vlanid[0] ? 1 : -1);
 
-	if (a->vlanid != b->vlanid)
-		return (a->vlanid > b->vlanid ? 1 : -1);
+		if (a->vlanid[1] != b->vlanid[1])
+			return (a->vlanid[1] > b->vlanid[1] ? 1 : -1);
+        }
 
-	if ((r = memcmp(&a->ethermac[0], &b->ethermac[0], 6)) != 0)
-		return (r > 0 ? 1 : -1);
+	if (track_level == TRACK_FULL_VLAN_ETHER) {
+		if ((r = memcmp(&a->ethermac[0], &b->ethermac[0], 6)) != 0)
+			return (r > 0 ? 1 : -1);
 
-	if ((r = memcmp(&a->ethermac[1], &b->ethermac[1], 6)) != 0)
-		return (r > 0 ? 1 : -1);
+		if ((r = memcmp(&a->ethermac[1], &b->ethermac[1], 6)) != 0)
+			return (r > 0 ? 1 : -1);
+	}
 
 	if (a->af != b->af)
 		return (a->af > b->af ? 1 : -1);
@@ -266,6 +279,15 @@ format_time(time_t t)
 
 }
 
+static const char *
+format_ethermac(uint8_t ethermac[6]) {
+    static char buf[1024];
+    snprintf(buf, sizeof(buf), "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
+             ethermac[0], ethermac[1], ethermac[2], ethermac[3],
+             ethermac[4], ethermac[5]);
+    return buf;
+}
+
 /* Format a flow in a verbose and ugly way */
 static const char *
 format_flow(struct FLOW *flow)
@@ -282,18 +304,22 @@ format_flow(struct FLOW *flow)
 	    format_time(flow->flow_last.tv_sec));
 
 	snprintf(buf, sizeof(buf),  "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u "
-	    "octets>:%u packets>:%u octets<:%u packets<:%u "
-	    "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
-	    "flowlabel>:%08x flowlabel<:%08x ",
-	    flow->flow_seq,
-	    addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
-	    (int)flow->protocol, 
-	    flow->octets[0], flow->packets[0], 
-	    flow->octets[1], flow->packets[1], 
-	    start_time, (flow->flow_start.tv_usec + 500) / 1000, 
-	    fin_time, (flow->flow_last.tv_usec + 500) / 1000,
-	    flow->tcp_flags[0], flow->tcp_flags[1],
-	    flow->ip6_flowlabel[0], flow->ip6_flowlabel[1]);
+		 "octets>:%u packets>:%u octets<:%u packets<:%u "
+		 "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
+		 "flowlabel>:%08x flowlabel<:%08x "
+		 "vlan>:%u vlan<:%u ether:%s <> %s",
+		 flow->flow_seq,
+		 addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
+		 (int)flow->protocol,
+		 flow->octets[0], flow->packets[0],
+		 flow->octets[1], flow->packets[1],
+		 start_time, (flow->flow_start.tv_usec + 500) / 1000,
+		 fin_time, (flow->flow_last.tv_usec + 500) / 1000,
+		 flow->tcp_flags[0], flow->tcp_flags[1],
+		 flow->ip6_flowlabel[0], flow->ip6_flowlabel[1],
+		 flow->vlanid[0], flow->vlanid[1],
+                 format_ethermac(flow->ethermac[0]),
+		 format_ethermac(flow->ethermac[1]));
 
 	return (buf);
 }
@@ -308,11 +334,14 @@ format_flow_brief(struct FLOW *flow)
 	inet_ntop(flow->af, &flow->addr[0], addr1, sizeof(addr1));
 	inet_ntop(flow->af, &flow->addr[1], addr2, sizeof(addr2));
 
-	snprintf(buf, sizeof(buf), 
-	    "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u",
-	    flow->flow_seq,
-	    addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
-	    (int)flow->protocol);
+	snprintf(buf, sizeof(buf),
+		 "seq:%"PRIu64" [%s]:%hu <> [%s]:%hu proto:%u "
+		 "vlan>:%u vlan<:%u  ether:%s <> %s ",
+		 flow->flow_seq,
+		 addr1, ntohs(flow->port[0]), addr2, ntohs(flow->port[1]),
+		 (int)flow->protocol, flow->vlanid[0], flow->vlanid[1],
+		 format_ethermac(flow->ethermac[0]),
+		 format_ethermac(flow->ethermac[1]));
 
 	return (buf);
 }
@@ -634,11 +663,13 @@ process_packet(struct FLOWTRACK *ft, const u_int8_t *pkt, int af,
 		tmp.tcp_flags[0] = tmp.tcp_flags[1] = 0;
 		/* FALLTHROUGH */
 	case TRACK_FULL:
-		//tmp.vlanid = 0;
-	case TRACK_FULL_VLAN:
-		vlan_to_flowrec(&tmp, vlanid, ndx);
+		tmp.vlanid[0] = tmp.vlanid[1] = 0;
+		break;
 	case TRACK_FULL_VLAN_ETHER:
 		ether_to_flowrec(&tmp, ether, ndx);
+		/* FALLTHROUGH */
+	case TRACK_FULL_VLAN:
+		vlan_to_flowrec(&tmp, vlanid, ndx);
 		break;
 	}
 
@@ -798,7 +829,10 @@ next_expire(struct FLOWTRACK *ft)
 	struct timeval now;
 	u_int32_t expires_at, ret, fudge;
 
-	gettimeofday(&now, NULL);
+        if (ft->param.adjust_time)
+		now = ft->param.last_packet_time;
+	else
+		gettimeofday(&now, NULL);
 
 	if ((expiry = EXPIRY_MIN(EXPIRIES, &ft->expiries)) == NULL)
 		return (-1); /* indefinite */
@@ -839,7 +873,11 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 
 	struct EXPIRY *expiry, *nexpiry;
 
-	gettimeofday(&now, NULL);
+	if (ft->param.adjust_time)
+		now = ft->param.last_packet_time;
+	else
+		gettimeofday(&now, NULL);
+
 	r = 0;
 	num_expired = 0;
 	expired_flows = NULL;
@@ -855,7 +893,6 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 		    (ex != CE_EXPIRE_FORCED &&
 		    (expiry->expires_at < now.tv_sec))) {
 			/* Flow has expired */
-
 			if (ft->param.maximum_lifetime != 0 && 
 	    		    expiry->flow->flow_last.tv_sec - 
 			    expiry->flow->flow_start.tv_sec >= 
@@ -902,6 +939,9 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 	/* Processing for expired flows */
 	if (num_expired > 0) {
 		if (target != NULL && target->fd != -1) {
+			struct SENDPARAMETER sp = { expired_flows, num_expired,
+						    target->fd, if_index,
+						    &ft->param, verbose_flag };
 			netflow_send_func_t *func = 
 				ft->param.bidirection == 1 ? 
 				target->dialect->bidir_func :
@@ -909,8 +949,11 @@ check_expired(struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex)
 			if (func == NULL) {
 				func = target->dialect->func;
 			}
+                        /*
 			r = func(expired_flows, num_expired, 
 				 target->fd, if_index, &ft->param, verbose_flag);
+                        */
+                        r = func(sp);
 			if (verbose_flag)
 				logit(LOG_DEBUG, "sent %d netflow packets", r);
 			if (r > 0) {
@@ -1214,6 +1257,13 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	u_int16_t vlanid = 0;
 	struct ether_header *ether = NULL;
 
+        if (is_first_packet) {
+            if (cb_ctxt->ft->param.adjust_time) {
+                cb_ctxt->ft->param.system_boot_time = phdr->ts;
+            }
+            is_first_packet = 0;
+        }
+
 	if (cb_ctxt->ft->param.option.sample &&
 	    (cb_ctxt->ft->param.total_packets +
 	     cb_ctxt->ft->param.non_sampled_packets) %
@@ -1227,10 +1277,12 @@ flow_cb(u_char *user_data, const struct pcap_pkthdr* phdr,
 	} else {
 		tv.tv_sec = phdr->ts.tv_sec;
 		tv.tv_usec = phdr->ts.tv_usec;
-		if (process_packet(cb_ctxt->ft, pkt + s, af, phdr->caplen - s, 
-						   phdr->len - s, ether, vlanid, &tv) == PP_MALLOC_FAIL)
+		if (process_packet(cb_ctxt->ft, pkt + s, af, phdr->caplen - s,
+				   phdr->len - s, ether, vlanid, &tv) == PP_MALLOC_FAIL)
 			cb_ctxt->fatal = 1;
 	}
+	if (cb_ctxt->ft->param.adjust_time)
+		cb_ctxt->ft->param.last_packet_time = phdr->ts;
 }
 
 static void
@@ -1526,7 +1578,7 @@ init_flowtrack(struct FLOWTRACK *ft)
 
 	ft->param.max_flows = DEFAULT_MAX_FLOWS;
 
-	ft->param.track_level = TRACK_FULL;
+	track_level = ft->param.track_level = TRACK_FULL;
 
 	ft->param.tcp_timeout = DEFAULT_TCP_TIMEOUT;
 	ft->param.tcp_rst_timeout = DEFAULT_TCP_RST_TIMEOUT;
@@ -1587,6 +1639,7 @@ usage(void)
 "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
 "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
 "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
+"     ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
 "  -6                      Track IPv6 flows, regardless of whether selected \n"
 "                          NetFlow export protocol supports it\n"
 "  -d                      Don't daemonise (run in foreground)\n"
@@ -1595,6 +1648,7 @@ usage(void)
 "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
 "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
 "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
+"  -a                      Adjusting time for reading pcap file in offline (-a work with -r)\n"
 "  -h                      Display this help\n"
 "\n"
 "Valid timeout names and default values:\n"
@@ -1807,7 +1861,7 @@ main(int argc, char **argv)
 	dontfork_flag = 0;
 	always_v6 = 0;
 
-	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:b")) != -1) {
+	while ((ch = getopt(argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:ba")) != -1) {
 		switch (ch) {
 		case '6':
 			always_v6 = 1;
@@ -1883,6 +1937,7 @@ main(int argc, char **argv)
 				usage();
 				exit(1);
 			}
+			track_level = flowtrack.param.track_level;
 			break;
 		case 'L':
 			hoplimit = atoi(optarg);
@@ -1965,6 +2020,9 @@ main(int argc, char **argv)
 			break;
 		case 'b':
 			flowtrack.param.bidirection = 1;
+			break;
+		case 'a':
+			flowtrack.param.adjust_time = 1;
 			break;
 		default:
 			fprintf(stderr, "Invalid commandline option.\n");

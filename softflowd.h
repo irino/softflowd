@@ -74,7 +74,7 @@ struct STATISTIC {
 #define TRACK_IP_PROTO		3	/* src/dst/proto 3-tuple */
 #define TRACK_IP_ONLY		4	/* src/dst tuple */
 #define TRACK_FULL_VLAN		5	/* src/dst/addr/port/proto/tos/vlanid 7-tuple */
-#define TRACK_FULL_VLAN_ETHER		6	/* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
+#define TRACK_FULL_VLAN_ETHER	6	/* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
 
 /*
  * This structure contains optional information carried by Option Data
@@ -142,6 +142,8 @@ struct FLOWTRACKPARAMETERS {
 	struct OPTION option;
 	char time_format;
 	u_int8_t bidirection;
+	u_int8_t adjust_time;
+	struct timeval last_packet_time;
 };
 /*
  * This structure is the root of the flow tracking system.
@@ -224,26 +226,22 @@ struct EXPIRY {
 /* Prototype for functions shared from softflowd.c */
 u_int32_t timeval_sub_ms(const struct timeval *t1, const struct timeval *t2);
 
+struct SENDPARAMETER {
+	struct FLOW **flows;
+	int num_flows;
+	int nfsock;
+	u_int16_t ifidx;
+	struct FLOWTRACKPARAMETERS *param;
+	int verbose_flag;
+};
+
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
-int send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-		    int verbose_flag);
-int send_netflow_v5(struct FLOW **flows, int num_flows, int nfsock,
-		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-		    int verbose_flag);
-int send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
-		    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-		    int verbose_flag);
-int send_nflow9(struct FLOW **flows, int num_flows, int nfsock,
-				  u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-				  int verbose_flag);
-int send_ipfix(struct FLOW **flows, int num_flows, int nfsock,
-			   u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-			   int verbose_flag);
-int send_ipfix_bi(struct FLOW **flows, int num_flows, int nfsock,
-				  u_int16_t ifidx,
-				  struct FLOWTRACKPARAMETERS *param,
-				  int verbose_flag);
+int send_netflow_v1(struct SENDPARAMETER sp);
+int send_netflow_v5(struct SENDPARAMETER sp);
+int send_netflow_v9(struct SENDPARAMETER sp);
+int send_nflow9(struct SENDPARAMETER sp);
+int send_ipfix(struct SENDPARAMETER sp);
+int send_ipfix_bi(struct SENDPARAMETER sp);
 
 /* Force a resend of the flow template */
 void netflow9_resend_template(void);

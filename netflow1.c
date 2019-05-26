@@ -60,10 +60,14 @@ struct NF1_FLOW {
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
-		u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-		int verbose_flag)
+send_netflow_v1(struct SENDPARAMETER sp)
 {
+	struct FLOW **flows = sp.flows;
+	int num_flows = sp.num_flows;
+	int nfsock = sp.nfsock;
+	u_int16_t ifidx = sp.ifidx;
+	struct FLOWTRACKPARAMETERS *param = sp.param;
+	int verbose_flag = sp.verbose_flag;
 	struct timeval now;
 	u_int32_t uptime_ms;
 	u_int8_t packet[NF1_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
@@ -74,7 +78,10 @@ send_netflow_v1(struct FLOW **flows, int num_flows, int nfsock,
 	struct timeval *system_boot_time = &param->system_boot_time;
 	u_int64_t *flows_exported = &param->flows_exported;
 	
-	gettimeofday(&now, NULL);
+	if (param->adjust_time)
+		now = param->last_packet_time;
+        else
+		gettimeofday(&now, NULL);
 	uptime_ms = timeval_sub_ms(&now, system_boot_time);
 
 	hdr = (struct NF1_HEADER *)packet;

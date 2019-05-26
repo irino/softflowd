@@ -351,10 +351,19 @@ nf_flow_to_flowset(const struct FLOW *flow, u_char *packet, u_int len,
  * Returns number of packets sent or -1 on error
  */
 int
+/*
 send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 		u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
 		int verbose_flag)
+*/
+send_netflow_v9(struct SENDPARAMETER sp)
 {
+	struct FLOW **flows = sp.flows;
+	int num_flows = sp.num_flows;
+	int nfsock = sp.nfsock;
+	u_int16_t ifidx = sp.ifidx;
+	struct FLOWTRACKPARAMETERS *param = sp.param;
+	int verbose_flag = sp.verbose_flag;
 	struct NF9_HEADER *nf9;
 	struct NF9_DATA_FLOWSET_HEADER *dh;
 	struct timeval now;
@@ -367,7 +376,10 @@ send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
 	u_int64_t *packets_sent = &param->packets_sent;
 	struct OPTION *option = &param->option;
 
-	gettimeofday(&now, NULL);
+	if (param->adjust_time)
+		now = param->last_packet_time;
+        else
+		gettimeofday(&now, NULL);
 
 	if (nf9_pkts_until_template == -1) {
 		nf9_init_template();

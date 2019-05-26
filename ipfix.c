@@ -1002,7 +1002,10 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     struct OPTION *option = &param->option;
     u_int tmplindex = 0;
 
-    gettimeofday (&now, NULL);
+    if (param->adjust_time)
+	    now = param->last_packet_time;
+    else
+	    gettimeofday(&now, NULL);
 
     if (ipfix_pkts_until_template == -1)
       {
@@ -1030,7 +1033,10 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
                 ipfix = (struct IPFIX_HEADER *) packet;
                 ipfix->version = htons (version);
                 ipfix->length = 0;  /* Filled as we go, htons at end */
-                ipfix->export_time = htonl (time (NULL));
+		if (param->adjust_time)
+			ipfix->export_time = htonl (now.tv_sec);
+		else
+			ipfix->export_time = htonl (time (NULL));
                 ipfix->od_id = 0;
                 offset = sizeof (*ipfix);
             }
@@ -1041,8 +1047,10 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
                 nf9->flows = 0; /* Filled as we go, htons at end */
                 nf9->uptime_ms =
                     htonl (timeval_sub_ms (&now, system_boot_time));
-
-                nf9->export_time = htonl (time (NULL));
+		if (param->adjust_time)
+			nf9->export_time = htonl (now.tv_sec);
+		else
+			nf9->export_time = htonl (time (NULL));
                 nf9->od_id = 0;
                 offset = sizeof (*nf9);
             }
@@ -1153,8 +1161,13 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
             }
           ipfix->length = htons (offset);
           *records_sent += records;
-          ipfix->sequence =
-              htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+	  if (version == 10) {
+		  ipfix->sequence =
+			  htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+	  } else if (version == 9) {
+		  nf9->sequence =
+			  htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+	  }
 
           if (verbose_flag)
               logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
@@ -1174,28 +1187,22 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 }
 
 int
-send_nflow9 (struct FLOW **flows, int num_flows, int nfsock,
-             u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-             int verbose_flag)
+send_nflow9 (struct SENDPARAMETER sp)
 {
-    return send_ipfix_common (flows, num_flows, nfsock, ifidx,
-                              param, verbose_flag, 0, 9);
+    return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
+                              sp.param, sp.verbose_flag, 0, 9);
 }
 
 int
-send_ipfix (struct FLOW **flows, int num_flows, int nfsock,
-            u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-            int verbose_flag)
+send_ipfix (struct SENDPARAMETER sp)
 {
-    return send_ipfix_common (flows, num_flows, nfsock, ifidx,
-                              param, verbose_flag, 0, 10);
+    return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
+                              sp.param, sp.verbose_flag, 0, 10);
 }
 
 int
-send_ipfix_bi (struct FLOW **flows, int num_flows, int nfsock,
-               u_int16_t ifidx,
-               struct FLOWTRACKPARAMETERS *param, int verbose_flag)
+send_ipfix_bi (struct SENDPARAMETER sp)
 {
-    return send_ipfix_common (flows, num_flows, nfsock, ifidx,
-                              param, verbose_flag, 1, 10);
+    return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
+                              sp.param, sp.verbose_flag, 1, 10);
 }
