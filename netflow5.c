@@ -33,22 +33,22 @@
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
 struct NF5_HEADER {
-	u_int16_t version, flows;
-	u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
-	u_int8_t engine_type, engine_id;
-	u_int16_t sampling_interval;
+  u_int16_t version, flows;
+  u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
+  u_int8_t engine_type, engine_id;
+  u_int16_t sampling_interval;
 };
 struct NF5_FLOW {
-	u_int32_t src_ip, dest_ip, nexthop_ip;
-	u_int16_t if_index_in, if_index_out;
-	u_int32_t flow_packets, flow_octets;
-	u_int32_t flow_start, flow_finish;
-	u_int16_t src_port, dest_port;
-	u_int8_t pad1;
-	u_int8_t tcp_flags, protocol, tos;
-	u_int16_t src_as, dest_as;
-	u_int8_t src_mask, dst_mask;
-	u_int16_t pad2;
+  u_int32_t src_ip, dest_ip, nexthop_ip;
+  u_int16_t if_index_in, if_index_out;
+  u_int32_t flow_packets, flow_octets;
+  u_int32_t flow_start, flow_finish;
+  u_int16_t src_port, dest_port;
+  u_int8_t pad1;
+  u_int8_t tcp_flags, protocol, tos;
+  u_int16_t src_as, dest_as;
+  u_int8_t src_mask, dst_mask;
+  u_int16_t pad2;
 };
 #define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
@@ -59,129 +59,120 @@ struct NF5_FLOW {
  * Returns number of packets sent or -1 on error
  */
 int
-send_netflow_v5(struct SENDPARAMETER sp)
-{
-	struct FLOW **flows = sp.flows;
-	int num_flows = sp.num_flows;
-	int nfsock = sp.nfsock;
-	u_int16_t ifidx = sp.ifidx;
-	struct FLOWTRACKPARAMETERS *param = sp.param;
-	int verbose_flag = sp.verbose_flag;
-	struct timeval now;
-	u_int32_t uptime_ms;
-	u_int8_t packet[NF5_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
-	struct NF5_HEADER *hdr = NULL;
-	struct NF5_FLOW *flw = NULL;
-	int i, j, offset, num_packets, err;
-	socklen_t errsz;
-	struct timeval *system_boot_time = &param->system_boot_time;
-	u_int64_t *flows_exported = &param->flows_exported;
-	struct OPTION *option = &param->option;
+send_netflow_v5 (struct SENDPARAMETER sp) {
+  struct FLOW **flows = sp.flows;
+  int num_flows = sp.num_flows;
+  int nfsock = sp.nfsock;
+  u_int16_t ifidx = sp.ifidx;
+  struct FLOWTRACKPARAMETERS *param = sp.param;
+  int verbose_flag = sp.verbose_flag;
+  struct timeval now;
+  u_int32_t uptime_ms;
+  u_int8_t packet[NF5_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
+  struct NF5_HEADER *hdr = NULL;
+  struct NF5_FLOW *flw = NULL;
+  int i, j, offset, num_packets, err;
+  socklen_t errsz;
+  struct timeval *system_boot_time = &param->system_boot_time;
+  u_int64_t *flows_exported = &param->flows_exported;
+  struct OPTION *option = &param->option;
 
-	if (param->adjust_time)
-		now = param->last_packet_time;
-	else
-		gettimeofday(&now, NULL);
-	uptime_ms = timeval_sub_ms(&now, system_boot_time);
-	hdr = (struct NF5_HEADER *)packet;
-	for (num_packets = offset = j = i = 0; i < num_flows; i++) {
-		if (j >= NF5_MAXFLOWS - 1) {
-			if (verbose_flag)
-				logit(LOG_DEBUG, "Sending flow packet len = %d", offset);
-			param->records_sent += hdr->flows;
-			hdr->flows = htons(hdr->flows);
-			errsz = sizeof(err);
-			getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-			    &err, &errsz); /* Clear ICMP errors */
-			if (send(nfsock, packet, (size_t)offset, 0) == -1)
-				return (-1);
-			*flows_exported += j;
-			j = 0;
-			num_packets++;
-		}
-		if (j == 0) {
-			memset(&packet, '\0', sizeof(packet));
-			hdr->version = htons(5);
-			hdr->flows = 0; /* Filled in as we go */
-			hdr->uptime_ms = htonl(uptime_ms);
-			hdr->time_sec = htonl(now.tv_sec);
-			hdr->time_nanosec = htonl(now.tv_usec * 1000);
-			hdr->flow_sequence = htonl(*flows_exported);
-			if (option->sample > 0) {
-				hdr->sampling_interval =
-					htons((0x01 << 14) | (option->sample & 0x3FFF));
-			}
-			/* Other fields are left zero */
-			offset = sizeof(*hdr);
-		}		
-		flw = (struct NF5_FLOW *)(packet + offset);
-		flw->if_index_in = flw->if_index_out = htons(ifidx);
+  if (param->adjust_time)
+    now = param->last_packet_time;
+  else
+    gettimeofday (&now, NULL);
+  uptime_ms = timeval_sub_ms (&now, system_boot_time);
+  hdr = (struct NF5_HEADER *) packet;
+  for (num_packets = offset = j = i = 0; i < num_flows; i++) {
+    if (j >= NF5_MAXFLOWS - 1) {
+      if (verbose_flag)
+	logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
+      param->records_sent += hdr->flows;
+      hdr->flows = htons (hdr->flows);
+      errsz = sizeof (err);
+      getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);	/* Clear ICMP errors */
+      if (send (nfsock, packet, (size_t) offset, 0) == -1)
+	return (-1);
+      *flows_exported += j;
+      j = 0;
+      num_packets++;
+    }
+    if (j == 0) {
+      memset (&packet, '\0', sizeof (packet));
+      hdr->version = htons (5);
+      hdr->flows = 0;		/* Filled in as we go */
+      hdr->uptime_ms = htonl (uptime_ms);
+      hdr->time_sec = htonl (now.tv_sec);
+      hdr->time_nanosec = htonl (now.tv_usec * 1000);
+      hdr->flow_sequence = htonl (*flows_exported);
+      if (option->sample > 0) {
+	hdr->sampling_interval =
+	  htons ((0x01 << 14) | (option->sample & 0x3FFF));
+      }
+      /* Other fields are left zero */
+      offset = sizeof (*hdr);
+    }
+    flw = (struct NF5_FLOW *) (packet + offset);
+    flw->if_index_in = flw->if_index_out = htons (ifidx);
 
-		/* NetFlow v.5 doesn't do IPv6 */
-		if (flows[i]->af != AF_INET)
-			continue;
-		if (flows[i]->octets[0] > 0) {
-			flw->src_ip = flows[i]->addr[0].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[1].v4.s_addr;
-			flw->src_port = flows[i]->port[0];
-			flw->dest_port = flows[i]->port[1];
-			flw->flow_packets = htonl(flows[i]->packets[0]);
-			flw->flow_octets = htonl(flows[i]->octets[0]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish =
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->tcp_flags = flows[i]->tcp_flags[0];
-			flw->protocol = flows[i]->protocol;
-			flw->tos = flows[i]->tos[0];
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
+    /* NetFlow v.5 doesn't do IPv6 */
+    if (flows[i]->af != AF_INET)
+      continue;
+    if (flows[i]->octets[0] > 0) {
+      flw->src_ip = flows[i]->addr[0].v4.s_addr;
+      flw->dest_ip = flows[i]->addr[1].v4.s_addr;
+      flw->src_port = flows[i]->port[0];
+      flw->dest_port = flows[i]->port[1];
+      flw->flow_packets = htonl (flows[i]->packets[0]);
+      flw->flow_octets = htonl (flows[i]->octets[0]);
+      flw->flow_start =
+	htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
+      flw->flow_finish =
+	htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
+      flw->tcp_flags = flows[i]->tcp_flags[0];
+      flw->protocol = flows[i]->protocol;
+      flw->tos = flows[i]->tos[0];
+      offset += sizeof (*flw);
+      j++;
+      hdr->flows++;
+    }
 
-		flw = (struct NF5_FLOW *)(packet + offset);
-		flw->if_index_in = flw->if_index_out = htons(ifidx);
+    flw = (struct NF5_FLOW *) (packet + offset);
+    flw->if_index_in = flw->if_index_out = htons (ifidx);
 
-		if (flows[i]->octets[1] > 0) {
-			flw->src_ip = flows[i]->addr[1].v4.s_addr;
-			flw->dest_ip = flows[i]->addr[0].v4.s_addr;
-			flw->src_port = flows[i]->port[1];
-			flw->dest_port = flows[i]->port[0];
-			flw->flow_packets = htonl(flows[i]->packets[1]);
-			flw->flow_octets = htonl(flows[i]->octets[1]);
-			flw->flow_start =
-			    htonl(timeval_sub_ms(&flows[i]->flow_start,
-			    system_boot_time));
-			flw->flow_finish =
-			    htonl(timeval_sub_ms(&flows[i]->flow_last,
-			    system_boot_time));
-			flw->tcp_flags = flows[i]->tcp_flags[1];
-			flw->protocol = flows[i]->protocol;
-			flw->tos = flows[i]->tos[1];
-			offset += sizeof(*flw);
-			j++;
-			hdr->flows++;
-		}
-	}
+    if (flows[i]->octets[1] > 0) {
+      flw->src_ip = flows[i]->addr[1].v4.s_addr;
+      flw->dest_ip = flows[i]->addr[0].v4.s_addr;
+      flw->src_port = flows[i]->port[1];
+      flw->dest_port = flows[i]->port[0];
+      flw->flow_packets = htonl (flows[i]->packets[1]);
+      flw->flow_octets = htonl (flows[i]->octets[1]);
+      flw->flow_start =
+	htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
+      flw->flow_finish =
+	htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
+      flw->tcp_flags = flows[i]->tcp_flags[1];
+      flw->protocol = flows[i]->protocol;
+      flw->tos = flows[i]->tos[1];
+      offset += sizeof (*flw);
+      j++;
+      hdr->flows++;
+    }
+  }
 
-	/* Send any leftovers */
-	if (j != 0) {
-		if (verbose_flag)
-			logit(LOG_DEBUG, "Sending v5 flow packet len = %d",
-			    offset);
-		param->records_sent += hdr->flows;
-		hdr->flows = htons(hdr->flows);
-		errsz = sizeof(err);
-		getsockopt(nfsock, SOL_SOCKET, SO_ERROR,
-		    &err, &errsz); /* Clear ICMP errors */
-		if (send(nfsock, packet, (size_t)offset, 0) == -1)
-			return (-1);
-		num_packets++;
-	}
+  /* Send any leftovers */
+  if (j != 0) {
+    if (verbose_flag)
+      logit (LOG_DEBUG, "Sending v5 flow packet len = %d", offset);
+    param->records_sent += hdr->flows;
+    hdr->flows = htons (hdr->flows);
+    errsz = sizeof (err);
+    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);	/* Clear ICMP errors */
+    if (send (nfsock, packet, (size_t) offset, 0) == -1)
+      return (-1);
+    num_packets++;
+  }
 
-	*flows_exported += j;
-	return (num_packets);
+  *flows_exported += j;
+  return (num_packets);
 }
-
