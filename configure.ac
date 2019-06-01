@@ -12,8 +12,9 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-AC_INIT
+AC_INIT([softflowd], [0.9.9])
 AC_CONFIG_SRCDIR([softflowd.c])
+AM_INIT_AUTOMAKE
 
 AC_CONFIG_HEADER(config.h)
 AC_PROG_CC
@@ -31,10 +32,20 @@ AC_ARG_ENABLE(gcc-warnings,
 	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
-AC_ARG_ENABLE(nf9-vlan,
-              AC_HELP_STRING([--enable-nf9-vlan],
-                             [enable exporting VLAN (and ICMP_TYPE) field in NetFlow v9 (default is NO)]),
-              AC_DEFINE([ENABLE_NF9_VLAN], 1, [enable exporting VLAN (and ICMP_TYPE) field in NetFlow v9]))
+AC_ARG_ENABLE(legacy-nf9,
+              AC_HELP_STRING([--enable-legacy-nf9],
+                             [enable legacy NetFlow v9 implementation (default NO)]),
+              AC_DEFINE([LEGACY_NF9_IMPL], 1, [enable legacy NetFlow v9 implementation]))
+AC_ARG_ENABLE(flow-spray,
+              AC_HELP_STRING([--enable-flow-spray],
+                             [enable spray as flow tree type(default is RB)]),
+              AC_DEFINE([FLOW_SPRAY], 1, [enable spray as flow tree type]),
+	      AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type]))
+AC_ARG_ENABLE(flow-spray,
+              AC_HELP_STRING([--enable-expiry-spray],
+                             [enable spray as expiry tree type (default is RB)]),
+              AC_DEFINE([EXPIRY_SPRAY], 1, [enable spray as flow tree type]),
+	      AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as flow tree type]))
 
 AC_ARG_WITH(cflags,
 	[  --with-cflags           Specify additional compiler flags],
@@ -92,6 +103,7 @@ AC_SEARCH_LIBS(daemon, bsd)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)
 AC_CHECK_LIB(pcap, pcap_open_live)
+AC_CHECK_LIB(pthread, pthread_create)
 
 AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep)
 AC_CHECK_DECLS([htobe64, htonll])
@@ -170,8 +182,6 @@ fi
 if test "x$ac_cv_lib_pcap_pcap_open_live" != "xyes" ; then
 	AC_MSG_ERROR([libpcap not found])
 fi
-
-
 
 AC_EXEEXT
 AC_CONFIG_FILES([Makefile])

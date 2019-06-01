@@ -117,8 +117,11 @@ struct NETFLOW_SENDER {
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-  //{ 9, send_netflow_v9, NULL, 1 },
+#ifdef LEGACY_NF9_IMPL
+  {9, send_netflow_v9, NULL, 1},
+#else /* LEGACY_NF9_IMPL */
   {9, send_nflow9, NULL, 1},
+#endif /* LEGACY_NF9_IMPL */
   {10, send_ipfix, send_ipfix_bi, 1},
   {-1, NULL, NULL, 0},
 };
@@ -918,10 +921,6 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
       if (func == NULL) {
 	func = target->dialect->func;
       }
-      /*
-         r = func(expired_flows, num_expired, 
-         target->fd, if_index, &ft->param, verbose_flag);
-       */
       r = func (sp);
       if (verbose_flag)
 	logit (LOG_DEBUG, "sent %d netflow packets", r);
@@ -1626,7 +1625,7 @@ usage (void) {
 	   "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
 	   "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
 	   "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
-	   "  -a                      Adjusting time for reading pcap file in offline (-a work with -r)\n"
+	   "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
 	   "  -h                      Display this help\n"
 	   "\n"
 	   "Valid timeout names and default values:\n"

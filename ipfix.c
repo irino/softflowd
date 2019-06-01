@@ -264,7 +264,6 @@ const struct IPFIX_FIELD_SPECIFIER field_nf9option[] = {
     sizeof(field_vlan) / sizeof(struct IPFIX_FIELD_SPECIFIER)
 #define IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS       \
     sizeof(field_ether) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-//#define IPFIX_SOFTFLOWD_TEMPLATE_VENDORRECORDS        5
 #define IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS    \
     sizeof(field_bicommon) / sizeof(struct IPFIX_FIELD_SPECIFIER)
 #define IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS \

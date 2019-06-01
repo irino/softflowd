@@ -29,7 +29,7 @@
 .Nd Traffic flow monitoring
 .Sh SYNOPSIS
 .Nm softflowd
-.Op Fl 6dDh
+.Op Fl 6dDhba
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
 .Op Fl c Ar ctl_sock
@@ -200,6 +200,10 @@ This implies the
 and
 .Fl 6
 flags and turns on additional debugging output.
+.It Fl b
+Bidirectional mode in IPFIX (-b work with -v 10)
+.It Fl a
+Adjusting time for reading pcap file (-a work with -r)
 .It Fl h
 Display command-line usage information.
 .It Fl L Ar hoplimit

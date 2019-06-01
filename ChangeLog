@@ -1,0 +1,1601 @@
+commit ddda5064cbee8984edef09edec2357c5295775ae
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Wed May 29 07:32:56 2019 +0900
+
+    indent -lp -br -brs -brf softflowd.c softflowd.h netflow*.c ipfix.c
+
+commit e6d29a172d9d0b922b6701838fe073f036746651
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun May 26 23:00:41 2019 +0900
+
+    Add option "-a" for reading pcap file and fix some bugs.
+    
+    - fix flow_compare for comparing vlan and ether
+    - fix missing sequence in netflow v9
+
+commit 5dc03fd092e5a9e05856f8221715a0b3eb1bd9cd
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Mon May 6 11:33:06 2019 +0900
+
+    update explanation about -b option in usage function.
+
+commit 4fcb3c1f5a8dc2e91ed65ca1aeb802e878fd0ae2
+Merge: 7526e9c 34ebfeb
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Dec 1 10:14:40 2018 +0900
+
+    Merge pull request #9 from nm-mrt/configure
+    
+    Add autoconf tools to build instructions in README
+
+commit 34ebfeb98e21e6ec36909ef3dde32cf3ea16bfb3
+Author: Moritz Rosenthal <moritz.rosenthal@netmodule.com>
+Date:   Tue Nov 20 16:20:06 2018 +0100
+
+    Add autoconf tools to build instructions in README
+    
+    The build instructions were misleading as the configure script is not
+    inclueded in the files shipped with repository.
+
+commit 7526e9ca2627a7af22eb04aa35f4683de24b7f66
+Merge: bbd0685 e2d1cbd
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Sep 14 21:57:25 2018 +0900
+
+    Merge pull request #7 from richb-hanover/documentation-tweaks
+    
+    Update documentation to include PDF pages.
+
+commit e2d1cbdc498b7cd5dc68dfd146d804d0b5e28f6d
+Author: Rich Brown <richb.hanover@gmail.com>
+Date:   Fri Sep 14 08:27:29 2018 -0400
+
+    Update documentation to include PDF pages.
+    
+    Since this has become the official repo for softflowd, readers can learn about softflowd without running software. Also added Irino's name as maintainer in the man pages, as well as a link to the github repo for bugs and source code.
+
+commit bbd0685d69236844138f96df387a31506d641d0d
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Sep 14 18:32:33 2018 +0900
+
+    Add check of the length of string for -i (interface) option.
+
+commit 4391b4b749056298b69ea400de9e6472e6f25667
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Sep 14 17:08:45 2018 +0900
+
+    Delete .cvsignore
+
+commit 8a47e875e2070e0dc50f1c63c99fae612e27e33c
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Sep 14 15:50:48 2018 +0900
+
+    Adding current repository information in README.
+
+commit 49c039a19203c2f20cfd097612e44481ce067831
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Sep 14 15:37:53 2018 +0900
+
+    Added define _DEFAULT_SOURCE line to avoid warning in Linux.
+
+commit 8ea92c3545663a86497a892c53ad394c78a8856a
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Aug 6 08:17:43 2017 +0900
+
+    New implementation of IPFIX/Netflow v9 for supporting VLAN and Mac-address.
+
+commit 3aa2af5894dd420e049c61fe69aa124003a2390d
+Author: SysError956 <paulgodard@gmail.com>
+Date:   Tue Apr 25 18:26:07 2017 -0400
+
+    Fix format type for pid (%u for unsigned instead of %d for signed)
+
+commit 2f195a052b1bed1565d07e2cdfac0467a6be31d1
+Author: SysError956 <paulgodard@gmail.com>
+Date:   Tue Apr 25 18:09:54 2017 -0400
+
+    Check pidfile to see if daemon already running
+
+commit b7e50ae4ebb3368a52c7938e1d2b046f90cf6d8f
+Author: SysError956 <paulgodard@gmail.com>
+Date:   Thu Mar 23 20:36:50 2017 -0400
+
+    Added support for the pflog datalink type and fixed some typos
+
+commit d53e821bb744c2475858c4d604058e0a475d6177
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sun Oct 5 15:24:17 2014 +0900
+
+    Add bidirectional flow (RFC5103) support in IPFIX. Fix the compile warnings.
+
+commit 3f8e0fceec51047a27574395fb436ef52ceaf792
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sun Sep 28 20:23:07 2014 +0900
+
+    This commit fix sequence number in ipfix header. And it display number of exported data records in statistics.
+
+commit 94786397a40326853462005f4434544528c23b76
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Mon Mar 17 13:10:54 2014 +0900
+
+    This commit includes 2 changes.
+    1. It enables metering and exporting vlanid when using NetFlow v9 and IPFIX.
+    2. When ICMP flow information are exported It uses the ICMP_TYPE field instead of the L4_DST_PORT field
+
+commit b4a7a1cd4541d89fc985c2caad4dc747378a7b69
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sun Dec 23 23:44:10 2012 +0900
+
+    ToS field is metered and exported in NetFlow v1,v5,v9 and IPFIX in default settings.
+    -A option is added for exporting absolute time field in IPFIX records to be able to receive with NFDUMP(nfcapd).
+    -P option is added to select export transport protocol from UDP, TCP, and SCTP. (It is not tested yet.)
+
+commit 417e018c0aca09dbc9edc39a2d4ac0b125d536c0
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Mon Dec 10 22:33:53 2012 +0900
+
+    add ipfix.c to support exporting IPFIX formated flow records.
+
+commit bd8e31ecc0bc050f10d549d6e5d526ccd97733b3
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sat Sep 29 22:35:18 2012 +0900
+
+    Fix bug. The sequence number field in NetFlow version 9 is number of exported packets. Older version used number of exported flows for this field.
+
+commit cdf7ae1e3ef368d6b1fa7ae0694bf6f4aaabb325
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sun Sep 23 03:43:48 2012 +0900
+
+    Using strtok instead of strsep in environments which does not have strsep.
+
+commit 91b2a2ced9954777d417a0d4c58bc957622b0f6a
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Fri Sep 21 14:46:18 2012 +0900
+
+    Changes for avoidance warnings in gcc compilation on Linux (Ubuntu 12.04), OpenBSD 5.1 and Oracle solaris 11 with AMD64 architecture when enables "--enable-gcc-warnings" option in configure.
+
+commit 5719206e1d0d6cedf92ba6d77909729c691ed6f4
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Feb 13 12:38:18 2012 +1100
+
+    Added tag softflowd-0.9.9 for changeset c496d4d49348
+
+commit f7c9e6d8fa61fe9bece16ce9ac749286c764e43e
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Feb 13 12:37:33 2012 +1100
+
+    Update version to 0.9.9 in anticipation of release
+
+commit 43e4ee1c5a1f8b5afb32d891fa968cc266ae99ef
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Feb 13 12:36:54 2012 +1100
+
+    remove obsolete RCS Id markers
+
+commit 0f461a9e063190e35e66a73bb46dacd88286ac22
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Feb 13 12:32:11 2012 +1100
+
+    Changelog is now deprecated in favour of mercurial log.
+
+commit 69149d2383163f55411e1e81e2f412cf29e975e4
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Sat Nov 26 10:36:24 2011 +0900
+
+    Add AC_ARG_WITH chrootdir in configure.ac to be able to change privdrop chroot direcotry for non BSD environments.
+
+commit 49ad50331dac83e51f257680949312fb726b3118
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Fri Oct 14 21:04:09 2011 +0900
+
+    Fix roff errors. (http://lists.mindrot.org/pipermail/netflow-tools/2011-February/000487.html)
+
+commit 6e45d1e8f56c762e2cd99024be9a47d24f320ab8
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Fri Oct 14 19:01:12 2011 +0900
+
+    Broken URL in comments is replaced to another URL.
+
+commit 1083d3dd10b42bfe6f179856901ed414e3e31c6a
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Wed Oct 12 23:08:40 2011 +0900
+
+    Broken URL in softflowd.8 man page is replaced to other URLs.
+
+commit 51495c4ee4114534bf0f1a97c96f7017a9bae562
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Mon Oct 10 16:53:45 2011 +0900
+
+    Some compiler warnings that are appears in AMD64 environment are reduced. "%llu" keywords are replaced with "%PRIu64".
+
+commit 4807417a8d632298256346336e29f39c0f60b43b
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Mon Oct 10 16:10:39 2011 +0900
+
+    Description about "-s" sampling option is added in manpage of softflowd.
+
+commit b844d025df2619f9d7148c4628b64ae101ce5866
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Mon Oct 10 15:59:08 2011 +0900
+
+    Sampling function as "-s" option is added. If -s option is enabled, option template flow records and option data flow records are exported when export protocol is netflow version 9.
+
+commit 0dce54e9a289a36f3c0d0c85650b2604db0c7bcf
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Thu Sep 22 09:43:38 2011 +0900
+
+    fix broken NetFlow v9 flow creation for IPv6 (http://lists.mindrot.org/pipermail/netflow-tools/2011-February/000489.html)
+
+commit 916db7f5bf456b8fd13a02c36f795098b21014f0
+Author: Hitoshi Irino <hitoshi.irino@gmail.com>
+Date:   Wed Sep 21 23:50:08 2011 +0900
+
+    avoid to leave main loop while listening on "any" interface. (http://lists.mindrot.org/pipermail/netflow-tools/2011-February/000488.html)
+
+commit cc60ffabafe969a05e6ed0a8fb64883c0aee45b8
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Nov 1 12:03:41 2010 +1100
+
+    fix some warnings
+
+commit c8eef71995f9a4c6af6c53239b408ee8ae65f77d
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Nov 1 12:03:34 2010 +1100
+
+    remove broken -WformatC=2 flag that somehow snuck into configure.ac
+
+commit 9c8f5edc65a63566c62cb32021e708ea4d61c412
+Author: Damien Miller <djm@mindrot.org>
+Date:   Mon Nov 1 12:03:02 2010 +1100
+
+    mention new Google Code repository
+
+commit c8c3065f6032d20115a971c46b70efdb91423e40
+Author: convert-repo <devnull@localhost>
+Date:   Sun Oct 31 14:34:12 2010 +0000
+
+    update tags
+
+commit 2652c7b5c48ee6b9cf4f1d3fcfa704844313ff91
+Author: djm <devnull@localhost>
+Date:   Tue May 4 02:23:51 2010 +0000
+
+     - (djm) Swap nf9 last/first switched. They were reversed in the struct
+       vs our template flowset. Patch from stephen AT sfnelson.org.
+       https://bugzilla.mindrot.org/show_bug.cgi?id=1760
+
+commit 09512a462b17dff6d6c0c62190b28383abf2d481
+Author: djm <devnull@localhost>
+Date:   Thu Oct 1 08:23:33 2009 +0000
+
+     - (djm) Display softflowd start time in "softflowctl statistics" display.
+       Suggestion from Tamas TEVESZ.
+
+commit f57006dbe892990adf936a99c24bff3f13df10be
+Author: djm <devnull@localhost>
+Date:   Thu Oct 1 07:25:34 2009 +0000
+
+     - (djm) One more manpage tweak from Tamas TEVESZ.
+
+commit 0e41def7876bcb8ef2624fb5448d1586113b7fc4
+Author: djm <devnull@localhost>
+Date:   Thu Oct 1 07:06:08 2009 +0000
+
+     - (djm) Support manual specification of an interface index to be used
+       as the input and output interface of all flows generated. Patch from
+       kempf AT rpi.edu
+
+commit 548decbf01ae5abfa0415e6353882642b4a3838d
+Author: djm <devnull@localhost>
+Date:   Thu Oct 1 06:29:19 2009 +0000
+
+    Lots of manpage tweaks from Tamas TEVESZ, ice AT extreme.hu
+
+commit afbd3cc9a747e3b1319ec320268b1d9e81c89854
+Author: djm <devnull@localhost>
+Date:   Thu May 15 18:22:02 2008 +0000
+
+     - (djm) Fix typo in manpage for PID file location; patch from
+        ice AT extreme.hu
+     - (djm) Make privsep directory compile-time configurable; patch from
+        ice AT extreme.hu
+
+commit 407dd0870cad7ddaed38180b2412aec0587564f6
+Author: djm <devnull@localhost>
+Date:   Mon Sep 3 10:50:05 2007 +0000
+
+     - (djm) Implement a very simple freelist allocator for flows and expiry
+       events
+
+commit ef74b9062cf531035fe7ebefa4d6f8d5f1457621
+Author: djm <devnull@localhost>
+Date:   Fri Aug 31 03:11:03 2007 +0000
+
+     - (djm) Move max_flows into struct FLOWTRACK
+
+commit b0a0d54cd768b69f8f0c0f1e4f9845749c9a5f40
+Author: djm <devnull@localhost>
+Date:   Thu Jul 26 00:50:31 2007 +0000
+
+     - (djm) Add flow_get/flow_put and expiry_get/expiry_put functions to
+       allocate and deallocate flows and expiry events, instead of calling
+       malloc/free directly. Right now these functions just call malloc/free
+       anyway, but they will soon be used to implemented pooled flow/expiry
+       allocations.
+
+commit 1592c1b3e60ce45e434d0dee6b4605ea42d8180b
+Author: djm <devnull@localhost>
+Date:   Tue Jul 24 23:50:35 2007 +0000
+
+     - (djm) openlog with LOG_NDELAY so socket is connected before privdrop -
+       patch from Florian Weimer
+
+commit 38967c4173206bef65f26c784934024de98f326a
+Author: djm <devnull@localhost>
+Date:   Tue Jul 24 23:49:43 2007 +0000
+
+     - (djm) Correctly exit from mainloop on signal - patch from Florian Weimer
+
+commit 82477a6cfbc31c74d2f0940369e97bb0a007284e
+Author: djm <devnull@localhost>
+Date:   Tue Jul 24 23:48:58 2007 +0000
+
+     - (djm) KNF
+
+commit d76684d20fd1a1673b55e4659d009a353b0544c1
+Author: djm <devnull@localhost>
+Date:   Fri Jan 5 05:00:34 2007 +0000
+
+    better place
+
+commit 3e21cd3e73cc511ea867cecf3a964c89825df7eb
+Author: djm <devnull@localhost>
+Date:   Fri Jan 5 04:56:29 2007 +0000
+
+    another
+
+commit f2cdbff13df68b60c644d0e324d1575420a3d2ab
+Author: djm <devnull@localhost>
+Date:   Fri Jan 5 04:54:44 2007 +0000
+
+    newline at EOF
+
+commit 6800ff1fa886c4ff25079c667e95931505a57ffe
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 22:50:01 2006 +0000
+
+     - (djm) Document -v option and close Ed in manpage; from Nino Jogun
+       nino80 AT gmail.com
+
+commit aea9b2557d226afedeafdc516c00902d3f0f06c7
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 06:36:16 2006 +0000
+
+    prep for release
+
+commit b934962bb7e52e21649dacdcf82167936dfba456
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 06:34:18 2006 +0000
+
+    mention LICENSE
+
+commit 2dfbcf16d4980d9b045547a1ff9aef1f60862594
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 06:29:40 2006 +0000
+
+     - (djm) Sync sys-tree.h
+
+commit 88c78fd672fc545cbad98839c0309638cf5e2b00
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 06:29:33 2006 +0000
+
+    more
+
+commit a45adcfce6d50edadd6525e0060d58e286149a31
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 06:23:29 2006 +0000
+
+     - (djm) malloc(x*y) -> calloc(x, y)
+
+commit 7d1ddaad792e975d1fd802805f59cf74d61b7c52
+Author: djm <devnull@localhost>
+Date:   Thu Nov 2 00:15:48 2006 +0000
+
+     - (djm) Collect licenses into LICENSE file
+
+commit 7ec91dc3af1d4f665bf430d8ce2dbccdfb5792e3
+Author: djm <devnull@localhost>
+Date:   Thu Mar 16 08:24:19 2006 +0000
+
+     - (djm) Add "send-template" softflowctl command to resend a NetFlow 9
+       template record immediately
+
+commit c055b70addfa0463b69224c252fa471b8a38bfb0
+Author: djm <devnull@localhost>
+Date:   Thu Mar 16 08:23:13 2006 +0000
+
+     - (djm) Add "send-template" softflowctl command to resend a NetFlow 9
+       template record immediately
+
+commit d4242f6b645e7634527804faa987afef9a263b2b
+Author: djm <devnull@localhost>
+Date:   Tue Mar 14 23:15:41 2006 +0000
+
+     - (djm) Add RPM packaging files from ssnodgra AT pheran.com
+
+commit 1ab0c942ec56ae1095578acf9b51483bf43299b1
+Author: djm <devnull@localhost>
+Date:   Tue Mar 14 23:14:23 2006 +0000
+
+     - (djm) Crank version number to 0.9.8
+
+commit 1ca6e61046d4362039c46725763131f1b4ed39a4
+Author: djm <devnull@localhost>
+Date:   Tue Mar 14 23:06:10 2006 +0000
+
+     - (djm) Encode ICMP type and code into port numbers (apparently this is
+       what Cisco exporters do), patch from ssnodgra AT pheran.com slightly
+       tweaked by me
+
+commit 685cfdf9b99f388e6e5a5b2fdfdd7da9ffe1780d
+Author: djm <devnull@localhost>
+Date:   Tue Mar 14 22:55:41 2006 +0000
+
+     - (djm) Support ${DESTDIR} in Makefile install target, from
+       ssnodgra AT pheran.com
+
+commit 4fa859d3abccc05c43a00d9de10a88235c607af7
+Author: djm <devnull@localhost>
+Date:   Tue Mar 14 22:51:48 2006 +0000
+
+     - (djm) Fix DLT_RAW support, from jhanna AT shaw.ca
+
+commit 5aca81ee9db65063b9e1e493e57769bedb6845a0
+Author: djm <devnull@localhost>
+Date:   Mon Feb 13 20:48:15 2006 +0000
+
+     - (djm) Add missing getopt() bit for flowtrack mode
+
+commit 0bf0fe4260234f53ec226e6d31002efe3b43d3d5
+Author: djm <devnull@localhost>
+Date:   Sat Feb 11 11:27:38 2006 +0000
+
+     - (djm) Add option to ignore port and protocol information from flows,
+       allowing flows from the same IP addresses to be automatically
+       coalesced
+
+commit 970c294671e89569270a2239b754957c25f9f42f
+Author: djm <devnull@localhost>
+Date:   Wed Jan 25 23:25:04 2006 +0000
+
+     - (djm) Correctly expire quiescent flows when they hit maximum_lifetime;
+       bug noticed and patch tested by andreas.brillisauer AT hetzner.de
+
+commit 205988967ff8096c412efc52f0f2a4e43647535d
+Author: djm <devnull@localhost>
+Date:   Thu Dec 22 02:23:41 2005 +0000
+
+     - (djm) Make sure installation directories exist, spotted by
+       alshu AT tut.by
+
+commit d2a71f153ed22b1fd973a3f5ddd884841faf680f
+Author: djm <devnull@localhost>
+Date:   Fri Nov 18 05:19:12 2005 +0000
+
+     - (djm) Support Linux "cooked socket" datalink type, from Tony Lewis
+       gnutered AT yahoo.com.au
+
+commit 78874c4809fe0282c855a9d79ef146c493991806
+Author: djm <devnull@localhost>
+Date:   Fri Nov 18 05:17:10 2005 +0000
+
+     - (djm) Some extra paranoia and verbosity on malloc failures
+
+commit 86fbc4bda72904df200693bb9bfc7386df22a9dc
+Author: djm <devnull@localhost>
+Date:   Sat Oct 1 00:14:21 2005 +0000
+
+     - (djm) Fix typo, from rbreathe AT brookes.ac.uk
+
+commit 60ab28b7a359d2fcd75c80489b34b8cdca0b36ba
+Author: djm <devnull@localhost>
+Date:   Sat May 14 06:47:46 2005 +0000
+
+     - (djm) Fix reversed NetFlow v.9 first_switched and last_switched times
+
+commit 966578170f1dd4f41c93a2ba80489442f0e15ac7
+Author: djm <devnull@localhost>
+Date:   Sat May 14 06:47:16 2005 +0000
+
+     - (djm) Fix time printing bug in debug mode
+
+commit 81ac51ceb7627853382eb4117a669ecd9ae137a3
+Author: djm <devnull@localhost>
+Date:   Sat May 14 06:17:18 2005 +0000
+
+    more
+
+commit 3b655023c6aa46d022bcf1bff53a9196c9537113
+Author: djm <devnull@localhost>
+Date:   Thu May 5 03:32:57 2005 +0000
+
+     - (djm) Report pcap stats in statistics display
+
+commit 9bb3c79f9f197c4034a0fad9b1774a987bb8e45d
+Author: djm <devnull@localhost>
+Date:   Thu May 5 03:31:42 2005 +0000
+
+     - (djm) Fix bug in sequence number generation. Reported by
+       b.ghita AT jack.see.plymouth.ac.uk and mwlucas AT blackhelicopters.org
+
+commit edf957dc8dec6447730dae968cb760589012c894
+Author: djm <devnull@localhost>
+Date:   Tue Apr 19 11:59:02 2005 +0000
+
+    more
+
+commit 53baf7db99b5525d9c3559b9ab8506a77f379054
+Author: djm <devnull@localhost>
+Date:   Sat Jan 15 04:09:50 2005 +0000
+
+    0.9.7
+
+commit 3d6202ec66858f3a8b1f761c775daf359bf37fec
+Author: djm <devnull@localhost>
+Date:   Sat Jan 15 04:08:56 2005 +0000
+
+    prepare for release of 0.9.7
+
+commit 8b9a86bfed9695c877df1a53b12aa87a0e1e7c04
+Author: djm <devnull@localhost>
+Date:   Mon Jan 10 01:50:07 2005 +0000
+
+     - (djm) Add option to set hoplimit/TTL in support of multicast export support
+     - (djm) Document multicast export
+
+commit da885e93aa46d9563a2937eb01cf3a23fc9ed935
+Author: djm <devnull@localhost>
+Date:   Mon Jan 10 01:02:34 2005 +0000
+
+     - (djm) Fix endianness problem in NetFlow v.9 port number export. Found and
+       fixed by paolo.lucente AT ic.cnr.it
+
+commit 92b6235ce56ba1be98ef854d9156d1a3d82cf980
+Author: djm <devnull@localhost>
+Date:   Mon Nov 8 23:03:28 2004 +0000
+
+     - (djm) Test for struct ip6_ext in autoconf and define a replacement if
+       missing, some systems lack it
+
+commit 21026e24a69634979608faf9de73867d0a660785
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:37:11 2004 +0000
+
+     - (djm) Release 0.9.6
+
+commit 2494b066d087cf84484e797135a782359fa8ef70
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:37:06 2004 +0000
+
+    xxx no ipv6
+
+commit 2ed6f1715d00ae33cdc6d0056a0e72fe6c5caeed
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:36:29 2004 +0000
+
+     - (djm) Update README with recent changes (NetFlow v.9, v6 flows)
+
+commit 02f154f70414c297af3aae9fa657a8613a9c3337
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:31:33 2004 +0000
+
+    tidy
+
+commit 2daf944e715e4d9893ba0b7c5f6a4ff00f982ed0
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:27:02 2004 +0000
+
+     - (djm) Unbreak compilation on non-OpenBSD
+
+commit e601d52b0a67b1d029a8673c0000890ab4ee041c
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:26:16 2004 +0000
+
+      - (djm) Unbreak v6 flow export
+
+commit 94fc2d47f67a2183e9987bd4d8628a136180d9a5
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 04:12:36 2004 +0000
+
+     - (djm) Don't bother tracking IPv6 flows if NetFlow export version
+       doesn't support it
+     - (djm) Don't crank up pcap snaplen unless we are interested in IPv6 either
+
+commit b18bd03f2b43185d19b136b2cd25c824ccd6b136
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 03:43:36 2004 +0000
+
+     - (djm) Include IP_PROTOCOL_VERSION field in NetFlow v.9 packets
+
+commit 5de4785a783717c36247292337389088502a69f4
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 03:35:44 2004 +0000
+
+     - (djm) Add a timeout to cluster expiry expiry events, so we get more flows
+        per packet. Default is to check for expiries every 60s
+     - (djm) Allow timouts to be disabled (by setting them to 0)
+
+commit 55f53f97ce56a575ab18feda6ee5634aef337c7b
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 01:59:58 2004 +0000
+
+     - (djm) Remove unused debugging code from NetFlow v.9 support
+
+commit 042129df2c8391a22fc011d44d9b2eb23be0ac28
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 00:42:55 2004 +0000
+
+     - (djm) Remove unused debugging code from NetFlow v.9 support
+
+commit 625f75b5c946381814359816e11d6c10b68b8c6d
+Author: djm <devnull@localhost>
+Date:   Thu Sep 30 00:19:52 2004 +0000
+
+     - (djm) Increase caplen a little for IPv6
+
+commit f44c1f359753ae6aac25c35276434819dc199b5b
+Author: djm <devnull@localhost>
+Date:   Wed Sep 29 04:14:35 2004 +0000
+
+     - (djm) NetFlow v.9 support
+
+commit 233f736bfd94b3719b9e59373042029588ba181b
+Author: djm <devnull@localhost>
+Date:   Wed Sep 29 04:14:27 2004 +0000
+
+    more
+
+commit 6b8995478fafc3096fa8a601f2520431fb39e2a7
+Author: djm <devnull@localhost>
+Date:   Wed Sep 29 03:57:10 2004 +0000
+
+     - (djm) Remove NetFlow v.1 types from NetFlow v.5 code
+
+commit 5b7e179f434d2eb80c8c24537c2f20683480826a
+Author: djm <devnull@localhost>
+Date:   Wed Sep 29 03:55:59 2004 +0000
+
+     - (djm) Improve IPv6 code: track flowlables bidirectionally (but don't key on
+       them for now), print addresses:port tuples unambiguously and apply correct
+       timeout for ICMPv6 flows
+
+commit a99908be013fbbc17759ab25dbd57efb6982ef0b
+Author: djm <devnull@localhost>
+Date:   Mon Sep 13 12:07:50 2004 +0000
+
+    more
+
+commit ed5fb095c7bbf13558906ffe408ac5c04065c782
+Author: djm <devnull@localhost>
+Date:   Mon Sep 13 04:35:54 2004 +0000
+
+     - (djm) Switch to a table of netflow exporter functions in preparation for
+       additional export protocols
+     - (djm) Collect netflow export target information together in a struct, in
+       preparation for more export protocols and support for multiple export targets
+     - (djm) Optimise the datalink_check function, by caching the last datalink type
+       used.
+
+commit 29f54a4cfa9ab97958ffaea72d02a4a6e37dfdcc
+Author: djm <devnull@localhost>
+Date:   Mon Sep 13 02:25:09 2004 +0000
+
+     - (djm) Split out netflow send functions into separate files
+
+commit a68b1c25a93b983a128c870979bcc6985bbe8f18
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 09:45:47 2004 +0000
+
+    improve
+
+commit e01ead22f15534c0691bfdb79b8fcabea2f00207
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 09:33:04 2004 +0000
+
+    add some, delete some, tidy lots
+
+commit 8c681d1f9b58ec0a125905a62795da8e21971a98
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 09:21:53 2004 +0000
+
+     - (djm) Comment out dump_packet (uncomment when debugging)
+
+commit 95aa873b6c8fc8350fe99b6085218d27f35ca69b
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 09:20:56 2004 +0000
+
+     - (djm) Use strlcat/strlcpy instead of strn* functions
+
+commit 9ac877a7106359a0b14af29aeb3f77a18f629230
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 09:08:08 2004 +0000
+
+     - (djm) Portability fixes for Linux, add closefrom()
+
+commit 94eb01cbe4ab957d88bb4b9fc10ab1807906263b
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 08:43:25 2004 +0000
+
+     - (djm) Implement IPv6 flow tracking. Currently no export functionality.
+
+commit a94df1e26e7cfdcfa21d22ab418362641410e0fb
+Author: djm <devnull@localhost>
+Date:   Fri Sep 10 08:43:02 2004 +0000
+
+    more
+
+commit d93be754d061cb2f75669dbc265adb0e880049f6
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 10:20:55 2004 +0000
+
+     - (djm) Prepare for IPv6 packet to flow conversion routine
+
+commit 0ae18ad80f47b4503075ac4ae10f25c83d4bf503
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 09:28:10 2004 +0000
+
+     - (djm) Be more careful about putting flows into canonical format
+
+commit 83adac9f39b6813dfdf861427333d0578ad80ecf
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 09:13:43 2004 +0000
+
+     - (djm) Another step on the road: factor out transport-layer protocol parsing
+       from IPv4 parsing code
+
+commit e0343134798fd37b28c1887aa0bed6dc3d2b421c
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 09:11:37 2004 +0000
+
+    more
+
+commit a0bf456a6b4eb866de647f928a9667d86cd9b7bb
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 07:00:17 2004 +0000
+
+     - (djm) Next step in preparation of IPv6 support: make flow structure and
+       lookup function support both IPv4 and IPv6 addresses (v6 addrs aren't yet
+       used)
+
+commit d33141677ebad43a04c0dc42c545120b1830077b
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 06:19:06 2004 +0000
+
+     - (djm) Rework datalink processing, in preparation of IPv6 support
+
+commit 563888a83ee3e7dd9469e219de032cc2375ed831
+Author: djm <devnull@localhost>
+Date:   Thu Sep 9 01:30:25 2004 +0000
+
+     - (djm) inline is unnecessary
+
+commit 8366bf6fac9119f332313ecf1aa68281beff17b7
+Author: djm <devnull@localhost>
+Date:   Wed Sep 1 03:14:28 2004 +0000
+
+     - (djm) Release version 0.9.2
+
+commit 41b5110230c30c40890974326549567bb593a21b
+Author: djm <devnull@localhost>
+Date:   Wed Sep 1 03:14:09 2004 +0000
+
+     - (djm) Fix a tiny, stupid bug that prevents flow export
+
+commit e7fd7bdeee0a6155bbeb050247e006993442c142
+Author: djm <devnull@localhost>
+Date:   Fri Aug 27 14:40:43 2004 +0000
+
+     - (djm) Release version 0.9.1
+
+commit 4431e3eb073d11bd8f1a77935c2c9362b676acf3
+Author: djm <devnull@localhost>
+Date:   Fri Aug 27 14:40:27 2004 +0000
+
+     - (djm) Mention NetFlow v.5 support in manpage
+
+commit 307731b7614cb494b78064b64d8dcbe5e5c1279f
+Author: djm <devnull@localhost>
+Date:   Fri Aug 27 14:36:26 2004 +0000
+
+     - (djm) NetFlow v.5 supports 30 flows per packet
+     - (djm) Use struct sockaddr in arguments (not sockaddr_storage), properly
+       check length
+
+commit 3ba99b8ca738dd9137f88bef5c56be0bde8c7eaf
+Author: djm <devnull@localhost>
+Date:   Fri Jul 16 06:26:57 2004 +0000
+
+     - (djm) Fix collector.pl when no address family specified on commandline
+       spotted by pgennai AT netstarnetworks.com
+
+commit 5f7394698a5ca3dd3ebcb1eb35c3bd75af621c0c
+Author: djm <devnull@localhost>
+Date:   Fri Jul 16 06:20:09 2004 +0000
+
+    more
+
+commit fb930278bfa5b0f85c5566d1ab4d23e0646ea58b
+Author: djm <devnull@localhost>
+Date:   Sat Jul 10 10:35:16 2004 +0000
+
+     - (djm) Add support for NetFlow v.5 export format to collector.pl
+
+commit 99ebc00ec7ffca33ebe7107922eae2c5d63bc6fd
+Author: djm <devnull@localhost>
+Date:   Sat Jul 10 10:34:50 2004 +0000
+
+    v.5 is done
+
+commit a5d0cafac4ced03f0be24bebf031a1f0ab900b63
+Author: djm <devnull@localhost>
+Date:   Sat Jul 10 10:19:19 2004 +0000
+
+     - (djm) Tidy up code: remove some debugging gunk, kill a global
+     - (djm) Add support for NetFlow v.5 export format
+
+commit d81074419d92286fd13dd495555c13f92ee3335a
+Author: djm <devnull@localhost>
+Date:   Sat Jul 10 10:18:21 2004 +0000
+
+    remove obselete comment
+
+commit 63165cb13c5146b78a2f29e6f27452a80c16e434
+Author: djm <devnull@localhost>
+Date:   Fri Apr 30 03:25:30 2004 +0000
+
+     - (djm) Release version 0.9
+
+commit 062759ff4fdd40a3c1537a4cd81e3c11149a8e40
+Author: djm <devnull@localhost>
+Date:   Fri Apr 30 03:22:13 2004 +0000
+
+    we couldn't avoid it
+
+commit 6656fb8007a0910c84eaed425977158caced4ea6
+Author: djm <devnull@localhost>
+Date:   Sun Apr 18 03:45:05 2004 +0000
+
+     - (djm) Fix invalid packet bug
+
+commit 70d88c1739eb5a6666c492f747e9f167d5888bef
+Author: djm <devnull@localhost>
+Date:   Sat Apr 17 09:51:54 2004 +0000
+
+    remove useless comment
+
+commit fa7405fefd11e23b110d04fc6e2b897a24c4ca6a
+Author: djm <devnull@localhost>
+Date:   Sat Apr 17 09:20:03 2004 +0000
+
+    sections
+
+commit 504e27c8f67a323906effa81619ff2b1f7ceb7cf
+Author: djm <devnull@localhost>
+Date:   Sat Apr 17 09:14:35 2004 +0000
+
+     - (djm) Separate timeout for ICMP traffic, generic timeout is too long
+
+commit 0d46c3a4715b1ae51ec94bae1da35edb41a621c4
+Author: djm <devnull@localhost>
+Date:   Sat Apr 17 02:10:13 2004 +0000
+
+     - (djm) Eliminate periodic expiry scans, wait in poll() only until the next
+       scheduled expiry event
+
+commit df15e70f6f9e9c1a67ee4b58e5ca2dab4650037b
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 23:46:09 2004 +0000
+
+    more & tidy
+
+commit 71cf7f3400b879101f4110101336ee07172cbc0e
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 10:46:48 2004 +0000
+
+     - (djm) Unbreak "make install"
+
+commit 7f41d483ae737ff82586db26847a721b9c99b823
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 10:44:02 2004 +0000
+
+    update
+
+commit 93f8cec0c1377f0267d46dbf9103e276c983c50c
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 06:22:31 2004 +0000
+
+     - (djm) Unbreak Solaris, pass socklen around instead of using sa_len
+
+commit d54eb4a486bc85b4deaf0d04e9bbf87f5b28c68a
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 06:14:03 2004 +0000
+
+     - (djm) Tidy manpage and mention v6 export syntax
+
+commit 0493acd85f10e8aedc6195d6d9197adbaf85c7c3
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 06:13:28 2004 +0000
+
+     - (djm) More flow export fixes
+
+commit 5df2c973ebc84126501fc3b345a948efa0c7f1e9
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 05:18:44 2004 +0000
+
+     - (djm) Allow v4 operation of collector.pl if v6 modules aren't present
+
+commit 2dc06bd5d9a1e04f5509f3724fe2fd0c1bcd1e75
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 04:46:26 2004 +0000
+
+     - (djm) IPv6 listen support for collector.pl
+
+commit 3647682bdc170a0d02a7cd9c3304bb59c8151154
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 02:06:37 2004 +0000
+
+    todo
+
+commit 42b97ace9688803a0e3daed96b0a060c677de25e
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 02:00:50 2004 +0000
+
+     - (djm) Support "[host]:port" syntax to specify numeric IPv6 export target
+     - (djm) Fix connect() for IPv6 export targets
+
+commit 0c4296580531f35ed32d740e1c3d0df7aecb6054
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 01:53:26 2004 +0000
+
+     - (djm) Fix busted preprocessor
+
+commit 77bb2d5b15ccc50819ec82d0a8e37a5be4e37a66
+Author: djm <devnull@localhost>
+Date:   Fri Apr 16 01:51:51 2004 +0000
+
+     - (djm) A bunch of changes necessary to support building on Solaris 9 (though
+       the resultant binary doesn't seem to work properly):
+            - Use getaddrinfo instead of inet_aton to parse host/port for export
+            - Use setreuid if setresuid isn't around (ditto for gid)
+            - Add replacement daemon() function from OpenBSD
+            - Provide our own logit() function, because Solaris syslog() doesn't
+              support LOG_PERROR
+            - A heap of configure and common.h additions and fixes
+
+commit 60eb9dfa7ed6dec4a4f8315d6e1b62edf1e8549a
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 10:47:05 2004 +0000
+
+     - (djm) Detect int and define standard int types in configure
+
+commit 4b117ffb240576b7913c06ed1bb7f357a146c738
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 04:44:47 2004 +0000
+
+     - (djm) Use autoconf to detect various things; in preparation of more
+       portability
+
+commit acf77e9bbf0ba4b6cce858b202b5dbe55c451087
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 01:19:41 2004 +0000
+
+     - (djm) Never endprotoent()
+
+commit b793969c8a21fac96c4b2f59508a509090a427f9
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 01:19:16 2004 +0000
+
+     - (djm) Linux needs grp.h for setgroups()
+
+commit dd2b18c17c16bb78c3754042711d308bda1368b3
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 01:02:08 2004 +0000
+
+     - (djm) Print flow start and finish times in collector.pl
+
+commit a46ccfbc57fe2000e125ed21bf33b719bc07b0e4
+Author: djm <devnull@localhost>
+Date:   Thu Apr 15 00:17:41 2004 +0000
+
+     - (djm) Clear socket errors before UDP send; from pfflowd
+
+commit c24bf2e5ea15134a59da7f4a3903c2a3329973c0
+Author: djm <devnull@localhost>
+Date:   Mon Nov 10 22:44:05 2003 +0000
+
+    ignore
+
+commit df1ba62226ac6183e8417555f07eaeb050593319
+Author: djm <devnull@localhost>
+Date:   Mon Nov 10 22:43:43 2003 +0000
+
+     - (djm) Remove -Werror from CFLAGS, it causes problems in released software
+
+commit 4d12f9422e5a41e2d3f1d2e55a6b9a8283a1540a
+Author: djm <devnull@localhost>
+Date:   Sun Nov 9 00:38:08 2003 +0000
+
+     - (djm) Give compile-time choice over flow and expiry event tree type
+       default is splay tree for flows and red-black tree for expiry events
+       (limited benchmarking indicates that this is the fastest)
+     - (djm) Lock the BPF device to prevent changes should the unpriv child
+       be compromised (only OpenBSD supports this ioctl for now)
+
+commit b4cd6fc5fd6783db2b77f63b0a7a18288aad25f6
+Author: djm <devnull@localhost>
+Date:   Sun Nov 9 00:25:20 2003 +0000
+
+    more
+
+commit fbb56c0cbf0bd1747920e8b247eb4578c86cfaf4
+Author: djm <devnull@localhost>
+Date:   Thu Oct 2 01:37:31 2003 +0000
+
+     - (djm) Realloc audit
+     - (djm) Chroot to /var/empty and drop privileges on daemonisation
+     - (djm) More things TODO
+
+commit 5542dc13ff6070ade591770da1422f3c8a0426d4
+Author: djm <devnull@localhost>
+Date:   Mon Jun 23 09:56:52 2003 +0000
+
+    more
+
+commit c5ce81fb84ff5b6f8937ed8b8c7606b7e544de68
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:23:29 2003 +0000
+
+     - (djm) Release version 0.8.1
+
+commit 1719ee32330c8e297418511ee8539719e1fd4695
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:21:58 2003 +0000
+
+    Mention fragment handling issues
+
+commit 3aa51212346ce2fc0345aeaa3aba26a1eead3269
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:21:50 2003 +0000
+
+    Mention bugzilla
+
+commit b8a99de57536d6fdbc2c1169c2df9b82c0c965b3
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:21:38 2003 +0000
+
+     - (djm) Fix fragment handling bug: we would try to look into fragmented
+       payload on later fragments. This could cause random tcp/udp  port numbers
+       to be recorded.
+     - (djm) Fix malicious fragment handling bug: deliberately tiny fragments
+       (e.g. http://citeseer.nj.nec.com/ptacek98insertion.html) would be ignored
+       and would not create flow entries.
+     - (djm) Count fragments that we have seen
+
+commit 657225fe550ed4d921fd8279773514be823828d6
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:07:38 2003 +0000
+
+     - (djm) Add "strip" target to Makefile
+
+commit fe36b285e4f69cfb7fe8f2463cbbe53914bd090b
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:07:13 2003 +0000
+
+     - (djm) Rework TODO, add section on planned fragment handling
+
+commit a017f9d776bb8d147fdcb9d93bc4485ef8c4bcdf
+Author: djm <devnull@localhost>
+Date:   Fri Jun 20 02:06:53 2003 +0000
+
+     - (djm) Fixup collector timestamp printing
+
+commit 6a82d1fc0e5aa117d8be4bbcff8ea6485b830b67
+Author: djm <devnull@localhost>
+Date:   Thu Mar 6 13:55:49 2003 +0000
+
+    sync
+
+commit 17ede4ff966ef9e2b931085619e4d663dd367d13
+Author: djm <devnull@localhost>
+Date:   Thu Mar 6 13:51:23 2003 +0000
+
+    some goes in, some goes out
+
+commit 9b21ce76f054d25e1a31db0ca8b30aa119595a45
+Author: djm <devnull@localhost>
+Date:   Thu Mar 6 13:27:10 2003 +0000
+
+    Trim out unused Netflow v5 and v7 support
+    Tidy output
+    Track sender address
+
+commit bff93f4a453d3584e1b9528656ff8dd358844af2
+Author: djm <devnull@localhost>
+Date:   Thu Mar 6 13:26:32 2003 +0000
+
+    more
+
+commit a3c6263aba5e165fa7cb4c43b1a67ede3c360d99
+Author: djm <devnull@localhost>
+Date:   Wed Jan 22 07:03:28 2003 +0000
+
+    do some
+
+commit 39a089a34baab30b791bacbe1ea8e82338eea8ce
+Author: djm <devnull@localhost>
+Date:   Sun Nov 10 09:46:41 2002 +0000
+
+    collector sucks
+
+commit 15f8be2abf589c316c687f06b3fdb12831a5673a
+Author: djm <devnull@localhost>
+Date:   Sun Nov 10 01:19:52 2002 +0000
+
+    Add simple perl netflow collector
+
+commit 5ed01438d916b0b6f0c4bd47fbd5b1a40b0512bf
+Author: djm <devnull@localhost>
+Date:   Sun Nov 10 01:05:40 2002 +0000
+
+    Refactor ctlsock handling from mainloop to separate function, shortens
+    mainloop considerably. Rework struct poll setup while we're there
+
+commit abe4c7e444b56074ceaa92c8e78a6cc0a6e7a4aa
+Author: djm <devnull@localhost>
+Date:   Tue Nov 5 01:29:18 2002 +0000
+
+     - (djm) Don't exit on failure to lookup net/mask. From Alejandro Roman
+       <aroman@uyr.com.ar>
+
+commit d892bc17e816dfb7cb1d47041296ddf5cd71460e
+Author: djm <devnull@localhost>
+Date:   Thu Oct 31 08:53:57 2002 +0000
+
+    verbiage
+
+commit 7fda27d3284f572ea3c693801ac22bd3c15466ce
+Author: djm <devnull@localhost>
+Date:   Thu Oct 31 08:48:12 2002 +0000
+
+    tidy
+
+commit e8cf1c3b2fa29e841b80834a76ea929b6966837c
+Author: djm <devnull@localhost>
+Date:   Thu Oct 31 08:48:02 2002 +0000
+
+    Add examples section
+
+commit 54647ffd84b2517247069e5db8a045e62b7e3b75
+Author: djm <devnull@localhost>
+Date:   Wed Oct 30 11:24:44 2002 +0000
+
+    Always use local sys-tree.h
+
+commit 38ad1642b94c17543db9204e0e5488823b2c9d36
+Author: djm <devnull@localhost>
+Date:   Wed Oct 30 11:21:14 2002 +0000
+
+    New user-friendly time specification code from OpenSSH/Kevin Steves
+    
+    Some doc fixes too
+
+commit 7fafecd5d63156b5c398c44d1f1797b3e44fea08
+Author: djm <devnull@localhost>
+Date:   Tue Oct 29 12:56:47 2002 +0000
+
+    v8.0
+
+commit 8670e48521c82dcdbd70ccbc1049018400050527
+Author: djm <devnull@localhost>
+Date:   Tue Oct 29 12:56:04 2002 +0000
+
+     - (djm) Multiple fixes and improvements from Octavian Cerna <tavy@ylabs.com>
+        - softflowd.c (connsock): Fix arguments to `connect': addr is a pointer,
+            not a structure.
+          (flow_update_expiry): Properly compute the flow lifetime.
+          (send_netflow_v1): Count the leftover packet.
+            Send flow_start, flow_finish and uptime_ms as Cisco equipment
+            does: milliseconds since system boot.
+          (timeval_sub_ms): New function.
+          (main): Changed POLL_WAIT to be (EXPIRY_WAIT/2) as stated in the
+            comment above `poll': twice per recheck.
+            `poll' takes the last argument in milliseconds.
+            Initialize system_boot_time as the time at the start of capture
+            (fixme: how does this affect reading from capture files?)
+
+commit 63ecec4598ab730df87451428efba4dd4017feb4
+Author: djm <devnull@localhost>
+Date:   Thu Oct 24 02:10:05 2002 +0000
+
+    Minor fixes
+
+commit 91c6de745ca18e2c3ccc664f01b73d1a63556c07
+Author: djm <devnull@localhost>
+Date:   Mon Oct 21 10:37:33 2002 +0000
+
+    Fix a couple of bugs and compilation errors on OpenBSD.
+    
+    Includes a use-after-free error spotted by Aaron Turner <aturner@pobox.com>
+
+commit 90d39b2d5270769c74c67668344aa0dfd3b266be
+Author: djm <devnull@localhost>
+Date:   Fri Oct 18 10:00:54 2002 +0000
+
+    More docs
+
+commit 7ec48f842b0a56dfd6adec15c8ff1e62029badc5
+Author: djm <devnull@localhost>
+Date:   Fri Oct 18 09:16:26 2002 +0000
+
+    Much hacking:
+     - Flesh out softflowctl
+       - getopt
+       - Allow specification of socket file
+       - Give it a manpag
+       - Lots of commands now
+     - New TODO & README files
+     - New common header file
+     - New flow expiry code
+       - Fast expiry of FIN'd and RST'd TCP connection
+       - Separate general, UDP and TCP timeouts
+       - Add maximum flow lifetime
+       - Track statistics on flow expiry reasons
+       - Fast expiry happens in its own function now
+     - Tidy up of statistics code
+       - Separate struct and update function
+       - Prettier printing
+     - Kill (heh) the signals based interface, use softflowctl instead
+     - Refactor main()
+       - Much code moved to helper functions
+
+commit b0aa7404379fcd8bc5e8f95f3b7716a7370ebb26
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 14:52:00 2002 +0000
+
+    Add guts of socket based remote control
+
+commit 98d5598257fcdc28107fd50e8bb5b414d411c4b8
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 14:50:52 2002 +0000
+
+    newline at EOF
+
+commit 451a1d1f310d9f17d6b311a269641979da012464
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 14:50:37 2002 +0000
+
+    sys-queue.h
+
+commit 932e7a11103361f2f03c1607f0f36fbfec1a6eaf
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 13:30:59 2002 +0000
+
+    Make netflow data export option, i.e allow operation in statistics-only mode
+
+commit 696905cdd08748ea21ce6f111b24287a7856c03c
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 13:30:07 2002 +0000
+
+    More ideas
+
+commit 958201dbb28aaa310e9804b9850407440b0a92f2
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 13:24:53 2002 +0000
+
+    Bump up pcap snaplen a little
+
+commit 408fe92e66984727f71d5b696c719f83291b46eb
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 12:47:53 2002 +0000
+
+    A few more states, more neatly printed
+
+commit ade6a1318a68de08484e9712be7070afc51cd015
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 12:34:01 2002 +0000
+
+    Collect per-protocol lifetime (min/max) stats. This will be useful for
+    tuning early expiry heuristics
+
+commit e34898b489b1e3ac2142c6f733305df1a6c9c388
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 11:49:38 2002 +0000
+
+    tidy
+
+commit 2cdb95000a1363a56e91bcd3ef9556b0cf2d295b
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 11:47:09 2002 +0000
+
+    Fix crashes in RB-tree expiry code
+    
+    Rewrite comparison functions to be more paranoid about signed vs unsigned
+
+commit 732270b316d17a567c37a553c8c541eef4049e66
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 11:20:31 2002 +0000
+
+    Change expiries queue to a RB tree, in preparation for fast expiry of
+    TCP and transient flows
+
+commit 7ff8fb3ac13e15b547b3baacb91afc1b36bc1763
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 11:04:11 2002 +0000
+
+    print protocol names
+
+commit 1ea197004c4a359009d96788a4c7134147abf1da
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 10:59:29 2002 +0000
+
+    Per protocol stats collection
+
+commit 09c7534f1ed2ce250cc95afd42c472e28a837447
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 09:44:39 2002 +0000
+
+    tidy and comment
+
+commit 9e328e05323f3cfb44489f922befa69a4322b4d2
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 09:32:41 2002 +0000
+
+    make mainloop timeout configurable
+
+commit 1ee7c3df97b39999bd9dbf6e912813b0e4914936
+Author: djm <devnull@localhost>
+Date:   Thu Oct 17 08:56:03 2002 +0000
+
+    Fix flow export crash
+    
+    Unlink PID file on exit
+
+commit 190ba66a71f2a0c0b1481ff9d2e9e820264a7d6b
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 15:53:52 2002 +0000
+
+    newline after pid in pidfile
+
+commit 7a393108fb5884d3f1348a1f1033f7b48ef9614e
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 15:46:59 2002 +0000
+
+    really fix export bug
+
+commit eb9c3e7d0fefa288a3e66302f690c721d1fb9017
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 15:43:36 2002 +0000
+
+    version
+
+commit f091729cb2a2ae6bd99b8392a9db55f4f849d79b
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 15:42:25 2002 +0000
+
+    Fix flow export bug when only 1/2 flows per export packet
+
+commit e62d696f0dbd9393e3b9dd8b86b051732649606c
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 13:08:35 2002 +0000
+
+    less debug
+
+commit 4dbedebe25e5446c1deb2d39d684833e60f372ba
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 12:02:10 2002 +0000
+
+    fix debug
+
+commit 63347f7800d3d2623ee5888c5bc47a926480657b
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:47:16 2002 +0000
+
+    more debug
+
+commit 6a56128d12bc454f410b282b9260c410c1798cd4
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:37:33 2002 +0000
+
+    fix debug
+
+commit 62bff071cce04f64a04f1a5ea258b231136b72c8
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:37:04 2002 +0000
+
+    more debug
+
+commit 0c974a3f8098a076335050666dc7567c142f74e8
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:34:24 2002 +0000
+
+    fix debug
+
+commit 4e5b30365f379466c0054cd65fe063c947a0261e
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:32:45 2002 +0000
+
+    fix debug
+
+commit 4a525c9c540e97b2b20086f761329f5a8c86cb89
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:32:05 2002 +0000
+
+    more debug
+
+commit 7a61a3b3501f8b999efd58eb5126e9047a70cffd
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 11:14:59 2002 +0000
+
+    Collect additional statistics
+
+commit e3836c5847d16b07fd9d1c2eb4eea085ad9e292c
+Author: djm <devnull@localhost>
+Date:   Wed Oct 16 09:54:07 2002 +0000
+
+    More large changes:
+     - Tidy Makefile
+     - Remove splay tree code (it is buggy or I am using it wrong)
+     - Store flows in canonical format for bidirectional matching instead of
+       relying on over-smart (and buggy) comaprison function
+     - Improve capture file handling.
+       - Don't read the entire capfile in one go
+       - Perform expiry processing in capfile mode only when max_flows exceeded
+     - Don't let pcap_dispatch process more than max_flows packets in one go
+
+commit eb45ed5ebe2ad173b97674f0f8ca3dd1a2ab7c50
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 13:02:31 2002 +0000
+
+    doh
+
+commit 4648aa76b522c84f42996b4094ca05313e053b35
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 12:56:59 2002 +0000
+
+    rewrite of flow export function
+
+commit 859cdff7a4b6c48c2a75adda6f73181bcc1024df
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 12:31:06 2002 +0000
+
+    memleak
+
+commit 1468dc0da0eb933af44249b33407bd89668853f9
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 12:28:17 2002 +0000
+
+    Doc on signals
+
+commit 43a282a5ab10a4a32a59174e8c4d617da231de0a
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 02:30:57 2002 +0000
+
+    Make flow tracking bidirectional
+    
+    Collect a few more statistics
+    
+    Comment code fully
+    
+    Rename fakeflowd -> softflowd
+    
+    Turn on all GCC warnings and fix
+
+commit 99454daf85cb525dab10dd29de672c4f1bd1b426
+Author: djm <devnull@localhost>
+Date:   Tue Oct 15 00:16:04 2002 +0000
+
+    Track and report TCP flags
+
+commit 7204c2975899c4283f2b44df00dbd8a0c95ff9df
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 23:51:16 2002 +0000
+
+    Fix export of more than 24 flows
+
+commit a7708da2e29d12a4ccd20d1ef37e3b1d6997ea52
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 14:18:35 2002 +0000
+
+    Add support for DLT_LOOP (OpenBSD PPP) and DLT_NULL datalink types
+
+commit 1941d7e02b66c8284cf168613187f05aa45f41d3
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 14:12:38 2002 +0000
+
+    More OpenBSD fixes
+
+commit ae1bbc37406a395471008f7ceb73c8c944d2d191
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 14:09:00 2002 +0000
+
+    make compile on OpenBSD
+
+commit 11b5a37891cc1c3f5bb7273d583835730d748dfd
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 14:06:43 2002 +0000
+
+    Use OpenBSD header files if possible
+
+commit d4727b19f54ffa665f1256f3f1fb6a191d12a1c5
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 14:05:00 2002 +0000
+
+    Initial revision
+
+commit d7ccc47e3957a745738aa7c00e02a25c48f12a2a
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 12:38:35 2002 +0000
+
+    fix options processing
+
+commit 0090b612fe00bb8e94f78c1ecc2893d7f71bdcc1
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 12:29:25 2002 +0000
+
+    Make tree type selectable (splay or red-black)
+    
+    Rework main loop to not break on capture files
+    
+    Add no-fork option
+    
+    Rename debug option
+
+commit f157b65147f4b664367bd602527d7fa18b8e8b44
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 12:03:53 2002 +0000
+
+    Fix
+
+commit 8bb336569112f892bae381a435fbb61694a35ae8
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 12:01:45 2002 +0000
+
+    Manual page
+
+commit 40d75c4d001a2288f91929c0ff012682fe3e33fe
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 12:01:07 2002 +0000
+
+    Rename statistics print function and call it upon exit
+
+commit a86143c2c960dcc8b45795832f3184b71583bfed
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 11:05:10 2002 +0000
+
+    Version 0.1
+
+commit 9a76fca5a62cc5ac254fe1d45524b84721f9bf04
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 10:32:00 2002 +0000
+
+    openbsd compile fix
+
+commit 722157ed7c0aac8239f56501b82ebf2eea744a8b
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 10:30:57 2002 +0000
+
+    Make flow tracking bidirectional
+    
+    Collect a few more statistics
+    
+    Comment code fully
+    
+    Rename fakeflowd -> softflowd
+    
+    Turn on all GCC warnings and fix
+
+commit 187e0ae31c22420109351a56df135492630f6053
+Author: djm <devnull@localhost>
+Date:   Mon Oct 14 09:05:00 2002 +0000
+
+    Initial revision
