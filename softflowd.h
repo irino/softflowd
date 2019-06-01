@@ -29,6 +29,10 @@
 #include "sys-tree.h"
 #include "freelist.h"
 #include "treetype.h"
+#ifdef ENABLE_PTHREAD
+#include <pthread.h>
+extern int use_thread;
+#endif /* ENABLE_PTHREAD */
 
 /* User to setuid to and directory to chroot to when we drop privs */
 #ifndef PRIVDROP_USER
@@ -69,12 +73,12 @@ struct STATISTIC {
 };
 
 /* Flow tracking levels */
-#define TRACK_FULL		1	/* src/dst/addr/port/proto/tos 6-tuple */
-#define TRACK_IP_PROTO_PORT	2	/* src/dst/addr/port/proto 5-tuple */
-#define TRACK_IP_PROTO		3	/* src/dst/proto 3-tuple */
-#define TRACK_IP_ONLY		4	/* src/dst tuple */
-#define TRACK_FULL_VLAN		5	/* src/dst/addr/port/proto/tos/vlanid 7-tuple */
-#define TRACK_FULL_VLAN_ETHER	6	/* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
+#define TRACK_FULL		1       /* src/dst/addr/port/proto/tos 6-tuple */
+#define TRACK_IP_PROTO_PORT	2       /* src/dst/addr/port/proto 5-tuple */
+#define TRACK_IP_PROTO		3       /* src/dst/proto 3-tuple */
+#define TRACK_IP_ONLY		4       /* src/dst tuple */
+#define TRACK_FULL_VLAN		5       /* src/dst/addr/port/proto/tos/vlanid 7-tuple */
+#define TRACK_FULL_VLAN_ETHER	6       /* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
 
 /*
  * This structure contains optional information carried by Option Data
@@ -86,39 +90,39 @@ struct OPTION {
 };
 
 struct FLOWTRACKPARAMETERS {
-  unsigned int num_flows;	/* # of active flows */
-  unsigned int max_flows;	/* Max # of active flows */
-  u_int64_t next_flow_seq;	/* Next flow ID */
+  unsigned int num_flows;       /* # of active flows */
+  unsigned int max_flows;       /* Max # of active flows */
+  u_int64_t next_flow_seq;      /* Next flow ID */
 
   /* Stuff related to flow export */
-  struct timeval system_boot_time;	/* SysUptime */
-  int track_level;		/* See TRACK_* above */
+  struct timeval system_boot_time;      /* SysUptime */
+  int track_level;              /* See TRACK_* above */
 
   /* Flow timeouts */
-  int tcp_timeout;		/* Open TCP connections */
-  int tcp_rst_timeout;		/* TCP flows after RST */
-  int tcp_fin_timeout;		/* TCP flows after bidi FIN */
-  int udp_timeout;		/* UDP flows */
-  int icmp_timeout;		/* ICMP flows */
-  int general_timeout;		/* Everything else */
-  int maximum_lifetime;		/* Maximum life for flows */
-  int expiry_interval;		/* Interval between expiries */
+  int tcp_timeout;              /* Open TCP connections */
+  int tcp_rst_timeout;          /* TCP flows after RST */
+  int tcp_fin_timeout;          /* TCP flows after bidi FIN */
+  int udp_timeout;              /* UDP flows */
+  int icmp_timeout;             /* ICMP flows */
+  int general_timeout;          /* Everything else */
+  int maximum_lifetime;         /* Maximum life for flows */
+  int expiry_interval;          /* Interval between expiries */
 
   /* Statistics */
-  u_int64_t total_packets;	/* # of good packets */
-  u_int64_t non_sampled_packets;	/* # of not sampled packets */
-  u_int64_t frag_packets;	/* # of fragmented packets */
-  u_int64_t non_ip_packets;	/* # of not-IP packets */
-  u_int64_t bad_packets;	/* # of bad packets */
-  u_int64_t flows_expired;	/* # expired */
-  u_int64_t flows_exported;	/* # of flows sent */
-  u_int64_t flows_dropped;	/* # of flows dropped */
-  u_int64_t flows_force_expired;	/* # of flows forced out */
-  u_int64_t packets_sent;	/* # netflow packets sent */
-  u_int64_t records_sent;	/* # netflow records sent */
-  struct STATISTIC duration;	/* Flow duration */
-  struct STATISTIC octets;	/* Bytes (bidir) */
-  struct STATISTIC packets;	/* Packets (bidir) */
+  u_int64_t total_packets;      /* # of good packets */
+  u_int64_t non_sampled_packets;        /* # of not sampled packets */
+  u_int64_t frag_packets;       /* # of fragmented packets */
+  u_int64_t non_ip_packets;     /* # of not-IP packets */
+  u_int64_t bad_packets;        /* # of bad packets */
+  u_int64_t flows_expired;      /* # expired */
+  u_int64_t flows_exported;     /* # of flows sent */
+  u_int64_t flows_dropped;      /* # of flows dropped */
+  u_int64_t flows_force_expired;        /* # of flows forced out */
+  u_int64_t packets_sent;       /* # netflow packets sent */
+  u_int64_t records_sent;       /* # netflow records sent */
+  struct STATISTIC duration;    /* Flow duration */
+  struct STATISTIC octets;      /* Bytes (bidir) */
+  struct STATISTIC packets;     /* Packets (bidir) */
 
   /* Per protocol statistics */
   u_int64_t flows_pp[256];
@@ -152,11 +156,11 @@ struct FLOWTRACKPARAMETERS {
  */
 struct FLOWTRACK {
   /* The flows and their expiry events */
-  FLOW_HEAD (FLOWS, FLOW) flows;	/* Top of flow tree */
-  EXPIRY_HEAD (EXPIRIES, EXPIRY) expiries;	/* Top of expiries tree */
+  FLOW_HEAD (FLOWS, FLOW) flows;        /* Top of flow tree */
+  EXPIRY_HEAD (EXPIRIES, EXPIRY) expiries;      /* Top of expiries tree */
 
-  struct freelist flow_freelist;	/* Freelist for flows */
-  struct freelist expiry_freelist;	/* Freelist for expiry events */
+  struct freelist flow_freelist;        /* Freelist for flows */
+  struct freelist expiry_freelist;      /* Freelist for expiry events */
 
   struct FLOWTRACKPARAMETERS param;
 };
@@ -171,31 +175,31 @@ struct FLOWTRACK {
  */
 struct FLOW {
   /* Housekeeping */
-  struct EXPIRY *expiry;	/* Pointer to expiry record */
-    FLOW_ENTRY (FLOW) trp;	/* Tree pointer */
+  struct EXPIRY *expiry;        /* Pointer to expiry record */
+    FLOW_ENTRY (FLOW) trp;      /* Tree pointer */
 
   /* Per-flow statistics (all in _host_ byte order) */
-  u_int64_t flow_seq;		/* Flow ID */
-  struct timeval flow_start;	/* Time of creation */
-  struct timeval flow_last;	/* Time of last traffic */
+  u_int64_t flow_seq;           /* Flow ID */
+  struct timeval flow_start;    /* Time of creation */
+  struct timeval flow_last;     /* Time of last traffic */
 
   /* Per-endpoint statistics (all in _host_ byte order) */
-  u_int32_t octets[2];		/* Octets so far */
-  u_int32_t packets[2];		/* Packets so far */
+  u_int32_t octets[2];          /* Octets so far */
+  u_int32_t packets[2];         /* Packets so far */
 
   /* Flow identity (all are in network byte order) */
-  int af;			/* Address family of flow */
-  u_int32_t ip6_flowlabel[2];	/* IPv6 Flowlabel */
+  int af;                       /* Address family of flow */
+  u_int32_t ip6_flowlabel[2];   /* IPv6 Flowlabel */
   union {
     struct in_addr v4;
     struct in6_addr v6;
-  } addr[2];			/* Endpoint addresses */
-  u_int16_t port[2];		/* Endpoint ports */
-  u_int8_t tcp_flags[2];	/* Cumulative OR of flags */
-  u_int8_t tos[2];		/* Tos */
-  u_int16_t vlanid[2];		/* vlanid */
+  } addr[2];                    /* Endpoint addresses */
+  u_int16_t port[2];            /* Endpoint ports */
+  u_int8_t tcp_flags[2];        /* Cumulative OR of flags */
+  u_int8_t tos[2];              /* Tos */
+  u_int16_t vlanid[2];          /* vlanid */
   uint8_t ethermac[2][6];
-  u_int8_t protocol;		/* Protocol */
+  u_int8_t protocol;            /* Protocol */
 };
 
 /*
@@ -213,10 +217,10 @@ struct FLOW {
  * 
  */
 struct EXPIRY {
-  EXPIRY_ENTRY (EXPIRY) trp;	/* Tree pointer */
-  struct FLOW *flow;		/* pointer to flow */
+  EXPIRY_ENTRY (EXPIRY) trp;    /* Tree pointer */
+  struct FLOW *flow;            /* pointer to flow */
 
-  u_int32_t expires_at;		/* time_t */
+  u_int32_t expires_at;         /* time_t */
   enum {
     R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, R_ICMP,
     R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH

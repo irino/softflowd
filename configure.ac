@@ -36,12 +36,15 @@ AC_ARG_ENABLE(legacy-nf9,
               AC_HELP_STRING([--enable-legacy-nf9],
                              [enable legacy NetFlow v9 implementation (default NO)]),
               AC_DEFINE([LEGACY_NF9_IMPL], 1, [enable legacy NetFlow v9 implementation]))
+AC_ARG_ENABLE(pthread,
+              AC_HELP_STRING([--enable-pthread], [enable pthread (default NO)]),
+              [pthread=yes],[pthread=no])
 AC_ARG_ENABLE(flow-spray,
               AC_HELP_STRING([--enable-flow-spray],
                              [enable spray as flow tree type(default is RB)]),
               AC_DEFINE([FLOW_SPRAY], 1, [enable spray as flow tree type]),
 	      AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type]))
-AC_ARG_ENABLE(flow-spray,
+AC_ARG_ENABLE(expiry-spray,
               AC_HELP_STRING([--enable-expiry-spray],
                              [enable spray as expiry tree type (default is RB)]),
               AC_DEFINE([EXPIRY_SPRAY], 1, [enable spray as flow tree type]),
@@ -103,7 +106,6 @@ AC_SEARCH_LIBS(daemon, bsd)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)
 AC_CHECK_LIB(pcap, pcap_open_live)
-AC_CHECK_LIB(pthread, pthread_create)
 
 AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep)
 AC_CHECK_DECLS([htobe64, htonll])
@@ -116,6 +118,11 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
+if test "x$pthread" = "xyes" ; then
+  AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
+  AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])
+  AC_CHECK_HEADERS(pthread.h, [],[AC_MSG_ERROR([pthread.h not found])])
+fi
 if test "x$ac_cv_type_uint8_t" = "xyes" ; then
 	AC_DEFINE([OUR_CFG_U_INT8_T], [uint8_t], [8-bit unsigned int])
 elif test "x$ac_cv_sizeof_char" = "x1" ; then

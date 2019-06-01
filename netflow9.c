@@ -261,8 +261,8 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
 
 static int
 nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
-		    u_int16_t ifidx, const struct timeval *system_boot_time,
-		    u_int * len_used) {
+                    u_int16_t ifidx, const struct timeval *system_boot_time,
+                    u_int * len_used) {
   union {
     struct NF9_SOFTFLOWD_DATA_V4 d4;
     struct NF9_SOFTFLOWD_DATA_V6 d6;
@@ -342,12 +342,8 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Given an array of expired flows, send netflow v9 report packets
  * Returns number of packets sent or -1 on error
  */
+#ifdef LEGACY_NF9_IMPL
 int
-/*
-send_netflow_v9(struct FLOW **flows, int num_flows, int nfsock,
-		u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-		int verbose_flag)
-*/
 send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
@@ -386,7 +382,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     nf9 = (struct NF9_HEADER *) packet;
 
     nf9->version = htons (9);
-    nf9->flows = 0;		/* Filled as we go, htons at end */
+    nf9->flows = 0;             /* Filled as we go, htons at end */
     nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
     nf9->time_sec = htonl (time (NULL));
     nf9->source_id = 0;
@@ -401,12 +397,12 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
       offset += sizeof (v6_template);
       nf9->flows++;
       if (option != NULL && option->sample > 1) {
-	memcpy (packet + offset, &option_template, sizeof (option_template));
-	offset += sizeof (option_template);
-	nf9->flows++;
-	memcpy (packet + offset, &option_data, sizeof (option_data));
-	offset += sizeof (option_data);
-	nf9->flows++;
+        memcpy (packet + offset, &option_template, sizeof (option_template));
+        offset += sizeof (option_template);
+        nf9->flows++;
+        memcpy (packet + offset, &option_data, sizeof (option_data));
+        offset += sizeof (option_data);
+        nf9->flows++;
       }
 
       nf9_pkts_until_template = NF9_DEFAULT_TEMPLATE_INTERVAL;
@@ -416,66 +412,66 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     last_af = 0;
     for (i = 0; i + j < num_flows; i++) {
       if (dh == NULL || flows[i + j]->af != last_af) {
-	if (dh != NULL) {
-	  if (offset % 4 != 0) {
-	    /* Pad to multiple of 4 */
-	    dh->c.length += 4 - (offset % 4);
-	    offset += 4 - (offset % 4);
-	  }
-	  /* Finalise last header */
-	  dh->c.length = htons (dh->c.length);
-	}
-	if (offset + sizeof (*dh) > sizeof (packet)) {
-	  /* Mark header is finished */
-	  dh = NULL;
-	  break;
-	}
-	dh = (struct NF9_DATA_FLOWSET_HEADER *)
-	  (packet + offset);
-	dh->c.flowset_id =
-	  (flows[i + j]->af == AF_INET) ?
-	  v4_template.h.template_id : v6_template.h.template_id;
-	last_af = flows[i + j]->af;
-	last_valid = offset;
-	dh->c.length = sizeof (*dh);	/* Filled as we go */
-	offset += sizeof (*dh);
+        if (dh != NULL) {
+          if (offset % 4 != 0) {
+            /* Pad to multiple of 4 */
+            dh->c.length += 4 - (offset % 4);
+            offset += 4 - (offset % 4);
+          }
+          /* Finalise last header */
+          dh->c.length = htons (dh->c.length);
+        }
+        if (offset + sizeof (*dh) > sizeof (packet)) {
+          /* Mark header is finished */
+          dh = NULL;
+          break;
+        }
+        dh = (struct NF9_DATA_FLOWSET_HEADER *)
+          (packet + offset);
+        dh->c.flowset_id =
+          (flows[i + j]->af == AF_INET) ?
+          v4_template.h.template_id : v6_template.h.template_id;
+        last_af = flows[i + j]->af;
+        last_valid = offset;
+        dh->c.length = sizeof (*dh);    /* Filled as we go */
+        offset += sizeof (*dh);
       }
 
       r = nf_flow_to_flowset (flows[i + j], packet + offset,
-			      sizeof (packet) - offset, ifidx,
-			      system_boot_time, &inc);
+                              sizeof (packet) - offset, ifidx,
+                              system_boot_time, &inc);
       if (r <= 0) {
-	/* yank off data header, if we had to go back */
-	if (last_valid)
-	  offset = last_valid;
-	break;
+        /* yank off data header, if we had to go back */
+        if (last_valid)
+          offset = last_valid;
+        break;
       }
       offset += inc;
       dh->c.length += inc;
       nf9->flows += r;
-      last_valid = 0;		/* Don't clobber this header now */
+      last_valid = 0;           /* Don't clobber this header now */
       if (verbose_flag) {
-	logit (LOG_DEBUG, "Flow %d/%d: "
-	       "r %d offset %d type %04x len %d(0x%04x) "
-	       "flows %d", r, i, j, offset,
-	       dh->c.flowset_id, dh->c.length, dh->c.length, nf9->flows);
+        logit (LOG_DEBUG, "Flow %d/%d: "
+               "r %d offset %d type %04x len %d(0x%04x) "
+               "flows %d", r, i, j, offset,
+               dh->c.flowset_id, dh->c.length, dh->c.length, nf9->flows);
       }
     }
     /* Don't finish header if it has already been done */
     if (dh != NULL) {
       if (offset % 4 != 0) {
-	/* Pad to multiple of 4 */
-	dh->c.length += 4 - (offset % 4);
-	offset += 4 - (offset % 4);
+        /* Pad to multiple of 4 */
+        dh->c.length += 4 - (offset % 4);
+        offset += 4 - (offset % 4);
       }
       /* Finalise last header */
       dh->c.length = htons (dh->c.length);
     }
     param->records_sent += nf9->flows;
     nf9->flows = htons (nf9->flows);
-    nf9->package_sequence =
-      htonl ((u_int32_t)
-	     ((*packets_sent + num_packets + 1) & 0x00000000ffffffff));
+    nf9->package_sequence = htonl ((u_int32_t)
+                                   ((*packets_sent + num_packets +
+                                     1) & 0x00000000ffffffff));
 
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
@@ -491,8 +487,14 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   }
 
   *flows_exported += j;
+  param->packets_sent += num_packets;
+#ifdef ENABLE_PTHREAD
+  if (use_thread)
+    free (sp.flows);
+#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
+#endif /* LEGACY_NF9_IMPL */
 
 void
 netflow9_resend_template (void) {

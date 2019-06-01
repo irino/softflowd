@@ -68,7 +68,7 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NF5_MAXPACKET_SIZE];	/* Maximum allowed packet size (24 flows) */
+  u_int8_t packet[NF5_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
   struct NF5_HEADER *hdr = NULL;
   struct NF5_FLOW *flw = NULL;
   int i, j, offset, num_packets, err;
@@ -86,13 +86,13 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
     if (j >= NF5_MAXFLOWS - 1) {
       if (verbose_flag)
-	logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
+        logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
       errsz = sizeof (err);
-      getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);	/* Clear ICMP errors */
+      getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);  /* Clear ICMP errors */
       if (send (nfsock, packet, (size_t) offset, 0) == -1)
-	return (-1);
+        return (-1);
       *flows_exported += j;
       j = 0;
       num_packets++;
@@ -100,14 +100,14 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
     if (j == 0) {
       memset (&packet, '\0', sizeof (packet));
       hdr->version = htons (5);
-      hdr->flows = 0;		/* Filled in as we go */
+      hdr->flows = 0;           /* Filled in as we go */
       hdr->uptime_ms = htonl (uptime_ms);
       hdr->time_sec = htonl (now.tv_sec);
       hdr->time_nanosec = htonl (now.tv_usec * 1000);
       hdr->flow_sequence = htonl (*flows_exported);
       if (option->sample > 0) {
-	hdr->sampling_interval =
-	  htons ((0x01 << 14) | (option->sample & 0x3FFF));
+        hdr->sampling_interval =
+          htons ((0x01 << 14) | (option->sample & 0x3FFF));
       }
       /* Other fields are left zero */
       offset = sizeof (*hdr);
@@ -126,9 +126,9 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       flw->flow_packets = htonl (flows[i]->packets[0]);
       flw->flow_octets = htonl (flows[i]->octets[0]);
       flw->flow_start =
-	htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
+        htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
       flw->flow_finish =
-	htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
+        htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
       flw->tcp_flags = flows[i]->tcp_flags[0];
       flw->protocol = flows[i]->protocol;
       flw->tos = flows[i]->tos[0];
@@ -148,9 +148,9 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       flw->flow_packets = htonl (flows[i]->packets[1]);
       flw->flow_octets = htonl (flows[i]->octets[1]);
       flw->flow_start =
-	htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
+        htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
       flw->flow_finish =
-	htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
+        htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
       flw->tcp_flags = flows[i]->tcp_flags[1];
       flw->protocol = flows[i]->protocol;
       flw->tos = flows[i]->tos[1];
@@ -167,12 +167,17 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
     errsz = sizeof (err);
-    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);	/* Clear ICMP errors */
+    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);    /* Clear ICMP errors */
     if (send (nfsock, packet, (size_t) offset, 0) == -1)
       return (-1);
     num_packets++;
   }
 
   *flows_exported += j;
+  param->packets_sent += num_packets;
+#ifdef ENABLE_PTHREAD
+  if (use_thread)
+    free (sp.flows);
+#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }

@@ -62,7 +62,7 @@ The intended use of
 is as a software implementation of Cisco's NetFlow(tm) traffic account
 system.
 .Nm
-supports data export using versions 1, 5 or 9 of the NetFlow protocol.
+supports data export using versions 1, 5, 9 or 10 (a.k.a. IPFIX) of the NetFlow protocol.
 .Nm
 can also run in statistics-only mode, where it just collects summary
 information.
@@ -219,8 +219,12 @@ Specify which flow elements
 should be used to define a flow.
 .Ar track_level
 may be one of:
+.Dq ether
+(track everything including source and destination addresses, source and destination port, source and destination ethernet address, vlanid and protocol),
+.Dq vlan
+(track source and destination addresses, source and destination port, vlanid and protocol),
 .Dq full
-(track everything in the flow, the default),
+(track source and destination addresses, source and destination port and protocol in the flow, the default),
 .Dq proto
 (track source and destination addresses and protocol), or
 .Dq ip
@@ -235,7 +239,7 @@ will place on the system at the cost of some detail being lost.
 Specify which version of the NetFlow(tm) protocol
 .Nm
 should use for export of the flow data.
-Supported versions are 1, 5 and 9.
+Supported versions are 1, 5, 9 and 10(IPFIX).
 Default is version 5.
 .It Fl s Ar sampling_rate
 Specify periodical sampling rate (denominator).

@@ -31,18 +31,18 @@
 #if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
 #define htobe64     htonll
 #endif
-#define JAN_1970    2208988800UL	/* 1970 - 1900 in seconds */
+#define JAN_1970    2208988800UL        /* 1970 - 1900 in seconds */
 
 /* IPFIX a.k.a. Netflow v.10 */
 struct IPFIX_HEADER {
   u_int16_t version, length;
-  u_int32_t export_time;	/* in seconds */
+  u_int32_t export_time;        /* in seconds */
   u_int32_t sequence, od_id;
 } __packed;
 struct NFLOW9_HEADER {
   u_int16_t version, flows;
   u_int32_t uptime_ms;
-  u_int32_t export_time;	/* in seconds */
+  u_int32_t export_time;        /* in seconds */
   u_int32_t sequence, od_id;
 } __packed;
 struct IPFIX_SET_HEADER {
@@ -412,9 +412,9 @@ static int ipfix_pkts_until_template = -1;
 
 static int
 ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
-		   u_int * index,
-		   const struct IPFIX_FIELD_SPECIFIER *src,
-		   u_int field_number) {
+                   u_int * index,
+                   const struct IPFIX_FIELD_SPECIFIER *src,
+                   u_int field_number) {
   int length = 0;
   for (int i = 0; i < field_number; i++) {
     dst[*index + i].ie = htons (src[i].ie);
@@ -427,9 +427,9 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
 
 static int
 ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-		     u_int * index,
-		     const struct IPFIX_FIELD_SPECIFIER *fields,
-		     u_int field_number) {
+                     u_int * index,
+                     const struct IPFIX_FIELD_SPECIFIER *fields,
+                     u_int field_number) {
   int length = 0;
   for (int i = 0; i < field_number; i++) {
     template->v[*index + i].ie = htons (fields[i].ie | 0x8000);
@@ -443,114 +443,105 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
 
 static int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
-			  struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-			  u_int * index) {
+                          struct IPFIX_SOFTFLOWD_TEMPLATE *template,
+                          u_int * index) {
   int length = 0;
   if (param->time_format == 's') {
     length = ipfix_init_fields (template->r, index,
-				field_timesec,
-				IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  }
-  else if (param->time_format == 'm') {
+                                field_timesec,
+                                IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
+  } else if (param->time_format == 'm') {
     length = ipfix_init_fields (template->r, index,
-				field_timemsec,
-				IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  }
-  else if (param->time_format == 'M') {
+                                field_timemsec,
+                                IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
+  } else if (param->time_format == 'M') {
     length = ipfix_init_fields (template->r, index,
-				field_timeusec,
-				IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  }
-  else if (param->time_format == 'n') {
+                                field_timeusec,
+                                IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
+  } else if (param->time_format == 'n') {
     length = ipfix_init_fields (template->r, index,
-				field_timensec,
-				IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  }
-  else {
+                                field_timensec,
+                                IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
+  } else {
     length = ipfix_init_fields (template->r, index,
-				field_timesysup,
-				IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
+                                field_timesysup,
+                                IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   }
   return length;
 }
 
 static void
 ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
-			   struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-			   u_int template_id, u_int8_t v6_flag,
-			   u_int8_t icmp_flag, u_int8_t bi_flag,
-			   u_int16_t version) {
+                           struct IPFIX_SOFTFLOWD_TEMPLATE *template,
+                           u_int template_id, u_int8_t v6_flag,
+                           u_int8_t icmp_flag, u_int8_t bi_flag,
+                           u_int16_t version) {
   u_int index = 0, bi_index = 0, length = 0;
   bzero (template, sizeof (*template));
   template->h.c.set_id = htons (version == 10 ?
-				IPFIX_TEMPLATE_SET_ID :
-				NFLOW9_TEMPLATE_SET_ID);
+                                IPFIX_TEMPLATE_SET_ID :
+                                NFLOW9_TEMPLATE_SET_ID);
   template->h.r.template_id = htons (template_id);
   if (v6_flag) {
     length += ipfix_init_fields (template->r, &index,
-				 field_v6,
-				 IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
-  }
-  else {
+                                 field_v6,
+                                 IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
+  } else {
     length += ipfix_init_fields (template->r, &index,
-				 field_v4,
-				 IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
+                                 field_v4,
+                                 IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
   }
   length += ipfix_init_template_time (param, template, &index);
   length += ipfix_init_fields (template->r, &index,
-			       field_common,
-			       IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS);
+                               field_common,
+                               IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS);
   if (icmp_flag) {
     if (v6_flag) {
       length += ipfix_init_fields (template->r, &index,
-				   field_icmp6,
-				   IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
-    }
-    else {
+                                   field_icmp6,
+                                   IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
+    } else {
       length += ipfix_init_fields (template->r, &index,
-				   field_icmp4,
-				   IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
+                                   field_icmp4,
+                                   IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
     }
-  }
-  else {
+  } else {
     length += ipfix_init_fields (template->r, &index,
-				 field_transport,
-				 IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS);
+                                 field_transport,
+                                 IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS);
   }
   if (param->track_level >= TRACK_FULL_VLAN) {
     length += ipfix_init_fields (template->r, &index,
-				 field_vlan,
-				 IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS);
+                                 field_vlan,
+                                 IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS);
   }
   if (param->track_level >= TRACK_FULL_VLAN_ETHER) {
     length += ipfix_init_fields (template->r, &index,
-				 field_ether,
-				 IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS);
+                                 field_ether,
+                                 IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS);
   }
   if (bi_flag) {
     length +=
       ipfix_init_bifields (template, &bi_index,
-			   field_bicommon,
-			   IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS);
+                           field_bicommon,
+                           IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS);
     if (icmp_flag) {
       if (v6_flag) {
-	length +=
-	  ipfix_init_bifields (template, &bi_index,
-			       field_biicmp6,
-			       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
+        length +=
+          ipfix_init_bifields (template, &bi_index,
+                               field_biicmp6,
+                               IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
+      } else {
+        length +=
+          ipfix_init_bifields (template, &bi_index,
+                               field_biicmp4,
+                               IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
       }
-      else {
-	length +=
-	  ipfix_init_bifields (template, &bi_index,
-			       field_biicmp4,
-			       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
-      }
-    }
-    else {
+    } else {
       length +=
-	ipfix_init_bifields (template, &bi_index,
-			     field_bitransport,
-			     IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS);
+        ipfix_init_bifields (template, &bi_index,
+                             field_bitransport,
+                             IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS);
 
     }
   }
@@ -558,14 +549,14 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
   template->h.r.count = htons (index + bi_index);
   template->h.c.length =
     htons (sizeof (struct IPFIX_TEMPLATE_SET_HEADER) +
-	   index * sizeof (struct IPFIX_FIELD_SPECIFIER) +
-	   bi_index * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER));
+           index * sizeof (struct IPFIX_FIELD_SPECIFIER) +
+           bi_index * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER));
   template->data_len = length;
 }
 
 static void
 ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
-		     u_int8_t bi_flag, u_int16_t version) {
+                     u_int8_t bi_flag, u_int16_t version) {
   u_int8_t v6_flag = 0, icmp_flag = 0;
   u_int16_t template_id = 0;
   for (int i = 0; i < TMPLMAX; i++) {
@@ -592,8 +583,8 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
       break;
     }
     ipfix_init_template_unity (param, &template[i],
-			       template_id, v6_flag,
-			       icmp_flag, bi_flag, version);
+                               template_id, v6_flag,
+                               icmp_flag, bi_flag, version);
   }
 }
 
@@ -611,16 +602,16 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_template.h.c.set_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length =
     htons (sizeof (option_template.h) + scope_len + opt_len);
-  option_template.h.u.n.template_id
-    = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_template.h.u.n.template_id =
+    htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.u.n.scope_length = htons (scope_len);
   option_template.h.u.n.option_length = htons (opt_len);
   ipfix_init_fields (option_template.s, &scope_index,
-		     field_nf9scope,
-		     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
+                     field_nf9scope,
+                     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
   ipfix_init_fields (option_template.r, &option_index,
-		     field_nf9option,
-		     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
+                     field_nf9option,
+                     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
   bzero (&nf9opt_data, sizeof (nf9opt_data));
   nf9opt_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   nf9opt_data.c.length = htons (sizeof (nf9opt_data));
@@ -640,15 +631,15 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.u.i.r.count =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS +
-	   IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
+           IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
   option_template.h.u.i.scope_count =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
 
   ipfix_init_fields (option_template.s, &scope_index,
-		     field_scope,
-		     IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
+                     field_scope,
+                     IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
   ipfix_init_fields (option_template.r, &option_index, field_option,
-		     IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
+                     IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
 
   bzero (&option_data, sizeof (option_data));
   option_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
@@ -657,7 +648,7 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
 #if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
   option_data.systemInitTimeMilliseconds =
     htobe64 ((u_int64_t) system_boot_time->tv_sec * 1000 +
-	     (u_int64_t) system_boot_time->tv_usec / 1000);
+             (u_int64_t) system_boot_time->tv_usec / 1000);
 #endif
   option_data.samplingAlgorithm = htons (PSAMP_selectorAlgorithm_count);
   option_data.samplingInterval = htonl (1);
@@ -667,11 +658,11 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
 
 static int
 copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
-		const struct FLOW *flow,
-		const struct timeval *system_boot_time,
-		struct FLOWTRACKPARAMETERS *param) {
+                const struct FLOW *flow,
+                const struct timeval *system_boot_time,
+                struct FLOWTRACKPARAMETERS *param) {
   int length = (param->time_format == 'm' || param->time_format == 'M'
-		|| param->time_format == 'n') ? 16 : 8;
+                || param->time_format == 'n') ? 16 : 8;
   if (dt == NULL)
     return -1;
 
@@ -680,37 +671,35 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
     dt->u32.end = htonl (flow->flow_last.tv_sec);
   }
 #if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
-  else if (param->time_format == 'm') {	/* milliseconds */
+  else if (param->time_format == 'm') { /* milliseconds */
     dt->u64.start =
       htobe64 ((u_int64_t) flow->flow_start.tv_sec * 1000 +
-	       (u_int64_t) flow->flow_start.tv_usec / 1000);
+               (u_int64_t) flow->flow_start.tv_usec / 1000);
     dt->u64.end =
       htobe64 ((u_int64_t) flow->flow_last.tv_sec * 1000 +
-	       (u_int64_t) flow->flow_last.tv_usec / 1000);
-  }
-  else if (param->time_format == 'M') {	/* microseconds */
+               (u_int64_t) flow->flow_last.tv_usec / 1000);
+  } else if (param->time_format == 'M') {       /* microseconds */
     dt->u64.start =
       htobe64 (((u_int64_t) flow->flow_start.tv_sec +
-		JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-						flow->flow_start.tv_usec <<
-						32) / 1e6));
+                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
+                                                flow->flow_start.tv_usec <<
+                                                32) / 1e6));
     dt->u64.end =
       htobe64 (((u_int64_t) flow->flow_last.tv_sec +
-		JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-						flow->flow_last.tv_usec << 32)
-					       / 1e6));
-  }
-  else if (param->time_format == 'n') {	/* nanoseconds */
+                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
+                                                flow->flow_last.tv_usec << 32)
+                                               / 1e6));
+  } else if (param->time_format == 'n') {       /* nanoseconds */
     dt->u64.start =
       htobe64 (((u_int64_t) flow->flow_start.tv_sec +
-		JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-						flow->flow_start.tv_usec <<
-						32) / 1e9));
+                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
+                                                flow->flow_start.tv_usec <<
+                                                32) / 1e9));
     dt->u64.end =
       htobe64 (((u_int64_t) flow->flow_last.tv_sec +
-		JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-						flow->flow_last.tv_usec << 32)
-					       / 1e9));
+                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
+                                                flow->flow_last.tv_usec << 32)
+                                               / 1e9));
   }
 #endif
   else {
@@ -726,8 +715,7 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
   u_int index = 0;
   if (flow->af == AF_INET) {
     index = (flow->protocol == IPPROTO_ICMP) ? TMPLICMPV4 : TMPLV4;
-  }
-  else if (flow->af == AF_INET6) {
+  } else if (flow->af == AF_INET6) {
     index = (flow->protocol == IPPROTO_ICMPV6) ? TMPLICMPV6 : TMPLV6;
   }
   return index;
@@ -735,10 +723,10 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
 
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
-		       u_int len, u_int16_t ifidx,
-		       const struct timeval *system_boot_time,
-		       u_int * len_used,
-		       struct FLOWTRACKPARAMETERS *param, u_int8_t bi_flag) {
+                       u_int len, u_int16_t ifidx,
+                       const struct timeval *system_boot_time,
+                       u_int * len_used,
+                       struct FLOWTRACKPARAMETERS *param, u_int8_t bi_flag) {
   struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = { NULL, NULL };
   struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = { NULL, NULL };
   union IPFIX_SOFTFLOWD_DATA_TIME *dt[2] = { NULL, NULL };
@@ -767,8 +755,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
       memcpy (&d4[i]->sourceIPv4Address, &flow->addr[i].v4, 4);
       memcpy (&d4[i]->destinationIPv4Address, &flow->addr[i ^ 1].v4, 4);
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_V4ADDR);
-    }
-    else if (flow->af == AF_INET6) {
+    } else if (flow->af == AF_INET6) {
       d6[i] = (struct IPFIX_SOFTFLOWD_DATA_V6ADDR *) &packet[offset];
       memcpy (&d6[i]->sourceIPv6Address, &flow->addr[i].v6, 16);
       memcpy (&d6[i]->destinationIPv6Address, &flow->addr[i ^ 1].v6, 16);
@@ -793,8 +780,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
       dtr[i]->ipClassOfService = flow->tos[i];
       dtr[i]->ipVersion = (flow->af == AF_INET) ? 4 : 6;
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_TRANSPORT);
-    }
-    else {
+    } else {
       di[i] = (struct IPFIX_SOFTFLOWD_DATA_ICMP *) &packet[offset];
       di[i]->icmpTypeCode = flow->port[i ^ 1];
       di[i]->ipClassOfService = flow->tos[i];
@@ -820,16 +806,15 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
       dbc->ipClassOfService = flow->tos[1];
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BICOMMON);
       if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
-	dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *)
-	  &packet[offset];
-	dbtr->tcpControlBits = flow->tcp_flags[1];
-	offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
-      }
-      else {
-	dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *)
-	  &packet[offset];
-	dbi->icmpTypeCode = flow->port[1];
-	offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
+        dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *)
+          &packet[offset];
+        dbtr->tcpControlBits = flow->tcp_flags[1];
+        offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
+      } else {
+        dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *)
+          &packet[offset];
+        dbi->icmpTypeCode = flow->port[1];
+        offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
       }
     }
   }
@@ -862,7 +847,7 @@ ipfix_resend_template (void) {
 
 void
 memcpy_template (u_char * packet, u_int * offset,
-		 struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag) 
+                 struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag) 
 {
   int size = ntohs (template->h.c.length) -
     template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER);
@@ -881,9 +866,9 @@ memcpy_template (u_char * packet, u_int * offset,
  */
 static int
 send_ipfix_common (struct FLOW **flows, int num_flows,
-		   int nfsock, u_int16_t ifidx,
-		   struct FLOWTRACKPARAMETERS *param,
-		   int verbose_flag, u_int8_t bi_flag, u_int16_t version) {
+                   int nfsock, u_int16_t ifidx,
+                   struct FLOWTRACKPARAMETERS *param,
+                   int verbose_flag, u_int8_t bi_flag, u_int16_t version) {
   struct IPFIX_HEADER *ipfix;
   struct NFLOW9_HEADER *nf9;
   struct IPFIX_SET_HEADER *dh;
@@ -910,10 +895,9 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     ipfix_pkts_until_template = 0;
     if (option != NULL) {
       if (version == 10) {
-	ipfix_init_option (system_boot_time, option);
-      }
-      else {
-	nflow9_init_option (ifidx, option);
+        ipfix_init_option (system_boot_time, option);
+      } else {
+        nflow9_init_option (ifidx, option);
       }
     }
   }
@@ -924,23 +908,22 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     if (version == 10) {
       ipfix = (struct IPFIX_HEADER *) packet;
       ipfix->version = htons (version);
-      ipfix->length = 0;	/* Filled as we go, htons at end */
+      ipfix->length = 0;        /* Filled as we go, htons at end */
       if (param->adjust_time)
-	ipfix->export_time = htonl (now.tv_sec);
+        ipfix->export_time = htonl (now.tv_sec);
       else
-	ipfix->export_time = htonl (time (NULL));
+        ipfix->export_time = htonl (time (NULL));
       ipfix->od_id = 0;
       offset = sizeof (*ipfix);
-    }
-    else if (version == 9) {
+    } else if (version == 9) {
       nf9 = (struct NFLOW9_HEADER *) packet;
       nf9->version = htons (version);
-      nf9->flows = 0;		/* Filled as we go, htons at end */
+      nf9->flows = 0;           /* Filled as we go, htons at end */
       nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
       if (param->adjust_time)
-	nf9->export_time = htonl (now.tv_sec);
+        nf9->export_time = htonl (now.tv_sec);
       else
-	nf9->export_time = htonl (time (NULL));
+        nf9->export_time = htonl (time (NULL));
       nf9->od_id = 0;
       offset = sizeof (*nf9);
     }
@@ -948,20 +931,19 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     /* Refresh template headers if we need to */
     if (ipfix_pkts_until_template <= 0) {
       for (int i = 0; i < TMPLMAX; i++) {
-	memcpy_template (packet, &offset, &template[i], bi_flag);
+        memcpy_template (packet, &offset, &template[i], bi_flag);
       }
       if (option != NULL) {
-	u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
-	memcpy (packet + offset, &option_template, opt_tmpl_len);
-	offset += opt_tmpl_len;
-	if (version == 10) {
-	  memcpy (packet + offset, &option_data, sizeof (option_data));
-	  offset += sizeof (option_data);
-	}
-	else if (version == 9) {
-	  memcpy (packet + offset, &nf9opt_data, sizeof (nf9opt_data));
-	  offset += sizeof (nf9opt_data);
-	}
+        u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
+        memcpy (packet + offset, &option_template, opt_tmpl_len);
+        offset += opt_tmpl_len;
+        if (version == 10) {
+          memcpy (packet + offset, &option_data, sizeof (option_data));
+          offset += sizeof (option_data);
+        } else if (version == 9) {
+          memcpy (packet + offset, &nf9opt_data, sizeof (nf9opt_data));
+          offset += sizeof (nf9opt_data);
+        }
       }
 
       ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
@@ -974,57 +956,57 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     for (i = 0; i + j < num_flows; i++) {
       icmp_flag = valuate_icmp (flows[i + j]);
       if (dh == NULL || flows[i + j]->af != last_af ||
-	  icmp_flag != last_icmp_flag) {
-	if (dh != NULL) {
-	  if (offset % 4 != 0) {
-	    /* Pad to multiple of 4 */
-	    dh->length += 4 - (offset % 4);
-	    offset += 4 - (offset % 4);
-	  }
-	  /* Finalise last header */
-	  dh->length = htons (dh->length);
-	}
-	if (offset + sizeof (*dh) > sizeof (packet)) {
-	  /* Mark header is finished */
-	  dh = NULL;
-	  break;
-	}
-	dh = (struct IPFIX_SET_HEADER *) (packet + offset);
-	tmplindex = ipfix_flow_to_template_index (flows[i + j]);
-	dh->set_id = template[tmplindex].h.r.template_id;
-	last_af = flows[i + j]->af;
-	last_icmp_flag = icmp_flag;
-	last_valid = offset;
-	dh->length = sizeof (*dh);	/* Filled as we go */
-	offset += sizeof (*dh);
+          icmp_flag != last_icmp_flag) {
+        if (dh != NULL) {
+          if (offset % 4 != 0) {
+            /* Pad to multiple of 4 */
+            dh->length += 4 - (offset % 4);
+            offset += 4 - (offset % 4);
+          }
+          /* Finalise last header */
+          dh->length = htons (dh->length);
+        }
+        if (offset + sizeof (*dh) > sizeof (packet)) {
+          /* Mark header is finished */
+          dh = NULL;
+          break;
+        }
+        dh = (struct IPFIX_SET_HEADER *) (packet + offset);
+        tmplindex = ipfix_flow_to_template_index (flows[i + j]);
+        dh->set_id = template[tmplindex].h.r.template_id;
+        last_af = flows[i + j]->af;
+        last_icmp_flag = icmp_flag;
+        last_valid = offset;
+        dh->length = sizeof (*dh);      /* Filled as we go */
+        offset += sizeof (*dh);
       }
       r = ipfix_flow_to_flowset (flows[i + j],
-				 packet + offset,
-				 sizeof (packet) - offset,
-				 ifidx, system_boot_time,
-				 &inc, param, bi_flag);
+                                 packet + offset,
+                                 sizeof (packet) - offset,
+                                 ifidx, system_boot_time,
+                                 &inc, param, bi_flag);
       if (r <= 0) {
-	/* yank off data header, if we had to go back */
-	if (last_valid)
-	  offset = last_valid;
-	break;
+        /* yank off data header, if we had to go back */
+        if (last_valid)
+          offset = last_valid;
+        break;
       }
       records += (u_int) r;
       offset += inc;
       dh->length += inc;
-      last_valid = 0;		/* Don't clobber this header now */
+      last_valid = 0;           /* Don't clobber this header now */
       if (verbose_flag) {
-	logit (LOG_DEBUG, "Flow %d/%d: "
-	       "r %d offset %d ie %04x len %d(0x%04x)",
-	       r, i, j, offset, dh->set_id, dh->length, dh->length);
+        logit (LOG_DEBUG, "Flow %d/%d: "
+               "r %d offset %d ie %04x len %d(0x%04x)",
+               r, i, j, offset, dh->set_id, dh->length, dh->length);
       }
     }
     /* Don't finish header if it has already been done */
     if (dh != NULL) {
       if (offset % 4 != 0) {
-	/* Pad to multiple of 4 */
-	dh->length += 4 - (offset % 4);
-	offset += 4 - (offset % 4);
+        /* Pad to multiple of 4 */
+        dh->length += 4 - (offset % 4);
+        offset += 4 - (offset % 4);
       }
       /* Finalise last header */
       dh->length = htons (dh->length);
@@ -1033,11 +1015,10 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     *records_sent += records;
     if (version == 10) {
       ipfix->sequence =
-	htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
-    }
-    else if (version == 9) {
+        htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+    } else if (version == 9) {
       nf9->sequence =
-	htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+        htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
     }
 
     if (verbose_flag)
@@ -1054,23 +1035,28 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   }
 
   *flows_exported += j;
+  param->packets_sent += num_packets;
+#ifdef ENABLE_PTHREAD
+  if (use_thread)
+    free (flows);
+#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
 
 int
 send_nflow9 (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-			    sp.param, sp.verbose_flag, 0, 9);
+                            sp.param, sp.verbose_flag, 0, 9);
 }
 
 int
 send_ipfix (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-			    sp.param, sp.verbose_flag, 0, 10);
+                            sp.param, sp.verbose_flag, 0, 10);
 }
 
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-			    sp.param, sp.verbose_flag, 1, 10);
+                            sp.param, sp.verbose_flag, 1, 10);
 }
