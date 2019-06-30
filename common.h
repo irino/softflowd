@@ -27,8 +27,8 @@
 
 #include "config.h"
 
-#define _BSD_SOURCE /* Needed for BSD-style struct ip,tcp,udp on Linux */
-#define _DEFAULT_SOURCE /* It is recommended to use instead of _BSD_SOURCE on Linux */
+#define _BSD_SOURCE             /* Needed for BSD-style struct ip,tcp,udp on Linux */
+#define _DEFAULT_SOURCE         /* It is recommended to use instead of _BSD_SOURCE on Linux */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -95,7 +95,7 @@
 	    { (const char *)flowd_rcsid, "\100(#)" msg }	\
 
 #ifndef IP_OFFMASK
-# define IP_OFFMASK		0x1fff	/* mask for fragmenting bits */
+#define IP_OFFMASK		0x1fff  /* mask for fragmenting bits */
 #endif
 #ifndef IPV6_VERSION
 #define IPV6_VERSION		0x60
@@ -111,26 +111,26 @@
 #endif
 
 #ifndef _PATH_DEVNULL
-# define _PATH_DEVNULL		"/dev/null"
+#define _PATH_DEVNULL		"/dev/null"
 #endif
 
 #ifndef MIN
-# define MIN(a,b) (((a)<(b))?(a):(b))
+#define MIN(a,b) (((a)<(b))?(a):(b))
 #endif
 #ifndef MAX
-# define MAX(a,b) (((a)>(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 #endif
 #ifndef offsetof
-# define offsetof(type, member) ((size_t) &((type *)0)->member)
+#define offsetof(type, member) ((size_t) &((type *)0)->member)
 #endif
 
 #if defined(__GNUC__)
-# ifndef __dead
-#  define __dead                __attribute__((__noreturn__))
-# endif
-# ifndef __packed
-#  define __packed              __attribute__((__packed__))
-# endif
+#ifndef __dead
+#define __dead                __attribute__((__noreturn__))
+#endif
+#ifndef __packed
+#define __packed              __attribute__((__packed__))
+#endif
 #endif
 
 #if !defined(HAVE_INT8_T) && defined(OUR_CFG_INT8_T)
@@ -159,19 +159,19 @@ typedef OUR_CFG_U_INT64_T u_int64_t;
 #endif
 
 #ifndef HAVE_STRLCPY
-size_t strlcpy(char *dst, const char *src, size_t siz);
+size_t strlcpy (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_STRLCAT
-size_t strlcat(char *dst, const char *src, size_t siz);
+size_t strlcat (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_CLOSEFROM
-void closefrom(int lowfd);
+void closefrom (int lowfd);
 #endif
 
 #ifndef HAVE_STRUCT_IP6_EXT
 struct ip6_ext {
-	u_int8_t ip6e_nxt;
-	u_int8_t ip6e_len;
+  u_int8_t ip6e_nxt;
+  u_int8_t ip6e_len;
 } __packed;
 #endif
 
@@ -182,6 +182,10 @@ extern int setresgid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
 #endif
 #if defined(HAVE_SETRESUID) && !defined(_GNU_SOURCE)
 extern int setresuid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
+#endif
+
+#if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
+#define htobe64     htonll
 #endif
 
 #endif /* _SFD_COMMON_H */

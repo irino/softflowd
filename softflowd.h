@@ -24,7 +24,6 @@
 
 #ifndef _SOFTFLOWD_H
 #define _SOFTFLOWD_H
-
 #include "common.h"
 #include "sys-tree.h"
 #include "freelist.h"
@@ -147,6 +146,7 @@ struct FLOWTRACKPARAMETERS {
   char time_format;
   u_int8_t bidirection;
   u_int8_t adjust_time;
+  u_int8_t is_psamp;
   struct timeval last_packet_time;
 };
 /*
@@ -227,9 +227,6 @@ struct EXPIRY {
   } reason;
 };
 
-/* Prototype for functions shared from softflowd.c */
-u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
-
 struct SENDPARAMETER {
   struct FLOW **flows;
   int num_flows;
@@ -238,6 +235,9 @@ struct SENDPARAMETER {
   struct FLOWTRACKPARAMETERS *param;
   int verbose_flag;
 };
+
+/* Prototype for functions shared from softflowd.c */
+u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1 (struct SENDPARAMETER sp);
@@ -248,7 +248,9 @@ int send_ipfix (struct SENDPARAMETER sp);
 int send_ipfix_bi (struct SENDPARAMETER sp);
 
 /* Force a resend of the flow template */
+#ifdef LEGACY_NF9_IMPL
 void netflow9_resend_template (void);
+#endif /* LEGACY_NF9_IMPL */
 void ipfix_resend_template (void);
 
 #endif /* _SOFTFLOWD_H */

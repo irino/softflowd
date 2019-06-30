@@ -49,8 +49,15 @@
 #include "treetype.h"
 #include "freelist.h"
 #include "log.h"
+#include "psamp.h"
 #include <pcap.h>
 
+
+/* Global variables */
+static int verbose_flag = 0;    /* Debugging flag */
+static u_int16_t if_index = 0;  /* "manual" interface index */
+static int track_level;
+static int snaplen = 0;
 #ifdef ENABLE_PTHREAD
 pthread_mutex_t read_mutex;
 pthread_cond_t read_cond;
@@ -60,19 +67,13 @@ struct pcap_pkthdr packet_header;
 struct FLOW *send_expired_flows;
 #endif /* ENABLE_PTHREAD */
 
-/* Global variables */
-static int verbose_flag = 0;    /* Debugging flag */
-static u_int16_t if_index = 0;  /* "manual" interface index */
-
-static u_int8_t is_first_packet = 1;
-static int track_level;
-
 /* Signal handler flags */
 static volatile sig_atomic_t graceful_shutdown_request = 0;
 
 /* Context for libpcap callback functions */
 struct CB_CTXT {
   struct FLOWTRACK *ft;
+  struct NETFLOW_TARGET *target;
   int linktype;
   int fatal;
   int want_v6;
@@ -109,10 +110,6 @@ static const struct DATALINK lt[] = {
 };
 
 /* Netflow send functions */
-/*
-typedef int (netflow_send_func_t)(struct FLOW **, int, int, u_int16_t,
-				  struct FLOWTRACKPARAMETERS *, int);
-*/
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
 
 struct NETFLOW_SENDER {
@@ -618,8 +615,6 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
                 const struct timeval *received_time) {
   struct FLOW tmp, *flow;
   int frag, ndx;
-
-  ft->param.total_packets++;
 
   /* Convert the IP packet to a flow identity */
   memset (&tmp, 0, sizeof (tmp));
@@ -1244,11 +1239,10 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   u_int16_t vlanid = 0;
   struct ether_header *ether = NULL;
 
-  if (is_first_packet) {
+  if (cb_ctxt->ft->param.total_packets == 0) {
     if (cb_ctxt->ft->param.adjust_time) {
       cb_ctxt->ft->param.system_boot_time = phdr->ts;
     }
-    is_first_packet = 0;
   }
 
   if (cb_ctxt->ft->param.option.sample &&
@@ -1258,10 +1252,18 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     cb_ctxt->ft->param.non_sampled_packets++;
     return;
   }
+  cb_ctxt->ft->param.total_packets++;
+  if (cb_ctxt->ft->param.is_psamp) {
+    send_psamp (pkt, phdr->caplen, phdr->ts, cb_ctxt->target->fd,
+                cb_ctxt->ft->param.total_packets);
+    return;
+  }
+
   s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af, &ether,
                       &vlanid);
   if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
     cb_ctxt->ft->param.non_ip_packets++;
+    cb_ctxt->ft->param.total_packets--;
   } else {
     tv.tv_sec = phdr->ts.tv_sec;
     tv.tv_usec = phdr->ts.tv_usec;
@@ -1359,13 +1361,21 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     *exit_request = 1;
     ret = 1;
   } else if (strcmp (buf, "expire-all") == 0) {
+#ifdef LEGACY_NF9_IMPL
     netflow9_resend_template ();
+#else /* LEGACY_NF9_IMPL */
+    ipfix_resend_template ();
+#endif /* LEGACY_NF9_IMPL */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
              (unsigned int) getpid (), check_expired (ft, target,
                                                       CE_EXPIRE_ALL));
     ret = 0;
   } else if (strcmp (buf, "send-template") == 0) {
+#ifdef LEGACY_NF9_IMPL
     netflow9_resend_template ();
+#else /* LEGACY_NF9_IMPL */
+    ipfix_resend_template ();
+#endif /* LEGACY_NF9_IMPL */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
              "next flow export\n", (unsigned int) getpid ());
     ret = 0;
@@ -1522,9 +1532,9 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
 
   /* Open pcap */
   if (dev != NULL) {
-    if ((*pcap = pcap_open_live (dev,
-                                 need_v6 ? LIBPCAP_SNAPLEN_V6 :
-                                 LIBPCAP_SNAPLEN_V4, 1, 0, ebuf)) == NULL) {
+    if (!snaplen)
+      snaplen = need_v6 ? LIBPCAP_SNAPLEN_V6 : LIBPCAP_SNAPLEN_V4;
+    if ((*pcap = pcap_open_live (dev, snaplen, 1, 0, ebuf)) == NULL) {
       fprintf (stderr, "pcap_open_live: %s\n", ebuf);
       exit (1);
     }
@@ -1634,8 +1644,8 @@ usage (void) {
            "                          (default: %s)\n"
            "  -c pidfile              Location of control socket\n"
            "                          (default: %s)\n"
-           "  -v 1|5|9|10             NetFlow export packet version\n"
-           "                          (10 means IPFIX)\n"
+           "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
+           "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
            "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
            "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
            "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
@@ -1651,7 +1661,8 @@ usage (void) {
            "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
 #ifdef ENABLE_PTHREAD
            "  -M                      Enable multithread\n"
-#endif /* ENABLE_PTHREAD */           
+#endif /* ENABLE_PTHREAD */
+           "  -C capture_length       Specify length for packet capture (snaplen)\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
@@ -1863,7 +1874,8 @@ main (int argc, char **argv) {
   always_v6 = 0;
 
   while ((ch =
-          getopt (argc, argv, "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baM")) != -1) {
+          getopt (argc, argv,
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baMC:")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -1968,6 +1980,10 @@ main (int argc, char **argv) {
         ctlsock_path = optarg;
       break;
     case 'v':
+      if (!strncmp (optarg, "psamp", sizeof ("psamp"))) {
+        flowtrack.param.is_psamp = 1;
+        break;
+      }
       for (i = 0, r = atoi (optarg); nf[i].version != -1; i++) {
         if (nf[i].version == r)
           break;
@@ -2024,6 +2040,9 @@ main (int argc, char **argv) {
 #ifdef ENABLE_PTHREAD
       use_thread = 1;
 #endif /* ENABLE_PTHREAD */
+      break;
+    case 'C':                  /* Capture Length */
+      snaplen = atoi (optarg);
       break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
@@ -2113,6 +2132,7 @@ main (int argc, char **argv) {
   stop_collection_flag = 0;
   memset (&cb_ctxt, '\0', sizeof (cb_ctxt));
   cb_ctxt.ft = &flowtrack;
+  cb_ctxt.target = &target;
   cb_ctxt.linktype = linktype;
   cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
 #ifdef ENABLE_PTHREAD

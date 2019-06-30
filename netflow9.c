@@ -26,13 +26,9 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
+#include "netflow9.h"
 
 /* Netflow v.9 */
-struct NF9_HEADER {
-  u_int16_t version, flows;
-  u_int32_t uptime_ms, time_sec;
-  u_int32_t package_sequence, source_id;
-} __packed;
 struct NF9_FLOWSET_HEADER_COMMON {
   u_int16_t flowset_id, length;
 } __packed;
@@ -50,8 +46,6 @@ struct NF9_TEMPLATE_FLOWSET_RECORD {
 struct NF9_DATA_FLOWSET_HEADER {
   struct NF9_FLOWSET_HEADER_COMMON c;
 } __packed;
-#define NF9_TEMPLATE_FLOWSET_ID		0
-#define NF9_OPTIONS_FLOWSET_ID		1
 #define NF9_MIN_RECORD_FLOWSET_ID	256
 
 /* Flowset record types the we care about */
@@ -78,9 +72,6 @@ struct NF9_DATA_FLOWSET_HEADER {
 #define NF9_IPV6_DST_ADDR		28
 /* ... */
 #define NF9_ICMP_TYPE		        32
-/* ... */
-#define NF9_SAMPLING_INTERVAL           34
-#define NF9_SAMPLING_ALGORITHM          35
 /* ... */
 #define NF9_SRC_VLAN                    58
 /* ... */
@@ -145,10 +136,6 @@ struct NF9_SOFTFLOWD_OPTION_DATA {
 #define NF9_OPTION_SCOPE_LINECARD  3
 #define NF9_OPTION_SCOPE_CACHE     4
 #define NF9_OPTION_SCOPE_TEMPLATE  5
-/* ... */
-#define NF9_SAMPLING_ALGORITHM_DETERMINISTIC 1
-#define NF9_SAMPLING_ALGORITHM_RANDOM        2
-/* ... */
 
 static struct NF9_SOFTFLOWD_TEMPLATE v4_template;
 static struct NF9_SOFTFLOWD_TEMPLATE v6_template;
@@ -159,7 +146,7 @@ static int nf9_pkts_until_template = -1;
 static void
 nf9_init_template (void) {
   bzero (&v4_template, sizeof (v4_template));
-  v4_template.h.c.flowset_id = htons (NF9_TEMPLATE_FLOWSET_ID);
+  v4_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v4_template.h.c.length = htons (sizeof (v4_template));
   v4_template.h.template_id = htons (NF9_SOFTFLOWD_V4_TEMPLATE_ID);
   v4_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
@@ -196,7 +183,7 @@ nf9_init_template (void) {
   v4_template.r[15].type = htons (NF9_SRC_VLAN);
   v4_template.r[15].length = htons (2);
   bzero (&v6_template, sizeof (v6_template));
-  v6_template.h.c.flowset_id = htons (NF9_TEMPLATE_FLOWSET_ID);
+  v6_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
   v6_template.h.template_id = htons (NF9_SOFTFLOWD_V6_TEMPLATE_ID);
   v6_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
@@ -237,17 +224,17 @@ nf9_init_template (void) {
 static void
 nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   bzero (&option_template, sizeof (option_template));
-  option_template.h.c.flowset_id = htons (NF9_OPTIONS_FLOWSET_ID);
+  option_template.h.c.flowset_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
   option_template.h.template_id = htons (NF9_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.scope_length = htons (sizeof (option_template.s));
   option_template.h.option_length = htons (sizeof (option_template.r));
   option_template.s[0].type = htons (NF9_OPTION_SCOPE_INTERFACE);
   option_template.s[0].length = htons (sizeof (option_data.scope_ifidx));
-  option_template.r[0].type = htons (NF9_SAMPLING_INTERVAL);
+  option_template.r[0].type = htons (NFLOW9_SAMPLING_INTERVAL);
   option_template.r[0].length =
     htons (sizeof (option_data.sampling_interval));
-  option_template.r[1].type = htons (NF9_SAMPLING_ALGORITHM);
+  option_template.r[1].type = htons (NFLOW9_SAMPLING_ALGORITHM);
   option_template.r[1].length =
     htons (sizeof (option_data.sampling_algorithm));
 
@@ -256,7 +243,7 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_ifidx = htonl (ifidx);
   option_data.sampling_interval = htonl (option->sample);
-  option_data.sampling_algorithm = NF9_SAMPLING_ALGORITHM_DETERMINISTIC;
+  option_data.sampling_algorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
 }
 
 static int
@@ -318,7 +305,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
     dc[0]->icmp_type = dc[0]->dst_port;
     dc[1]->icmp_type = dc[1]->dst_port;
   }
-  dc[0]->vlanid = dc[1]->vlanid = htons (flow->vlanid);
+  dc[0]->vlanid = dc[1]->vlanid = htons (flow->vlanid[0]);
   if (flow->octets[0] > 0) {
     if (ret_len + freclen > len)
       return (-1);
@@ -351,7 +338,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   u_int16_t ifidx = sp.ifidx;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
-  struct NF9_HEADER *nf9;
+  struct NFLOW9_HEADER *nf9;
   struct NF9_DATA_FLOWSET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
@@ -379,13 +366,13 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   last_valid = num_packets = 0;
   for (j = 0; j < num_flows;) {
     bzero (packet, sizeof (packet));
-    nf9 = (struct NF9_HEADER *) packet;
+    nf9 = (struct NFLOW9_HEADER *) packet;
 
     nf9->version = htons (9);
     nf9->flows = 0;             /* Filled as we go, htons at end */
     nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
-    nf9->time_sec = htonl (time (NULL));
-    nf9->source_id = 0;
+    nf9->export_time = htonl (time (NULL));
+    nf9->od_id = 0;
     offset = sizeof (*nf9);
 
     /* Refresh template headers if we need to */
@@ -469,9 +456,9 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     }
     param->records_sent += nf9->flows;
     nf9->flows = htons (nf9->flows);
-    nf9->package_sequence = htonl ((u_int32_t)
-                                   ((*packets_sent + num_packets +
-                                     1) & 0x00000000ffffffff));
+    nf9->sequence = htonl ((u_int32_t)
+                           ((*packets_sent + num_packets +
+                             1) & 0x00000000ffffffff));
 
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);

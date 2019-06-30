@@ -109,9 +109,9 @@ softflowctl_OBJECTS = $(am_softflowctl_OBJECTS)
 softflowctl_LDADD = $(LDADD)
 am_softflowd_OBJECTS = freelist.$(OBJEXT) softflowd.$(OBJEXT) \
 	log.$(OBJEXT) netflow1.$(OBJEXT) netflow5.$(OBJEXT) \
-	netflow9.$(OBJEXT) ipfix.$(OBJEXT) $(am__objects_1)
+	ipfix.$(OBJEXT) psamp.$(OBJEXT) $(am__objects_1)
 softflowd_OBJECTS = $(am_softflowd_OBJECTS)
-softflowd_LDADD = $(LDADD)
+am__DEPENDENCIES_1 =
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -140,8 +140,10 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
 am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
-SOURCES = $(softflowctl_SOURCES) $(softflowd_SOURCES)
-DIST_SOURCES = $(softflowctl_SOURCES) $(softflowd_SOURCES)
+SOURCES = $(softflowctl_SOURCES) $(softflowd_SOURCES) \
+	$(EXTRA_softflowd_SOURCES)
+DIST_SOURCES = $(softflowctl_SOURCES) $(softflowd_SOURCES) \
+	$(EXTRA_softflowd_SOURCES)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -251,6 +253,7 @@ LIBS = @LIBS@
 LTLIBOBJS = @LTLIBOBJS@
 MAKEINFO = @MAKEINFO@
 MKDIR_P = @MKDIR_P@
+NF9 = @NF9@
 OBJEXT = @OBJEXT@
 PACKAGE = @PACKAGE@
 PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@
@@ -307,10 +310,16 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-COMMON = convtime.h  convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
-softflowd_SOURCES = common.h  freelist.h  log.h  softflowd.h sys-tree.h  treetype.h\
-	freelist.c softflowd.c log.c netflow1.c netflow5.c netflow9.c ipfix.c $(COMMON)
+COMMON = common.h convtime.h treetype.h sys-tree.h\
+  convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
 
+softflowd_SOURCES = freelist.h log.h softflowd.h netflow9.h ipfix.h psamp.h\
+	freelist.c softflowd.c log.c netflow1.c netflow5.c ipfix.c psamp.c\
+  $(COMMON)
+
+EXTRA_softflowd_SOURCES = netflow9.c
+softflowd_LDADD = $(NF9)
+softflowd_DEPENDENCIES = $(NF9)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
 all: config.h
@@ -432,6 +441,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/netflow1.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/netflow5.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/netflow9.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/psamp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/softflowctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/softflowd.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/strlcat.Po@am__quote@

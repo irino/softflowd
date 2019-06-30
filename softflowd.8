@@ -47,7 +47,10 @@
 .Op Fl r Ar pcap_file
 .Op Fl t Ar timeout_name=seconds
 .Op Fl v Ar netflow_version
+.Op Fl P Ar transport_protocol
+.Op Fl A Ar time_format
 .Op Fl s Ar sampling_rate
+.Op Fl C Ar capture_length
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -239,10 +242,18 @@ will place on the system at the cost of some detail being lost.
 Specify which version of the NetFlow(tm) protocol
 .Nm
 should use for export of the flow data.
-Supported versions are 1, 5, 9 and 10(IPFIX).
+Supported versions are 1, 5, 9, 10(IPFIX), and psamp.
 Default is version 5.
+.It Fl P Ar transport_protocol
+Specify transport layer protocol for exporting packets.
+Supported tranport layer protocols are udp, tcp, and sctp.
+.It Fl A Ar time_format
+Specify absolute time format form exporting records.
+Supported time formats are sec, milli, micro, and nano.
 .It Fl s Ar sampling_rate
 Specify periodical sampling rate (denominator).
+.It Fl C Ar capture_length
+Specify length for packet capture (snaplen).
 .El
 .Pp
 Any further command-line arguments will be concatenated together and

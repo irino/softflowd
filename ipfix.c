@@ -27,121 +27,9 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
-
-#if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
-#define htobe64     htonll
-#endif
-#define JAN_1970    2208988800UL        /* 1970 - 1900 in seconds */
-
-/* IPFIX a.k.a. Netflow v.10 */
-struct IPFIX_HEADER {
-  u_int16_t version, length;
-  u_int32_t export_time;        /* in seconds */
-  u_int32_t sequence, od_id;
-} __packed;
-struct NFLOW9_HEADER {
-  u_int16_t version, flows;
-  u_int32_t uptime_ms;
-  u_int32_t export_time;        /* in seconds */
-  u_int32_t sequence, od_id;
-} __packed;
-struct IPFIX_SET_HEADER {
-  u_int16_t set_id, length;
-} __packed;
-struct IPFIX_TEMPLATE_RECORD_HEADER {
-  u_int16_t template_id, count;
-} __packed;
-struct IPFIX_TEMPLATE_SET_HEADER {
-  struct IPFIX_SET_HEADER c;
-  struct IPFIX_TEMPLATE_RECORD_HEADER r;
-} __packed;
-struct IPFIX_OPTION_TEMPLATE_SET_HEADER {
-  struct IPFIX_SET_HEADER c;
-  union {
-    struct {
-      struct IPFIX_TEMPLATE_RECORD_HEADER r;
-      u_int16_t scope_count;
-    } i;
-    struct {
-      u_int16_t template_id;
-      u_int16_t scope_length;
-      u_int16_t option_length;
-    } n;
-  } u;
-} __packed;
-struct IPFIX_FIELD_SPECIFIER {
-  u_int16_t ie, length;
-} __packed;
-struct IPFIX_VENDOR_FIELD_SPECIFIER {
-  u_int16_t ie, length;
-  u_int32_t pen;
-} __packed;
-#define REVERSE_PEN 29305
-
-#define NFLOW9_TEMPLATE_SET_ID          0
-#define NFLOW9_OPTION_TEMPLATE_SET_ID   1
-#define IPFIX_TEMPLATE_SET_ID           2
-#define IPFIX_OPTION_TEMPLATE_SET_ID    3
-#define IPFIX_MIN_RECORD_SET_ID         256
-
-/* Flowset record ies the we care about */
-#define IPFIX_octetDeltaCount           1
-#define IPFIX_packetDeltaCount          2
-/* ... */
-#define IPFIX_protocolIdentifier        4
-#define IPFIX_ipClassOfService          5
-/* ... */
-#define IPFIX_tcpControlBits            6
-#define IPFIX_sourceTransportPort       7
-#define IPFIX_sourceIPv4Address         8
-/* ... */
-#define IPFIX_ingressInterface          10
-#define IPFIX_destinationTransportPort  11
-#define IPFIX_destinationIPv4Address    12
-/* ... */
-#define IPFIX_egressInterface           14
-/* ... */
-#define IPFIX_flowEndSysUpTime          21
-#define IPFIX_flowStartSysUpTime        22
-/* ... */
-#define IPFIX_sourceIPv6Address         27
-#define IPFIX_destinationIPv6Address    28
-/* ... */
-#define IPFIX_icmpTypeCodeIPv4          32
-/* ... */
-#define NFLOW9_SAMPLING_INTERVAL        34
-#define NFLOW9_SAMPLING_ALGORITHM       35
-/* ... */
-#define IPFIX_sourceMacAddress          56
-#define IPFIX_postDestinationMacAddress 57
-#define IPFIX_vlanId                    58
-#define IPFIX_postVlanId                59
-
-#define IPFIX_ipVersion                     60
-/* ... */
-#define IPFIX_icmpTypeCodeIPv6              139
-/* ... */
-#define IPFIX_meteringProcessId             143
-/* ... */
-#define IPFIX_flowStartSeconds              150
-#define IPFIX_flowEndSeconds                151
-#define IPFIX_flowStartMilliSeconds         152
-#define IPFIX_flowEndMilliSeconds           153
-#define IPFIX_flowStartMicroSeconds         154
-#define IPFIX_flowEndMicroSeconds           155
-#define IPFIX_flowStartNanoSeconds          156
-#define IPFIX_flowEndNanoSeconds            157
-/* ... */
-#define IPFIX_systemInitTimeMilliseconds    160
-/* ... */
-#define PSAMP_selectorAlgorithm             304
-#define PSAMP_samplingPacketInterval        305
-#define PSAMP_samplingPacketSpace           306
-
-#define PSAMP_selectorAlgorithm_count   1
-
-#define NFLOW9_OPTION_SCOPE_INTERFACE           2
-#define NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC 1
+#include "netflow9.h"
+#include "ipfix.h"
+#include "psamp.h"
 
 const struct IPFIX_FIELD_SPECIFIER field_v4[] = {
   {IPFIX_sourceIPv4Address, 4},
@@ -410,7 +298,7 @@ static struct NFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
 
 static int ipfix_pkts_until_template = -1;
 
-static int
+int
 ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
                    u_int * index,
                    const struct IPFIX_FIELD_SPECIFIER *src,
@@ -424,6 +312,27 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
   *index += field_number;
   return length;
 }
+
+struct ntp_time_t
+conv_unix_to_ntp (struct timeval tv) {
+  struct ntp_time_t ntp = {
+    tv.tv_sec + 0x83AA7E80,
+    (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6)
+  };
+  return ntp;
+}
+
+/*
+struct timeval
+conv_ntp_to_unix(struct ntp_time_t ntp)
+{
+  struct timeval tv = {
+    ntp.second - 0x83AA7E80, // the seconds from Jan 1, 1900 to Jan 1, 1970
+    (uint32_t)( (double)ntp.fraction * 1.0e6 / (double)(1LL<<32) )
+  };
+  return tv;
+}
+*/
 
 static int
 ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
@@ -666,46 +575,36 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
   if (dt == NULL)
     return -1;
 
-  if (param->time_format == 's') {
+  switch (param->time_format) {
+    struct ntp_time_t ntptime;
+  case 's':
     dt->u32.start = htonl (flow->flow_start.tv_sec);
     dt->u32.end = htonl (flow->flow_last.tv_sec);
-  }
+    break;
 #if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
-  else if (param->time_format == 'm') { /* milliseconds */
+  case 'm':
     dt->u64.start =
       htobe64 ((u_int64_t) flow->flow_start.tv_sec * 1000 +
                (u_int64_t) flow->flow_start.tv_usec / 1000);
     dt->u64.end =
       htobe64 ((u_int64_t) flow->flow_last.tv_sec * 1000 +
                (u_int64_t) flow->flow_last.tv_usec / 1000);
-  } else if (param->time_format == 'M') {       /* microseconds */
+    break;
+  case 'M':
+  case 'n':
+    ntptime = conv_unix_to_ntp ((struct timeval) flow->flow_start);
     dt->u64.start =
-      htobe64 (((u_int64_t) flow->flow_start.tv_sec +
-                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-                                                flow->flow_start.tv_usec <<
-                                                32) / 1e6));
+      htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
+    ntptime = conv_unix_to_ntp ((struct timeval) flow->flow_last);
     dt->u64.end =
-      htobe64 (((u_int64_t) flow->flow_last.tv_sec +
-                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-                                                flow->flow_last.tv_usec << 32)
-                                               / 1e6));
-  } else if (param->time_format == 'n') {       /* nanoseconds */
-    dt->u64.start =
-      htobe64 (((u_int64_t) flow->flow_start.tv_sec +
-                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-                                                flow->flow_start.tv_usec <<
-                                                32) / 1e9));
-    dt->u64.end =
-      htobe64 (((u_int64_t) flow->flow_last.tv_sec +
-                JAN_1970) << 32 | (u_int32_t) (((u_int64_t)
-                                                flow->flow_last.tv_usec << 32)
-                                               / 1e9));
-  }
+      htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
+    break;
 #endif
-  else {
+  default:
     dt->u32.start =
       htonl (timeval_sub_ms (&flow->flow_start, system_boot_time));
     dt->u32.end = htonl (timeval_sub_ms (&flow->flow_last, system_boot_time));
+    break;
   }
   return length;
 }
