@@ -765,8 +765,8 @@ memcpy_template (u_char * packet, u_int * offset,
  */
 static int
 send_ipfix_common (struct FLOW **flows, int num_flows,
-                   int nfsock, u_int16_t ifidx,
-                   struct FLOWTRACKPARAMETERS *param,
+                   int num_destinations, struct DESTINATION *destinations,
+                   u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
                    int verbose_flag, u_int8_t bi_flag, u_int16_t version) {
   struct IPFIX_HEADER *ipfix;
   struct NFLOW9_HEADER *nf9;
@@ -774,8 +774,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
   int8_t icmp_flag, last_icmp_flag;
-  socklen_t errsz;
-  int err, r;
+  int r;
   u_int records;
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct timeval *system_boot_time = &param->system_boot_time;
@@ -922,10 +921,8 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
-    errsz = sizeof (err);
-    /* Clear ICMP errors */
-    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);
-    if (send (nfsock, packet, (size_t) offset, 0) == -1)
+    if (send_multi_destinations
+        (num_destinations, destinations, packet, offset) < 0)
       return (-1);
     num_packets++;
     ipfix_pkts_until_template--;
@@ -944,18 +941,21 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
 int
 send_nflow9 (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-                            sp.param, sp.verbose_flag, 0, 9);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
+                            sp.destinations, sp.ifidx, sp.param,
+                            sp.verbose_flag, 0, 9);
 }
 
 int
 send_ipfix (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-                            sp.param, sp.verbose_flag, 0, 10);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
+                            sp.destinations, sp.ifidx, sp.param,
+                            sp.verbose_flag, 0, 10);
 }
 
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.nfsock, sp.ifidx,
-                            sp.param, sp.verbose_flag, 1, 10);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
+                            sp.destinations, sp.ifidx, sp.param,
+                            sp.verbose_flag, 1, 10);
 }

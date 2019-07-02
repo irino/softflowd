@@ -62,6 +62,7 @@
 #include <strings.h>
 #include <syslog.h>
 #include <time.h>
+#include <netdb.h>
 
 #if defined(HAVE_NET_BPF_H)
 #include <net/bpf.h>

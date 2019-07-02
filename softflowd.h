@@ -79,6 +79,8 @@ struct STATISTIC {
 #define TRACK_FULL_VLAN		5       /* src/dst/addr/port/proto/tos/vlanid 7-tuple */
 #define TRACK_FULL_VLAN_ETHER	6       /* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
 
+#define SOFTFLOWD_MAX_DESTINATIONS 16
+
 /*
  * This structure contains optional information carried by Option Data
  * Record.
@@ -227,10 +229,20 @@ struct EXPIRY {
   } reason;
 };
 
+struct DESTINATION {
+  char *arg;
+  int sock;
+  struct sockaddr_storage ss;
+  socklen_t sslen;
+  char hostname[NI_MAXHOST];
+  char servname[NI_MAXSERV];
+};
+
 struct SENDPARAMETER {
   struct FLOW **flows;
   int num_flows;
-  int nfsock;
+  int num_destinations;
+  struct DESTINATION *destinations;
   u_int16_t ifidx;
   struct FLOWTRACKPARAMETERS *param;
   int verbose_flag;
@@ -238,6 +250,9 @@ struct SENDPARAMETER {
 
 /* Prototype for functions shared from softflowd.c */
 u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
+int send_multi_destinations (int num_destinations,
+                             struct DESTINATION *destinations,
+                             u_int8_t * packet, int size);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1 (struct SENDPARAMETER sp);

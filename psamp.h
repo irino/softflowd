@@ -25,6 +25,9 @@
 #ifndef _PSAMP_H
 #define _PSAMP_H
 
+#include "common.h"
+#include "softflowd.h"
+
 #define PSAMP_selectionSequenceId         301
 #define PSAMP_selectorAlgorithm           304
 #define PSAMP_samplingPacketInterval      305
@@ -37,6 +40,8 @@
 #define PSAMP_selectorAlgorithm_count   1
 
 
-int send_psamp(const u_char *pkt, int caplen, struct timeval tv, int sock, uint64_t total_packets);
+int send_psamp (const u_char * pkt, int caplen, struct timeval tv,
+                int num_destinations, struct DESTINATION *destinations,
+                uint64_t total_packets);
 
 #endif /* _PSAMP_H */

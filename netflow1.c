@@ -63,7 +63,6 @@ int
 send_netflow_v1 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
-  int nfsock = sp.nfsock;
   u_int16_t ifidx = sp.ifidx;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
@@ -72,8 +71,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   u_int8_t packet[NF1_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
   struct NF1_HEADER *hdr = NULL;
   struct NF1_FLOW *flw = NULL;
-  int i, j, offset, num_packets, err;
-  socklen_t errsz;
+  int i, j, offset, num_packets;
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
 
@@ -90,9 +88,8 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
         logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
-      errsz = sizeof (err);
-      getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);  /* Clear ICMP errors */
-      if (send (nfsock, packet, (size_t) offset, 0) == -1)
+      if (send_multi_destinations
+          (sp.num_destinations, sp.destinations, packet, offset) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -161,9 +158,8 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
-    errsz = sizeof (err);
-    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);    /* Clear ICMP errors */
-    if (send (nfsock, packet, (size_t) offset, 0) == -1)
+    if (send_multi_destinations
+        (sp.num_destinations, sp.destinations, packet, offset) < 0)
       return (-1);
     num_packets++;
   }

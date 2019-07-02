@@ -60,7 +60,8 @@ psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template) {
 }
 
 int
-send_psamp (const u_char * pkt, int caplen, struct timeval tv, int sock,
+send_psamp (const u_char * pkt, int caplen, struct timeval tv,
+            int num_destinations, struct DESTINATION *destinations,
             uint64_t total_packets) {
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) packet;
@@ -82,7 +83,8 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv, int sock,
     psamp_pkts_until_template = 0;
     memcpy (&packet[offset], &template, sizeof (template));
     ipfix->length = htons (offset + sizeof (template));
-    if (send (sock, packet, (size_t) (offset + sizeof (template)), 0) == -1)
+    if (send_multi_destinations (num_destinations, destinations, packet,
+                                 offset + sizeof (template)) < 0)
       return (-1);
   }
 
@@ -109,7 +111,8 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv, int sock,
   memset (&packet[offset], 0, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - offset);
   memcpy (&packet[offset], pkt, copysize);
   ipfix->length = htons (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
-  if (send (sock, packet, (size_t) IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, 0) == -1)
+  if (send_multi_destinations (num_destinations, destinations, packet,
+                               IPFIX_SOFTFLOWD_MAX_PACKET_SIZE) < 0)
     return (-1);
   return 1;
 }

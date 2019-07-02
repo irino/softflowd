@@ -52,7 +52,6 @@
 #include "psamp.h"
 #include <pcap.h>
 
-
 /* Global variables */
 static int verbose_flag = 0;    /* Debugging flag */
 static u_int16_t if_index = 0;  /* "manual" interface index */
@@ -134,7 +133,8 @@ static const struct NETFLOW_SENDER nf[] = {
 
 /* Describes a location where we send NetFlow packets to */
 struct NETFLOW_TARGET {
-  int fd;
+  int num_destinations;
+  struct DESTINATION destinations[SOFTFLOWD_MAX_DESTINATIONS];
   const struct NETFLOW_SENDER *dialect;
 };
 
@@ -719,6 +719,23 @@ timeval_sub_ms (const struct timeval * t1, const struct timeval * t2) {
   return ((u_int32_t) res.tv_sec * 1000 + (u_int32_t) res.tv_usec / 1000);
 }
 
+int
+send_multi_destinations (int num_destinations,
+                         struct DESTINATION *destinations, u_int8_t * packet,
+                         int size) {
+  struct DESTINATION *dest;
+  int i, err;
+  socklen_t errsz;
+  for (i = 0; i < num_destinations; i++) {
+    dest = &destinations[i];
+    errsz = sizeof (err);
+    getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz); // Clear ICMP errors
+    if (send (dest->sock, packet, (size_t) size, 0) == -1)
+      return (-1);
+  }
+  return i;
+}
+
 static void
 update_statistic (struct STATISTIC *s, double new, double n) {
   if (n == 1.0) {
@@ -911,10 +928,10 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
 
   /* Processing for expired flows */
   if (num_expired > 0) {
-    if (target != NULL && target->fd != -1) {
-      struct SENDPARAMETER sp = { expired_flows, num_expired,
-        target->fd, if_index,
-        &ft->param, verbose_flag
+    if (target != NULL) {
+      struct SENDPARAMETER sp =
+        { expired_flows, num_expired, target->num_destinations,
+        target->destinations, if_index, &ft->param, verbose_flag
       };
       netflow_send_func_t *func =
         ft->param.bidirection == 1 ?
@@ -1254,7 +1271,9 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   }
   cb_ctxt->ft->param.total_packets++;
   if (cb_ctxt->ft->param.is_psamp) {
-    send_psamp (pkt, phdr->caplen, phdr->ts, cb_ctxt->target->fd,
+    send_psamp (pkt, phdr->caplen, phdr->ts,
+                cb_ctxt->target->num_destinations,
+                cb_ctxt->target->destinations,
                 cb_ctxt->ft->param.total_packets);
     return;
   }
@@ -1777,6 +1796,20 @@ parse_hostport (const char *s, struct sockaddr *addr, socklen_t * len) {
   *len = res->ai_addrlen;
 }
 
+static int
+parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
+  int i = 0;
+  for (char *hostport = strsep ((char **)&s, ",");
+       hostport != NULL && i < max_dest;
+       hostport = strsep ((char **) &s, ",")) {
+    dest[i].sslen = sizeof (dest[i].ss);
+    parse_hostport (hostport, (struct sockaddr *) &dest[i].ss,
+                    &dest[i].sslen);
+    i++;
+  }
+  return i;
+}
+
 /* 
  * Drop privileges and chroot, will exit on failure
  */
@@ -1833,19 +1866,18 @@ drop_privs (void) {
 
 int
 main (int argc, char **argv) {
-  char *dev, *capfile, *bpf_prog, dest_addr[256], dest_serv[256];
+  char *dev, *capfile, *bpf_prog;
   const char *pidfile_path, *ctlsock_path;
   extern char *optarg;
   extern int optind;
-  int ch, dontfork_flag, linktype, ctlsock, i, err, always_v6, r;
+  int ch, dontfork_flag, linktype, ctlsock, i, err, always_v6, r, dest_idx;
   int stop_collection_flag, exit_request, hoplimit;
   pcap_t *pcap = NULL;
-  struct sockaddr_storage dest;
   struct FLOWTRACK flowtrack;
-  socklen_t dest_len;
   struct NETFLOW_TARGET target;
   struct CB_CTXT cb_ctxt;
   struct pollfd pl[2];
+  struct DESTINATION *dest;
   int protocol = IPPROTO_UDP;
 #ifdef ENABLE_PTHREAD
   int use_thread = 0;
@@ -1859,10 +1891,7 @@ main (int argc, char **argv) {
 
   init_flowtrack (&flowtrack);
 
-  memset (&dest, '\0', sizeof (dest));
-  dest_len = 0;
   memset (&target, '\0', sizeof (target));
-  target.fd = -1;
   target.dialect = &nf[0];
   hoplimit = -1;
   bpf_prog = NULL;
@@ -1967,8 +1996,9 @@ main (int argc, char **argv) {
       break;
     case 'n':
       /* Will exit on failure */
-      dest_len = sizeof (dest);
-      parse_hostport (optarg, (struct sockaddr *) &dest, &dest_len);
+      target.num_destinations =
+        parse_hostports (optarg, target.destinations,
+                         SOFTFLOWD_MAX_DESTINATIONS);
       break;
     case 'p':
       pidfile_path = optarg;
@@ -2065,15 +2095,18 @@ main (int argc, char **argv) {
                         target.dialect->v6_capable || always_v6);
 
   /* Netflow send socket */
-  if (dest.ss_family != 0) {
-    if ((err = getnameinfo ((struct sockaddr *) &dest,
-                            dest_len, dest_addr, sizeof (dest_addr),
-                            dest_serv, sizeof (dest_serv),
-                            NI_NUMERICHOST)) == -1) {
-      fprintf (stderr, "getnameinfo: %d\n", err);
-      exit (1);
+  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+    dest = &target.destinations[dest_idx];
+    if (dest->ss.ss_family != 0) {
+      if ((err = getnameinfo ((struct sockaddr *) &dest->ss, dest->sslen,
+                              dest->hostname, sizeof (dest->hostname),
+                              dest->servname, sizeof (dest->servname),
+                              NI_NUMERICHOST)) == -1) {
+        fprintf (stderr, "getnameinfo: %d\n", err);
+        exit (1);
+      }
+      dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
     }
-    target.fd = connsock (&dest, dest_len, hoplimit, protocol);
   }
 
   /* Control socket */
@@ -2122,8 +2155,12 @@ main (int argc, char **argv) {
   }
 
   logit (LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
-  if (dest.ss_family != 0) {
-    logit (LOG_NOTICE, "Exporting flows to [%s]:%s", dest_addr, dest_serv);
+  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+    dest = &target.destinations[dest_idx];
+    if (dest->ss.ss_family != 0) {
+      logit (LOG_NOTICE, "Exporting flows to [%s]:%s", dest->hostname,
+             dest->servname);
+    }
   }
   flowtrack.param.option.meteringProcessId = getpid ();
 
@@ -2254,8 +2291,11 @@ main (int argc, char **argv) {
 
   pcap_close (pcap);
 
-  if (target.fd != -1)
-    close (target.fd);
+  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+    dest = &target.destinations[dest_idx];
+    if (dest->sock != -1)
+      close (dest->sock);
+  }
 
   unlink (pidfile_path);
   if (ctlsock_path != NULL)

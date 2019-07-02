@@ -334,7 +334,6 @@ int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
-  int nfsock = sp.nfsock;
   u_int16_t ifidx = sp.ifidx;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
@@ -342,8 +341,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   struct NF9_DATA_FLOWSET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
-  socklen_t errsz;
-  int err, r;
+  int r;
   u_char packet[NF9_SOFTFLOWD_MAX_PACKET_SIZE];
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
@@ -462,10 +460,8 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
-    errsz = sizeof (err);
-    /* Clear ICMP errors */
-    getsockopt (nfsock, SOL_SOCKET, SO_ERROR, &err, &errsz);
-    if (send (nfsock, packet, (size_t) offset, 0) == -1)
+    if (send_multi_destinations
+        (sp.num_destinations, sp.destinations, packet, offset) < 0)
       return (-1);
     num_packets++;
     nf9_pkts_until_template--;
