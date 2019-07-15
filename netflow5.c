@@ -88,7 +88,8 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
       if (send_multi_destinations
-          (sp.num_destinations, sp.destinations, packet, offset) < 0)
+          (sp.target->num_destinations, sp.target->destinations,
+           sp.target->is_loadbalance, packet, offset) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -164,7 +165,8 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
     if (send_multi_destinations
-        (sp.num_destinations, sp.destinations, packet, offset) < 0)
+        (sp.target->num_destinations, sp.target->destinations,
+         sp.target->is_loadbalance, packet, offset) < 0)
       return (-1);
     num_packets++;
   }

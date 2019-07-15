@@ -5,7 +5,7 @@ softflowd_SOURCES = freelist.h log.h softflowd.h netflow9.h ipfix.h psamp.h\
 	freelist.c softflowd.c log.c netflow1.c netflow5.c ipfix.c psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = netflow9.c
-softflowd_LDADD = $(NF9)
-softflowd_DEPENDENCIES = $(NF9)
+softflowd_LDADD = $(LEGACY)
+softflowd_DEPENDENCIES = $(LEGACY)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8

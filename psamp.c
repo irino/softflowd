@@ -47,22 +47,20 @@ struct PSAMP_SOFTFLOWD_TEMPLATE template;
 static int psamp_pkts_until_template = -1;
 
 static void
-psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template) {
-  int used, rest = 0;
+psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
   u_int index = 0;
-  bzero (template, sizeof (*template));
-  template->h.c.set_id = htons (IPFIX_TEMPLATE_SET_ID);
-  template->h.c.length = htons (sizeof (struct PSAMP_SOFTFLOWD_TEMPLATE));
-  template->h.r.template_id = htons (PSAMP_SOFTFLOWD_TEMPLATE_ID);
-  template->h.r.count = htons (PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS);
-  ipfix_init_fields (template->r, &index, field_psamp,
+  bzero (template_p, sizeof (*template_p));
+  template_p->h.c.set_id = htons (IPFIX_TEMPLATE_SET_ID);
+  template_p->h.c.length = htons (sizeof (struct PSAMP_SOFTFLOWD_TEMPLATE));
+  template_p->h.r.template_id = htons (PSAMP_SOFTFLOWD_TEMPLATE_ID);
+  template_p->h.r.count = htons (PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS);
+  ipfix_init_fields (template_p->r, &index, field_psamp,
                      PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS);
 }
 
 int
 send_psamp (const u_char * pkt, int caplen, struct timeval tv,
-            int num_destinations, struct DESTINATION *destinations,
-            uint64_t total_packets) {
+            struct NETFLOW_TARGET *target, uint64_t total_packets) {
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) packet;
   struct IPFIX_SET_HEADER *dh;
@@ -83,8 +81,9 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
     psamp_pkts_until_template = 0;
     memcpy (&packet[offset], &template, sizeof (template));
     ipfix->length = htons (offset + sizeof (template));
-    if (send_multi_destinations (num_destinations, destinations, packet,
-                                 offset + sizeof (template)) < 0)
+    if (send_multi_destinations
+        (target->num_destinations, target->destinations, 0, packet,
+         offset + sizeof (template)) < 0)
       return (-1);
   }
 
@@ -99,7 +98,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   offset += sizeof (u_int64_t);
 
   ntptime = (struct ntp_time_t *) &packet[offset];
-  *ntptime = conv_unix_to_ntp (tv);
+  conv_unix_to_ntp (tv, ntptime);
   ntptime->second = htonl (ntptime->second);
   ntptime->fraction = htonl (ntptime->fraction);
   offset += sizeof (struct ntp_time_t);
@@ -111,8 +110,9 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   memset (&packet[offset], 0, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - offset);
   memcpy (&packet[offset], pkt, copysize);
   ipfix->length = htons (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
-  if (send_multi_destinations (num_destinations, destinations, packet,
-                               IPFIX_SOFTFLOWD_MAX_PACKET_SIZE) < 0)
+  if (send_multi_destinations (target->num_destinations, target->destinations,
+                               target->is_loadbalance,
+                               packet, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE) < 0)
     return (-1);
   return 1;
 }

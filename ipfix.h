@@ -25,6 +25,8 @@
 #ifndef _IPFIX_H
 #define _IPFIX_H
 
+#include "softflowd.h"
+
 #define IPFIX_TEMPLATE_SET_ID           2
 #define IPFIX_OPTION_TEMPLATE_SET_ID    3
 #define IPFIX_MIN_RECORD_SET_ID         256
@@ -125,11 +127,15 @@ struct ntp_time_t {
   uint32_t fraction;
 };
 
-
-
+/* Prototypes for functions to send NetFlow packets */
+int send_nflow9 (struct SENDPARAMETER sp);
+int send_ipfix (struct SENDPARAMETER sp);
+int send_ipfix_bi (struct SENDPARAMETER sp);
+/* Force a resend of the flow template */
+void ipfix_resend_template (void);
 int ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int * index,
                        const struct IPFIX_FIELD_SPECIFIER *src,
                        u_int field_number);
-struct ntp_time_t conv_unix_to_ntp (struct timeval tv);
+void conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
 //struct timeval conv_ntp_to_unix(struct ntp_time_t ntp);
 #endif /* _IPFIX_H */

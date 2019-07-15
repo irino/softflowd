@@ -238,11 +238,18 @@ struct DESTINATION {
   char servname[NI_MAXSERV];
 };
 
+/* Describes a location where we send NetFlow packets to */
+struct NETFLOW_TARGET {
+  int num_destinations;
+  struct DESTINATION destinations[SOFTFLOWD_MAX_DESTINATIONS];
+  const struct NETFLOW_SENDER *dialect;
+  u_int8_t is_loadbalance;
+};
+
 struct SENDPARAMETER {
   struct FLOW **flows;
   int num_flows;
-  int num_destinations;
-  struct DESTINATION *destinations;
+  struct NETFLOW_TARGET *target;
   u_int16_t ifidx;
   struct FLOWTRACKPARAMETERS *param;
   int verbose_flag;
@@ -252,20 +259,11 @@ struct SENDPARAMETER {
 u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
 int send_multi_destinations (int num_destinations,
                              struct DESTINATION *destinations,
-                             u_int8_t * packet, int size);
+                             u_int8_t is_loadbalnce, u_int8_t * packet,
+                             int size);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1 (struct SENDPARAMETER sp);
 int send_netflow_v5 (struct SENDPARAMETER sp);
-int send_netflow_v9 (struct SENDPARAMETER sp);
-int send_nflow9 (struct SENDPARAMETER sp);
-int send_ipfix (struct SENDPARAMETER sp);
-int send_ipfix_bi (struct SENDPARAMETER sp);
-
-/* Force a resend of the flow template */
-#ifdef LEGACY_NF9_IMPL
-void netflow9_resend_template (void);
-#endif /* LEGACY_NF9_IMPL */
-void ipfix_resend_template (void);
 
 #endif /* _SOFTFLOWD_H */

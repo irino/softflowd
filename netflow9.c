@@ -329,7 +329,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Given an array of expired flows, send netflow v9 report packets
  * Returns number of packets sent or -1 on error
  */
-#ifdef LEGACY_NF9_IMPL
+#ifdef LEGACY
 int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
@@ -461,7 +461,8 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     if (send_multi_destinations
-        (sp.num_destinations, sp.destinations, packet, offset) < 0)
+        (sp.target->num_destinations, sp.target->destinations,
+         sp.target->is_loadbalance, packet, offset) < 0)
       return (-1);
     num_packets++;
     nf9_pkts_until_template--;
@@ -477,7 +478,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* LEGACY_NF9_IMPL */
+#endif /* LEGACY */
 
 void
 netflow9_resend_template (void) {

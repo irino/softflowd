@@ -41,7 +41,8 @@
 
 
 int send_psamp (const u_char * pkt, int caplen, struct timeval tv,
-                int num_destinations, struct DESTINATION *destinations,
+                struct NETFLOW_TARGET *target,
+                //int num_destinations, struct DESTINATION *destinations,
                 uint64_t total_packets);
 
 #endif /* _PSAMP_H */

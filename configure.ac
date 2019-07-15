@@ -32,10 +32,10 @@ AC_ARG_ENABLE(gcc-warnings,
 	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
-AC_ARG_ENABLE(legacy-nf9,
-              AC_HELP_STRING([--enable-legacy-nf9],
-                             [enable legacy NetFlow v9 implementation (default NO)]),
-              [nf9=yes],[nf9=no])
+AC_ARG_ENABLE(legacy,
+              AC_HELP_STRING([--enable-legacy],
+                             [enable legacy NetFlow implementation (default NO)]),
+              [legacy=yes],[legacy=no])
 AC_ARG_ENABLE(pthread,
               AC_HELP_STRING([--enable-pthread], [enable pthread (default NO)]),
               [pthread=yes],[pthread=no])
@@ -118,10 +118,10 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
-if test "x$nf9" = "xyes" ; then
-  AC_DEFINE([LEGACY_NF9_IMPL], 1, [enable legacy NetFlow v9 implementation])
-  NF9='netflow9.$(OBJEXT)' 
-  AC_SUBST([NF9])
+if test "x$legacy" = "xyes" ; then
+  AC_DEFINE([LEGACY], 1, [enable legacy NetFlow implementation])
+  LEGACY='netflow9.$(OBJEXT)' 
+  AC_SUBST([LEGACY])
 fi
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])

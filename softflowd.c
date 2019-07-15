@@ -49,6 +49,8 @@
 #include "treetype.h"
 #include "freelist.h"
 #include "log.h"
+#include "netflow9.h"
+#include "ipfix.h"
 #include "psamp.h"
 #include <pcap.h>
 
@@ -122,20 +124,13 @@ struct NETFLOW_SENDER {
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-#ifdef LEGACY_NF9_IMPL
+#ifdef LEGACY
   {9, send_netflow_v9, NULL, 1},
-#else /* LEGACY_NF9_IMPL */
+#else /* LEGACY */
   {9, send_nflow9, NULL, 1},
-#endif /* LEGACY_NF9_IMPL */
+#endif /* LEGACY */
   {10, send_ipfix, send_ipfix_bi, 1},
   {-1, NULL, NULL, 0},
-};
-
-/* Describes a location where we send NetFlow packets to */
-struct NETFLOW_TARGET {
-  int num_destinations;
-  struct DESTINATION destinations[SOFTFLOWD_MAX_DESTINATIONS];
-  const struct NETFLOW_SENDER *dialect;
 };
 
 /* Signal handlers */
@@ -721,19 +716,24 @@ timeval_sub_ms (const struct timeval * t1, const struct timeval * t2) {
 
 int
 send_multi_destinations (int num_destinations,
-                         struct DESTINATION *destinations, u_int8_t * packet,
+                         struct DESTINATION *destinations,
+                         u_int8_t is_loadbalance, u_int8_t * packet,
                          int size) {
   struct DESTINATION *dest;
   int i, err;
   socklen_t errsz;
+  static u_int64_t sent = 0;
   for (i = 0; i < num_destinations; i++) {
-    dest = &destinations[i];
-    errsz = sizeof (err);
-    getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz); // Clear ICMP errors
-    if (send (dest->sock, packet, (size_t) size, 0) == -1)
-      return (-1);
+    if (!is_loadbalance || (is_loadbalance && (sent % num_destinations == i))) {
+      dest = &destinations[i];
+      errsz = sizeof (err);
+      getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz);      // Clear ICMP errors
+      if (send (dest->sock, packet, (size_t) size, 0) == -1)
+        return (-1);
+    }
   }
-  return i;
+  sent++;
+  return is_loadbalance ? 1 : i;
 }
 
 static void
@@ -930,12 +930,12 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   if (num_expired > 0) {
     if (target != NULL) {
       struct SENDPARAMETER sp =
-        { expired_flows, num_expired, target->num_destinations,
-        target->destinations, if_index, &ft->param, verbose_flag
+        { expired_flows, num_expired, target, if_index, &ft->param,
+        verbose_flag
       };
       netflow_send_func_t *func =
-        ft->param.bidirection == 1 ?
-        target->dialect->bidir_func : target->dialect->func;
+        ft->param.bidirection ==
+        1 ? target->dialect->bidir_func : target->dialect->func;
       if (func == NULL) {
         func = target->dialect->func;
       }
@@ -1271,9 +1271,7 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   }
   cb_ctxt->ft->param.total_packets++;
   if (cb_ctxt->ft->param.is_psamp) {
-    send_psamp (pkt, phdr->caplen, phdr->ts,
-                cb_ctxt->target->num_destinations,
-                cb_ctxt->target->destinations,
+    send_psamp (pkt, phdr->caplen, phdr->ts, cb_ctxt->target,
                 cb_ctxt->ft->param.total_packets);
     return;
   }
@@ -1380,21 +1378,21 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     *exit_request = 1;
     ret = 1;
   } else if (strcmp (buf, "expire-all") == 0) {
-#ifdef LEGACY_NF9_IMPL
+#ifdef LEGACY
     netflow9_resend_template ();
-#else /* LEGACY_NF9_IMPL */
+#else /* LEGACY */
     ipfix_resend_template ();
-#endif /* LEGACY_NF9_IMPL */
+#endif /* LEGACY */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
              (unsigned int) getpid (), check_expired (ft, target,
                                                       CE_EXPIRE_ALL));
     ret = 0;
   } else if (strcmp (buf, "send-template") == 0) {
-#ifdef LEGACY_NF9_IMPL
+#ifdef LEGACY
     netflow9_resend_template ();
-#else /* LEGACY_NF9_IMPL */
+#else /* LEGACY */
     ipfix_resend_template ();
-#endif /* LEGACY_NF9_IMPL */
+#endif /* LEGACY */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
              "next flow export\n", (unsigned int) getpid ());
     ret = 0;
@@ -1678,6 +1676,7 @@ usage (void) {
            "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
            "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
            "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
+           "  -l                      Load balancing mode for multiple destinations\n"
 #ifdef ENABLE_PTHREAD
            "  -M                      Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
@@ -1904,7 +1903,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baMC:")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baMC:l")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2074,6 +2073,9 @@ main (int argc, char **argv) {
     case 'C':                  /* Capture Length */
       snaplen = atoi (optarg);
       break;
+    case 'l':                  // load balancing
+      target.is_loadbalance = 1;
+      break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2095,7 +2097,7 @@ main (int argc, char **argv) {
                         target.dialect->v6_capable || always_v6);
 
   /* Netflow send socket */
-  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+  for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
       if ((err = getnameinfo ((struct sockaddr *) &dest->ss, dest->sslen,
@@ -2155,7 +2157,7 @@ main (int argc, char **argv) {
   }
 
   logit (LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
-  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+  for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
       logit (LOG_NOTICE, "Exporting flows to [%s]:%s", dest->hostname,
@@ -2291,7 +2293,7 @@ main (int argc, char **argv) {
 
   pcap_close (pcap);
 
-  for (int dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
+  for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];
     if (dest->sock != -1)
       close (dest->sock);

@@ -248,12 +248,12 @@ INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LDFLAGS = @LDFLAGS@
+LEGACY = @LEGACY@
 LIBOBJS = @LIBOBJS@
 LIBS = @LIBS@
 LTLIBOBJS = @LTLIBOBJS@
 MAKEINFO = @MAKEINFO@
 MKDIR_P = @MKDIR_P@
-NF9 = @NF9@
 OBJEXT = @OBJEXT@
 PACKAGE = @PACKAGE@
 PACKAGE_BUGREPORT = @PACKAGE_BUGREPORT@
@@ -318,8 +318,8 @@ softflowd_SOURCES = freelist.h log.h softflowd.h netflow9.h ipfix.h psamp.h\
   $(COMMON)
 
 EXTRA_softflowd_SOURCES = netflow9.c
-softflowd_LDADD = $(NF9)
-softflowd_DEPENDENCIES = $(NF9)
+softflowd_LDADD = $(LEGACY)
+softflowd_DEPENDENCIES = $(LEGACY)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
 all: config.h

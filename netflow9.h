@@ -25,6 +25,8 @@
 #ifndef _NETFLOW9_H
 #define _NETFLOW9_H
 
+#include "softflowd.h"
+
 #define NFLOW9_TEMPLATE_SET_ID          0
 #define NFLOW9_OPTION_TEMPLATE_SET_ID   1
 
@@ -41,5 +43,12 @@ struct NFLOW9_HEADER {
   u_int32_t export_time;        // in seconds
   u_int32_t sequence, od_id;
 } __packed;
+
+#ifdef LEGACY
+/* Prototypes for functions to send NetFlow packets, from netflow*.c */
+int send_netflow_v9 (struct SENDPARAMETER sp);
+/* Force a resend of the flow template */
+void netflow9_resend_template (void);
+#endif /* LEGACY */
 
 #endif /* _NETFLOW9_H */

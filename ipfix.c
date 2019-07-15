@@ -189,7 +189,6 @@ struct IPFIX_SOFTFLOWD_TEMPLATE {
 #define NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS       \
     sizeof(field_nf9option) / sizeof(struct IPFIX_FIELD_SPECIFIER)
 
-
 struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
   struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
   struct IPFIX_FIELD_SPECIFIER
@@ -290,8 +289,14 @@ struct NFLOW9_SOFTFLOWD_OPTION_DATA {
 #define IPFIX_SAMPLING_ALGORITHM_RANDOM         2
 /* ... */
 
+// prototype
+void memcpy_template (u_char * packet, u_int * offset,
+                      struct IPFIX_SOFTFLOWD_TEMPLATE *template,
+                      u_int8_t bi_flag);
+
+// variables
 enum { TMPLV4, TMPLICMPV4, TMPLV6, TMPLICMPV6, TMPLMAX };
-static struct IPFIX_SOFTFLOWD_TEMPLATE template[TMPLMAX];
+static struct IPFIX_SOFTFLOWD_TEMPLATE templates[TMPLMAX];
 static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template;
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 static struct NFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
@@ -313,13 +318,13 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
   return length;
 }
 
-struct ntp_time_t
-conv_unix_to_ntp (struct timeval tv) {
-  struct ntp_time_t ntp = {
-    tv.tv_sec + 0x83AA7E80,
-    (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6)
-  };
-  return ntp;
+void
+conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp) {
+  if (ntp != NULL) {
+    ntp->second = tv.tv_sec + 0x83AA7E80;
+    ntp->fraction =
+      (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6);
+  }
 }
 
 /*
@@ -491,7 +496,7 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
       template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
       break;
     }
-    ipfix_init_template_unity (param, &template[i],
+    ipfix_init_template_unity (param, &templates[i],
                                template_id, v6_flag,
                                icmp_flag, bi_flag, version);
   }
@@ -592,10 +597,10 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
     break;
   case 'M':
   case 'n':
-    ntptime = conv_unix_to_ntp ((struct timeval) flow->flow_start);
+    conv_unix_to_ntp ((struct timeval) flow->flow_start, &ntptime);
     dt->u64.start =
       htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
-    ntptime = conv_unix_to_ntp ((struct timeval) flow->flow_last);
+    conv_unix_to_ntp ((struct timeval) flow->flow_last, &ntptime);
     dt->u64.end =
       htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
     break;
@@ -641,7 +646,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
-  freclen = template[tmplindex].data_len;
+  freclen = templates[tmplindex].data_len;
   if (len < freclen * frecnum)
     return (-1);
 
@@ -735,6 +740,8 @@ valuate_icmp (struct FLOW *flow) {
       return 1;
     else
       return 0;
+  else
+    return -1;
   return -1;
 }
 
@@ -765,14 +772,14 @@ memcpy_template (u_char * packet, u_int * offset,
  */
 static int
 send_ipfix_common (struct FLOW **flows, int num_flows,
-                   int num_destinations, struct DESTINATION *destinations,
+                   struct NETFLOW_TARGET *target,
                    u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
                    int verbose_flag, u_int8_t bi_flag, u_int16_t version) {
   struct IPFIX_HEADER *ipfix;
   struct NFLOW9_HEADER *nf9;
   struct IPFIX_SET_HEADER *dh;
   struct timeval now;
-  u_int offset, last_af, i, j, num_packets, inc, last_valid;
+  u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
   int8_t icmp_flag, last_icmp_flag;
   int r;
   u_int records;
@@ -781,7 +788,6 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   u_int64_t *flows_exported = &param->flows_exported;
   u_int64_t *records_sent = &param->records_sent;
   struct OPTION *option = &param->option;
-  u_int tmplindex = 0;
 
   if (param->adjust_time)
     now = param->last_packet_time;
@@ -828,8 +834,8 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
     /* Refresh template headers if we need to */
     if (ipfix_pkts_until_template <= 0) {
-      for (int i = 0; i < TMPLMAX; i++) {
-        memcpy_template (packet, &offset, &template[i], bi_flag);
+      for (i = 0; i < TMPLMAX; i++) {
+        memcpy_template (packet, &offset, &templates[i], bi_flag);
       }
       if (option != NULL) {
         u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
@@ -845,6 +851,21 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
       }
 
       ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+      if (target->is_loadbalance && target->num_destinations > 1) {
+        ipfix->length = htons (offset);
+        if (version == 10) {
+          ipfix->sequence =
+            htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+        } else if (version == 9) {
+          nf9->sequence =
+            htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+        }
+        if (send_multi_destinations
+            (target->num_destinations, target->destinations, 0, packet,
+             offset) < 0)
+          return (-1);
+        offset = version == 10 ? sizeof (*ipfix) : sizeof (*nf9);       // retrive offset after send
+      }
     }
 
     dh = NULL;
@@ -871,7 +892,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
         }
         dh = (struct IPFIX_SET_HEADER *) (packet + offset);
         tmplindex = ipfix_flow_to_template_index (flows[i + j]);
-        dh->set_id = template[tmplindex].h.r.template_id;
+        dh->set_id = templates[tmplindex].h.r.template_id;
         last_af = flows[i + j]->af;
         last_icmp_flag = icmp_flag;
         last_valid = offset;
@@ -922,7 +943,8 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     if (verbose_flag)
       logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     if (send_multi_destinations
-        (num_destinations, destinations, packet, offset) < 0)
+        (target->num_destinations, target->destinations,
+         target->is_loadbalance, packet, offset) < 0)
       return (-1);
     num_packets++;
     ipfix_pkts_until_template--;
@@ -941,21 +963,18 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
 int
 send_nflow9 (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
-                            sp.destinations, sp.ifidx, sp.param,
-                            sp.verbose_flag, 0, 9);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
+                            sp.param, sp.verbose_flag, 0, 9);
 }
 
 int
 send_ipfix (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
-                            sp.destinations, sp.ifidx, sp.param,
-                            sp.verbose_flag, 0, 10);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
+                            sp.param, sp.verbose_flag, 0, 10);
 }
 
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.num_destinations,
-                            sp.destinations, sp.ifidx, sp.param,
-                            sp.verbose_flag, 1, 10);
+  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
+                            sp.param, sp.verbose_flag, 1, 10);
 }
