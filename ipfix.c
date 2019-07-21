@@ -789,6 +789,8 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   u_int64_t *records_sent = &param->records_sent;
   struct OPTION *option = &param->option;
 
+  if (version != 9 && version != 10)
+    return (-1);
   if (param->adjust_time)
     now = param->last_packet_time;
   else
@@ -864,7 +866,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
             (target->num_destinations, target->destinations, 0, packet,
              offset) < 0)
           return (-1);
-        offset = version == 10 ? sizeof (*ipfix) : sizeof (*nf9);       // retrive offset after send
+        offset = version == 10 ? sizeof (*ipfix) : sizeof (*nf9);       // resest offset
       }
     }
 

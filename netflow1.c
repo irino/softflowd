@@ -21,12 +21,12 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 #include "common.h"
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
 
+#ifdef LEGACY
 /*
  * This is the Cisco Netflow(tm) version 1 packet format
  * Based on:
@@ -174,3 +174,4 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
+#endif /* LEGACY */

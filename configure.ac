@@ -120,7 +120,7 @@ AC_CHECK_SIZEOF(long long int, 8)
 
 if test "x$legacy" = "xyes" ; then
   AC_DEFINE([LEGACY], 1, [enable legacy NetFlow implementation])
-  LEGACY='netflow9.$(OBJEXT)' 
+  LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
   AC_SUBST([LEGACY])
 fi
 if test "x$pthread" = "xyes" ; then

@@ -31,35 +31,58 @@
  * This is the Cisco Netflow(tm) version 5 packet format
  * Based on:
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
+ * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html#wp1007472
  */
 struct NF5_HEADER {
-  u_int16_t version, flows;
-  u_int32_t uptime_ms, time_sec, time_nanosec, flow_sequence;
+  u_int16_t version, flows;     // same as netflow v1
+  u_int32_t uptime_ms, time_sec, time_nanosec;  // same as netflow v1
+  u_int32_t flow_sequence;
   u_int8_t engine_type, engine_id;
   u_int16_t sampling_interval;
 };
 struct NF5_FLOW {
-  u_int32_t src_ip, dest_ip, nexthop_ip;
-  u_int16_t if_index_in, if_index_out;
-  u_int32_t flow_packets, flow_octets;
-  u_int32_t flow_start, flow_finish;
-  u_int16_t src_port, dest_port;
+  u_int32_t src_ip, dest_ip, nexthop_ip;        // same as netflow v1
+  u_int16_t if_index_in, if_index_out;  // same as netflow v1
+  u_int32_t flow_packets, flow_octets;  // same as netflow v1
+  u_int32_t flow_start, flow_finish;    // same as netflow v1
+  u_int16_t src_port, dest_port;        // same as netflow v1
   u_int8_t pad1;
   u_int8_t tcp_flags, protocol, tos;
   u_int16_t src_as, dest_as;
   u_int8_t src_mask, dst_mask;
   u_int16_t pad2;
 };
+struct NF1_FLOW_PROTO_TOS_TCPF {
+  u_int16_t pad1;
+  u_int8_t protocol, tos, tcp_flags;
+  u_int8_t pad2, pad3, pad4;
+  u_int32_t reserved1;
+};
+
 #define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
+#define NF1_HEADER_SIZE 16
+#define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NF5_FLOW) - \
+                                  sizeof(struct NF1_FLOW_PROTO_TOS_TCPF))
+
+static void
+fill_netflow_v1_proto_tos_tcp (u_int8_t * pkt, u_int8_t proto, u_int8_t tos,
+                               u_int8_t tcpf) {
+  struct NF1_FLOW_PROTO_TOS_TCPF *flw =
+    (struct NF1_FLOW_PROTO_TOS_TCPF *) pkt;
+  memset (pkt, 0, sizeof (struct NF1_FLOW_PROTO_TOS_TCPF));
+  flw->protocol = proto;
+  flw->tos = tos;
+  flw->tcp_flags = tcpf;
+}
 
 /*
  * Given an array of expired flows, send netflow v5 report packets
  * Returns number of packets sent or -1 on error
  */
-int
-send_netflow_v5 (struct SENDPARAMETER sp) {
+static int
+send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   u_int16_t ifidx = sp.ifidx;
@@ -74,6 +97,9 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   struct OPTION *option = &param->option;
+
+  if (version != 5 && version != 1)
+    return (-1);
 
   if (param->adjust_time)
     now = param->last_packet_time;
@@ -97,7 +123,7 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
     }
     if (j == 0) {
       memset (&packet, '\0', sizeof (packet));
-      hdr->version = htons (5);
+      hdr->version = htons (version);
       hdr->flows = 0;           /* Filled in as we go */
       hdr->uptime_ms = htonl (uptime_ms);
       hdr->time_sec = htonl (now.tv_sec);
@@ -109,6 +135,8 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       }
       /* Other fields are left zero */
       offset = sizeof (*hdr);
+      if (version == 1)
+        offset = NF1_HEADER_SIZE;
     }
     flw = (struct NF5_FLOW *) (packet + offset);
     flw->if_index_in = flw->if_index_out = htons (ifidx);
@@ -130,6 +158,12 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       flw->tcp_flags = flows[i]->tcp_flags[0];
       flw->protocol = flows[i]->protocol;
       flw->tos = flows[i]->tos[0];
+      if (version == 1) {
+        fill_netflow_v1_proto_tos_tcp (packet + offset +
+                                       NF5_NF1_FLOW_COMMON_SIZE,
+                                       flows[i]->protocol, flows[i]->tos[0],
+                                       flows[i]->tcp_flags[0]);
+      }
       offset += sizeof (*flw);
       j++;
       hdr->flows++;
@@ -152,6 +186,12 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
       flw->tcp_flags = flows[i]->tcp_flags[1];
       flw->protocol = flows[i]->protocol;
       flw->tos = flows[i]->tos[1];
+      if (version == 1) {
+        fill_netflow_v1_proto_tos_tcp (packet + offset +
+                                       NF5_NF1_FLOW_COMMON_SIZE,
+                                       flows[i]->protocol, flows[i]->tos[1],
+                                       flows[i]->tcp_flags[1]);
+      }
       offset += sizeof (*flw);
       j++;
       hdr->flows++;
@@ -179,3 +219,15 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
+
+int
+send_netflow_v5 (struct SENDPARAMETER sp) {
+  return send_netflow_v5_v1 (sp, 5);
+}
+
+#ifndef LEGACY
+int
+send_netflow_v1 (struct SENDPARAMETER sp) {
+  return send_netflow_v5_v1 (sp, 1);
+}
+#endif /* LEGACY */

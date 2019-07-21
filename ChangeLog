@@ -1,3 +1,48 @@
+commit eae2cd6b934e1713333658f37e39da95e631d7c5
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Mon Jul 15 16:40:51 2019 +0900
+
+    Add load balancing mode
+    
+    - change configure enable option from legacy-nf9 to legacy
+    - indent -lp -br -brs -brf -ce -cdw -nut ipfix.c ipfix.h netflow1.c netflow5.c netflow9.c netflow9.h psamp.c psamp.h softflowd.c softflowd.h
+    - update manpage
+
+commit 3d96d6be9a452bcd41bffd0bd0d0abfdaa22ff8d
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Jul 2 23:20:53 2019 +0900
+
+    Add new fuctionality for sending multiple destinations
+
+commit 8dc420c3b0a7ecc148e07ae92416694b6e00b38e
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Jun 30 20:51:57 2019 +0900
+
+    Add sending psamp functionality.
+    
+    In addition
+    - separate Information Elements definitions to header files (netflow9.h ipfix.h psamp.h )
+    - indent -lp -br -brs -brf -ce -cdw -nut common.h ipfix.c ipfix.h netflow9.c psamp.c softflowd.c softflowd.h
+    - update man page
+    - update configure.ac and Makefile.am for exclude compiling netflow9.c without enable-legacy-nf9
+
+commit 973fcf5e7a1424094ca10d56a43673c66f619413
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Jun 2 00:18:00 2019 +0900
+
+    Add multithread option when configure --enable-pthread (It is unstable function)
+    
+    Additonally
+    - indent -lp -br -brs -brf -ce -cdw -nut softflowd.c softflowd.h netflow*.c ipfix.c
+    - upddate manpage
+    - fix configure bug
+
+commit 2e18e6d0b0e4a2b2d6aeff1ea3cfe55f90ecc95b
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Jun 1 12:52:27 2019 +0900
+
+    Use automake and update manpage.
+
 commit ddda5064cbee8984edef09edec2357c5295775ae
 Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
 Date:   Wed May 29 07:32:56 2019 +0900

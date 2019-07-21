@@ -108,8 +108,8 @@ am_softflowctl_OBJECTS = softflowctl.$(OBJEXT) $(am__objects_1)
 softflowctl_OBJECTS = $(am_softflowctl_OBJECTS)
 softflowctl_LDADD = $(LDADD)
 am_softflowd_OBJECTS = freelist.$(OBJEXT) softflowd.$(OBJEXT) \
-	log.$(OBJEXT) netflow1.$(OBJEXT) netflow5.$(OBJEXT) \
-	ipfix.$(OBJEXT) psamp.$(OBJEXT) $(am__objects_1)
+	log.$(OBJEXT) netflow5.$(OBJEXT) ipfix.$(OBJEXT) \
+	psamp.$(OBJEXT) $(am__objects_1)
 softflowd_OBJECTS = $(am_softflowd_OBJECTS)
 am__DEPENDENCIES_1 =
 AM_V_P = $(am__v_P_@AM_V@)
@@ -314,10 +314,10 @@ COMMON = common.h convtime.h treetype.h sys-tree.h\
   convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
 
 softflowd_SOURCES = freelist.h log.h softflowd.h netflow9.h ipfix.h psamp.h\
-	freelist.c softflowd.c log.c netflow1.c netflow5.c ipfix.c psamp.c\
+	freelist.c softflowd.c log.c netflow5.c ipfix.c psamp.c\
   $(COMMON)
 
-EXTRA_softflowd_SOURCES = netflow9.c
+EXTRA_softflowd_SOURCES = netflow9.c netflow1.c
 softflowd_LDADD = $(LEGACY)
 softflowd_DEPENDENCIES = $(LEGACY)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
