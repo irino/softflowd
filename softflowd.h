@@ -32,6 +32,9 @@
 #include <pthread.h>
 extern int use_thread;
 #endif /* ENABLE_PTHREAD */
+#ifdef ENABLE_ZEROMQ
+#include <zmq.h>
+#endif /* ENABLE_ZEROMQ */
 
 /* User to setuid to and directory to chroot to when we drop privs */
 #ifndef PRIVDROP_USER
@@ -229,9 +232,19 @@ struct EXPIRY {
   } reason;
 };
 
+#ifdef ENABLE_ZEROMQ
+struct ZMQ {
+  void *context;
+  void *socket;
+};
+#endif
+
 struct DESTINATION {
   char *arg;
   int sock;
+#ifdef ENABLE_ZEROMQ
+  struct ZMQ zmq;
+#endif
   struct sockaddr_storage ss;
   socklen_t sslen;
   char hostname[NI_MAXHOST];
@@ -265,5 +278,9 @@ int send_multi_destinations (int num_destinations,
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1 (struct SENDPARAMETER sp);
 int send_netflow_v5 (struct SENDPARAMETER sp);
+
+/* Protypes for ntopng.c */
+int connect_ntopng(const char *host, const char *port, struct ZMQ *zmq);
+int send_ntopng (struct SENDPARAMETER sp);
 
 #endif /* _SOFTFLOWD_H */

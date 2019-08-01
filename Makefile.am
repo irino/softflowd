@@ -1,8 +1,11 @@
 bin_PROGRAMS = softflowd softflowctl
 COMMON = common.h convtime.h treetype.h sys-tree.h\
   convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
+if ENABLE_ZEROMQ
+  ntopng.c = ntopng.c
+endif
 softflowd_SOURCES = freelist.h log.h softflowd.h netflow9.h ipfix.h psamp.h\
-	freelist.c softflowd.c log.c netflow5.c ipfix.c psamp.c\
+	freelist.c softflowd.c log.c netflow5.c ipfix.c psamp.c $(ntopng.c)\
   $(COMMON)
 EXTRA_softflowd_SOURCES = netflow9.c netflow1.c
 softflowd_LDADD = $(LEGACY)
