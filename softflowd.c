@@ -120,6 +120,9 @@ struct NETFLOW_SENDER {
   int v6_capable;
 };
 
+#define NF_VERSION_IPFIX 10
+#define NF_VERSION_NTOPNG 11
+
 /* Array of NetFlow export function that we know of. NB. nf[0] is default */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
@@ -129,7 +132,10 @@ static const struct NETFLOW_SENDER nf[] = {
 #else /* LEGACY */
   {9, send_nflow9, NULL, 1},
 #endif /* LEGACY */
-  {10, send_ipfix, send_ipfix_bi, 1},
+  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
+#ifdef ENABLE_ZEROMQ
+  {NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
+#endif
   {-1, NULL, NULL, 0},
 };
 
@@ -1659,10 +1665,11 @@ usage (void) {
            "  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
            "  -p pidfile              Record pid in specified file\n"
            "                          (default: %s)\n"
-           "  -c pidfile              Location of control socket\n"
+           "  -c socketfile           Location of control socket\n"
            "                          (default: %s)\n"
-           "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
-           "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
+           "  -v 1|5|9|%d|%d|psamp  NetFlow export packet version\n"
+           "                          %d means IPFIX, %d means NTOPNG (if supported),\n"
+           "                          and psamp means PSAMP (packet sampling)\n"
            "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
            "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
            "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
@@ -1694,7 +1701,9 @@ usage (void) {
            "  expint  (default %6d)\n"
            "\n",
            PROGNAME, PROGNAME, PROGVER, DEFAULT_MAX_FLOWS, DEFAULT_PIDFILE,
-           DEFAULT_CTLSOCK, DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
+           DEFAULT_CTLSOCK,
+           NF_VERSION_IPFIX, NF_VERSION_NTOPNG, NF_VERSION_IPFIX, NF_VERSION_NTOPNG,
+           DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
            DEFAULT_TCP_FIN_TIMEOUT, DEFAULT_UDP_TIMEOUT, DEFAULT_ICMP_TIMEOUT,
            DEFAULT_GENERAL_TIMEOUT, DEFAULT_MAXIMUM_LIFETIME,
            DEFAULT_EXPIRY_INTERVAL);
@@ -2103,11 +2112,22 @@ main (int argc, char **argv) {
       if ((err = getnameinfo ((struct sockaddr *) &dest->ss, dest->sslen,
                               dest->hostname, sizeof (dest->hostname),
                               dest->servname, sizeof (dest->servname),
-                              NI_NUMERICHOST)) == -1) {
+                              NI_NUMERICHOST | NI_NUMERICSERV)) == -1) {
         fprintf (stderr, "getnameinfo: %d\n", err);
         exit (1);
       }
-      dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
+#ifdef ENABLE_ZEROMQ
+      if (target.dialect->version == NF_VERSION_NTOPNG) {
+        int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
+
+        if (rc) {
+          fprintf (stderr, "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
+              dest->hostname, dest->servname, rc, strerror(rc));
+          exit (1);
+        }
+      } else
+#endif
+    	  dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
     }
   }
 

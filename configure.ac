@@ -39,6 +39,9 @@ AC_ARG_ENABLE(legacy,
 AC_ARG_ENABLE(pthread,
               AC_HELP_STRING([--enable-pthread], [enable pthread (default NO)]),
               [pthread=yes],[pthread=no])
+AC_ARG_ENABLE(zeromq,
+              AC_HELP_STRING([--enable-zeromq], [enable zeromq for notpng (default NO)]),
+              [zeromq=yes],[zeromq=no])
 AC_ARG_ENABLE(flow-spray,
               AC_HELP_STRING([--enable-flow-spray],
                              [enable spray as flow tree type(default is RB)]),
@@ -128,6 +131,12 @@ if test "x$pthread" = "xyes" ; then
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])
   AC_CHECK_HEADERS(pthread.h, [],[AC_MSG_ERROR([pthread.h not found])])
 fi
+if test "x$zeromq" = "xyes" ; then
+  AC_DEFINE([ENABLE_ZEROMQ], 1, [enable zeromq])
+  AC_CHECK_LIB(zmq, zmq_connect, [],[AC_MSG_ERROR([libzmq not found])])
+  AC_CHECK_HEADERS(zmq.h, [],[AC_MSG_ERROR([zmq.h not found])])
+fi
+AM_CONDITIONAL([ENABLE_ZEROMQ], [test x$zeromq = xyes])
 if test "x$ac_cv_type_uint8_t" = "xyes" ; then
 	AC_DEFINE([OUR_CFG_U_INT8_T], [uint8_t], [8-bit unsigned int])
 elif test "x$ac_cv_sizeof_char" = "x1" ; then
