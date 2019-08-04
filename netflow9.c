@@ -329,7 +329,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Given an array of expired flows, send netflow v9 report packets
  * Returns number of packets sent or -1 on error
  */
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
 int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
@@ -478,7 +478,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
 
 void
 netflow9_resend_template (void) {

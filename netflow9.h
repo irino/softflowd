@@ -44,11 +44,11 @@ struct NFLOW9_HEADER {
   u_int32_t sequence, od_id;
 } __packed;
 
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v9 (struct SENDPARAMETER sp);
 /* Force a resend of the flow template */
 void netflow9_resend_template (void);
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
 
 #endif /* _NETFLOW9_H */

@@ -121,23 +121,36 @@ struct NETFLOW_SENDER {
 };
 
 #define NF_VERSION_IPFIX 10
-#define NF_VERSION_NTOPNG 11
+// The version field in NetFow and IPFIX headers is 16 bits unsiged int.
+// If the version number is over 0x7fff0000, it is unique number in softflowd.
+#define SOFTFLOWD_NF_VERSION_NTOPNG (0x7fff0001)
+#define SOFTFLOWD_NF_VERSION_NTOPNG_STRING "ntopng"
 
 /* Array of NetFlow export function that we know of. NB. nf[0] is default */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
   {9, send_netflow_v9, NULL, 1},
-#else /* LEGACY */
+#else /* ENABLE_LEGACY */
   {9, send_nflow9, NULL, 1},
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
   {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
-#ifdef ENABLE_ZEROMQ
-  {NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
+#ifdef ENABLE_NTOPNG
+  {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
 #endif
-  {-1, NULL, NULL, 0},
 };
+
+static const struct NETFLOW_SENDER *
+lookup_netflow_sender (int version) {
+  int i, r;
+  for (i = 0, r = version; i < sizeof (nf) / sizeof (struct NETFLOW_SENDER);
+       i++) {
+    if (nf[i].version == r)
+      return &nf[i];
+  }
+  return NULL;
+}
 
 /* Signal handlers */
 static void
@@ -1384,21 +1397,21 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     *exit_request = 1;
     ret = 1;
   } else if (strcmp (buf, "expire-all") == 0) {
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
     netflow9_resend_template ();
-#else /* LEGACY */
+#else /* ENABLE_LEGACY */
     ipfix_resend_template ();
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
              (unsigned int) getpid (), check_expired (ft, target,
                                                       CE_EXPIRE_ALL));
     ret = 0;
   } else if (strcmp (buf, "send-template") == 0) {
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
     netflow9_resend_template ();
-#else /* LEGACY */
+#else /* ENABLE_LEGACY */
     ipfix_resend_template ();
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
              "next flow export\n", (unsigned int) getpid ());
     ret = 0;
@@ -1667,9 +1680,11 @@ usage (void) {
            "                          (default: %s)\n"
            "  -c socketfile           Location of control socket\n"
            "                          (default: %s)\n"
-           "  -v 1|5|9|%d|%d|psamp  NetFlow export packet version\n"
-           "                          %d means IPFIX, %d means NTOPNG (if supported),\n"
-           "                          and psamp means PSAMP (packet sampling)\n"
+           "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
+           "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
+#ifdef ENABLE_NTOPNG
+           "     ntopng               ntopng means direct injection to NTOPNG (if supported).\n"
+#endif
            "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
            "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
            "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
@@ -1702,7 +1717,6 @@ usage (void) {
            "\n",
            PROGNAME, PROGNAME, PROGVER, DEFAULT_MAX_FLOWS, DEFAULT_PIDFILE,
            DEFAULT_CTLSOCK,
-           NF_VERSION_IPFIX, NF_VERSION_NTOPNG, NF_VERSION_IPFIX, NF_VERSION_NTOPNG,
            DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
            DEFAULT_TCP_FIN_TIMEOUT, DEFAULT_UDP_TIMEOUT, DEFAULT_ICMP_TIMEOUT,
            DEFAULT_GENERAL_TIMEOUT, DEFAULT_MAXIMUM_LIFETIME,
@@ -1887,6 +1901,7 @@ main (int argc, char **argv) {
   struct pollfd pl[2];
   struct DESTINATION *dest;
   int protocol = IPPROTO_UDP;
+  int version = 0;
 #ifdef ENABLE_PTHREAD
   int use_thread = 0;
   pthread_t read_thread = 0;
@@ -2022,15 +2037,16 @@ main (int argc, char **argv) {
         flowtrack.param.is_psamp = 1;
         break;
       }
-      for (i = 0, r = atoi (optarg); nf[i].version != -1; i++) {
-        if (nf[i].version == r)
-          break;
+      if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
+                    sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
+        version = SOFTFLOWD_NF_VERSION_NTOPNG;
       }
-      if (nf[i].version == -1) {
+      version = version ? version : atoi (optarg);
+      target.dialect = lookup_netflow_sender (version);
+      if (target.dialect == NULL) {
         fprintf (stderr, "Invalid NetFlow version\n");
         exit (1);
       }
-      target.dialect = &nf[i];
       break;
     case 's':
       flowtrack.param.option.sample = atoi (optarg);
@@ -2116,18 +2132,19 @@ main (int argc, char **argv) {
         fprintf (stderr, "getnameinfo: %d\n", err);
         exit (1);
       }
-#ifdef ENABLE_ZEROMQ
-      if (target.dialect->version == NF_VERSION_NTOPNG) {
+#ifdef ENABLE_NTOPNG
+      if (target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG) {
         int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
 
         if (rc) {
-          fprintf (stderr, "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
-              dest->hostname, dest->servname, rc, strerror(rc));
+          fprintf (stderr,
+                   "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
+                   dest->hostname, dest->servname, rc, strerror (rc));
           exit (1);
         }
       } else
 #endif
-    	  dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
+        dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
     }
   }
 

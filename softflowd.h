@@ -32,9 +32,9 @@
 #include <pthread.h>
 extern int use_thread;
 #endif /* ENABLE_PTHREAD */
-#ifdef ENABLE_ZEROMQ
+#ifdef ENABLE_NTOPNG
 #include <zmq.h>
-#endif /* ENABLE_ZEROMQ */
+#endif /* ENABLE_NTOPNG */
 
 /* User to setuid to and directory to chroot to when we drop privs */
 #ifndef PRIVDROP_USER
@@ -232,7 +232,7 @@ struct EXPIRY {
   } reason;
 };
 
-#ifdef ENABLE_ZEROMQ
+#ifdef ENABLE_NTOPNG
 struct ZMQ {
   void *context;
   void *socket;
@@ -242,13 +242,13 @@ struct ZMQ {
 struct DESTINATION {
   char *arg;
   int sock;
-#ifdef ENABLE_ZEROMQ
-  struct ZMQ zmq;
-#endif
   struct sockaddr_storage ss;
   socklen_t sslen;
   char hostname[NI_MAXHOST];
   char servname[NI_MAXSERV];
+#ifdef ENABLE_NTOPNG
+  struct ZMQ zmq;
+#endif
 };
 
 /* Describes a location where we send NetFlow packets to */
@@ -280,7 +280,9 @@ int send_netflow_v1 (struct SENDPARAMETER sp);
 int send_netflow_v5 (struct SENDPARAMETER sp);
 
 /* Protypes for ntopng.c */
-int connect_ntopng(const char *host, const char *port, struct ZMQ *zmq);
+#ifdef ENABLE_NTOPNG
+int connect_ntopng (const char *host, const char *port, struct ZMQ *zmq);
 int send_ntopng (struct SENDPARAMETER sp);
+#endif /* ENABLE_NTOPNG */
 
 #endif /* _SOFTFLOWD_H */

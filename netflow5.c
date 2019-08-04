@@ -225,9 +225,9 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 5);
 }
 
-#ifndef LEGACY
+#ifndef ENABLE_LEGACY
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 1);
 }
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */

@@ -39,9 +39,9 @@ AC_ARG_ENABLE(legacy,
 AC_ARG_ENABLE(pthread,
               AC_HELP_STRING([--enable-pthread], [enable pthread (default NO)]),
               [pthread=yes],[pthread=no])
-AC_ARG_ENABLE(zeromq,
-              AC_HELP_STRING([--enable-zeromq], [enable zeromq for notpng (default NO)]),
-              [zeromq=yes],[zeromq=no])
+AC_ARG_ENABLE(ntopng,
+              AC_HELP_STRING([--enable-ntopng], [enable flow sending to ntopng with zeromq (default NO)]),
+              [ntopng=yes],[ntopng=no])
 AC_ARG_ENABLE(flow-spray,
               AC_HELP_STRING([--enable-flow-spray],
                              [enable spray as flow tree type(default is RB)]),
@@ -122,21 +122,24 @@ AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
 if test "x$legacy" = "xyes" ; then
-  AC_DEFINE([LEGACY], 1, [enable legacy NetFlow implementation])
+  AC_DEFINE([ENABLE_LEGACY], 1, [enable legacy NetFlow implementation])
   LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
   AC_SUBST([LEGACY])
 fi
+AM_CONDITIONAL([ENABLE_LEGACY], [test x$legacy = xyes])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])
   AC_CHECK_HEADERS(pthread.h, [],[AC_MSG_ERROR([pthread.h not found])])
 fi
-if test "x$zeromq" = "xyes" ; then
-  AC_DEFINE([ENABLE_ZEROMQ], 1, [enable zeromq])
-  AC_CHECK_LIB(zmq, zmq_connect, [],[AC_MSG_ERROR([libzmq not found])])
-  AC_CHECK_HEADERS(zmq.h, [],[AC_MSG_ERROR([zmq.h not found])])
+if test "x$ntopng" = "xyes" ; then
+  AC_DEFINE([ENABLE_NTOPNG], 1, [enable ntopng])
+   AC_CHECK_LIB(zmq, zmq_connect, [],[AC_MSG_ERROR([libzmq not found])])
+   AC_CHECK_HEADERS(zmq.h, [],[AC_MSG_ERROR([zmq.h not found])])
+  NTOPNG='ntopng.$(OBJEXT)'
+  AC_SUBST([NTOPNG])
 fi
-AM_CONDITIONAL([ENABLE_ZEROMQ], [test x$zeromq = xyes])
+AM_CONDITIONAL([ENABLE_NTOPNG], [test x$ntopng = xyes])
 if test "x$ac_cv_type_uint8_t" = "xyes" ; then
 	AC_DEFINE([OUR_CFG_U_INT8_T], [uint8_t], [8-bit unsigned int])
 elif test "x$ac_cv_sizeof_char" = "x1" ; then

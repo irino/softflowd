@@ -1,3 +1,4 @@
+
 /*
  * Copyright 2002 Damien Miller <djm@mindrot.org> All rights reserved.
  *
@@ -26,7 +27,7 @@
 #include "treetype.h"
 #include "softflowd.h"
 
-#ifdef LEGACY
+#ifdef ENABLE_LEGACY
 /*
  * This is the Cisco Netflow(tm) version 1 packet format
  * Based on:
@@ -174,4 +175,4 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* LEGACY */
+#endif /* ENABLE_LEGACY */
