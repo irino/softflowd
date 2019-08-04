@@ -192,7 +192,7 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
     }
 
     int size = add_json_flow (sp, sp->flows[flow], json + json_used, MAX_JSON_SIZE - json_used);
-    if (size > (MAX_JSON_SIZE - json_used - 2)) { /* space for "]\0" */
+    if (size > (MAX_JSON_SIZE - json_used - 2 -2)) { /* space for "]\0" and next ",\n"*/
       break;
     }
 
