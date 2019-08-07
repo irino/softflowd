@@ -189,4 +189,9 @@ extern int setresuid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
 #define htobe64     htonll
 #endif
 
+#if defined(__APPLE__)
+// https://cdn.kernel.org/pub/linux/kernel/people/marcelo/linux-2.4/include/linux/if_ether.h
+#define ETH_ALEN	6		/* Octets in one ethernet addr	 */
+#endif /* __APPLE__ */
+
 #endif /* _SFD_COMMON_H */

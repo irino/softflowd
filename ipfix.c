@@ -30,6 +30,7 @@
 #include "netflow9.h"
 #include "ipfix.h"
 #include "psamp.h"
+#include "portable_endian.h"
 
 const struct IPFIX_FIELD_SPECIFIER field_v4[] = {
   {IPFIX_sourceIPv4Address, 4},
