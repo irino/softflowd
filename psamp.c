@@ -25,6 +25,7 @@
 #include "common.h"
 #include "ipfix.h"
 #include "psamp.h"
+#include "portable_endian.h"
 
 #define PSAMP_SOFTFLOWD_TEMPLATE_ID       3072
 #define PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS 4
