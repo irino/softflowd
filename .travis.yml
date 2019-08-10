@@ -1,0 +1,9 @@
+language: c
+compiler: gcc
+sudo: false
+addons:
+  apt:
+    packages:
+      libpcap-dev
+before_script: autoreconf -if
+script: ./configure && make
