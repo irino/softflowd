@@ -30,7 +30,6 @@
 #include "netflow9.h"
 #include "ipfix.h"
 #include "psamp.h"
-#include "portable_endian.h"
 
 const struct IPFIX_FIELD_SPECIFIER field_v4[] = {
   {IPFIX_sourceIPv4Address, 4},
@@ -309,8 +308,8 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
                    u_int * index,
                    const struct IPFIX_FIELD_SPECIFIER *src,
                    u_int field_number) {
-  int length = 0;
-  for (int i = 0; i < field_number; i++) {
+  int i, length = 0;
+  for (i = 0; i < field_number; i++) {
     dst[*index + i].ie = htons (src[i].ie);
     dst[*index + i].length = htons (src[i].length);
     length += src[i].length;
@@ -345,8 +344,8 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
                      u_int * index,
                      const struct IPFIX_FIELD_SPECIFIER *fields,
                      u_int field_number) {
-  int length = 0;
-  for (int i = 0; i < field_number; i++) {
+  int i, length = 0;
+  for (i = 0; i < field_number; i++) {
     template->v[*index + i].ie = htons (fields[i].ie | 0x8000);
     template->v[*index + i].length = htons (fields[i].length);
     template->v[*index + i].pen = htonl (REVERSE_PEN);
@@ -474,7 +473,8 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
                      u_int8_t bi_flag, u_int16_t version) {
   u_int8_t v6_flag = 0, icmp_flag = 0;
   u_int16_t template_id = 0;
-  for (int i = 0; i < TMPLMAX; i++) {
+  int i = 0;
+  for (i = 0; i < TMPLMAX; i++) {
     switch (i) {
     case TMPLV4:
       v6_flag = 0;
@@ -647,11 +647,12 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
+  int i = 0;
   freclen = templates[tmplindex].data_len;
   if (len < freclen * frecnum)
     return (-1);
 
-  for (int i = 0; i < frecnum; i++) {
+  for (i = 0; i < frecnum; i++) {
     if (bi_flag == 0 && flow->octets[i] == 0)
       continue;
     nflows++;

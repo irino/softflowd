@@ -42,17 +42,17 @@ struct NTOPNG_MSG_HEADER {
 int
 connect_ntopng(const char *host, const char *port, struct ZMQ *zmq) {
   void *context = zmq_ctx_new();
+  void *pub_socket = zmq_socket(context, ZMQ_PUB);
+  char connect_str[6 + NI_MAXHOST + 1 + NI_MAXSERV + 1];  /* "tcp://hostname:port" */
+
   if (!context)
     return errno;
 
-  void *pub_socket = zmq_socket(context, ZMQ_PUB);
   if (!pub_socket) {
     zmq_ctx_destroy(context);
     return errno;
   }
 
-  /* "tcp://hostname:port" */
-  char connect_str[6 + NI_MAXHOST + 1 + NI_MAXSERV + 1];
   snprintf(connect_str, sizeof(connect_str), "tcp://%s:%s", host, port);
   fprintf(stderr, "Connecting ZMQ socket '%s'\n", connect_str);
   if (zmq_connect (pub_socket, connect_str)) {
@@ -164,8 +164,12 @@ add_json_flow (struct SENDPARAMETER *sp, struct FLOW *flow, char *buf, size_t le
 int
 send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   struct NTOPNG_MSG_HEADER header;
-
   static uint32_t msg_id = 0;
+  char json[MAX_JSON_SIZE];
+  int json_used = 0;
+  int flow = start_at_flow;
+  bool first = true;
+  int target = 0;
 
   header.url[0] = 'f';
   header.url[1] = 'l';
@@ -176,22 +180,17 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   header.version = 2;
   header.msg_id = htonl(msg_id++);
 
-  char json[MAX_JSON_SIZE];
-  int json_used = 0;
-
   json_used += snprintf(json + json_used, MAX_JSON_SIZE - json_used, "[");
 
-  int flow = start_at_flow;
-  bool first = true;
-
   while (flow < sp->num_flows) {
+    int size = 0;
     if (first) {
       first = false;
     } else {
       json_used += snprintf (json + json_used, MAX_JSON_SIZE - json_used, ",\n");
     }
 
-    int size = add_json_flow (sp, sp->flows[flow], json + json_used, MAX_JSON_SIZE - json_used);
+    size = add_json_flow (sp, sp->flows[flow], json + json_used, MAX_JSON_SIZE - json_used);
     if (size > (MAX_JSON_SIZE - json_used - 2 -2)) { /* space for "]\0" and next ",\n"*/
       break;
     }
@@ -203,7 +202,7 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
 
   header.size = htons(json_used);
 
-  for (int target = 0; target < sp->target->num_destinations; target++) {
+  for (target = 0; target < sp->target->num_destinations; target++) {
     zmq_send(sp->target->destinations[target].zmq.socket, &header, sizeof(header), ZMQ_SNDMORE);
     zmq_send(sp->target->destinations[target].zmq.socket, json, json_used, 0);
   }
