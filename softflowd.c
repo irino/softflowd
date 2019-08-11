@@ -1821,7 +1821,8 @@ parse_hostport (const char *s, struct sockaddr *addr, socklen_t * len) {
 static int
 parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
   int i = 0;
-  for (char *hostport = strsep ((char **)&s, ",");
+  char *hostport;
+  for (hostport = strsep ((char **)&s, ",");
        hostport != NULL && i < max_dest;
        hostport = strsep ((char **) &s, ",")) {
     dest[i].sslen = sizeof (dest[i].ss);
@@ -1892,7 +1893,7 @@ main (int argc, char **argv) {
   const char *pidfile_path, *ctlsock_path;
   extern char *optarg;
   extern int optind;
-  int ch, dontfork_flag, linktype, ctlsock, i, err, always_v6, r, dest_idx;
+  int ch, dontfork_flag, linktype, ctlsock, err, always_v6, r, dest_idx;
   int stop_collection_flag, exit_request, hoplimit;
   pcap_t *pcap = NULL;
   struct FLOWTRACK flowtrack;

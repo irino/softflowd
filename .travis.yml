@@ -1,9 +1,19 @@
 language: c
+
+os:
+  - linux
+  - osx
+
 compiler: gcc
 sudo: false
 addons:
   apt:
     packages:
       libpcap-dev
+
+before_install:
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew update         ; fi
+  - if [ "$TRAVIS_OS_NAME" = "osx" ]; then brew install libpcap; fi
+  
 before_script: autoreconf -if
 script: ./configure && make
