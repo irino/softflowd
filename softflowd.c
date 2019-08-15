@@ -54,6 +54,8 @@
 #include "psamp.h"
 #include <pcap.h>
 
+#define IPFIX_PORT 4739
+
 /* Global variables */
 static int verbose_flag = 0;    /* Debugging flag */
 static u_int16_t if_index = 0;  /* "manual" interface index */
@@ -70,15 +72,6 @@ struct FLOW *send_expired_flows;
 
 /* Signal handler flags */
 static volatile sig_atomic_t graceful_shutdown_request = 0;
-
-/* Context for libpcap callback functions */
-struct CB_CTXT {
-  struct FLOWTRACK *ft;
-  struct NETFLOW_TARGET *target;
-  int linktype;
-  int fatal;
-  int want_v6;
-};
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
 struct DATALINK {
@@ -119,12 +112,6 @@ struct NETFLOW_SENDER {
   netflow_send_func_t *bidir_func;
   int v6_capable;
 };
-
-#define NF_VERSION_IPFIX 10
-// The version field in NetFow and IPFIX headers is 16 bits unsiged int.
-// If the version number is over 0x7fff0000, it is unique number in softflowd.
-#define SOFTFLOWD_NF_VERSION_NTOPNG (0x7fff0001)
-#define SOFTFLOWD_NF_VERSION_NTOPNG_STRING "ntopng"
 
 /* Array of NetFlow export function that we know of. NB. nf[0] is default */
 static const struct NETFLOW_SENDER nf[] = {
@@ -1266,7 +1253,7 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
  * Per-packet callback function from libpcap. Pass the packet (if it is IP)
  * sans datalink headers to process_packet.
  */
-static void
+void
 flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
          const u_char * pkt) {
   int s, af = 0;
@@ -1464,6 +1451,24 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
   close (fd);
 
   return (ret);
+}
+
+static int
+recvsock (uint16_t portnumber) {
+  struct sockaddr_in addr;
+  int rsock = socket (AF_INET, SOCK_DGRAM, 0);
+  if (rsock < 0) {
+    perror ("socket");
+    return rsock;
+  }
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons (portnumber);
+  addr.sin_addr.s_addr = INADDR_ANY;
+  if (bind (rsock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
+    perror ("bind");
+    return -1;
+  };
+  return rsock;
 }
 
 static int
@@ -1698,11 +1703,12 @@ usage (void) {
            "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
            "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
            "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
+           "  -C capture_length       Specify length for packet capture (snaplen)\n"
            "  -l                      Load balancing mode for multiple destinations\n"
+           "  -R receive_port         Specify port number for PSAMP recive mode\n"
 #ifdef ENABLE_PTHREAD
            "  -M                      Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
-           "  -C capture_length       Specify length for packet capture (snaplen)\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
@@ -1822,7 +1828,7 @@ static int
 parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
   int i = 0;
   char *hostport;
-  for (hostport = strsep ((char **)&s, ",");
+  for (hostport = strsep ((char **) &s, ",");
        hostport != NULL && i < max_dest;
        hostport = strsep ((char **) &s, ",")) {
     dest[i].sslen = sizeof (dest[i].ss);
@@ -1903,6 +1909,7 @@ main (int argc, char **argv) {
   struct DESTINATION *dest;
   int protocol = IPPROTO_UDP;
   int version = 0;
+  int rsock = 0, recvport = IPFIX_PORT, recvloop = 0;
 #ifdef ENABLE_PTHREAD
   int use_thread = 0;
   pthread_t read_thread = 0;
@@ -1928,7 +1935,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baMC:l")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:M")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2038,10 +2045,12 @@ main (int argc, char **argv) {
         flowtrack.param.is_psamp = 1;
         break;
       }
+#ifdef ENABLE_NTOPNG
       if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
                     sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
         version = SOFTFLOWD_NF_VERSION_NTOPNG;
       }
+#endif /* ENABLE_NTOPNG */
       version = version ? version : atoi (optarg);
       target.dialect = lookup_netflow_sender (version);
       if (target.dialect == NULL) {
@@ -2091,16 +2100,22 @@ main (int argc, char **argv) {
     case 'a':
       flowtrack.param.adjust_time = 1;
       break;
-    case 'M':
-#ifdef ENABLE_PTHREAD
-      use_thread = 1;
-#endif /* ENABLE_PTHREAD */
-      break;
     case 'C':                  /* Capture Length */
       snaplen = atoi (optarg);
       break;
     case 'l':                  // load balancing
       target.is_loadbalance = 1;
+      break;
+    case 'R':
+      recvport = atoi (optarg);
+      if (recvport < 0 && recvport > 65535)
+        recvport = IPFIX_PORT;
+      rsock = recvsock ((uint16_t) recvport);
+      break;
+    case 'M':
+#ifdef ENABLE_PTHREAD
+      use_thread = 1;
+#endif /* ENABLE_PTHREAD */
       break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
@@ -2109,8 +2124,8 @@ main (int argc, char **argv) {
     }
   }
 
-  if (capfile == NULL && dev == NULL) {
-    fprintf (stderr, "-i or -r option not specified.\n");
+  if (capfile == NULL && dev == NULL && rsock <= 0) {
+    fprintf (stderr, "-i, -r or -R option not specified.\n");
     usage ();
     exit (1);
   }
@@ -2119,8 +2134,11 @@ main (int argc, char **argv) {
   bpf_prog = argv_join (argc - optind, argv + optind);
 
   /* Will exit on failure */
-  setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                        target.dialect->v6_capable || always_v6);
+  if (capfile != NULL || dev != NULL)
+    setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
+                          target.dialect->v6_capable || always_v6);
+  else if (rsock > 0)
+    linktype = 1;               //LINKTYPE_ETHERNET
 
   /* Netflow send socket */
   for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
@@ -2226,13 +2244,16 @@ main (int argc, char **argv) {
      * Silly libpcap's timeout function doesn't work, so we
      * do it here (only if we are reading live)
      */
-    if (capfile == NULL) {
+    if (capfile == NULL && (dev != NULL || rsock > 0)) {        //online
       memset (pl, '\0', sizeof (pl));
 
       /* This can only be set via the control socket */
-      if (!stop_collection_flag) {
+      if (!stop_collection_flag && dev != NULL) {
         pl[0].events = POLLIN | POLLERR | POLLHUP;
         pl[0].fd = pcap_fileno (pcap);
+      } else if (!stop_collection_flag && rsock > 0) {
+        pl[0].fd = rsock;
+        pl[0].events = POLLIN | POLLERR | POLLHUP;
       }
       if (ctlsock != -1) {
         pl[1].fd = ctlsock;
@@ -2255,21 +2276,41 @@ main (int argc, char **argv) {
 
     /* If we have data, run it through libpcap */
     if (!stop_collection_flag && (capfile != NULL || pl[0].revents != 0)) {
+      if (capfile != NULL || dev != NULL) {
 #ifdef ENABLE_PTHREAD
-      if (use_thread)
-        r =
-          pcap_dispatch (pcap, flowtrack.param.max_flows, pcap_memcpy, NULL);
-      else
+        if (use_thread)
+          r =
+            pcap_dispatch (pcap, flowtrack.param.max_flows, pcap_memcpy,
+                           NULL);
+        else
 #endif /* ENABLE_PTHREAD */
-        r = pcap_dispatch (pcap, flowtrack.param.max_flows, flow_cb,
-                           (void *) &cb_ctxt);
-      if (r == -1) {
-        logit (LOG_ERR, "Exiting on pcap_dispatch: %s", pcap_geterr (pcap));
-        break;
-      } else if (r == 0 && capfile != NULL) {
-        logit (LOG_NOTICE, "Shutting down after " "pcap EOF");
-        graceful_shutdown_request = 1;
-        break;
+          r = pcap_dispatch (pcap, flowtrack.param.max_flows, flow_cb,
+                             (void *) &cb_ctxt);
+        if (r == -1) {
+          logit (LOG_ERR, "Exiting on pcap_dispatch: %s", pcap_geterr (pcap));
+          break;
+        } else if (r == 0 && capfile != NULL) {
+          logit (LOG_NOTICE, "Shutting down after " "pcap EOF");
+          graceful_shutdown_request = 1;
+          break;
+        }
+      } else if (rsock > 0) {
+        for (recvloop = 0;
+             recvloop < flowtrack.param.max_flows && pl[0].revents != 0;
+             recvloop++) {
+          r = recv_psamp (rsock, &cb_ctxt);
+          if (r == -1) {
+            logit (LOG_ERR, "recv_psamp error");
+            break;
+          }
+          if (recvloop + 1 == flowtrack.param.max_flows) {
+            r = poll (pl, 1, next_expire (&flowtrack));
+            if (r == -1 && errno != EINTR) {
+              logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
+              break;
+            }
+          }
+        }
       }
     }
     r = 0;
@@ -2340,6 +2381,9 @@ main (int argc, char **argv) {
   unlink (pidfile_path);
   if (ctlsock_path != NULL)
     unlink (ctlsock_path);
+
+  if (rsock > 0)
+    close (rsock);
 
   return (r == 0 ? 0 : 1);
 }

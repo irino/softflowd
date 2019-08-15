@@ -51,6 +51,7 @@
 .Op Fl A Ar time_format
 .Op Fl s Ar sampling_rate
 .Op Fl C Ar capture_length
+.Op Fl R Ar receive_port
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -257,6 +258,8 @@ Supported time formats are sec, milli, micro, and nano.
 Specify periodical sampling rate (denominator).
 .It Fl C Ar capture_length
 Specify length for packet capture (snaplen).
+.It Fl R Ar receive_port
+Specify port number for PSAMP recive mode.
 .El
 .Pp
 Any further command-line arguments will be concatenated together and

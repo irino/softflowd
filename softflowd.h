@@ -28,12 +28,21 @@
 #include "sys-tree.h"
 #include "freelist.h"
 #include "treetype.h"
+#include <pcap.h>
 #ifdef ENABLE_PTHREAD
 #include <pthread.h>
 extern int use_thread;
 #endif /* ENABLE_PTHREAD */
 #ifdef ENABLE_NTOPNG
 #include <zmq.h>
+// The version field in NetFow and IPFIX headers is 16 bits unsiged int.
+// If the version number is over 0x7fff0000, it is unique number in softflowd.
+#define SOFTFLOWD_NF_VERSION_NTOPNG (0x7fff0001)
+#define SOFTFLOWD_NF_VERSION_NTOPNG_STRING "ntopng"
+struct ZMQ {
+  void *context;
+  void *socket;
+};
 #endif /* ENABLE_NTOPNG */
 
 /* User to setuid to and directory to chroot to when we drop privs */
@@ -68,6 +77,8 @@ extern int use_thread;
  * 8192 corresponds to just under 1Mb of flow data
  */
 #define DEFAULT_MAX_FLOWS	8192
+
+#define NF_VERSION_IPFIX 10
 
 /* Store a couple of statistics, maybe more in the future */
 struct STATISTIC {
@@ -232,13 +243,6 @@ struct EXPIRY {
   } reason;
 };
 
-#ifdef ENABLE_NTOPNG
-struct ZMQ {
-  void *context;
-  void *socket;
-};
-#endif
-
 struct DESTINATION {
   char *arg;
   int sock;
@@ -268,19 +272,29 @@ struct SENDPARAMETER {
   int verbose_flag;
 };
 
+/* Context for libpcap callback functions */
+struct CB_CTXT {
+  struct FLOWTRACK *ft;
+  struct NETFLOW_TARGET *target;
+  int linktype;
+  int fatal;
+  int want_v6;
+};
+
 /* Prototype for functions shared from softflowd.c */
 u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
 int send_multi_destinations (int num_destinations,
                              struct DESTINATION *destinations,
                              u_int8_t is_loadbalnce, u_int8_t * packet,
                              int size);
+void flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
+              const u_char * pkt);
 
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v1 (struct SENDPARAMETER sp);
 int send_netflow_v5 (struct SENDPARAMETER sp);
-
-/* Protypes for ntopng.c */
 #ifdef ENABLE_NTOPNG
+/* Protypes for ntopng.c */
 int connect_ntopng (const char *host, const char *port, struct ZMQ *zmq);
 int send_ntopng (struct SENDPARAMETER sp);
 #endif /* ENABLE_NTOPNG */

@@ -327,17 +327,14 @@ conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp) {
   }
 }
 
-/*
 struct timeval
-conv_ntp_to_unix(struct ntp_time_t ntp)
-{
+conv_ntp_to_unix (struct ntp_time_t ntp) {
   struct timeval tv = {
-    ntp.second - 0x83AA7E80, // the seconds from Jan 1, 1900 to Jan 1, 1970
-    (uint32_t)( (double)ntp.fraction * 1.0e6 / (double)(1LL<<32) )
+    ntp.second - 0x83AA7E80,    // the seconds from Jan 1, 1900 to Jan 1, 1970
+    (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32))
   };
   return tv;
 }
-*/
 
 static int
 ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
