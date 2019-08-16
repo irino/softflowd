@@ -1,10 +1,10 @@
 Fri Aug 16 2019
 Softflowd 1.0.0
-This release cotains some new features.
+This release contains some new features.
 
 Details
 This release contains the following new features:
-Add support sending packet capture data usig psamp format,
+Add support sending packet capture data using PSAMP format,
 Add function for sending to multiple destination with/without load-balance.
 Add function for injecting to ntopng directly.
 
