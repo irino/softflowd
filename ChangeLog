@@ -1,3 +1,15 @@
+commit bf7f0ec0c335d8d367c9b1e64371acd8e7bcc1d0
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Thu Aug 15 23:05:08 2019 +0900
+
+    update NEWS
+
+commit a01f664f6b664d451799b511912c948edd57e93e
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Thu Aug 15 22:56:31 2019 +0900
+
+    Add function for receiving PSAMP which is originated softflowd.
+
 commit 3a87c82424c1181e82a77c499724f90f56183085
 Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
 Date:   Sun Aug 11 16:10:10 2019 +0900

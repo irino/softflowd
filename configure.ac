@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-AC_INIT([softflowd], [0.9.9])
+AC_INIT([softflowd], [1.0.0])
 AC_CONFIG_SRCDIR([softflowd.c])
 AM_INIT_AUTOMAKE
 
@@ -37,7 +37,7 @@ AC_ARG_ENABLE(legacy,
                              [enable legacy NetFlow implementation (default NO)]),
               [legacy=yes],[legacy=no])
 AC_ARG_ENABLE(pthread,
-              AC_HELP_STRING([--enable-pthread], [enable pthread (default NO)]),
+              AC_HELP_STRING([--enable-pthread], [enable pthread (default NO) (experimental, unstable)]),
               [pthread=yes],[pthread=no])
 AC_ARG_ENABLE(ntopng,
               AC_HELP_STRING([--enable-ntopng], [enable flow sending to ntopng with zeromq (default NO)]),

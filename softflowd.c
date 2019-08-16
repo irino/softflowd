@@ -1705,7 +1705,7 @@ usage (void) {
            "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
            "  -C capture_length       Specify length for packet capture (snaplen)\n"
            "  -l                      Load balancing mode for multiple destinations\n"
-           "  -R receive_port         Specify port number for PSAMP recive mode\n"
+           "  -R receive_port         Specify port number for PSAMP receive mode\n"
 #ifdef ENABLE_PTHREAD
            "  -M                      Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
