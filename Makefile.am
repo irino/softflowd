@@ -1,4 +1,4 @@
-bin_PROGRAMS = softflowd softflowctl
+sbin_PROGRAMS = softflowd softflowctl
 COMMON = common.h convtime.h treetype.h sys-tree.h\
   convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
 if ENABLE_LEGACY
