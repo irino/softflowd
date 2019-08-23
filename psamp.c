@@ -51,7 +51,7 @@ static int psamp_pkts_until_template = -1;
 static void
 psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
   u_int index = 0;
-  bzero (template_p, sizeof (*template_p));
+  memset (template_p, 0, sizeof (*template_p));
   template_p->h.c.set_id = htons (IPFIX_TEMPLATE_SET_ID);
   template_p->h.c.length = htons (sizeof (struct PSAMP_SOFTFLOWD_TEMPLATE));
   template_p->h.r.template_id = htons (PSAMP_SOFTFLOWD_TEMPLATE_ID);

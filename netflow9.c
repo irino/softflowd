@@ -145,7 +145,7 @@ static int nf9_pkts_until_template = -1;
 
 static void
 nf9_init_template (void) {
-  bzero (&v4_template, sizeof (v4_template));
+  memset (&v4_template, 0, sizeof (v4_template));
   v4_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v4_template.h.c.length = htons (sizeof (v4_template));
   v4_template.h.template_id = htons (NF9_SOFTFLOWD_V4_TEMPLATE_ID);
@@ -182,7 +182,7 @@ nf9_init_template (void) {
   v4_template.r[14].length = htons (2);
   v4_template.r[15].type = htons (NF9_SRC_VLAN);
   v4_template.r[15].length = htons (2);
-  bzero (&v6_template, sizeof (v6_template));
+  memset (&v6_template, 0, sizeof (v6_template));
   v6_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
   v6_template.h.template_id = htons (NF9_SOFTFLOWD_V6_TEMPLATE_ID);
@@ -223,7 +223,7 @@ nf9_init_template (void) {
 
 static void
 nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
-  bzero (&option_template, sizeof (option_template));
+  memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.flowset_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
   option_template.h.template_id = htons (NF9_SOFTFLOWD_OPTION_TEMPLATE_ID);
@@ -238,7 +238,7 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_template.r[1].length =
     htons (sizeof (option_data.sampling_algorithm));
 
-  bzero (&option_data, sizeof (option_data));
+  memset (&option_data, 0, sizeof (option_data));
   option_data.c.flowset_id = htons (NF9_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_ifidx = htonl (ifidx);
@@ -257,7 +257,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
   struct NF9_SOFTFLOWD_DATA_COMMON *dc[2];
   u_int freclen, ret_len, nflows;
 
-  bzero (d, sizeof (d));
+  memset (d, 0, sizeof (d));
   *len_used = nflows = ret_len = 0;
   switch (flow->af) {
   case AF_INET:
@@ -363,7 +363,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 
   last_valid = num_packets = 0;
   for (j = 0; j < num_flows;) {
-    bzero (packet, sizeof (packet));
+    memset (packet, 0, sizeof (packet));
     nf9 = (struct NFLOW9_HEADER *) packet;
 
     nf9->version = htons (9);

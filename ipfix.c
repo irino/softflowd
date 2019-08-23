@@ -388,7 +388,7 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
                            u_int8_t icmp_flag, u_int8_t bi_flag,
                            u_int16_t version) {
   u_int index = 0, bi_index = 0, length = 0;
-  bzero (template, sizeof (*template));
+  memset (template, 0, sizeof (*template));
   template->h.c.set_id = htons (version == 10 ?
                                 IPFIX_TEMPLATE_SET_ID :
                                 NFLOW9_TEMPLATE_SET_ID);
@@ -510,7 +510,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
     sizeof (struct IPFIX_FIELD_SPECIFIER);
 
-  bzero (&option_template, sizeof (option_template));
+  memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.set_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length =
     htons (sizeof (option_template.h) + scope_len + opt_len);
@@ -524,7 +524,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   ipfix_init_fields (option_template.r, &option_index,
                      field_nf9option,
                      NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
-  bzero (&nf9opt_data, sizeof (nf9opt_data));
+  memset (&nf9opt_data, 0, sizeof (nf9opt_data));
   nf9opt_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   nf9opt_data.c.length = htons (sizeof (nf9opt_data));
   nf9opt_data.scope_ifidx = htonl (ifidx);
@@ -536,7 +536,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
 static void
 ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
-  bzero (&option_template, sizeof (option_template));
+  memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.set_id = htons (IPFIX_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
   option_template.h.u.i.r.template_id =
@@ -553,7 +553,7 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   ipfix_init_fields (option_template.r, &option_index, field_option,
                      IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
 
-  bzero (&option_data, sizeof (option_data));
+  memset (&option_data, 0, sizeof (option_data));
   option_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_pid = htonl ((u_int32_t) option->meteringProcessId);
@@ -809,7 +809,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
   last_valid = num_packets = 0;
   for (j = 0; j < num_flows;) {
-    bzero (packet, sizeof (packet));
+    memset (packet, 0, sizeof (packet));
     if (version == 10) {
       ipfix = (struct IPFIX_HEADER *) packet;
       ipfix->version = htons (version);
