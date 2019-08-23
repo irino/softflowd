@@ -46,7 +46,7 @@ freelist_init(struct freelist *fl, size_t allocsz)
 {
 	size_t sizeof_fl = sizeof(fl);
 	FLOGIT((LOG_DEBUG, "%s: %s(%p, %zu)", __func__, __func__, fl, allocsz));
-	bzero(fl, sizeof_fl);
+	memset(fl, 0, sizeof_fl);
 	fl->allocsz = roundup(allocsz, FREELIST_ALLOC_ALIGN);
 	fl->free_entries = NULL;
 }
