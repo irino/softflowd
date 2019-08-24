@@ -9,10 +9,25 @@ or 9 datagrams. softflowd is fully IPv6 capable: it can track IPv6 flows and
 export to IPv6 hosts.
 
 More details about softflowd's function and usage may be found in the
-supplied PDF manpages. They were built with:
+softflowd wiki in following URLs:
+https://github.com/irino/softflowd/wiki/softflowd
+https://github.com/irino/softflowd/wiki/softflowctl
+
+PDF manpages can be built with:
 
 man -t ./softflowd.8 | ps2pdf - softflowd.pdf
 man -t ./softflowctl.8 | ps2pdf - softflowctl.pdf
+
+HTML manpages can be built with:
+
+groff -mandoc -Thtml softflowd.8 > softflowd.html
+groff -mandoc -Thtml softflowctl.8 > softflowctl.html
+
+Markdown manpages (which are published in wiki pages) can be built
+from above HtML manpages:
+
+pandoc -s softflowd.html -o softflowd.md
+pandoc -s softflowctl.html -o softflowctl.md
 
 You can view those pages prior to installation using:
 

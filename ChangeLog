@@ -1,3 +1,49 @@
+commit 64d7e96f2aca9188cf847a49a1a7e1dd9dc91d07
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Aug 24 08:52:31 2019 +0900
+
+    deleting pdfs from git
+
+commit 3681af73d21b3f34cb555de29b464b320e41745b
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Aug 24 07:14:56 2019 +0900
+
+    Changing installation directory from bin to sbin which is original installation directory. (Issue #16)
+
+commit 088cf827075dbd4ba6a73761d05d85d9d1d8ca66
+Merge: 9cf249e f9a1e88
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Aug 24 07:01:17 2019 +0900
+
+    Merge pull request #17 from neheb/master
+    
+    Replace deprecated bzero with memset
+
+commit f9a1e8829c6b442c1d8d8d0b78b7b672ede0cee2
+Author: Rosen Penev <rosenp@gmail.com>
+Date:   Fri Aug 23 12:39:36 2019 -0700
+
+    Replace deprecated bzero with memset
+    
+    bzero is optionally unavailable with uClibc-ng.
+
+commit 9cf249ebc18745a59418a62de124ff3975b59a01
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Aug 16 22:42:16 2019 +0900
+
+    fix typo in NEWS
+
+commit f0a614318d1f9b39106da47b78659dfcb12568c8
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Fri Aug 16 20:31:36 2019 +0900
+
+    Minor fixes
+    
+    - fix typos.
+    - update date in NEWS
+    - symlink from LICENSE to COPYING
+    - replace "0.9.9" to "1.0.0"
+
 commit bf7f0ec0c335d8d367c9b1e64371acd8e7bcc1d0
 Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
 Date:   Thu Aug 15 23:05:08 2019 +0900
