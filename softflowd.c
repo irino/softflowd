@@ -1566,7 +1566,8 @@ unix_listener (const char *path) {
 
 static void
 setup_packet_capture (struct pcap **pcap, int *linktype,
-                      char *dev, char *capfile, char *bpf_prog, int need_v6) {
+                      char *dev, char *capfile, char *bpf_prog, int need_v6,
+                      int promisc) {
   char ebuf[PCAP_ERRBUF_SIZE];
   struct bpf_program prog_c;
   u_int32_t bpf_mask, bpf_net;
@@ -1575,7 +1576,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
   if (dev != NULL) {
     if (!snaplen)
       snaplen = need_v6 ? LIBPCAP_SNAPLEN_V6 : LIBPCAP_SNAPLEN_V4;
-    if ((*pcap = pcap_open_live (dev, snaplen, 1, 0, ebuf)) == NULL) {
+    if ((*pcap = pcap_open_live (dev, snaplen, promisc, 0, ebuf)) == NULL) {
       fprintf (stderr, "pcap_open_live: %s\n", ebuf);
       exit (1);
     }
@@ -1917,6 +1918,7 @@ main (int argc, char **argv) {
   pthread_mutex_init (&read_mutex, NULL);
   pthread_cond_init (&read_cond, NULL);
 #endif /* ENABLE_PTHREAD */
+  int use_promisc = 1;
 
   closefrom (STDERR_FILENO + 1);
 
@@ -1935,7 +1937,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:M")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:MN")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2117,6 +2119,9 @@ main (int argc, char **argv) {
       use_thread = 1;
 #endif /* ENABLE_PTHREAD */
       break;
+    case 'N':
+      use_promisc = 0;
+      break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2136,7 +2141,7 @@ main (int argc, char **argv) {
   /* Will exit on failure */
   if (capfile != NULL || dev != NULL)
     setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                          target.dialect->v6_capable || always_v6);
+                          target.dialect->v6_capable || always_v6, use_promisc);
   else if (rsock > 0)
     linktype = 1;               //LINKTYPE_ETHERNET
 

@@ -29,7 +29,7 @@
 .Nd Traffic flow monitoring
 .Sh SYNOPSIS
 .Nm softflowd
-.Op Fl 6dDhbal
+.Op Fl 6dDhbalN
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
 .Op Fl c Ar ctl_sock
@@ -74,7 +74,9 @@ However, too few statistics are collected to make this
 mode really useful for anything other than debugging.
 .Pp
 Network traffic may be obtained by listening on a promiscuous network
-interface or by reading stored
+interface (unless the
+.Fl N
+option is given) or by reading stored
 .Xr pcap 3
 files, such as those written by
 .Xr tcpdump 8 .
@@ -126,6 +128,9 @@ The destination port may be a portname listed in
 .Xr services 5
 or a numeric port.
 Comma can be used for specifying multiple destinations.
+.It Fl N
+Do not put the interface into promiscuous mode. Note that the interface
+might be in promiscuous mode for some other reason.
 .It Fl i Xo
 .Sm off
 .Oo Ar if_ndx : Oc
