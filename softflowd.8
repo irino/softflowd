@@ -21,7 +21,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd July 15, 2019
+.Dd November 17, 2019
 .Dt SOFTFLOWD 8
 .Os
 .Sh NAME
@@ -52,6 +52,7 @@
 .Op Fl s Ar sampling_rate
 .Op Fl C Ar capture_length
 .Op Fl R Ar receive_port
+.Op Fl S Ar send_interface_name
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -265,6 +266,10 @@ Specify periodical sampling rate (denominator).
 Specify length for packet capture (snaplen).
 .It Fl R Ar receive_port
 Specify port number for PSAMP receive mode.
+.It Fl S Ar send_interface_name
+Specify send interface name.
+(This option works on Linux only because of use of SO_BINDTODEVICE for
+setsockopt.)
 .El
 .Pp
 Any further command-line arguments will be concatenated together and

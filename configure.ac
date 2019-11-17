@@ -207,6 +207,13 @@ if test "x$ac_cv_lib_pcap_pcap_open_live" != "xyes" ; then
 	AC_MSG_ERROR([libpcap not found])
 fi
 
+AC_CANONICAL_HOST
+case "$host_os" in
+ linux-gnu*)
+	AC_DEFINE([LINUX], [], [Linux OS])
+ ;;
+esac
+
 AC_EXEEXT
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

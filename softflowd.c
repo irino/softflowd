@@ -53,6 +53,9 @@
 #include "ipfix.h"
 #include "psamp.h"
 #include <pcap.h>
+#ifdef LINUX
+#include <net/if.h>
+#endif /* LINUX */
 
 #define IPFIX_PORT 4739
 
@@ -1471,6 +1474,19 @@ recvsock (uint16_t portnumber) {
   return rsock;
 }
 
+#ifdef LINUX
+static void
+bind_device (int sock, char *ifname) {
+  struct ifreq ifr;
+  memset (&ifr, 0, sizeof (ifr));
+  strncpy (ifr.ifr_name, ifname, sizeof (ifr.ifr_name));
+  if (setsockopt
+      (sock, SOL_SOCKET, SO_BINDTODEVICE, (void *) &ifr, sizeof (ifr)) < 0) {
+    perror ("SO_BINDTODEVICE failed");
+  }
+}
+#endif /* LINUX */
+
 static int
 connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
           int protocol) {
@@ -1710,6 +1726,10 @@ usage (void) {
 #ifdef ENABLE_PTHREAD
            "  -M                      Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
+           "  -N                      Disable promiscuous mode\n"
+#ifdef LINUX
+           "  -S send_interface_name  Specify send interface name\n"
+#endif /* LINUX */
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
@@ -1871,23 +1891,25 @@ drop_privs (void) {
     exit (1);
   }
 #if defined(HAVE_SETRESGID)
-  if (setresgid (pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
+  if (setresgid (pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1)
 #elif defined(HAVE_SETREGID)
-  if (setregid (pw->pw_gid, pw->pw_gid) == -1) {
+  if (setregid (pw->pw_gid, pw->pw_gid) == -1)
 #else
-  if (setegid (pw->pw_gid) == -1 || setgid (pw->pw_gid) == -1) {
+  if (setegid (pw->pw_gid) == -1 || setgid (pw->pw_gid) == -1)
 #endif
+  {
     logit (LOG_ERR, "Couldn't set gid (%u): %s",
            (unsigned int) pw->pw_gid, strerror (errno));
     exit (1);
   }
 #if defined(HAVE_SETRESUID)
-  if (setresuid (pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
+  if (setresuid (pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1)
 #elif defined(HAVE_SETREUID)
-  if (setreuid (pw->pw_uid, pw->pw_uid) == -1) {
+  if (setreuid (pw->pw_uid, pw->pw_uid) == -1)
 #else
-  if (seteuid (pw->pw_uid) == -1 || setuid (pw->pw_uid) == -1) {
+  if (seteuid (pw->pw_uid) == -1 || setuid (pw->pw_uid) == -1)
 #endif
+  {
     logit (LOG_ERR, "Couldn't set uid (%u): %s",
            (unsigned int) pw->pw_uid, strerror (errno));
     exit (1);
@@ -1911,6 +1933,9 @@ main (int argc, char **argv) {
   int protocol = IPPROTO_UDP;
   int version = 0;
   int rsock = 0, recvport = IPFIX_PORT, recvloop = 0;
+#ifdef LINUX
+  char *send_ifname;
+#endif /* LINUX */
 #ifdef ENABLE_PTHREAD
   int use_thread = 0;
   pthread_t read_thread = 0;
@@ -1937,7 +1962,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:MN")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:MNS:")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2122,6 +2147,11 @@ main (int argc, char **argv) {
     case 'N':
       use_promisc = 0;
       break;
+#ifdef LINUX
+    case 'S':
+      send_ifname = optarg;
+      break;
+#endif /* LINUX */
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2141,7 +2171,8 @@ main (int argc, char **argv) {
   /* Will exit on failure */
   if (capfile != NULL || dev != NULL)
     setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                          target.dialect->v6_capable || always_v6, use_promisc);
+                          target.dialect->v6_capable
+                          || always_v6, use_promisc);
   else if (rsock > 0)
     linktype = 1;               //LINKTYPE_ETHERNET
 
@@ -2169,6 +2200,11 @@ main (int argc, char **argv) {
       } else
 #endif
         dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
+#ifdef LINUX
+      if (dest->sock > 0 && send_ifname != NULL) {
+        bind_device (dest->sock, send_ifname);
+      }
+#endif /* LINUX */
     }
   }
 

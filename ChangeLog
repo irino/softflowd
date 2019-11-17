@@ -1,3 +1,26 @@
+commit 479ca8fb32db4d74b543abc1437dd504502faf9d
+Merge: fe37a4e 07ae8b2
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Wed Sep 4 22:43:09 2019 +0900
+
+    Merge pull request #18 from bruceg/no-promisc
+    
+    Add support for non-promiscuous operation
+
+commit 07ae8b26890e8c4b0dbebd58438fe0e1aa990831
+Author: Bruce Guenter <bruce@untroubled.org>
+Date:   Mon Sep 2 10:30:16 2019 -0600
+
+    Add support for non-promiscuous operation
+    
+    Signed-off-by: Bruce Guenter <bruce@untroubled.org>
+
+commit fe37a4e64f12d1d571ef9c2b00dfd54debba4c16
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Aug 24 09:21:07 2019 +0900
+
+    Update README about manpages
+
 commit 64d7e96f2aca9188cf847a49a1a7e1dd9dc91d07
 Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
 Date:   Sat Aug 24 08:52:31 2019 +0900
