@@ -142,8 +142,8 @@ add_json_flow (struct SENDPARAMETER *sp, struct FLOW *flow, char *buf, size_t le
 
   if (sp->param->track_level >= TRACK_FULL_VLAN_ETHER) {
     size += snprintf(buf + size, len - size,
-        ",\"56\":\"%d:%d:%d:%d:%d:%d\"," /* ether mac src */
-        "\"57\":\"%d:%d:%d:%d:%d:%d\"", /* ether mac dst */
+        ",\"56\":\"%x:%x:%x:%x:%x:%x\"," /* ether mac src */
+        "\"57\":\"%x:%x:%x:%x:%x:%x\"", /* ether mac dst */
         flow->ethermac[0][0],flow->ethermac[0][1],flow->ethermac[0][2],
         flow->ethermac[0][3],flow->ethermac[0][4],flow->ethermac[0][5],
         flow->ethermac[1][0],flow->ethermac[1][1],flow->ethermac[1][2],
