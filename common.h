@@ -179,10 +179,10 @@ struct ip6_ext {
 
 /* following lines are copy from unistd.h in Linux for avoidance warnings in compilation */
 #if defined(HAVE_SETRESGID) && !defined(_GNU_SOURCE)
-extern int setresgid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
+extern int setresgid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #endif
 #if defined(HAVE_SETRESUID) && !defined(_GNU_SOURCE)
-extern int setresuid (__uid_t __ruid, __uid_t __euid, __uid_t __suid);
+extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #endif
 
 #if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
