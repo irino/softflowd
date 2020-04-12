@@ -81,8 +81,8 @@ add_json_flow (struct SENDPARAMETER *sp, struct FLOW *flow, char *buf, size_t le
       "\"21\": %d," /* last timestamp */
       "\"6\": %d," /* tcp flags */
       "\"4\": %d", /* protocol */
-    flow->port[0],
-    flow->port[1],
+    ntohs(flow->port[0]),
+    ntohs(flow->port[1]),
     flow->octets[1],
     flow->packets[1],
     flow->octets[0],
