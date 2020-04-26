@@ -63,6 +63,8 @@
 
 #define IPFIX_ipVersion                     60
 /* ... */
+#define IPFIX_interfaceName                 82
+/* ... */
 #define IPFIX_icmpTypeCodeIPv6              139
 /* ... */
 #define IPFIX_meteringProcessId             143

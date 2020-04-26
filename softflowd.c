@@ -2001,6 +2001,8 @@ main (int argc, char **argv) {
       }
       if (verbose_flag)
         fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
+      strncpy (flowtrack.param.option.interfaceName, dev,
+               IFNAMSIZ < strlen (dev) ? IFNAMSIZ : strlen (dev));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
@@ -2011,6 +2013,8 @@ main (int argc, char **argv) {
       capfile = optarg;
       dontfork_flag = 1;
       ctlsock_path = NULL;
+      strncpy (flowtrack.param.option.interfaceName, capfile,
+               IFNAMSIZ < strlen (capfile) ? IFNAMSIZ : strlen (capfile));
       break;
     case 't':
       /* Will exit on failure */

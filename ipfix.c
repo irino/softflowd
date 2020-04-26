@@ -126,7 +126,8 @@ const struct IPFIX_FIELD_SPECIFIER field_option[] = {
   {IPFIX_systemInitTimeMilliseconds, 8},
   {PSAMP_samplingPacketInterval, 4},
   {PSAMP_samplingPacketSpace, 4},
-  {PSAMP_selectorAlgorithm, 2}
+  {PSAMP_selectorAlgorithm, 2},
+  {IPFIX_interfaceName, IFNAMSIZ}
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_nf9scope[] =
@@ -134,7 +135,8 @@ const struct IPFIX_FIELD_SPECIFIER field_nf9scope[] =
 
 const struct IPFIX_FIELD_SPECIFIER field_nf9option[] = {
   {NFLOW9_SAMPLING_INTERVAL, 4},
-  {NFLOW9_SAMPLING_ALGORITHM, 1}
+  {NFLOW9_SAMPLING_ALGORITHM, 1},
+  {IPFIX_interfaceName, IFNAMSIZ}
 };
 
 /* Stuff pertaining to the templates that softflowd uses */
@@ -259,6 +261,7 @@ struct IPFIX_SOFTFLOWD_OPTION_DATA {
   u_int32_t samplingInterval;
   u_int32_t samplingSpace;
   u_int16_t samplingAlgorithm;
+  char interfaceName[IFNAMSIZ];
 } __packed;
 
 struct NFLOW9_SOFTFLOWD_OPTION_DATA {
@@ -266,6 +269,7 @@ struct NFLOW9_SOFTFLOWD_OPTION_DATA {
   u_int32_t scope_ifidx;
   u_int32_t samplingInterval;
   u_int8_t samplingAlgorithm;
+  char interfaceName[IFNAMSIZ];
 } __packed;
 
 /* Local data: templates and counters */
@@ -531,6 +535,11 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   nf9opt_data.samplingInterval =
     htonl (option->sample > 1 ? option->sample : 1);
   nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
+  strncpy (nf9opt_data.interfaceName, option->interfaceName,
+           IFNAMSIZ <
+           strlen (option->
+                   interfaceName) ? IFNAMSIZ :
+           strlen (option->interfaceName));
 }
 
 static void
@@ -566,6 +575,11 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   option_data.samplingInterval = htonl (1);
   option_data.samplingSpace =
     htonl (option->sample > 0 ? option->sample - 1 : 0);
+  strncpy (option_data.interfaceName, option->interfaceName,
+           IFNAMSIZ <
+           strlen (option->
+                   interfaceName) ? IFNAMSIZ :
+           strlen (option->interfaceName));
 }
 
 static int

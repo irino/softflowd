@@ -191,8 +191,12 @@ extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 
 #ifndef ETH_ALEN
 // https://cdn.kernel.org/pub/linux/kernel/people/marcelo/linux-2.4/include/linux/if_ether.h
-#define ETH_ALEN	6		/* Octets in one ethernet addr	 */
+#define ETH_ALEN	6       /* Octets in one ethernet addr   */
 #endif /* ETH_ALEN */
+
+#ifndef IFNAMSIZ                /* defined in <net/if.h> in linux */
+#define IFNAMSIZ 16
+#endif /* IFNAMSIZ */
 
 #ifdef __APPLE__
 #include <libkern/OSByteOrder.h>
