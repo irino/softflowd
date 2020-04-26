@@ -60,29 +60,38 @@
 #define IPFIX_postDestinationMacAddress 57
 #define IPFIX_vlanId                    58
 #define IPFIX_postVlanId                59
+#define IPFIX_ipVersion                 60
+#define IPFIX_flowDirection             61
+/* ... */
+#define IPFIX_interfaceName             82
+/* ... */
+#define IPFIX_flowEndReason             136
+/* ... */
+#define IPFIX_icmpTypeCodeIPv6          139
+/* ... */
+#define IPFIX_meteringProcessId         143
+/* ... */
+#define IPFIX_flowStartSeconds          150
+#define IPFIX_flowEndSeconds            151
+#define IPFIX_flowStartMilliSeconds     152
+#define IPFIX_flowEndMilliSeconds       153
+#define IPFIX_flowStartMicroSeconds     154
+#define IPFIX_flowEndMicroSeconds       155
+#define IPFIX_flowStartNanoSeconds      156
+#define IPFIX_flowEndNanoSeconds        157
+/* ... */
+#define IPFIX_systemInitTimeMilliseconds 160
+/* ... */
 
-#define IPFIX_ipVersion                     60
-/* ... */
-#define IPFIX_interfaceName                 82
-/* ... */
-#define IPFIX_icmpTypeCodeIPv6              139
-/* ... */
-#define IPFIX_meteringProcessId             143
-/* ... */
-#define IPFIX_flowStartSeconds              150
-#define IPFIX_flowEndSeconds                151
-#define IPFIX_flowStartMilliSeconds         152
-#define IPFIX_flowEndMilliSeconds           153
-#define IPFIX_flowStartMicroSeconds         154
-#define IPFIX_flowEndMicroSeconds           155
-#define IPFIX_flowStartNanoSeconds          156
-#define IPFIX_flowEndNanoSeconds            157
-/* ... */
-#define IPFIX_systemInitTimeMilliseconds    160
-/* ... */
+// flow end reason for ipfix ie 136
+#define IPFIX_flowEndReason_idleTimeout    0x01
+#define IPFIX_flowEndReason_activeTimeout  0x02
+#define IPFIX_flowEndReason_endOfFlow      0x03
+#define IPFIX_flowEndReason_forceEnd       0x04
+#define IPFIX_flowEndReason_lackOfResource 0x05
 
 
-#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE     1428
+#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE  1428
 struct IPFIX_HEADER {
   u_int16_t version, length;
   u_int32_t export_time;        /* in seconds */

@@ -217,6 +217,7 @@ struct FLOW {
   u_int16_t vlanid[2];          /* vlanid */
   uint8_t ethermac[2][6];
   u_int8_t protocol;            /* Protocol */
+  u_int8_t flowEndReason;
 };
 
 /*

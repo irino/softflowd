@@ -527,6 +527,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
   if (flow->octets[0] > (1U << 31) || flow->octets[1] > (1U << 31)) {
     flow->expiry->expires_at = 0;
     flow->expiry->reason = R_OVERBYTES;
+    flow->flowEndReason = IPFIX_flowEndReason_lackOfResource;
     goto out;
   }
 
@@ -536,6 +537,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
       ft->param.maximum_lifetime) {
     flow->expiry->expires_at = 0;
     flow->expiry->reason = R_MAXLIFE;
+    flow->flowEndReason = IPFIX_flowEndReason_activeTimeout;
     goto out;
   }
 
@@ -546,6 +548,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
         ft->param.tcp_rst_timeout;
       flow->expiry->reason = R_TCP_RST;
+      flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
     }
     /* Finished TCP flows */
@@ -554,6 +557,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
         ft->param.tcp_fin_timeout;
       flow->expiry->reason = R_TCP_FIN;
+      flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
     }
 
@@ -562,6 +566,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
         ft->param.tcp_timeout;
       flow->expiry->reason = R_TCP;
+      flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
       goto out;
     }
   }
@@ -570,6 +575,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
     /* UDP flows */
     flow->expiry->expires_at = flow->flow_last.tv_sec + ft->param.udp_timeout;
     flow->expiry->reason = R_UDP;
+    flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
     goto out;
   }
 
@@ -580,6 +586,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
     flow->expiry->expires_at = flow->flow_last.tv_sec +
       ft->param.icmp_timeout;
     flow->expiry->reason = R_ICMP;
+    flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
     goto out;
   }
 
@@ -587,6 +594,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
   flow->expiry->expires_at = flow->flow_last.tv_sec +
     ft->param.general_timeout;
   flow->expiry->reason = R_GENERAL;
+  flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
 
 out:
   if (ft->param.maximum_lifetime != 0 && flow->expiry->expires_at != 0) {
@@ -684,6 +692,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
     /* Must be non-zero (0 means expire immediately) */
     flow->expiry->expires_at = 1;
     flow->expiry->reason = R_GENERAL;
+    flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
     EXPIRY_INSERT (EXPIRIES, &ft->expiries, flow->expiry);
 
     ft->param.num_flows++;

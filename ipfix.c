@@ -45,7 +45,9 @@ const struct IPFIX_FIELD_SPECIFIER field_common[] = {
   {IPFIX_octetDeltaCount, 4},
   {IPFIX_packetDeltaCount, 4},
   {IPFIX_ingressInterface, 4},
-  {IPFIX_egressInterface, 4}
+  {IPFIX_egressInterface, 4},
+  {IPFIX_flowDirection, 1},
+  {IPFIX_flowEndReason, 1}
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_transport[] = {
@@ -202,6 +204,7 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
 struct IPFIX_SOFTFLOWD_DATA_COMMON {
   u_int32_t octetDeltaCount, packetDeltaCount;
   u_int32_t ingressInterface, egressInterface;
+  u_int8_t flowDirection, flowEndReason;
 } __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_TRANSPORT {
@@ -536,10 +539,8 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
     htonl (option->sample > 1 ? option->sample : 1);
   nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
   strncpy (nf9opt_data.interfaceName, option->interfaceName,
-           IFNAMSIZ <
-           strlen (option->
-                   interfaceName) ? IFNAMSIZ :
-           strlen (option->interfaceName));
+           IFNAMSIZ < strlen (option->interfaceName) ?
+           IFNAMSIZ : strlen (option->interfaceName));
 }
 
 static void
@@ -576,10 +577,8 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   option_data.samplingSpace =
     htonl (option->sample > 0 ? option->sample - 1 : 0);
   strncpy (option_data.interfaceName, option->interfaceName,
-           IFNAMSIZ <
-           strlen (option->
-                   interfaceName) ? IFNAMSIZ :
-           strlen (option->interfaceName));
+           IFNAMSIZ < strlen (option->interfaceName) ?
+           IFNAMSIZ : strlen (option->interfaceName));
 }
 
 static int
@@ -686,6 +685,8 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
     dc[i]->octetDeltaCount = htonl (flow->octets[i]);
     dc[i]->packetDeltaCount = htonl (flow->packets[i]);
     dc[i]->ingressInterface = dc[i]->egressInterface = htonl (ifidx);
+    dc[i]->flowDirection = i;
+    dc[i]->flowEndReason = flow->flowEndReason;
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 
     if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
