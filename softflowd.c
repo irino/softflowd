@@ -720,7 +720,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
  * Subtract two timevals. Returns (t1 - t2) in milliseconds.
  */
 u_int32_t
-timeval_sub_ms (const struct timeval * t1, const struct timeval * t2) {
+timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
   struct timeval res;
 
   res.tv_sec = t1->tv_sec - t2->tv_sec;
@@ -2011,7 +2011,8 @@ main (int argc, char **argv) {
       if (verbose_flag)
         fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
       strncpy (flowtrack.param.option.interfaceName, dev,
-               IFNAMSIZ < strlen (dev) ? IFNAMSIZ : strlen (dev));
+               strlen (dev) < strlen (flowtrack.param.option.interfaceName) ?
+               strlen (dev) : strlen (flowtrack.param.option.interfaceName));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
@@ -2023,7 +2024,10 @@ main (int argc, char **argv) {
       dontfork_flag = 1;
       ctlsock_path = NULL;
       strncpy (flowtrack.param.option.interfaceName, capfile,
-               IFNAMSIZ < strlen (capfile) ? IFNAMSIZ : strlen (capfile));
+               strlen (capfile) <
+               strlen (flowtrack.param.option.interfaceName) ?
+               strlen (capfile) :
+               strlen (flowtrack.param.option.interfaceName));
       break;
     case 't':
       /* Will exit on failure */

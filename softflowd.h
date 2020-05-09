@@ -102,7 +102,7 @@ struct STATISTIC {
 struct OPTION {
   uint32_t sample;
   pid_t meteringProcessId;
-  char interfaceName[16];
+  char interfaceName[IFNAMSIZ];
 };
 
 struct FLOWTRACKPARAMETERS {

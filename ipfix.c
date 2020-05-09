@@ -539,8 +539,10 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
     htonl (option->sample > 1 ? option->sample : 1);
   nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
   strncpy (nf9opt_data.interfaceName, option->interfaceName,
-           IFNAMSIZ < strlen (option->interfaceName) ?
-           IFNAMSIZ : strlen (option->interfaceName));
+           strlen (option->interfaceName) <
+           strlen (nf9opt_data.interfaceName) ?
+           strlen (option->interfaceName) :
+           strlen (nf9opt_data.interfaceName));
 }
 
 static void
@@ -577,8 +579,10 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   option_data.samplingSpace =
     htonl (option->sample > 0 ? option->sample - 1 : 0);
   strncpy (option_data.interfaceName, option->interfaceName,
-           IFNAMSIZ < strlen (option->interfaceName) ?
-           IFNAMSIZ : strlen (option->interfaceName));
+           strlen (option->interfaceName) <
+           strlen (option_data.interfaceName) ?
+           strlen (option->interfaceName) :
+           strlen (option_data.interfaceName));
 }
 
 static int
