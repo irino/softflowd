@@ -48,8 +48,7 @@ Installing
 
 Building softflowd should be as simple as typing:
 
-autoconf
-autoreconf
+autoreconf -if # instead of "aclocal && autoheader && automake --add-missing && autoconf"
 ./configure
 make
 make install
