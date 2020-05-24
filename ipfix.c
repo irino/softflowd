@@ -711,8 +711,8 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
     }
     if (param->track_level >= TRACK_FULL_VLAN) {
       dv[i] = (struct IPFIX_SOFTFLOWD_DATA_VLAN *) &packet[offset];
-      dv[i]->vlanId = flow->vlanid[i];
-      dv[i]->postVlanId = flow->vlanid[i ^ 1];
+      dv[i]->vlanId = htons (flow->vlanid[i]);
+      dv[i]->postVlanId = htons (flow->vlanid[i ^ 1]);
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_VLAN);
     }
     if (param->track_level >= TRACK_FULL_VLAN_ETHER) {
