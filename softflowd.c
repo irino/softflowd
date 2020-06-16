@@ -2016,8 +2016,10 @@ main (int argc, char **argv) {
       if (verbose_flag)
         fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
       strncpy (flowtrack.param.option.interfaceName, dev,
-               strlen (dev) < strlen (flowtrack.param.option.interfaceName) ?
-               strlen (dev) : strlen (flowtrack.param.option.interfaceName));
+               strlen (dev) <
+               sizeof (flowtrack.param.option.interfaceName) ?
+               strlen (dev) :
+               sizeof (flowtrack.param.option.interfaceName));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
@@ -2030,9 +2032,9 @@ main (int argc, char **argv) {
       ctlsock_path = NULL;
       strncpy (flowtrack.param.option.interfaceName, capfile,
                strlen (capfile) <
-               strlen (flowtrack.param.option.interfaceName) ?
+               sizeof (flowtrack.param.option.interfaceName) ?
                strlen (capfile) :
-               strlen (flowtrack.param.option.interfaceName));
+               sizeof (flowtrack.param.option.interfaceName));
       break;
     case 't':
       /* Will exit on failure */
@@ -2279,8 +2281,9 @@ main (int argc, char **argv) {
   for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
-      logit (LOG_NOTICE, "Exporting flows to [%s]:%s", dest->hostname,
-             dest->servname);
+      logit (LOG_NOTICE, "Exporting flows from %s to [%s]:%s",
+             flowtrack.param.option.interfaceName,
+             dest->hostname, dest->servname);
     }
   }
   flowtrack.param.option.meteringProcessId = getpid ();
