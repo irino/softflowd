@@ -806,6 +806,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   u_int64_t *flows_exported = &param->flows_exported;
   u_int64_t *records_sent = &param->records_sent;
   struct OPTION *option = &param->option;
+  static u_int sequence = 1;
 
   if (version != 9 && version != 10)
     return (-1);
@@ -872,13 +873,13 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
       ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
       if (target->is_loadbalance && target->num_destinations > 1) {
-        ipfix->length = htons (offset);
         if (version == 10) {
+          ipfix->length = htons (offset);
           ipfix->sequence =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
         } else if (version == 9) {
-          nf9->sequence =
-            htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+          nf9->flows = htons (records);
+          nf9->sequence = htonl (sequence++);
         }
         if (send_multi_destinations
             (target->num_destinations, target->destinations, 0, packet,
@@ -950,14 +951,14 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
       /* Finalise last header */
       dh->length = htons (dh->length);
     }
-    ipfix->length = htons (offset);
     *records_sent += records;
     if (version == 10) {
+      ipfix->length = htons (offset);
       ipfix->sequence =
         htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
     } else if (version == 9) {
-      nf9->sequence =
-        htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+      nf9->flows = htons (records);
+      nf9->sequence = htonl (sequence++);
     }
 
     if (verbose_flag)
