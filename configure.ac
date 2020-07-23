@@ -42,6 +42,9 @@ AC_ARG_ENABLE(pthread,
 AC_ARG_ENABLE(ntopng,
               AC_HELP_STRING([--enable-ntopng], [enable flow sending to ntopng with zeromq (default NO)]),
               [ntopng=yes],[ntopng=no])
+AC_ARG_ENABLE(ifname,
+              AC_HELP_STRING([--enable-ifname], [enable flow reporting iface name in normal data of v9 (default NO)]),
+              [ifname=yes],[ifname=no])
 AC_ARG_ENABLE(flow-spray,
               AC_HELP_STRING([--enable-flow-spray],
                              [enable spray as flow tree type(default is RB)]),
@@ -140,6 +143,9 @@ if test "x$ntopng" = "xyes" ; then
   AC_SUBST([NTOPNG])
 fi
 AM_CONDITIONAL([ENABLE_NTOPNG], [test x$ntopng = xyes])
+if test "x$ifname" = "xyes" ; then
+  AC_DEFINE([ENABLE_IFNAME], 1, [enable reporting iface name])
+fi
 if test "x$ac_cv_type_uint8_t" = "xyes" ; then
 	AC_DEFINE([OUR_CFG_U_INT8_T], [uint8_t], [8-bit unsigned int])
 elif test "x$ac_cv_sizeof_char" = "x1" ; then

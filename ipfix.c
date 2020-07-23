@@ -47,7 +47,10 @@ const struct IPFIX_FIELD_SPECIFIER field_common[] = {
   {IPFIX_ingressInterface, 4},
   {IPFIX_egressInterface, 4},
   {IPFIX_flowDirection, 1},
-  {IPFIX_flowEndReason, 1}
+  {IPFIX_flowEndReason, 1},
+#ifdef ENABLE_IFNAME
+  {IPFIX_interfaceName, IFNAMSIZ}
+#endif
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_transport[] = {
@@ -207,6 +210,9 @@ struct IPFIX_SOFTFLOWD_DATA_COMMON {
   u_int32_t octetDeltaCount, packetDeltaCount;
   u_int32_t ingressInterface, egressInterface;
   u_int8_t flowDirection, flowEndReason;
+#ifdef ENABLE_IFNAME
+  char interfaceName[IFNAMSIZ];
+#endif
 } __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_TRANSPORT {
@@ -542,9 +548,9 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
   strncpy (nf9opt_data.interfaceName, option->interfaceName,
            strlen (option->interfaceName) <
-           strlen (nf9opt_data.interfaceName) ?
+           sizeof (nf9opt_data.interfaceName) ?
            strlen (option->interfaceName) :
-           strlen (nf9opt_data.interfaceName));
+           sizeof (nf9opt_data.interfaceName));
 }
 
 static void
@@ -582,9 +588,9 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
     htonl (option->sample > 0 ? option->sample - 1 : 0);
   strncpy (option_data.interfaceName, option->interfaceName,
            strlen (option->interfaceName) <
-           strlen (option_data.interfaceName) ?
+           sizeof (option_data.interfaceName) ?
            strlen (option->interfaceName) :
-           strlen (option_data.interfaceName));
+           sizeof (option_data.interfaceName));
 }
 
 static int
@@ -659,6 +665,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
   struct IPFIX_SOFTFLOWD_DATA_BICOMMON *dbc = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *dbtr = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BIICMP *dbi = NULL;
+  struct OPTION *option = &param->option;
 
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
@@ -693,6 +700,13 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
     dc[i]->ingressInterface = dc[i]->egressInterface = htonl (ifidx);
     dc[i]->flowDirection = i;
     dc[i]->flowEndReason = flow->flowEndReason;
+#ifdef ENABLE_IFNAME
+    strncpy (dc[i]->interfaceName, option->interfaceName,
+             strlen (option->interfaceName) <
+             sizeof (dc[i]->interfaceName) ?
+             strlen (option->interfaceName) :
+             sizeof (dc[i]->interfaceName));
+#endif
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 
     if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
