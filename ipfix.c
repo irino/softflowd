@@ -61,12 +61,14 @@ const struct IPFIX_FIELD_SPECIFIER field_transport[] = {
 
 const struct IPFIX_FIELD_SPECIFIER field_icmp4[] = {
   {IPFIX_icmpTypeCodeIPv4, 2},
+  {IPFIX_protocolIdentifier, 1},
   {IPFIX_ipVersion, 1},
   {IPFIX_ipClassOfService, 1}
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_icmp6[] = {
   {IPFIX_icmpTypeCodeIPv6, 2},
+  {IPFIX_protocolIdentifier, 1},
   {IPFIX_ipVersion, 1},
   {IPFIX_ipClassOfService, 1}
 };
@@ -214,7 +216,7 @@ struct IPFIX_SOFTFLOWD_DATA_TRANSPORT {
 
 struct IPFIX_SOFTFLOWD_DATA_ICMP {
   u_int16_t icmpTypeCode;
-  u_int8_t ipVersion, ipClassOfService;
+  u_int8_t protocolIdentifier, ipVersion, ipClassOfService;
 } __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_VLAN {
@@ -705,6 +707,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
     } else {
       di[i] = (struct IPFIX_SOFTFLOWD_DATA_ICMP *) &packet[offset];
       di[i]->icmpTypeCode = flow->port[i ^ 1];
+      di[i]->protocolIdentifier = flow->protocol;
       di[i]->ipClassOfService = flow->tos[i];
       di[i]->ipVersion = (flow->af == AF_INET) ? 4 : 6;
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_ICMP);
