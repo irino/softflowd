@@ -43,7 +43,7 @@ AC_ARG_ENABLE(ntopng,
               AC_HELP_STRING([--enable-ntopng], [enable flow sending to ntopng with zeromq (default NO)]),
               [ntopng=yes],[ntopng=no])
 AC_ARG_ENABLE(ifname,
-              AC_HELP_STRING([--enable-ifname], [enable flow reporting iface name in normal data of v9 (default NO)]),
+              AC_HELP_STRING([--enable-ifname], [enable flow reporting iface name in normal data of v9 and IPFIX (default NO)]),
               [ifname=yes],[ifname=no])
 AC_ARG_ENABLE(flow-spray,
               AC_HELP_STRING([--enable-flow-spray],
