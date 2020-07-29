@@ -1597,21 +1597,43 @@ unix_listener (const char *path) {
 static void
 setup_packet_capture (struct pcap **pcap, int *linktype,
                       char *dev, char *capfile, char *bpf_prog, int need_v6,
-                      int promisc) {
+                      int promisc, int buffer_size_override) {
   char ebuf[PCAP_ERRBUF_SIZE];
   struct bpf_program prog_c;
   u_int32_t bpf_mask, bpf_net;
+  int res;
 
   /* Open pcap */
   if (dev != NULL) {
     if (!snaplen)
       snaplen = need_v6 ? LIBPCAP_SNAPLEN_V6 : LIBPCAP_SNAPLEN_V4;
-    if ((*pcap = pcap_open_live (dev, snaplen, promisc, 0, ebuf)) == NULL) {
-      fprintf (stderr, "pcap_open_live: %s\n", ebuf);
+    if ((*pcap = pcap_create (dev, ebuf)) == NULL) {
+      fprintf (stderr, "pcap_create: %s\n", ebuf);
       exit (1);
     }
+    if ((res = pcap_set_snaplen(*pcap, snaplen)) != 0) {
+      fprintf (stderr, "pcap_set_snaplen: %s\n", pcap_geterr(*pcap));
+      exit (1);
+    }
+    if ((res = pcap_set_promisc(*pcap, promisc)) != 0) {
+      fprintf (stderr, "pcap_set_promisc: %s\n", pcap_geterr(*pcap));
+      exit (1);
+    }
+    if ((res = pcap_set_timeout(*pcap, 0)) != 0) {
+      fprintf (stderr, "pcap_set_timeout: %s\n", pcap_geterr(*pcap));
+      exit (1);
+    }
+    if (buffer_size_override > 0)
+      if((res = pcap_set_buffer_size(*pcap, buffer_size_override)) != 0) {
+        fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr(*pcap));
+        exit (1);
+      }
     if (pcap_lookupnet (dev, &bpf_net, &bpf_mask, ebuf) == -1)
       bpf_net = bpf_mask = 0;
+    if ((res = pcap_activate (*pcap)) != 0) {
+      fprintf (stderr, "pcap_activate: %s\n", pcap_geterr (*pcap));
+      exit (1);
+    }
   } else {
     if ((*pcap = pcap_open_offline (capfile, ebuf)) == NULL) {
       fprintf (stderr, "pcap_open_offline(%s): %s\n", capfile, ebuf);
@@ -1732,6 +1754,7 @@ usage (void) {
            "  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
            "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
            "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
+           "  -B bytes                Libpcap buffer size in bytes\n"
            "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
            "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
            "  -C capture_length       Specify length for packet capture (snaplen)\n"
@@ -1944,6 +1967,7 @@ main (int argc, char **argv) {
   struct CB_CTXT cb_ctxt;
   struct pollfd pl[2];
   struct DESTINATION *dest;
+  int pcap_override_buffer_size = 0;
   int protocol = IPPROTO_UDP;
   int version = 0;
   int rsock = 0, recvport = IPFIX_PORT, recvloop = 0;
@@ -1976,7 +2000,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:baC:lR:MNS:")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2115,6 +2139,9 @@ main (int argc, char **argv) {
         flowtrack.param.option.sample = 0;
       }
       break;
+    case 'B':
+      pcap_override_buffer_size = atoi (optarg);
+      break;
     case 'P':
       if (strcasecmp (optarg, "udp") == 0)
         protocol = IPPROTO_UDP;
@@ -2195,8 +2222,8 @@ main (int argc, char **argv) {
   /* Will exit on failure */
   if (capfile != NULL || dev != NULL)
     setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                          target.dialect->v6_capable
-                          || always_v6, use_promisc);
+                          target.dialect->v6_capable || always_v6,
+                          use_promisc, pcap_override_buffer_size);
   else if (rsock > 0)
     linktype = 1;               //LINKTYPE_ETHERNET
 
