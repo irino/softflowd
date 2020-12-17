@@ -3,7 +3,13 @@ language: c
 os:
   - linux
   - osx
-
+arch:
+  - amd64
+  - ppc64le
+matrix:
+  exclude:
+   - os: osx
+     arch: ppc64le
 compiler: gcc
 sudo: false
 addons:
