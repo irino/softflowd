@@ -53,6 +53,7 @@
 .Op Fl C Ar capture_length
 .Op Fl R Ar receive_port
 .Op Fl S Ar send_interface_name
+.Op Fl x Ar number_of_mpls_labels
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -219,6 +220,8 @@ Bidirectional mode in IPFIX (-b work with -v 10)
 Adjusting time for reading pcap file (-a work with -r)
 .It Fl l
 Load balancing mode for multiple destinations which are specified with -n
+.It Fl x Ar number_of_mpls_labels
+specify number of mpls labels for export 
 .It Fl h
 Display command-line usage information.
 .It Fl L Ar hoplimit

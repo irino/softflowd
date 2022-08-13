@@ -1800,6 +1800,7 @@ usage (void) {
 #ifdef LINUX
            "  -S send_interface_name  Specify send interface name\n"
 #endif /* LINUX */
+           "  -x                      Specify number of MPLS labels\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
