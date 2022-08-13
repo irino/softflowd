@@ -164,6 +164,7 @@ struct FLOWTRACKPARAMETERS {
   u_int8_t bidirection;
   u_int8_t adjust_time;
   u_int8_t is_psamp;
+  u_int8_t max_num_label;
   struct timeval last_packet_time;
 };
 /*
@@ -218,6 +219,8 @@ struct FLOW {
   uint8_t ethermac[2][6];
   u_int8_t protocol;            /* Protocol */
   u_int8_t flowEndReason;
+  u_int32_t mplsLabelStackDepth;
+  u_int32_t mplsLabels[10];
 };
 
 /*

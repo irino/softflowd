@@ -62,6 +62,7 @@
 #define IPFIX_postVlanId                59
 #define IPFIX_ipVersion                 60
 #define IPFIX_flowDirection             61
+#define IPFIX_mplsTopLabelStackSection  70
 /* ... */
 #define IPFIX_interfaceName             82
 /* ... */
@@ -90,8 +91,10 @@
 #define IPFIX_flowEndReason_forceEnd       0x04
 #define IPFIX_flowEndReason_lackOfResource 0x05
 
-
 #define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE  1428
+#define IPFIX_mplsLabelStackSection_SIZE 3
+
+
 struct IPFIX_HEADER {
   u_int16_t version, length;
   u_int32_t export_time;        /* in seconds */

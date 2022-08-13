@@ -206,6 +206,13 @@ flow_compare (struct FLOW *a, struct FLOW *b) {
   if (a->port[1] != b->port[1])
     return (ntohs (a->port[1]) > ntohs (b->port[1]) ? 1 : -1);
 
+  if (a->mplsLabelStackDepth != b->mplsLabelStackDepth)
+    return (a->mplsLabelStackDepth > b->mplsLabelStackDepth ? 1 : -1);
+  for (int i = 0; i < a->mplsLabelStackDepth; i++) {
+    if (a->mplsLabels[i] != b->mplsLabels[i])
+      return (a->mplsLabels[i] > b->mplsLabels[i] ? 1 : -1);
+  }
+
   return (0);
 }
 
@@ -624,7 +631,8 @@ static int
 process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
                 const u_int32_t caplen, const u_int32_t len,
                 struct ether_header *ether, u_int16_t vlanid,
-                const struct timeval *received_time) {
+                const struct timeval *received_time,
+                u_int8_t * mpls_hdr, u_int8_t num_label) {
   struct FLOW tmp, *flow;
   int frag, ndx;
 
@@ -668,6 +676,11 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
   case TRACK_FULL_VLAN:
     vlan_to_flowrec (&tmp, vlanid, ndx);
     break;
+  }
+
+  tmp.mplsLabelStackDepth = num_label;
+  for (int i = 0; i < num_label && i < 10; i++) {
+    tmp.mplsLabels[i] = *(((u_int32_t *) mpls_hdr) + i);
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1199,7 +1212,8 @@ dump_flows (struct FLOWTRACK *ft, FILE * out) {
  */
 static int
 datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
-                struct ether_header **ether, u_int16_t * vlanid) {
+                struct ether_header **ether, u_int16_t * vlanid,
+                u_int8_t ** mpls_hdr, u_int8_t * num_label) {
   int i, j;
   u_int32_t frametype;
   int vlan_size = 0;
@@ -1260,10 +1274,26 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
     *af = AF_INET;
   else if (frametype == dl->ft_v6)
     *af = AF_INET6;
-  else
+  else if (frametype == ETH_P_MPLS_UC && mpls_hdr != NULL
+           && num_label != NULL) {
+    u_int32_t shim = 0;
+    u_int8_t ip_version = 0;
+    *mpls_hdr = pkt + dl->skiplen + vlan_size;
+    do {
+      shim = *((u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
+      *num_label += 1;
+    } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
+    ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
+    if (ip_version == 4)
+      *af = AF_INET;
+    else if (ip_version == 6)
+      *af = AF_INET6;
+    else
+      return (-1);
+  } else
     return (-1);
 
-  return (dl->skiplen + vlan_size);
+  return (dl->skiplen + vlan_size + *num_label * 4);
 }
 
 /*
@@ -1278,6 +1308,8 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   struct timeval tv;
   u_int16_t vlanid = 0;
   struct ether_header *ether = NULL;
+  u_char *mpls_hdr = NULL;
+  u_int8_t num_label = 0;
 
   if (cb_ctxt->ft->param.total_packets == 0) {
     if (cb_ctxt->ft->param.adjust_time) {
@@ -1300,7 +1332,7 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   }
 
   s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af, &ether,
-                      &vlanid);
+                      &vlanid, &mpls_hdr, &num_label);
   if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
     cb_ctxt->ft->param.non_ip_packets++;
     cb_ctxt->ft->param.total_packets--;
@@ -1308,7 +1340,8 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     tv.tv_sec = phdr->ts.tv_sec;
     tv.tv_usec = phdr->ts.tv_usec;
     if (process_packet (cb_ctxt->ft, pkt + s, af, phdr->caplen - s,
-                        phdr->len - s, ether, vlanid, &tv) == PP_MALLOC_FAIL)
+                        phdr->len - s, ether, vlanid, &tv, mpls_hdr,
+                        num_label) == PP_MALLOC_FAIL)
       cb_ctxt->fatal = 1;
   }
   if (cb_ctxt->ft->param.adjust_time)
@@ -1611,21 +1644,21 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
       fprintf (stderr, "pcap_create: %s\n", ebuf);
       exit (1);
     }
-    if ((res = pcap_set_snaplen(*pcap, snaplen)) != 0) {
-      fprintf (stderr, "pcap_set_snaplen: %s\n", pcap_geterr(*pcap));
+    if ((res = pcap_set_snaplen (*pcap, snaplen)) != 0) {
+      fprintf (stderr, "pcap_set_snaplen: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
-    if ((res = pcap_set_promisc(*pcap, promisc)) != 0) {
-      fprintf (stderr, "pcap_set_promisc: %s\n", pcap_geterr(*pcap));
+    if ((res = pcap_set_promisc (*pcap, promisc)) != 0) {
+      fprintf (stderr, "pcap_set_promisc: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
-    if ((res = pcap_set_timeout(*pcap, 0)) != 0) {
-      fprintf (stderr, "pcap_set_timeout: %s\n", pcap_geterr(*pcap));
+    if ((res = pcap_set_timeout (*pcap, 0)) != 0) {
+      fprintf (stderr, "pcap_set_timeout: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
     if (buffer_size_override > 0)
-      if((res = pcap_set_buffer_size(*pcap, buffer_size_override)) != 0) {
-        fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr(*pcap));
+      if ((res = pcap_set_buffer_size (*pcap, buffer_size_override)) != 0) {
+        fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr (*pcap));
         exit (1);
       }
     if (pcap_lookupnet (dev, &bpf_net, &bpf_mask, ebuf) == -1)
@@ -1642,7 +1675,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
     bpf_net = bpf_mask = 0;
   }
   *linktype = pcap_datalink (*pcap);
-  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL) == -1) {
+  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL, NULL, NULL) == -1) {
     fprintf (stderr, "Unsupported datalink type %d\n", *linktype);
     exit (1);
   }
@@ -2000,7 +2033,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:")) != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2042,8 +2075,7 @@ main (int argc, char **argv) {
       strncpy (flowtrack.param.option.interfaceName, dev,
                strlen (dev) <
                sizeof (flowtrack.param.option.interfaceName) ?
-               strlen (dev) :
-               sizeof (flowtrack.param.option.interfaceName));
+               strlen (dev) : sizeof (flowtrack.param.option.interfaceName));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
@@ -2203,6 +2235,15 @@ main (int argc, char **argv) {
       send_ifname = optarg;
       break;
 #endif /* LINUX */
+    case 'x':
+      flowtrack.param.max_num_label = atoi (optarg);
+      if (flowtrack.param.max_num_label < 0
+          || flowtrack.param.max_num_label > 10) {
+        fprintf (stderr, "Invalid number of MPLS label\n\n");
+        usage ();
+        exit (1);
+      }
+      break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();

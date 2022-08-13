@@ -194,6 +194,15 @@ extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #define ETH_ALEN	6       /* Octets in one ethernet addr   */
 #endif /* ETH_ALEN */
 
+#ifndef ETH_P_MPLS_UC
+#define ETH_P_MPLS_UC	0x8847  /* MPLS Unicast traffic         */
+#endif /* ETH_P_MPLS_UC */
+#ifndef MPLS_LS_S_MASK
+#define MPLS_LS_S_MASK          0x00000100
+#endif /* MPLS_LS_S_MASK */
+#ifndef MPLS_LS_S_SHIFT
+#define MPLS_LS_S_SHIFT         8
+#endif /* MPLS_LS_S_SHIFT */
 #ifndef IFNAMSIZ                /* defined in <net/if.h> in linux */
 #define IFNAMSIZ 16
 #endif /* IFNAMSIZ */

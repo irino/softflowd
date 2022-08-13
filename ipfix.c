@@ -307,7 +307,7 @@ struct NFLOW9_SOFTFLOWD_OPTION_DATA {
 // prototype
 void memcpy_template (u_char * packet, u_int * offset,
                       struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-                      u_int8_t bi_flag);
+                      u_int8_t bi_flag, u_int8_t max_num_label);
 
 // variables
 enum { TMPLV4, TMPLICMPV4, TMPLV6, TMPLICMPV6, TMPLMAX };
@@ -472,12 +472,14 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
     }
   }
   template->bi_count = bi_index;
-  template->h.r.count = htons (index + bi_index);
+  template->h.r.count = htons (index + bi_index + param->max_num_label);        // mpls
   template->h.c.length =
     htons (sizeof (struct IPFIX_TEMPLATE_SET_HEADER) +
            index * sizeof (struct IPFIX_FIELD_SPECIFIER) +
-           bi_index * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER));
-  template->data_len = length;
+           bi_index * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) +
+           param->max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER));
+  template->data_len =
+    length + param->max_num_label * IPFIX_mplsLabelStackSection_SIZE;
 }
 
 static void
@@ -670,7 +672,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
-  int i = 0;
+  int i = 0, k = 0;
   freclen = templates[tmplindex].data_len;
   if (len < freclen * frecnum)
     return (-1);
@@ -704,8 +706,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
     strncpy (dc[i]->interfaceName, option->interfaceName,
              strlen (option->interfaceName) <
              sizeof (dc[i]->interfaceName) ?
-             strlen (option->interfaceName) :
-             sizeof (dc[i]->interfaceName));
+             strlen (option->interfaceName) : sizeof (dc[i]->interfaceName));
 #endif
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 
@@ -756,6 +757,11 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
       }
     }
+    for (k = 0; k < param->max_num_label; k++) {
+      memcpy (&packet[offset], &flow->mplsLabels[k],
+              IPFIX_mplsLabelStackSection_SIZE);
+      offset += IPFIX_mplsLabelStackSection_SIZE;
+    }
   }
   *len_used = offset;
   return (nflows);
@@ -788,16 +794,26 @@ ipfix_resend_template (void) {
 
 void
 memcpy_template (u_char * packet, u_int * offset,
-                 struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag) 
-{
+                 struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag,
+                 u_int8_t max_num_label) {
+  int i = 0;
   int size = ntohs (template->h.c.length) -
-    template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER);
+    template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
+    max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER);
   memcpy (packet + *offset, template, size);
   *offset += size;
   if (bi_flag) {
     size = template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER);
     memcpy (packet + *offset, template->v, size);
     *offset += size;
+  }
+  // mpls
+  for (i = 0; i < max_num_label; i++) {
+    struct IPFIX_FIELD_SPECIFIER *mpls_fs =
+      (struct IPFIX_FIELD_SPECIFIER *) &packet[*offset];
+    mpls_fs->ie = htons (IPFIX_mplsTopLabelStackSection + i);
+    mpls_fs->length = htons (IPFIX_mplsLabelStackSection_SIZE);
+    *offset += sizeof (struct IPFIX_FIELD_SPECIFIER);
   }
 }
 
@@ -873,7 +889,8 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     /* Refresh template headers if we need to */
     if (ipfix_pkts_until_template <= 0) {
       for (i = 0; i < TMPLMAX; i++) {
-        memcpy_template (packet, &offset, &templates[i], bi_flag);
+        memcpy_template (packet, &offset, &templates[i], bi_flag,
+                         param->max_num_label);
       }
       if (option != NULL) {
         u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
