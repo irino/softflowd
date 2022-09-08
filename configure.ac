@@ -27,6 +27,9 @@ WFLAGS="$WFLAGS -Wno-conversion -Wpointer-arith -Wshadow"
 WFLAGS="$WFLAGS -Wuninitialized -Wcast-align -Wcast-qual"
 WFLAGS="$WFLAGS -Wformat=2 -Wformat-nonliteral -Wwrite-strings" 
 
+# Work with newer versions of GCC
+CFLAGS="$CFLAGS -std=c99"
+
 # Process flag arguments early, so they are available for tests later
 AC_ARG_ENABLE(gcc-warnings,
 	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
