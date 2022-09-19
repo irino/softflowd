@@ -161,7 +161,7 @@ sighand_other (int signum) {
 static int
 flow_compare (struct FLOW *a, struct FLOW *b) {
   /* Be careful to avoid signed vs unsigned issues here */
-  int r;
+  int r, i;
   if (track_level == TRACK_FULL_VLAN || track_level == TRACK_FULL_VLAN_ETHER) {
     if (a->vlanid[0] != b->vlanid[0])
       return (a->vlanid[0] > b->vlanid[0] ? 1 : -1);
@@ -208,7 +208,7 @@ flow_compare (struct FLOW *a, struct FLOW *b) {
 
   if (a->mplsLabelStackDepth != b->mplsLabelStackDepth)
     return (a->mplsLabelStackDepth > b->mplsLabelStackDepth ? 1 : -1);
-  for (int i = 0; i < a->mplsLabelStackDepth; i++) {
+  for (i = 0; i < a->mplsLabelStackDepth; i++) {
     if (a->mplsLabels[i] != b->mplsLabels[i])
       return (a->mplsLabels[i] > b->mplsLabels[i] ? 1 : -1);
   }
@@ -303,7 +303,7 @@ format_ethermac (uint8_t ethermac[6]) {
 static const char *
 format_flow (struct FLOW *flow) {
   char addr1[64], addr2[64], start_time[32], fin_time[32];
-  static char buf[1024];
+  static char buf[4096];
 
   inet_ntop (flow->af, &flow->addr[0], addr1, sizeof (addr1));
   inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
@@ -336,7 +336,7 @@ format_flow (struct FLOW *flow) {
 static const char *
 format_flow_brief (struct FLOW *flow) {
   char addr1[64], addr2[64];
-  static char buf[1024];
+  static char buf[4096];
 
   inet_ntop (flow->af, &flow->addr[0], addr1, sizeof (addr1));
   inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
@@ -628,14 +628,13 @@ out:
  * (the actual expiry is performed elsewhere)
  */
 static int
-process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
+process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
                 const u_int32_t caplen, const u_int32_t len,
                 struct ether_header *ether, u_int16_t vlanid,
-                const struct timeval *received_time,
-                u_int8_t * mpls_hdr, u_int8_t num_label) {
+                const struct timeval *received_time, u_int8_t num_label) {
   struct FLOW tmp, *flow;
-  int frag, ndx;
-
+  int frag, ndx, i;
+  const u_int8_t *pkt = frame_data + num_label * 4;
   /* Convert the IP packet to a flow identity */
   memset (&tmp, 0, sizeof (tmp));
   switch (af) {
@@ -679,8 +678,8 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * pkt, int af,
   }
 
   tmp.mplsLabelStackDepth = num_label;
-  for (int i = 0; i < num_label && i < 10; i++) {
-    tmp.mplsLabels[i] = *(((u_int32_t *) mpls_hdr) + i);
+  for (i = 0; i < num_label && i < 10; i++) {
+    tmp.mplsLabels[i] = *(((u_int32_t *) frame_data) + i);
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1213,7 +1212,7 @@ dump_flows (struct FLOWTRACK *ft, FILE * out) {
 static int
 datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
                 struct ether_header **ether, u_int16_t * vlanid,
-                u_int8_t ** mpls_hdr, u_int8_t * num_label) {
+                u_int8_t * num_label) {
   int i, j;
   u_int32_t frametype;
   int vlan_size = 0;
@@ -1274,11 +1273,9 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
     *af = AF_INET;
   else if (frametype == dl->ft_v6)
     *af = AF_INET6;
-  else if (frametype == ETH_P_MPLS_UC && mpls_hdr != NULL
-           && num_label != NULL) {
+  else if (frametype == ETH_P_MPLS_UC && num_label != NULL) {
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
-    *mpls_hdr = pkt + dl->skiplen + vlan_size;
     do {
       shim = *((u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
       *num_label += 1;
@@ -1293,7 +1290,7 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
   } else
     return (-1);
 
-  return (dl->skiplen + vlan_size + *num_label * 4);
+  return (dl->skiplen + vlan_size);
 }
 
 /*
@@ -1332,7 +1329,7 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   }
 
   s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af, &ether,
-                      &vlanid, &mpls_hdr, &num_label);
+                      &vlanid, &num_label);
   if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
     cb_ctxt->ft->param.non_ip_packets++;
     cb_ctxt->ft->param.total_packets--;
@@ -1340,7 +1337,7 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     tv.tv_sec = phdr->ts.tv_sec;
     tv.tv_usec = phdr->ts.tv_usec;
     if (process_packet (cb_ctxt->ft, pkt + s, af, phdr->caplen - s,
-                        phdr->len - s, ether, vlanid, &tv, mpls_hdr,
+                        phdr->len - s, ether, vlanid, &tv,
                         num_label) == PP_MALLOC_FAIL)
       cb_ctxt->fatal = 1;
   }
@@ -1675,7 +1672,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
     bpf_net = bpf_mask = 0;
   }
   *linktype = pcap_datalink (*pcap);
-  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL, NULL, NULL) == -1) {
+  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL, NULL) == -1) {
     fprintf (stderr, "Unsupported datalink type %d\n", *linktype);
     exit (1);
   }
