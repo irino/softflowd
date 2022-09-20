@@ -1,3 +1,14 @@
+Fri Sep 20 2022
+Softflowd 1.1.0
+This release contains some new features and some bug fix by community.
+
+Details
+This release contains the following new features:
+Add -x option which means number of MPLS shim label header for decoding and exporting MPLS packet.
+Add -B option for specifying Libpcap buffer size.
+Add exporting interface name with --enable-ifname configure option.
+
+
 Fri Aug 16 2019
 Softflowd 1.0.0
 This release contains some new features.

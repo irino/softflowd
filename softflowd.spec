@@ -3,7 +3,7 @@
 
 Name: softflowd
 Summary: Network traffic analyser capable of Cisco NetFlow data export
-Version: 1.0.0
+Version: 1.1.0
 Release: 1.%{_RHTAG}
 Source: softflowd-%{version}.tar.gz
 Group: System/Utilities

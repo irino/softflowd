@@ -12,11 +12,11 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-AC_INIT([softflowd], [1.0.0])
+AC_INIT([softflowd],[1.1.0])
 AC_CONFIG_SRCDIR([softflowd.c])
 AM_INIT_AUTOMAKE
 
-AC_CONFIG_HEADER(config.h)
+AC_CONFIG_HEADERS([config.h])
 AC_PROG_CC
 AC_PROG_INSTALL
 
@@ -33,26 +33,23 @@ AC_ARG_ENABLE(gcc-warnings,
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
 AC_ARG_ENABLE(legacy,
-              AC_HELP_STRING([--enable-legacy],
-                             [enable legacy NetFlow implementation (default NO)]),
+              AS_HELP_STRING([--enable-legacy],[enable legacy NetFlow implementation (default NO)]),
               [legacy=yes],[legacy=no])
 AC_ARG_ENABLE(pthread,
-              AC_HELP_STRING([--enable-pthread], [enable pthread (default NO) (experimental, unstable)]),
+              AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
               [pthread=yes],[pthread=no])
 AC_ARG_ENABLE(ntopng,
-              AC_HELP_STRING([--enable-ntopng], [enable flow sending to ntopng with zeromq (default NO)]),
+              AS_HELP_STRING([--enable-ntopng],[enable flow sending to ntopng with zeromq (default NO)]),
               [ntopng=yes],[ntopng=no])
 AC_ARG_ENABLE(ifname,
-              AC_HELP_STRING([--enable-ifname], [enable flow reporting iface name in normal data of v9 and IPFIX (default NO)]),
+              AS_HELP_STRING([--enable-ifname],[enable flow reporting iface name in normal data of v9 and IPFIX (default NO)]),
               [ifname=yes],[ifname=no])
 AC_ARG_ENABLE(flow-spray,
-              AC_HELP_STRING([--enable-flow-spray],
-                             [enable spray as flow tree type(default is RB)]),
+              AS_HELP_STRING([--enable-flow-spray],[enable spray as flow tree type(default is RB)]),
               AC_DEFINE([FLOW_SPRAY], 1, [enable spray as flow tree type]),
 	      AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type]))
 AC_ARG_ENABLE(expiry-spray,
-              AC_HELP_STRING([--enable-expiry-spray],
-                             [enable spray as expiry tree type (default is RB)]),
+              AS_HELP_STRING([--enable-expiry-spray],[enable spray as expiry tree type (default is RB)]),
               AC_DEFINE([EXPIRY_SPRAY], 1, [enable spray as flow tree type]),
 	      AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as flow tree type]))
 
