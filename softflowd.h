@@ -95,6 +95,11 @@ struct STATISTIC {
 
 #define SOFTFLOWD_MAX_DESTINATIONS 16
 
+#define BOOTTIME_MAX_DAY 49
+#define BOOTTIME_MAX_HOUR 1193
+#define BOOTTIME_MAX_MIN 71582
+#define BOOTTIME_MAX_SEC 4294944
+
 /*
  * This structure contains optional information carried by Option Data
  * Record.
@@ -166,6 +171,7 @@ struct FLOWTRACKPARAMETERS {
   u_int8_t is_psamp;
   u_int8_t max_num_label;
   struct timeval last_packet_time;
+  u_int32_t boot_time_reinit;   /* seconds */
 };
 /*
  * This structure is the root of the flow tracking system.

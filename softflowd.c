@@ -323,8 +323,8 @@ format_flow (struct FLOW *flow) {
             (int) flow->protocol, flow->octets[0], flow->packets[0],
             flow->octets[1], flow->packets[1], start_time,
             (long long) ((flow->flow_start.tv_usec + 500) / 1000), fin_time,
-            (long long) ((flow->flow_last.tv_usec + 500) / 1000), flow->tcp_flags[0],
-            flow->tcp_flags[1], flow->ip6_flowlabel[0],
+            (long long) ((flow->flow_last.tv_usec + 500) / 1000),
+            flow->tcp_flags[0], flow->tcp_flags[1], flow->ip6_flowlabel[0],
             flow->ip6_flowlabel[1], flow->vlanid[0], flow->vlanid[1],
             format_ethermac (flow->ethermac[0]),
             format_ethermac (flow->ethermac[1]));
@@ -1002,6 +1002,12 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
     }
 
     free (expired_flows);
+  }
+  if (ft->param.boot_time_reinit != 0) {
+    if (now.tv_sec - ft->param.system_boot_time.tv_sec >
+        ft->param.boot_time_reinit) {
+      ft->param.system_boot_time = now;
+    }
   }
 
   return (r == -1 ? -1 : num_expired);
@@ -1798,6 +1804,7 @@ usage (void) {
            "  -S send_interface_name  Specify send interface name\n"
 #endif /* LINUX */
            "  -x                      Specify number of MPLS labels\n"
+           "  -I                      Specify seconds for reinitialize boot timeindent -lp -br -brs -brf -ce -cdw -nut i\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
@@ -2013,6 +2020,8 @@ main (int argc, char **argv) {
   pthread_cond_init (&read_cond, NULL);
 #endif /* ENABLE_PTHREAD */
   int use_promisc = 1;
+  long int boot_time_reinit_sec = 0;
+  char *timeunit;
 
   closefrom (STDERR_FILENO + 1);
 
@@ -2031,7 +2040,8 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:")) != -1) {
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:")) !=
+         -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2242,6 +2252,46 @@ main (int argc, char **argv) {
         exit (1);
       }
       break;
+    case 'I':
+      boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
+      if ((errno == ERANGE
+           && (boot_time_reinit_sec == LONG_MAX
+               || boot_time_reinit_sec == LONG_MIN))
+          || (errno != 0 && boot_time_reinit_sec == 0)) {
+        perror ("strtol");
+        usage ();
+        exit (EXIT_FAILURE);
+      }
+      if (timeunit == optarg) {
+        fprintf (stderr, "No digits were found in boot_time_reinit\n");
+        usage ();
+        exit (EXIT_FAILURE);
+      }
+      if (*timeunit == 'd' || *timeunit == 'D') {       /* days */
+        if (boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
+          boot_time_reinit_sec = BOOTTIME_MAX_DAY;
+        }
+        boot_time_reinit_sec *= (24 * 60 * 60); /* convert to seconds */
+      } else if (*timeunit == 'h' || *timeunit == 'H') {        /* hours */
+        if (boot_time_reinit_sec > BOOTTIME_MAX_HOUR) {
+          boot_time_reinit_sec = BOOTTIME_MAX_HOUR;
+        }
+        boot_time_reinit_sec *= (60 * 60);      /* convert to seconds */
+      } else if (*timeunit == 'm' || *timeunit == 'M') {        /* minutes */
+        if (boot_time_reinit_sec > BOOTTIME_MAX_MIN) {
+          boot_time_reinit_sec = BOOTTIME_MAX_MIN;
+        }
+        boot_time_reinit_sec *= 60;     /* convert to seconds */
+      } else {
+        if (boot_time_reinit_sec > BOOTTIME_MAX_SEC) {  /* seconds */
+          boot_time_reinit_sec = BOOTTIME_MAX_SEC;
+        }
+      }
+      if (verbose_flag) {
+        fprintf (stderr, "boot_time_reinit is %ld seconds.\n",
+                 boot_time_reinit_sec);
+      }
+      break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2353,6 +2403,7 @@ main (int argc, char **argv) {
     }
   }
   flowtrack.param.option.meteringProcessId = getpid ();
+  flowtrack.param.boot_time_reinit = boot_time_reinit_sec;
 
   /* Main processing loop */
   gettimeofday (&flowtrack.param.system_boot_time, NULL);
