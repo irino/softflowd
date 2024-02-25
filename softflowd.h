@@ -86,12 +86,14 @@ struct STATISTIC {
 };
 
 /* Flow tracking levels */
-#define TRACK_FULL		1       /* src/dst/addr/port/proto/tos 6-tuple */
-#define TRACK_IP_PROTO_PORT	2       /* src/dst/addr/port/proto 5-tuple */
-#define TRACK_IP_PROTO		3       /* src/dst/proto 3-tuple */
-#define TRACK_IP_ONLY		4       /* src/dst tuple */
-#define TRACK_FULL_VLAN		5       /* src/dst/addr/port/proto/tos/vlanid 7-tuple */
-#define TRACK_FULL_VLAN_ETHER	6       /* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
+enum {
+  TRACK_IP_ONLY,                /* src/dst tuple */
+  TRACK_IP_PROTO,               /* src/dst/proto 3-tuple */
+  TRACK_IP_PROTO_PORT,          /* src/dst/addr/port/proto 5-tuple */
+  TRACK_FULL,                   /* src/dst/addr/port/proto/tos 6-tuple */
+  TRACK_FULL_VLAN,              /* src/dst/addr/port/proto/tos/vlanid 7-tuple */
+  TRACK_FULL_VLAN_ETHER         /* src/dst/addr/port/proto/tos/vlanid/src-mac/dst-mac 9-tuple */
+};
 
 #define SOFTFLOWD_MAX_DESTINATIONS 16
 
