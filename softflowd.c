@@ -1804,7 +1804,7 @@ usage (void) {
            "  -S send_interface_name  Specify send interface name\n"
 #endif /* LINUX */
            "  -x                      Specify number of MPLS labels\n"
-           "  -I                      Specify seconds for reinitialize boot timeindent -lp -br -brs -brf -ce -cdw -nut i\n"
+           "  -I                      Specify seconds for reinitialize boot time\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
