@@ -622,25 +622,20 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
                 struct ether_header *ether, u_int16_t vlanid,
                 const struct timeval *received_time, u_int8_t num_label) {
   struct FLOW tmp, *flow;
-  int frag, ndx, i;
+  int frag = 0, ndx = -1, i = 0, r = -1;
   const u_int8_t *pkt = frame_data + num_label * 4;
   /* Convert the IP packet to a flow identity */
   memset (&tmp, 0, sizeof (tmp));
-  switch (af) {
-  case AF_INET:
+  if (af == AF_INET) {
     ndx = make_ndx_ipv4 ((const struct ip *) pkt, caplen);
-    if (ipv4_to_flowrec
-        (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level) == -1)
-      goto bad;
-    break;
-  case AF_INET6:
+    r =
+      ipv4_to_flowrec (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level);
+  } else if (af == AF_INET6) {
     ndx = make_ndx_ipv6 ((const struct ip6_hdr *) pkt, caplen);
-    if (ipv6_to_flowrec
-        (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level) == -1)
-      goto bad;
-    break;
-  default:
-  bad:
+    r =
+      ipv6_to_flowrec (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level);
+  }
+  if ((af != AF_INET && af != AF_INET6) || ndx < 0 || r == -1) {        /* bad packet */
     ft->param.bad_packets++;
     return (PP_BAD_PACKET);
   }
@@ -658,8 +653,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
     ether_to_flowrec (&tmp, ether, ndx);
     /* FALLTHROUGH */
   case TRACK_FULL_VLAN:
-    if (ndx >= 0)
-      tmp.vlanid[ndx] = vlanid;
+    tmp.vlanid[ndx] = vlanid;
     break;
   }
 
@@ -1791,6 +1785,7 @@ usage (void) {
 #endif /* LINUX */
            "  -x                      Specify number of MPLS labels\n"
            "  -I                      Specify seconds for reinitialize boot time\n"
+           "  -g                      Gauge cpu clock for benchmark\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
@@ -1979,6 +1974,7 @@ drop_privs (void) {
 
 int
 main (int argc, char **argv) {
+  clock_t boottime = clock ();
   char *dev, *capfile, *bpf_prog;
   const char *pidfile_path, *ctlsock_path;
   extern char *optarg;
@@ -2008,6 +2004,7 @@ main (int argc, char **argv) {
   int use_promisc = 1;
   long int boot_time_reinit_sec = 0;
   char *timeunit;
+  int gauge_clock = 0;
 
   closefrom (STDERR_FILENO + 1);
 
@@ -2026,7 +2023,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:")) !=
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:g")) !=
          -1) {
     switch (ch) {
     case '6':
@@ -2277,6 +2274,9 @@ main (int argc, char **argv) {
         fprintf (stderr, "boot_time_reinit is %ld seconds.\n",
                  boot_time_reinit_sec);
       }
+      break;
+    case 'g':
+      gauge_clock = 1;
       break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
@@ -2553,6 +2553,7 @@ main (int argc, char **argv) {
 
   if (rsock > 0)
     close (rsock);
-
+  if (gauge_clock)
+    logit (LOG_INFO, "cpu clocks: %ld\n", clock () - boottime);
   return (r == 0 ? 0 : 1);
 }
