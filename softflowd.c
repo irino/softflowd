@@ -398,112 +398,92 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
   return (0);
 }
 
+/**
+ * @fn ipv4_to_flowrec converts a IPv4 packet to a partial flow record (used for comparison)
+ * @return return header size as posive value, return negative value when error occured
+ */
 static int
-make_ndx_ipv4 (const struct ip *ip, size_t caplen) {
+ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
+                 int *isfrag, int *isfirst, int *ndx, int track_level) {
+  const struct ip *ip = (const struct ip *) pkt;
+  if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL)
+    return (-1);
   if (caplen < 20 || caplen < ip->ip_hl * 4 || ip->ip_v != 4)
     return (-1);                /* Runt packet or Unsupported IP version */
 
   /* Prepare to store flow in canonical format */
-  return (memcmp (&ip->ip_src, &ip->ip_dst, sizeof (ip->ip_src)) > 0 ? 1 : 0);
-}
-
-/* Convert a IPv4 packet to a partial flow record (used for comparison) */
-static int
-ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
-                 int *isfrag, int ndx, int track_level) {
-  const struct ip *ip = (const struct ip *) pkt;
-  if (ndx < 0)
-    return (-1);
-
-  flow->addr[ndx].v4 = ip->ip_src;
-  flow->addr[ndx ^ 1].v4 = ip->ip_dst;
+  *ndx = memcmp (&ip->ip_src, &ip->ip_dst, sizeof (ip->ip_src)) > 0 ? 1 : 0;
+  flow->addr[*ndx].v4 = ip->ip_src;
+  flow->addr[*ndx ^ 1].v4 = ip->ip_dst;
   flow->protocol = track_level >= TRACK_IP_PROTO ? ip->ip_p : 0;
-
   *isfrag = (ntohs (ip->ip_off) & (IP_OFFMASK | IP_MF)) ? 1 : 0;
-
-  /* skip following process when track level doesn't track L4 port */
-  if (track_level <= TRACK_IP_PROTO)
-    return (0);
-  flow->tos[ndx] = track_level >= TRACK_FULL ? ip->ip_tos : 0;
-  /* Don't try to examine higher level headers if not first fragment */
-  if (*isfrag && (ntohs (ip->ip_off) & IP_OFFMASK) != 0)
-    return (0);
-
-  return (transport_to_flowrec (flow, pkt + (ip->ip_hl * 4),
-                                caplen - (ip->ip_hl * 4), *isfrag, ip->ip_p,
-                                ndx));
+  *isfirst = (ntohs (ip->ip_off) & IP_OFFMASK) == 0 ? 1 : 0;
+  flow->tos[*ndx] = track_level >= TRACK_FULL ? ip->ip_tos : 0;
+  return (ip->ip_hl * 4);
 }
 
-static int
-make_ndx_ipv6 (const struct ip6_hdr *ip6, size_t caplen) {
-  if (caplen < sizeof (*ip6))
-    return (-1);                /* Runt packet */
-
-  if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
-    return (-1);                /* Unsupported IPv6 version */
-
-  /* Prepare to store flow in canonical format */
-  return (memcmp (&ip6->ip6_src, &ip6->ip6_dst,
-                  sizeof (ip6->ip6_src)) > 0 ? 1 : 0);
-}
-
-/* Convert a IPv6 packet to a partial flow record (used for comparison) */
+/**
+ * @fn ipv6_to_flowrec converts a IPv6 packet to a partial flow record (used for comparison)
+ * @return return header size as posive value, return negative value when error occured
+ */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
-                 int *isfrag, int ndx, int track_level) {
+                 int *isfrag, int *isfirst, int *ndx, int track_level) {
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
   const struct ip6_frag *fh6;
   int nxt;
-
-  if (ndx < 0)
+  int size;
+  if (flow == NULL || ip6 == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL)
     return (-1);
+  if (caplen < sizeof (*ip6)
+      || (ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
+    return (-1);                /* Runt packet or Unsupported IP version */
 
-  flow->ip6_flowlabel[ndx] = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
-  flow->addr[ndx].v6 = ip6->ip6_src;
-  flow->addr[ndx ^ 1].v6 = ip6->ip6_dst;
+  *ndx =
+    memcmp (&ip6->ip6_src, &ip6->ip6_dst, sizeof (ip6->ip6_src)) > 0 ? 1 : 0;
+  flow->ip6_flowlabel[*ndx] = ip6->ip6_flow & IPV6_FLOWLABEL_MASK;
+  flow->addr[*ndx].v6 = ip6->ip6_src;
+  flow->addr[*ndx ^ 1].v6 = ip6->ip6_dst;
 
   *isfrag = 0;
+  *isfirst = 1;
   nxt = ip6->ip6_nxt;
-  pkt += sizeof (*ip6);
-  caplen -= sizeof (*ip6);
+  size = sizeof (*ip6);
 
   /* Now loop through headers, looking for transport header */
   for (;;) {
-    eh6 = (const struct ip6_ext *) pkt;
+    eh6 = (const struct ip6_ext *) pkt + size;
     if (nxt == IPPROTO_HOPOPTS ||
         nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
-      if (caplen < sizeof (*eh6) || caplen < (eh6->ip6e_len + 1) << 3)
-        return (1);             /* Runt */
+      int eh6size = (eh6->ip6e_len + 1) << 3;
+      if (caplen < size + sizeof (*eh6) || caplen < size + eh6size)
+        return (size);          /* Runt */
       nxt = eh6->ip6e_nxt;
-      pkt += (eh6->ip6e_len + 1) << 3;
-      caplen -= (eh6->ip6e_len + 1) << 3;
+      size += eh6size;
     } else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
       fh6 = (const struct ip6_frag *) eh6;
-      if (caplen < sizeof (*fh6))
-        return (1);             /* Runt */
+      if (caplen < size + sizeof (*fh6))
+        return (size);          /* Runt */
       /*
        * Don't try to examine higher level headers if 
        * not first fragment
        */
       if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
-        return (0);
+        *isfirst = 0;
       nxt = fh6->ip6f_nxt;
-      pkt += sizeof (*fh6);
-      caplen -= sizeof (*fh6);
+      size += sizeof (*fh6);
     } else
       break;
   }
   flow->protocol = track_level >= TRACK_IP_PROTO ? nxt : 0;
-  /* skip transport_to_flowrec when track level doesn't track L4 port */
-  if (track_level < TRACK_IP_PROTO_PORT)
-    return (0);
-  flow->tos[ndx] =
+  flow->tos[*ndx] =
     track_level >=
     TRACK_FULL ? (ntohl (ip6->ip6_flow) & ntohl (0x0ff00000)) >> 20 : 0;
-
-  return (transport_to_flowrec (flow, pkt, caplen, *isfrag, nxt, ndx));
+  return size;
 }
 
 static int
@@ -622,20 +602,20 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
                 struct ether_header *ether, u_int16_t vlanid,
                 const struct timeval *received_time, u_int8_t num_label) {
   struct FLOW tmp, *flow;
-  int frag = 0, ndx = -1, i = 0, r = -1;
+  int frag = 0, first = 1, ndx = -1, i = 0, size = -1;
   const u_int8_t *pkt = frame_data + num_label * 4;
   /* Convert the IP packet to a flow identity */
   memset (&tmp, 0, sizeof (tmp));
   if (af == AF_INET) {
-    ndx = make_ndx_ipv4 ((const struct ip *) pkt, caplen);
-    r =
-      ipv4_to_flowrec (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level);
+    size =
+      ipv4_to_flowrec (&tmp, pkt, caplen, &frag, &first, &ndx,
+                       ft->param.track_level);
   } else if (af == AF_INET6) {
-    ndx = make_ndx_ipv6 ((const struct ip6_hdr *) pkt, caplen);
-    r =
-      ipv6_to_flowrec (&tmp, pkt, caplen, &frag, ndx, ft->param.track_level);
+    size =
+      ipv6_to_flowrec (&tmp, pkt, caplen, &frag, &first, &ndx,
+                       ft->param.track_level);
   }
-  if ((af != AF_INET && af != AF_INET6) || ndx < 0 || r == -1) {        /* bad packet */
+  if ((af != AF_INET && af != AF_INET6) || ndx < 0 || size == -1) {     /* bad packet */
     ft->param.bad_packets++;
     return (PP_BAD_PACKET);
   }
@@ -646,16 +626,15 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
 
   if (frag)
     ft->param.frag_packets++;
-
-  /* Zero out bits of the flow that aren't relevant to tracking level */
-  switch (ft->param.track_level) {
-  case TRACK_FULL_VLAN_ETHER:
-    ether_to_flowrec (&tmp, ether, ndx);
-    /* FALLTHROUGH */
-  case TRACK_FULL_VLAN:
-    tmp.vlanid[ndx] = vlanid;
-    break;
+  if (first) {
+    if (track_level >= TRACK_IP_PROTO_PORT)
+      transport_to_flowrec (&tmp, pkt + size, caplen - size, frag,
+                            tmp.protocol, ndx);
   }
+  if (ft->param.track_level >= TRACK_FULL_VLAN)
+    tmp.vlanid[ndx] = vlanid;
+  if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER)
+    ether_to_flowrec (&tmp, ether, ndx);
 
   tmp.mplsLabelStackDepth = num_label;
   for (i = 0; i < num_label && i < 10; i++) {
