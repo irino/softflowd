@@ -354,10 +354,9 @@ format_flow_brief (struct FLOW *flow) {
 }
 
 /* Fill in transport-layer (tcp/udp) portions of flow record */
-static int
+static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
-                      const size_t caplen, int isfrag, int protocol, int ndx) 
-{
+                      const size_t caplen, int protocol, int ndx) {
   const struct tcphdr *tcp = (const struct tcphdr *) pkt;
   const struct udphdr *udp = (const struct udphdr *) pkt;
   const struct icmp *icmp = (const struct icmp *) pkt;
@@ -371,17 +370,17 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
 
   switch (protocol) {
   case IPPROTO_TCP:
-    /* Check for runt packet, but don't error out on short frags */
+    /* Check for runt packet */
     if (caplen < sizeof (*tcp))
-      return (isfrag ? 0 : 1);
+      return;
     flow->port[ndx] = tcp->th_sport;
     flow->port[ndx ^ 1] = tcp->th_dport;
     flow->tcp_flags[ndx] |= tcp->th_flags;
     break;
   case IPPROTO_UDP:
-    /* Check for runt packet, but don't error out on short frags */
+    /* Check for runt packet */
     if (caplen < sizeof (*udp))
-      return (isfrag ? 0 : 1);
+      return;
     flow->port[ndx] = udp->uh_sport;
     flow->port[ndx ^ 1] = udp->uh_dport;
     break;
@@ -395,7 +394,7 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
     flow->port[ndx ^ 1] = htons (icmp->icmp_type * 256 + icmp->icmp_code);
     break;
   }
-  return (0);
+  return;
 }
 
 /**
@@ -407,9 +406,8 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
                  int *isfrag, int *isfirst, int *ndx, int track_level) {
   const struct ip *ip = (const struct ip *) pkt;
   if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
-      || ndx == NULL)
-    return (-1);
-  if (caplen < 20 || caplen < ip->ip_hl * 4 || ip->ip_v != 4)
+      || ndx == NULL || caplen < 20 || caplen < ip->ip_hl * 4
+      || ip->ip_v != 4)
     return (-1);                /* Runt packet or Unsupported IP version */
 
   /* Prepare to store flow in canonical format */
@@ -417,9 +415,9 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
   flow->addr[*ndx].v4 = ip->ip_src;
   flow->addr[*ndx ^ 1].v4 = ip->ip_dst;
   flow->protocol = track_level >= TRACK_IP_PROTO ? ip->ip_p : 0;
+  flow->tos[*ndx] = track_level >= TRACK_FULL ? ip->ip_tos : 0;
   *isfrag = (ntohs (ip->ip_off) & (IP_OFFMASK | IP_MF)) ? 1 : 0;
   *isfirst = (ntohs (ip->ip_off) & IP_OFFMASK) == 0 ? 1 : 0;
-  flow->tos[*ndx] = track_level >= TRACK_FULL ? ip->ip_tos : 0;
   return (ip->ip_hl * 4);
 }
 
@@ -433,12 +431,9 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
   const struct ip6_frag *fh6;
-  int nxt;
-  int size;
+  int nxt, size, remain;
   if (flow == NULL || ip6 == NULL || isfrag == NULL || isfirst == NULL
-      || ndx == NULL)
-    return (-1);
-  if (caplen < sizeof (*ip6)
+      || ndx == NULL || caplen < sizeof (*ip6)
       || (ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
     return (-1);                /* Runt packet or Unsupported IP version */
 
@@ -455,23 +450,20 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
 
   /* Now loop through headers, looking for transport header */
   for (;;) {
+    remain = caplen - size;
     eh6 = (const struct ip6_ext *) pkt + size;
     if (nxt == IPPROTO_HOPOPTS ||
         nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
-      int eh6size = (eh6->ip6e_len + 1) << 3;
-      if (caplen < size + sizeof (*eh6) || caplen < size + eh6size)
+      int eh6size = remain < sizeof (*eh6) ? 0 : (eh6->ip6e_len + 1) << 3;
+      if (remain < eh6size)
         return (size);          /* Runt */
       nxt = eh6->ip6e_nxt;
       size += eh6size;
     } else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
       fh6 = (const struct ip6_frag *) eh6;
-      if (caplen < size + sizeof (*fh6))
+      if (remain < sizeof (*fh6))
         return (size);          /* Runt */
-      /*
-       * Don't try to examine higher level headers if 
-       * not first fragment
-       */
       if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
         *isfirst = 0;
       nxt = fh6->ip6f_nxt;
@@ -486,13 +478,13 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
   return size;
 }
 
-static int
+static void
 ether_to_flowrec (struct FLOW *flow, struct ether_header *ether, int ndx) {
   if (ndx < 0 || ether == NULL)
-    return (-1);
+    return;
   memcpy (flow->ethermac[ndx], ether->ether_shost, ETH_ALEN);
   memcpy (flow->ethermac[ndx ^ 1], ether->ether_dhost, ETH_ALEN);
-  return (1);
+  return;
 }
 
 static void
@@ -626,11 +618,8 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
 
   if (frag)
     ft->param.frag_packets++;
-  if (first) {
-    if (track_level >= TRACK_IP_PROTO_PORT)
-      transport_to_flowrec (&tmp, pkt + size, caplen - size, frag,
-                            tmp.protocol, ndx);
-  }
+  if (first && track_level >= TRACK_IP_PROTO_PORT)
+    transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx);
   if (ft->param.track_level >= TRACK_FULL_VLAN)
     tmp.vlanid[ndx] = vlanid;
   if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER)
