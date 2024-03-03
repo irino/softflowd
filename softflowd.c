@@ -590,13 +590,15 @@ out:
  * (the actual expiry is performed elsewhere)
  */
 static int
-process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
-                const u_int32_t caplen, const u_int32_t len,
-                const struct ether_header *ether, u_int16_t vlanid,
-                const struct timeval *received_time, u_int8_t num_label) {
+process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
+                const u_char * frame, int datalink_size, int af,
+                u_int16_t vlanid, u_int8_t num_label) {
   struct FLOW tmp, *flow;
+  struct FLOWTRACK *ft = cb_ctxt->ft;
+  const u_int32_t caplen = phdr->caplen - datalink_size;
+  const u_int32_t len = phdr->len - datalink_size;
   int frag = 0, first = 1, ndx = -1, i = 0, size = -1;
-  const u_int8_t *pkt = frame_data + num_label * 4;
+  const u_int8_t *pkt = frame + datalink_size + num_label * 4;
   /* Convert the IP packet to a flow identity */
   memset (&tmp, 0, sizeof (tmp));
   if (af == AF_INET) {
@@ -623,12 +625,13 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
     transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx);
   if (ft->param.track_level >= TRACK_FULL_VLAN)
     tmp.vlanid[ndx] = vlanid;
-  if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER)
-    ether_to_flowrec (&tmp, ether, ndx);
+  if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER
+      && cb_ctxt->linktype == DLT_EN10MB)
+    ether_to_flowrec (&tmp, (const struct ether_header *) frame, ndx);
 
   tmp.mplsLabelStackDepth = num_label;
   for (i = 0; i < num_label && i < 10; i++) {
-    tmp.mplsLabels[i] = *(((const u_int32_t *) frame_data) + i);
+    tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -639,7 +642,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
       return (PP_MALLOC_FAIL);
     }
     memcpy (flow, &tmp, sizeof (*flow));
-    memcpy (&flow->flow_start, received_time, sizeof (flow->flow_start));
+    memcpy (&flow->flow_start, &phdr->ts, sizeof (flow->flow_start));
     flow->flow_seq = ft->param.next_flow_seq++;
     FLOW_INSERT (FLOWS, &ft->flows, flow);
 
@@ -669,7 +672,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
     flow->tcp_flags[1] |= tmp.tcp_flags[1];
   }
 
-  memcpy (&flow->flow_last, received_time, sizeof (flow->flow_last));
+  memcpy (&flow->flow_last, &phdr->ts, sizeof (flow->flow_last));
 
   if (flow->expiry->expires_at != 0)
     flow_update_expiry (ft, flow);
@@ -1252,7 +1255,6 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
          const u_char * pkt) {
   int s, af = 0;
   struct CB_CTXT *cb_ctxt = (struct CB_CTXT *) user_data;
-  struct timeval tv;
   u_int16_t vlanid = 0;
   u_int8_t num_label = 0;
 
@@ -1282,13 +1284,8 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     cb_ctxt->ft->param.non_ip_packets++;
     cb_ctxt->ft->param.total_packets--;
   } else {
-    tv.tv_sec = phdr->ts.tv_sec;
-    tv.tv_usec = phdr->ts.tv_usec;
-    if (process_packet (cb_ctxt->ft, pkt + s, af, phdr->caplen - s,
-                        phdr->len - s,
-                        cb_ctxt->linktype ==
-                        DLT_EN10MB ? (const struct ether_header *) pkt : NULL,
-                        vlanid, &tv, num_label) == PP_MALLOC_FAIL)
+    if (process_packet (cb_ctxt, phdr, pkt, s, af, vlanid, num_label) ==
+        PP_MALLOC_FAIL)
       cb_ctxt->fatal = 1;
   }
   if (cb_ctxt->ft->param.adjust_time)
