@@ -596,7 +596,6 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
   struct FLOW tmp, *flow;
   struct FLOWTRACK *ft = cb_ctxt->ft;
   const u_int32_t caplen = phdr->caplen - datalink_size;
-  const u_int32_t len = phdr->len - datalink_size;
   int frag = 0, first = 1, ndx = -1, i = 0, size = -1;
   const u_int8_t *pkt = frame + datalink_size + num_label * 4;
   /* Convert the IP packet to a flow identity */
@@ -616,7 +615,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
   }
   /* good packet */
   tmp.af = af;
-  tmp.octets[ndx] = len;
+  tmp.octets[ndx] = phdr->len - datalink_size;
   tmp.packets[ndx] = 1;
 
   if (frag)
@@ -1303,7 +1302,7 @@ pcap_memcpy (u_char * user_data, const struct pcap_pkthdr *phdr,
   pthread_cond_signal (&read_cond);
 }
 
-void *
+static void *
 process_packet_loop (void *arg) {
   while (!graceful_shutdown_request) {
     pthread_mutex_lock (&read_mutex);
@@ -1313,6 +1312,7 @@ process_packet_loop (void *arg) {
     flow_cb ((u_char *) arg, &packet_header, (u_char *) & packet_data);
     pthread_mutex_unlock (&read_mutex);
   }
+  return (arg);
 }
 #endif /* ENABLE_PTHREAD */
 
@@ -1956,7 +1956,7 @@ main (int argc, char **argv) {
   char *send_ifname;
 #endif /* LINUX */
 #ifdef ENABLE_PTHREAD
-  int use_thread = 0;
+  use_thread = 0;
   pthread_t read_thread = 0;
 
   pthread_mutex_init (&read_mutex, NULL);
