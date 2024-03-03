@@ -335,20 +335,20 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
 
 void
 conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp) {
-  if (ntp != NULL) {
-    ntp->second = tv.tv_sec + 0x83AA7E80;
-    ntp->fraction =
-      (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6);
-  }
+  if (ntp == NULL)
+    return;
+  ntp->second = tv.tv_sec + 0x83AA7E80;
+  ntp->fraction =
+    (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6);
 }
 
-struct timeval
-conv_ntp_to_unix (struct ntp_time_t ntp) {
-  struct timeval tv = {
-    ntp.second - 0x83AA7E80,    // the seconds from Jan 1, 1900 to Jan 1, 1970
-    (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32))
-  };
-  return tv;
+void
+conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
+  if (tv == NULL)
+    return;
+  tv->tv_sec = ntp.second - 0x83AA7E80; // the seconds from Jan 1, 1900 to Jan 1, 1970
+  tv->tv_usec =
+    (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32));
 }
 
 static int
@@ -667,8 +667,9 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
   struct IPFIX_SOFTFLOWD_DATA_BICOMMON *dbc = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *dbtr = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BIICMP *dbi = NULL;
+#ifdef ENABLE_IFNAME
   struct OPTION *option = &param->option;
-
+#endif /* ENABLE_IFNAME */
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
@@ -707,7 +708,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
              strlen (option->interfaceName) <
              sizeof (dc[i]->interfaceName) ?
              strlen (option->interfaceName) : sizeof (dc[i]->interfaceName));
-#endif
+#endif /* ENABLE_IFNAME */
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 
     if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
@@ -833,7 +834,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
   int8_t icmp_flag, last_icmp_flag;
   int r;
-  u_int records;
+  u_int records = 0;
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
@@ -912,7 +913,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
           ipfix->sequence =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
         } else if (version == 9) {
-          nf9->flows = htons (records);
+          nf9->flows = htons (++records);
           nf9->sequence = htonl (sequence++);
         }
         if (send_multi_destinations

@@ -151,5 +151,5 @@ int ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int * index,
                        const struct IPFIX_FIELD_SPECIFIER *src,
                        u_int field_number);
 void conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
-struct timeval conv_ntp_to_unix (struct ntp_time_t ntp);
+void conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv);
 #endif /* _IPFIX_H */

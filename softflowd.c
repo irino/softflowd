@@ -403,7 +403,7 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
  */
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
-                 int *isfrag, int *isfirst, int *ndx, int track_level) {
+                 int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip *ip = (const struct ip *) pkt;
   if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
       || ndx == NULL || caplen < 20 || caplen < ip->ip_hl * 4
@@ -414,8 +414,8 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
   *ndx = memcmp (&ip->ip_src, &ip->ip_dst, sizeof (ip->ip_src)) > 0 ? 1 : 0;
   flow->addr[*ndx].v4 = ip->ip_src;
   flow->addr[*ndx ^ 1].v4 = ip->ip_dst;
-  flow->protocol = track_level >= TRACK_IP_PROTO ? ip->ip_p : 0;
-  flow->tos[*ndx] = track_level >= TRACK_FULL ? ip->ip_tos : 0;
+  flow->protocol = track_lv >= TRACK_IP_PROTO ? ip->ip_p : 0;
+  flow->tos[*ndx] = track_lv >= TRACK_FULL ? ip->ip_tos : 0;
   *isfrag = (ntohs (ip->ip_off) & (IP_OFFMASK | IP_MF)) ? 1 : 0;
   *isfirst = (ntohs (ip->ip_off) & IP_OFFMASK) == 0 ? 1 : 0;
   return (ip->ip_hl * 4);
@@ -427,7 +427,7 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
  */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
-                 int *isfrag, int *isfirst, int *ndx, int track_level) {
+                 int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
   const struct ip6_frag *fh6;
@@ -471,15 +471,16 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
     } else
       break;
   }
-  flow->protocol = track_level >= TRACK_IP_PROTO ? nxt : 0;
+  flow->protocol = track_lv >= TRACK_IP_PROTO ? nxt : 0;
   flow->tos[*ndx] =
-    track_level >=
+    track_lv >=
     TRACK_FULL ? (ntohl (ip6->ip6_flow) & ntohl (0x0ff00000)) >> 20 : 0;
   return size;
 }
 
 static void
-ether_to_flowrec (struct FLOW *flow, struct ether_header *ether, int ndx) {
+ether_to_flowrec (struct FLOW *flow, const struct ether_header *ether,
+                  int ndx) {
   if (ndx < 0 || ether == NULL)
     return;
   memcpy (flow->ethermac[ndx], ether->ether_shost, ETH_ALEN);
@@ -591,7 +592,7 @@ out:
 static int
 process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
                 const u_int32_t caplen, const u_int32_t len,
-                struct ether_header *ether, u_int16_t vlanid,
+                const struct ether_header *ether, u_int16_t vlanid,
                 const struct timeval *received_time, u_int8_t num_label) {
   struct FLOW tmp, *flow;
   int frag = 0, first = 1, ndx = -1, i = 0, size = -1;
@@ -627,7 +628,7 @@ process_packet (struct FLOWTRACK *ft, const u_int8_t * frame_data, int af,
 
   tmp.mplsLabelStackDepth = num_label;
   for (i = 0; i < num_label && i < 10; i++) {
-    tmp.mplsLabels[i] = *(((u_int32_t *) frame_data) + i);
+    tmp.mplsLabels[i] = *(((const u_int32_t *) frame_data) + i);
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1165,8 +1166,7 @@ dump_flows (struct FLOWTRACK *ft, FILE * out) {
  */
 static int
 datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
-                struct ether_header **ether, u_int16_t * vlanid,
-                u_int8_t * num_label) {
+                u_int16_t * vlanid, u_int8_t * num_label) {
   int i, j;
   u_int32_t frametype;
   int vlan_size = 0;
@@ -1188,8 +1188,6 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
 
   /* Processing 802.1Q vlan in ethernet */
   if (linktype == DLT_EN10MB) {
-    if (ether != NULL)
-      *ether = (struct ether_header *) pkt;
     for (j = 0; j < dl->ft_len; j++) {
       frametype <<= 8;
       frametype |= pkt[j + dl->ft_off];
@@ -1200,10 +1198,7 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
         *vlanid <<= 8;
         *vlanid |= pkt[j + dl->skiplen];
       }
-      /* 
-       * Mask out the PCP and DEI values,
-       * leaving just the VID.
-       */
+      /* Mask out the PCP and DEI values, leaving just the VID. */
       *vlanid &= 0xFFF;
       vlan_size = 4;
     }
@@ -1231,7 +1226,8 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
     do {
-      shim = *((u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
+      shim =
+        *((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
@@ -1258,8 +1254,6 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
   struct CB_CTXT *cb_ctxt = (struct CB_CTXT *) user_data;
   struct timeval tv;
   u_int16_t vlanid = 0;
-  struct ether_header *ether = NULL;
-  u_char *mpls_hdr = NULL;
   u_int8_t num_label = 0;
 
   if (cb_ctxt->ft->param.total_packets == 0) {
@@ -1282,7 +1276,7 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     return;
   }
 
-  s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af, &ether,
+  s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af,
                       &vlanid, &num_label);
   if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
     cb_ctxt->ft->param.non_ip_packets++;
@@ -1291,8 +1285,10 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
     tv.tv_sec = phdr->ts.tv_sec;
     tv.tv_usec = phdr->ts.tv_usec;
     if (process_packet (cb_ctxt->ft, pkt + s, af, phdr->caplen - s,
-                        phdr->len - s, ether, vlanid, &tv,
-                        num_label) == PP_MALLOC_FAIL)
+                        phdr->len - s,
+                        cb_ctxt->linktype ==
+                        DLT_EN10MB ? (const struct ether_header *) pkt : NULL,
+                        vlanid, &tv, num_label) == PP_MALLOC_FAIL)
       cb_ctxt->fatal = 1;
   }
   if (cb_ctxt->ft->param.adjust_time)
@@ -1626,7 +1622,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
     bpf_net = bpf_mask = 0;
   }
   *linktype = pcap_datalink (*pcap);
-  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL, NULL) == -1) {
+  if (datalink_check (*linktype, NULL, 0, NULL, NULL, NULL) == -1) {
     fprintf (stderr, "Unsupported datalink type %d\n", *linktype);
     exit (1);
   }
@@ -1947,7 +1943,7 @@ main (int argc, char **argv) {
   const char *pidfile_path, *ctlsock_path;
   extern char *optarg;
   extern int optind;
-  int ch, dontfork_flag, linktype, ctlsock, err, always_v6, r, dest_idx;
+  int ch, dontfork_flag, linktype = 0, ctlsock, err, always_v6, r, dest_idx;
   int stop_collection_flag, exit_request, hoplimit;
   pcap_t *pcap = NULL;
   struct FLOWTRACK flowtrack;

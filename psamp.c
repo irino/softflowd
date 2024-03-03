@@ -157,7 +157,7 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   offset += sizeof (struct ntp_time_t);
   ntptime.second = ntohl (ntptime.second);
   ntptime.fraction = ntohl (ntptime.fraction);
-  pkthdr.ts = conv_ntp_to_unix (ntptime);
+  conv_ntp_to_unix (ntptime, &pkthdr.ts);
 
   //sectionExportedOctets
   pkthdr.caplen = pkthdr.len = ntohs (*((uint16_t *) & buf[offset]));
