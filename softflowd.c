@@ -620,7 +620,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
 
   if (frag)
     ft->param.frag_packets++;
-  if (first && track_level >= TRACK_IP_PROTO_PORT)
+  if (first && ft->param.track_level >= TRACK_IP_PROTO_PORT)
     transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx);
   if (ft->param.track_level >= TRACK_FULL_VLAN)
     tmp.vlanid[ndx] = vlanid;
