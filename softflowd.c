@@ -262,7 +262,7 @@ expiry_put (struct FLOWTRACK *ft, struct EXPIRY *expiry) {
 #if 0
 /* Dump a packet */
 static void
-dump_packet (const u_int8_t * p, int len) {
+dump_packet (const u_int8_t *p, int len) {
   char buf[1024], tmp[3];
   int i;
 
@@ -355,7 +355,7 @@ format_flow_brief (struct FLOW *flow) {
 
 /* Fill in transport-layer (tcp/udp) portions of flow record */
 static void
-transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
+transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
                       const size_t caplen, int protocol, int ndx) {
   const struct tcphdr *tcp = (const struct tcphdr *) pkt;
   const struct udphdr *udp = (const struct udphdr *) pkt;
@@ -402,7 +402,7 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t * pkt,
  * @return return header size as posive value, return negative value when error occured
  */
 static int
-ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
+ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
                  int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip *ip = (const struct ip *) pkt;
   if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
@@ -426,7 +426,7 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
  * @return return header size as posive value, return negative value when error occured
  */
 static int
-ipv6_to_flowrec (struct FLOW *flow, const u_int8_t * pkt, size_t caplen,
+ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
                  int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
@@ -591,7 +591,7 @@ out:
  */
 static int
 process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
-                const u_char * frame, int datalink_size, int af,
+                const u_char *frame, int datalink_size, int af,
                 u_int16_t vlanid, u_int8_t num_label) {
   struct FLOW tmp, *flow;
   struct FLOWTRACK *ft = cb_ctxt->ft;
@@ -698,7 +698,7 @@ timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
 int
 send_multi_destinations (int num_destinations,
                          struct DESTINATION *destinations,
-                         u_int8_t is_loadbalance, u_int8_t * packet,
+                         u_int8_t is_loadbalance, u_int8_t *packet,
                          int size) {
   struct DESTINATION *dest;
   int i, err;
@@ -1052,7 +1052,7 @@ delete_all_flows (struct FLOWTRACK *ft) {
  * and the tree of expiry events.
  */
 static int
-statistics (struct FLOWTRACK *ft, FILE * out, pcap_t * pcap) {
+statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
   int i;
   struct protoent *pe;
   char proto[32];
@@ -1136,7 +1136,7 @@ statistics (struct FLOWTRACK *ft, FILE * out, pcap_t * pcap) {
 }
 
 static void
-dump_flows (struct FLOWTRACK *ft, FILE * out) {
+dump_flows (struct FLOWTRACK *ft, FILE *out) {
   struct EXPIRY *expiry;
   time_t now;
 
@@ -1167,8 +1167,8 @@ dump_flows (struct FLOWTRACK *ft, FILE * out) {
  * packet should be skipped
  */
 static int
-datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
-                u_int16_t * vlanid, u_int8_t * num_label) {
+datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
+                u_int16_t *vlanid, u_int8_t *num_label) {
   int i, j;
   u_int32_t frametype;
   int vlan_size = 0;
@@ -1250,8 +1250,7 @@ datalink_check (int linktype, const u_int8_t * pkt, u_int32_t caplen, int *af,
  * sans datalink headers to process_packet.
  */
 void
-flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
-         const u_char * pkt) {
+flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
   int s, af = 0;
   struct CB_CTXT *cb_ctxt = (struct CB_CTXT *) user_data;
   u_int16_t vlanid = 0;
@@ -1293,8 +1292,8 @@ flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
 
 #ifdef ENABLE_PTHREAD
 static void
-pcap_memcpy (u_char * user_data, const struct pcap_pkthdr *phdr,
-             const u_char * pkt) {
+pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
+             const u_char *pkt) {
   pthread_mutex_lock (&read_mutex);
   memcpy (&packet_header, phdr, sizeof (struct pcap_pkthdr));
   memcpy (&packet_data, pkt, sizeof (packet_data));
@@ -1317,7 +1316,7 @@ process_packet_loop (void *arg) {
 #endif /* ENABLE_PTHREAD */
 
 static void
-print_timeouts (struct FLOWTRACK *ft, FILE * out) {
+print_timeouts (struct FLOWTRACK *ft, FILE *out) {
   fprintf (out, "           TCP timeout: %ds\n", ft->param.tcp_timeout);
   fprintf (out, "  TCP post-RST timeout: %ds\n", ft->param.tcp_rst_timeout);
   fprintf (out, "  TCP post-FIN timeout: %ds\n", ft->param.tcp_fin_timeout);
@@ -1330,7 +1329,7 @@ print_timeouts (struct FLOWTRACK *ft, FILE * out) {
 
 static int
 accept_control (int lsock, struct NETFLOW_TARGET *target,
-                struct FLOWTRACK *ft, pcap_t * pcap, int *exit_request,
+                struct FLOWTRACK *ft, pcap_t *pcap, int *exit_request,
                 int *stop_collection_flag) {
   char buf[64], *p;
   FILE *ctlf;
@@ -1820,7 +1819,7 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
 }
 
 static void
-parse_hostport (const char *s, struct sockaddr *addr, socklen_t * len) {
+parse_hostport (const char *s, struct sockaddr *addr, socklen_t *len) {
   char *orig, *host, *port;
   struct addrinfo hints, *res;
   int herr;
@@ -1952,7 +1951,9 @@ main (int argc, char **argv) {
   int protocol = IPPROTO_UDP;
   int version = 0;
   int rsock = 0, recvport = IPFIX_PORT, recvloop = 0;
+  int user_ifindex_flag = 0;
 #ifdef LINUX
+  struct ifreq ifr;
   char *send_ifname;
 #endif /* LINUX */
 #ifdef ENABLE_PTHREAD
@@ -2016,6 +2017,7 @@ main (int argc, char **argv) {
           if_index = (u_int16_t) atoi (dev);
         }
         dev = optarg;
+        user_ifindex_flag = 1;
       }
       if (strlen (dev) == 0) {
         fprintf (stderr, "Wrong interface is specified.\n\n");
@@ -2290,6 +2292,16 @@ main (int argc, char **argv) {
 #ifdef LINUX
       if (dest->sock > 0 && send_ifname != NULL) {
         bind_device (dest->sock, send_ifname);
+      }
+      if (user_ifindex_flag == 0) {
+        strncpy (ifr.ifr_name, dev, IFNAMSIZ - 1);
+        if (ioctl (pcap_get_selectable_fd (pcap), SIOCGIFINDEX, &ifr) < 0) {
+          perror ("ioctl SIOCGIFINDEX");
+        }
+        if_index = ifr.ifr_ifindex;
+        if (verbose_flag)
+          fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n",
+                   dev, if_index);
       }
 #endif /* LINUX */
     }
