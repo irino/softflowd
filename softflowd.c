@@ -2293,7 +2293,7 @@ main (int argc, char **argv) {
       if (dest->sock > 0 && send_ifname != NULL) {
         bind_device (dest->sock, send_ifname);
       }
-      if (user_ifindex_flag == 0) {
+      if (dev != NULL && user_ifindex_flag == 0) {
         strncpy (ifr.ifr_name, dev, IFNAMSIZ - 1);
         if (ioctl (pcap_get_selectable_fd (pcap), SIOCGIFINDEX, &ifr) < 0) {
           perror ("ioctl SIOCGIFINDEX");
