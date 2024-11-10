@@ -134,7 +134,11 @@ const struct IPFIX_FIELD_SPECIFIER field_option[] = {
   {PSAMP_samplingPacketInterval, 4},
   {PSAMP_samplingPacketSpace, 4},
   {PSAMP_selectorAlgorithm, 2},
-  {IPFIX_interfaceName, IFNAMSIZ}
+  {IPFIX_interfaceName, IFNAMSIZ},
+  {IPFIX_exporterIPv4Address, 4},
+  {IPFIX_exporterIPv4Address, 16},
+  {IPFIX_originalExporterIPv4Address, 4},
+  {IPFIX_originalExporterIPv4Address, 16}
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_nf9scope[] =
@@ -273,6 +277,10 @@ struct IPFIX_SOFTFLOWD_OPTION_DATA {
   u_int32_t samplingSpace;
   u_int16_t samplingAlgorithm;
   char interfaceName[IFNAMSIZ];
+  u_int32_t exporterIPv4Address;
+  struct in6_addr exporterIPv6Address;
+  u_int32_t originalExporterIPv4Address;
+  struct in6_addr originalExporterIPv6Address;
 } __packed;
 
 struct NFLOW9_SOFTFLOWD_OPTION_DATA {
@@ -593,6 +601,18 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
            sizeof (option_data.interfaceName) ?
            strlen (option->interfaceName) :
            sizeof (option_data.interfaceName));
+  if (option->exporterAddr != NULL) {
+    struct addrinfo *rp;
+    for (rp = option->exporterAddr; rp != NULL; rp->ai_next) {
+      if (rp->ai_family == AF_INET) {
+        memcpy (&option_data.exporterIPv4Address, rp->ai_addr, sizeof(option_data.exporterIPv4Address));
+        memcpy (&option_data.originalExporterIPv4Address, rp->ai_addr, sizeof(option_data.originalExporterIPv4Address));
+      } else if (rp->ai_family == AF_INET6) {
+        memcpy (&option_data.exporterIPv6Address, rp->ai_addr, sizeof(option_data.exporterIPv6Address));
+        memcpy (&option_data.originalExporterIPv6Address, rp->ai_addr, sizeof(option_data.originalExporterIPv6Address));
+      } 
+    }
+  }
 }
 
 static int

@@ -110,6 +110,7 @@ struct OPTION {
   uint32_t sample;
   pid_t meteringProcessId;
   char interfaceName[IFNAMSIZ];
+  struct addrinfo *exporterAddr;
 };
 
 struct FLOWTRACKPARAMETERS {

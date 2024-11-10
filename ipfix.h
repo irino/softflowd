@@ -66,6 +66,9 @@
 /* ... */
 #define IPFIX_interfaceName             82
 /* ... */
+#define IPFIX_exporterIPv4Address       130
+#define IPFIX_exporterIPv6Address       131
+/* ... */
 #define IPFIX_flowEndReason             136
 /* ... */
 #define IPFIX_icmpTypeCodeIPv6          139
@@ -82,6 +85,9 @@
 #define IPFIX_flowEndNanoSeconds        157
 /* ... */
 #define IPFIX_systemInitTimeMilliseconds 160
+/* ... */
+#define IPFIX_originalExporterIPv4Address 403
+#define IPFIX_originalExporterIPv6Address 404
 /* ... */
 
 // flow end reason for ipfix ie 136

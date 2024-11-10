@@ -1479,12 +1479,13 @@ bind_device (int sock, char *ifname) {
 
 static int
 connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
-          int protocol) {
+          int protocol, struct addrinfo *exporterAddr) {
   int s;
   unsigned int h6;
   unsigned char h4;
   struct sockaddr_in *in4 = (struct sockaddr_in *) addr;
   struct sockaddr_in6 *in6 = (struct sockaddr_in6 *) addr;
+  struct addrinfo *rp = NULL;
 
   if ((s =
        socket (addr->ss_family,
@@ -1492,6 +1493,13 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
                protocol)) == -1) {
     fprintf (stderr, "socket() error: %s\n", strerror (errno));
     exit (1);
+  }
+  if (exporterAddr != NULL) {
+    for (rp = exporterAddr; rp == NULL; rp = rp->ai_next) {
+      if (bind (s, rp->ai_addr, rp->ai_addrlen) == 0) {
+        break;
+      }
+    }
   }
   if (connect (s, (struct sockaddr *) addr, len) == -1) {
     fprintf (stderr, "connect() error: %s\n", strerror (errno));
@@ -1985,7 +1993,7 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:g")) !=
+                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:")) !=
          -1) {
     switch (ch) {
     case '6':
@@ -2241,6 +2249,19 @@ main (int argc, char **argv) {
     case 'g':
       gauge_clock = 1;
       break;
+    case 'e':
+      if (optarg != NULL) {
+        struct addrinfo hints;
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
+        hints.ai_flags = 0;
+        hints.ai_protocol = protocol;
+        if (getaddrinfo(optarg, NULL, &hints, &flowtrack.param.option.exporterAddr) != 0) {
+          perror("getaddrinfo");
+          break;
+        }
+      }
+      break; 
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2288,7 +2309,8 @@ main (int argc, char **argv) {
         }
       } else
 #endif
-        dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol);
+        dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
+        flowtrack.param.option.exporterAddr);
 #ifdef LINUX
       if (dest->sock > 0 && send_ifname != NULL) {
         bind_device (dest->sock, send_ifname);
