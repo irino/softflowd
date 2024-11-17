@@ -136,9 +136,9 @@ const struct IPFIX_FIELD_SPECIFIER field_option[] = {
   {PSAMP_selectorAlgorithm, 2},
   {IPFIX_interfaceName, IFNAMSIZ},
   {IPFIX_exporterIPv4Address, 4},
-  {IPFIX_exporterIPv4Address, 16},
+  {IPFIX_exporterIPv6Address, 16},
   {IPFIX_originalExporterIPv4Address, 4},
-  {IPFIX_originalExporterIPv4Address, 16}
+  {IPFIX_originalExporterIPv6Address, 16}
 };
 
 const struct IPFIX_FIELD_SPECIFIER field_nf9scope[] =
