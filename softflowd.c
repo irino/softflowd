@@ -1614,7 +1614,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
       }
     if (pcap_lookupnet (dev, &bpf_net, &bpf_mask, ebuf) == -1)
       bpf_net = bpf_mask = 0;
-    if ((res = pcap_activate (*pcap)) != 0) {
+    if ((res = pcap_activate (*pcap)) < 0) {
       fprintf (stderr, "pcap_activate: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
