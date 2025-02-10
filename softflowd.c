@@ -1495,11 +1495,12 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
     exit (1);
   }
   if (exporterAddr != NULL) {
-    for (rp = exporterAddr; rp == NULL; rp = rp->ai_next) {
+    for (rp = exporterAddr; rp != NULL; rp = rp->ai_next) {
       if (bind (s, rp->ai_addr, rp->ai_addrlen) == 0) {
         break;
       }
     }
+    exporterAddr = rp;
   }
   if (connect (s, (struct sockaddr *) addr, len) == -1) {
     fprintf (stderr, "connect() error: %s\n", strerror (errno));
@@ -2253,15 +2254,18 @@ main (int argc, char **argv) {
       if (optarg != NULL) {
         struct addrinfo hints;
         hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
+        hints.ai_socktype =
+          protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
         hints.ai_flags = 0;
         hints.ai_protocol = protocol;
-        if (getaddrinfo(optarg, NULL, &hints, &flowtrack.param.option.exporterAddr) != 0) {
-          perror("getaddrinfo");
+        if (getaddrinfo
+            (optarg, NULL, &hints,
+             &flowtrack.param.option.exporterAddr) != 0) {
+          perror ("getaddrinfo");
           break;
         }
       }
-      break; 
+      break;
     default:
       fprintf (stderr, "Invalid commandline option.\n");
       usage ();
@@ -2310,7 +2314,7 @@ main (int argc, char **argv) {
       } else
 #endif
         dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
-        flowtrack.param.option.exporterAddr);
+                               flowtrack.param.option.exporterAddr);
 #ifdef LINUX
       if (dest->sock > 0 && send_ifname != NULL) {
         bind_device (dest->sock, send_ifname);

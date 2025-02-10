@@ -328,7 +328,7 @@ static int ipfix_pkts_until_template = -1;
 
 int
 ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
-                   u_int * index,
+                   u_int *index,
                    const struct IPFIX_FIELD_SPECIFIER *src,
                    u_int field_number) {
   int i, length = 0;
@@ -361,7 +361,7 @@ conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
 
 static int
 ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-                     u_int * index,
+                     u_int *index,
                      const struct IPFIX_FIELD_SPECIFIER *fields,
                      u_int field_number) {
   int i, length = 0;
@@ -378,7 +378,7 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
 static int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
                           struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-                          u_int * index) {
+                          u_int *index) {
   int length = 0;
   if (param->time_format == 's') {
     length = ipfix_init_fields (template->r, index,
@@ -603,14 +603,20 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
            sizeof (option_data.interfaceName));
   if (option->exporterAddr != NULL) {
     struct addrinfo *rp;
-    for (rp = option->exporterAddr; rp != NULL; rp->ai_next) {
+    for (rp = option->exporterAddr; rp != NULL; rp = rp->ai_next) {
       if (rp->ai_family == AF_INET) {
-        memcpy (&option_data.exporterIPv4Address, rp->ai_addr, sizeof(option_data.exporterIPv4Address));
-        memcpy (&option_data.originalExporterIPv4Address, rp->ai_addr, sizeof(option_data.originalExporterIPv4Address));
+        memcpy (&option_data.exporterIPv4Address,
+                &((struct sockaddr_in *) rp->ai_addr)->sin_addr,
+                sizeof (option_data.exporterIPv4Address));
+        memcpy (&option_data.originalExporterIPv4Address, rp->ai_addr,
+                sizeof (option_data.originalExporterIPv4Address));
       } else if (rp->ai_family == AF_INET6) {
-        memcpy (&option_data.exporterIPv6Address, rp->ai_addr, sizeof(option_data.exporterIPv6Address));
-        memcpy (&option_data.originalExporterIPv6Address, rp->ai_addr, sizeof(option_data.originalExporterIPv6Address));
-      } 
+        memcpy (&option_data.exporterIPv6Address, rp->ai_addr,
+                sizeof (option_data.exporterIPv6Address));
+        memcpy (&option_data.originalExporterIPv6Address,
+                &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr,
+                sizeof (option_data.originalExporterIPv6Address));
+      }
     }
   }
 }
@@ -671,10 +677,10 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
 }
 
 static int
-ipfix_flow_to_flowset (const struct FLOW *flow, u_char * packet,
+ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int len, u_int16_t ifidx,
                        const struct timeval *system_boot_time,
-                       u_int * len_used,
+                       u_int *len_used,
                        struct FLOWTRACKPARAMETERS *param, u_int8_t bi_flag) {
   struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = { NULL, NULL };
   struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = { NULL, NULL };
@@ -814,7 +820,7 @@ ipfix_resend_template (void) {
 }
 
 void
-memcpy_template (u_char * packet, u_int * offset,
+memcpy_template (u_char *packet, u_int *offset,
                  struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag,
                  u_int8_t max_num_label) {
   int i = 0;
