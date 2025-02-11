@@ -1,5 +1,5 @@
-<!-- Creator     : groff version 1.22.4 -->
-<!-- CreationDate: Sat Aug 13 06:54:00 2022 -->
+<!-- Creator     : groff version 1.23.0 -->
+<!-- CreationDate: Tue Feb 11 00:28:01 2025 -->
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
 "http://www.w3.org/TR/html4/loose.dtd">
 <html>
@@ -20,17 +20,17 @@
 <hr>
 
 
-<p>SOFTFLOWD(8) BSD System Manager&rsquo;s Manual
-SOFTFLOWD(8)</p>
+<p><i>SOFTFLOWD</i>(8) System Manager&rsquo;s Manual
+<i>SOFTFLOWD</i>(8)</p>
 
 <p style="margin-top: 1em"><b>NAME</b></p>
 
-<p style="margin-left:6%;"><b>softflowd</b> &mdash; Traffic
-flow monitoring</p>
+<p style="margin-left:9%;">softflowd &mdash; Traffic flow
+monitoring</p>
 
 <p style="margin-top: 1em"><b>SYNOPSIS</b></p>
 
-<p style="margin-left:19%;"><b>softflowd</b>
+<p style="margin-left:22%;"><b>softflowd</b>
 [<b>-6dDhbalN</b>] [<b>-L&nbsp;</b><i>hoplimit</i>]
 [<b>-T&nbsp;</b><i>track_level</i>]
 [<b>-c&nbsp;</b><i>ctl_sock</i>] [</p>
@@ -50,11 +50,12 @@ if_ndx</i>:]<i>interface</i> ]
 [<b>-R&nbsp;</b><i>receive_port</i>]
 [<b>-S&nbsp;</b><i>send_interface_name</i>]
 [<b>-x&nbsp;</b><i>number_of_mpls_labels</i>]
+[<b>-e&nbsp;</b><i>exporter_ip_address</i>]
 [bpf_expression]</p>
 
 <p style="margin-top: 1em"><b>DESCRIPTION</b></p>
 
-<p style="margin-left:6%;"><b>softflowd</b> is a software
+<p style="margin-left:9%;"><b>softflowd</b> is a software
 implementation of a flow-based network traffic monitor.
 <b>softflowd</b> reads network traffic and gathers
 information about active traffic flows. A &quot;traffic
@@ -62,7 +63,7 @@ flow&quot; is communication between two IP addresses or (if
 the overlying protocol is TCP or UDP) address/port
 tuples.</p>
 
-<p style="margin-left:6%; margin-top: 1em">The intended use
+<p style="margin-left:9%; margin-top: 1em">The intended use
 of <b>softflowd</b> is as a software implementation of
 Cisco&rsquo;s NetFlow(tm) traffic account system.
 <b>softflowd</b> supports data export using versions 1, 5, 9
@@ -72,19 +73,19 @@ it just collects summary information. However, too few
 statistics are collected to make this mode really useful for
 anything other than debugging.</p>
 
-<p style="margin-left:6%; margin-top: 1em">Network traffic
+<p style="margin-left:9%; margin-top: 1em">Network traffic
 may be obtained by listening on a promiscuous network
 interface (unless the <b>-N</b> option is given) or by
-reading stored pcap(3) files, such as those written by
-tcpdump(8). Traffic may be filtered with an optional bpf(4)
-program, specified on the command-line as
-<i>bpf_expression</i>. <b>softflowd</b> is IPv6 capable and
-will track IPv6 flows if the NetFlow export protocol
-supports it (currently only NetFlow v.9 possesses an IPv6
-export capability).</p>
+reading stored <i>pcap</i>(3) files, such as those written
+by <i>tcpdump</i>(8). Traffic may be filtered with an
+optional <i>bpf</i>(4) program, specified on the
+command-line as <i>bpf_expression</i>. <b>softflowd</b> is
+IPv6 capable and will track IPv6 flows if the NetFlow export
+protocol supports it (currently only NetFlow v.9 possesses
+an IPv6 export capability).</p>
 
 
-<p style="margin-left:6%; margin-top: 1em"><b>softflowd</b>
+<p style="margin-left:9%; margin-top: 1em"><b>softflowd</b>
 tries to track only active traffic flows. When the flow has
 been quiescent for a period of time it is expired
 automatically. Flows may also be expired early if they
@@ -93,33 +94,33 @@ of flows being tracked exceeds <i>max_flows</i> (default:
 8192). In this last case, flows are expired
 oldest-first.</p>
 
-<p style="margin-left:6%; margin-top: 1em">Upon expiry, the
+<p style="margin-left:9%; margin-top: 1em">Upon expiry, the
 flow information is accumulated into statistics which may be
-viewed using softflowctl(8). If the <b>-n</b> option has
-been specified the flow information is formatted in a UDP
-datagram which is compatible with versions 1, 5 or 9 of
+viewed using <i>softflowctl</i>(8). If the <b>-n</b> option
+has been specified the flow information is formatted in a
+UDP datagram which is compatible with versions 1, 5 or 9 of
 Cisco&rsquo;s NetFlow(tm) accounting export format. These
 records are sent to the specified <i>host</i> and
 <i>port</i>. The host may represent a unicast host or a
 multicast group.</p>
 
-<p style="margin-left:6%; margin-top: 1em">The command-line
+<p style="margin-left:9%; margin-top: 1em">The command-line
 options are as follows:</p>
 
 <p style="margin-top: 1em"><b>-n</b> <i>host:port</i></p>
 
-<p style="margin-left:17%;">Specify the <i>host</i> and
+<p style="margin-left:19%;">Specify the <i>host</i> and
 <i>port</i> that the accounting datagrams are to be sent to.
 The host may be specified using a hostname or using a
 numeric IPv4 or IPv6 address. Numeric IPv6 addresses should
 be enclosed in square brackets to avoid ambiguity between
 the address and the port. The destination port may be a
-portname listed in services(5) or a numeric port. Comma can
-be used for specifying multiple destinations.</p>
+portname listed in <i>services</i>(5) or a numeric port.
+Comma can be used for specifying multiple destinations.</p>
 
 <p style="margin-top: 1em"><b>-N</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Do not put the
+<p style="margin-left:19%; margin-top: 1em">Do not put the
 interface into promiscuous mode. Note that the interface
 might be in promiscuous mode for some other reason.</p>
 
@@ -127,36 +128,36 @@ might be in promiscuous mode for some other reason.</p>
 [ <i><br>
 if_ndx</i>:]<i>interface</i></p>
 
-<p style="margin-left:17%;">Specify a network interface on
+<p style="margin-left:19%;">Specify a network interface on
 which to listen for traffic. Either the <b>-i</b> or the
 <b>-r</b> options must be specified.</p>
 
 <p style="margin-top: 1em"><b>-r</b> <i>pcap_file</i></p>
 
-<p style="margin-left:17%;">Specify that <b>softflowd</b>
-should read from a pcap(3) packet capture file (such as one
-created with the <b>-w</b> option of tcpdump(8)) file rather
-than a network interface. <b>softflowd</b> processes the
-whole capture file and only expires flows when
-<i>max_flows</i> is exceeded. In this mode, <b>softflowd</b>
-will not fork and will automatically print summary
-statistics before exiting.</p>
+<p style="margin-left:19%;">Specify that <b>softflowd</b>
+should read from a <i>pcap</i>(3) packet capture file (such
+as one created with the <b>-w</b> option of
+<i>tcpdump</i>(8)) file rather than a network interface.
+<b>softflowd</b> processes the whole capture file and only
+expires flows when <i>max_flows</i> is exceeded. In this
+mode, <b>softflowd</b> will not fork and will automatically
+print summary statistics before exiting.</p>
 
 <p style="margin-top: 1em"><b>-p</b> <i>pidfile</i></p>
 
-<p style="margin-left:17%;">Specify an alternate location
+<p style="margin-left:19%;">Specify an alternate location
 to store the process ID when in daemon mode. Default is
 <i>/var/run/softflowd.pid</i></p>
 
 <p style="margin-top: 1em"><b>-c</b> <i>ctlsock</i></p>
 
-<p style="margin-left:17%;">Specify an alternate location
+<p style="margin-left:19%;">Specify an alternate location
 for the remote control socket in daemon mode. Default is
 <i>/var/run/softflowd.ctl</i></p>
 
 <p style="margin-top: 1em"><b>-m</b> <i>max_flows</i></p>
 
-<p style="margin-left:17%;">Specify the maximum number of
+<p style="margin-left:19%;">Specify the maximum number of
 flows to concurrently track. If this limit is exceeded, the
 flows which have least recently seen traffic are forcibly
 expired. In practice, the actual maximum may briefly exceed
@@ -168,67 +169,67 @@ working data.</p>
 <p style="margin-top: 1em"><b>-t</b>
 <i>timeout_name=time</i></p>
 
-<p style="margin-left:17%;">Set the timeout names
+<p style="margin-left:19%;">Set the timeout names
 <i>timeout_name</i> to <i>time</i>. Refer to the
-<i>Timeouts</i> section for the valid timeout names and
-their meanings. The <i>time</i> parameter may be specified
-using one of the formats explained in the <i>Time
-Formats</i> section below.</p>
+&ldquo;Timeouts&rdquo; section for the valid timeout names
+and their meanings. The <i>time</i> parameter may be
+specified using one of the formats explained in the
+&ldquo;Time Formats&rdquo; section below.</p>
 
 <p style="margin-top: 1em"><b>-d</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Specify that
+<p style="margin-left:19%; margin-top: 1em">Specify that
 <b>softflowd</b> should not fork and daemonise itself.</p>
 
 <p style="margin-top: 1em"><b>-6</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Force
+<p style="margin-left:19%; margin-top: 1em">Force
 <b>softflowd</b> to track IPv6 flows even if the NetFlow
 export protocol does not support reporting them. This is
 useful for debugging and statistics gathering only.</p>
 
 <p style="margin-top: 1em"><b>-D</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Places
+<p style="margin-left:19%; margin-top: 1em">Places
 <b>softflowd</b> in a debugging mode. This implies the
 <b>-d</b> and <b>-6</b> flags and turns on additional
 debugging output.</p>
 
 <p style="margin-top: 1em"><b>-B</b> <i>size_bytes</i></p>
 
-<p style="margin-left:17%;">Libpcap buffer size in
+<p style="margin-left:19%;">Libpcap buffer size in
 bytes</p>
 
 <p style="margin-top: 1em"><b>-b</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Bidirectional
+<p style="margin-left:19%; margin-top: 1em">Bidirectional
 mode in IPFIX (-b work with -v 10)</p>
 
 <p style="margin-top: 1em"><b>-a</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Adjusting time
+<p style="margin-left:19%; margin-top: 1em">Adjusting time
 for reading pcap file (-a work with -r)</p>
 
 <p style="margin-top: 1em"><b>-l</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Load balancing
+<p style="margin-left:19%; margin-top: 1em">Load balancing
 mode for multiple destinations which are specified with
 -n</p>
 
 <p style="margin-top: 1em"><b>-x</b>
 <i>number_of_mpls_labels</i></p>
 
-<p style="margin-left:17%;">specify number of mpls labels
+<p style="margin-left:19%;">specify number of mpls labels
 for export</p>
 
 <p style="margin-top: 1em"><b>-h</b></p>
 
-<p style="margin-left:17%; margin-top: 1em">Display
+<p style="margin-left:19%; margin-top: 1em">Display
 command-line usage information.</p>
 
 <p style="margin-top: 1em"><b>-L</b> <i>hoplimit</i></p>
 
-<p style="margin-left:17%;">Set the IPv4 TTL or the IPv6
+<p style="margin-left:19%;">Set the IPv4 TTL or the IPv6
 hop limit to <i>hoplimit</i>. <b>softflowd</b> will use the
 default system TTL when exporting flows to a unicast host.
 When exporting to a multicast group, the default TTL will be
@@ -236,7 +237,7 @@ When exporting to a multicast group, the default TTL will be
 
 <p style="margin-top: 1em"><b>-T</b> <i>track_level</i></p>
 
-<p style="margin-left:17%;">Specify which flow elements
+<p style="margin-left:19%;">Specify which flow elements
 <b>softflowd</b> should be used to define a flow.
 <i>track_level</i> may be one of: &ldquo;ether&rdquo; (track
 everything including source and destination addresses,
@@ -258,7 +259,7 @@ of some detail being lost.</p>
 <p style="margin-top: 1em"><b>-v</b>
 <i>netflow_version</i></p>
 
-<p style="margin-left:17%;">Specify which version of the
+<p style="margin-left:19%;">Specify which version of the
 NetFlow(tm) protocol <b>softflowd</b> should use for export
 of the flow data. Supported versions are 1, 5, 9, 10(IPFIX),
 and psamp. Default is version 5.</p>
@@ -266,172 +267,183 @@ and psamp. Default is version 5.</p>
 <p style="margin-top: 1em"><b>-P</b>
 <i>transport_protocol</i></p>
 
-<p style="margin-left:17%;">Specify transport layer
+<p style="margin-left:19%;">Specify transport layer
 protocol for exporting packets. Supported transport layer
 protocols are udp, tcp, and sctp.</p>
 
 <p style="margin-top: 1em"><b>-A</b> <i>time_format</i></p>
 
-<p style="margin-left:17%;">Specify absolute time format
+<p style="margin-left:19%;">Specify absolute time format
 form exporting records. Supported time formats are sec,
 milli, micro, and nano.</p>
 
 <p style="margin-top: 1em"><b>-s</b>
 <i>sampling_rate</i></p>
 
-<p style="margin-left:17%;">Specify periodical sampling
+<p style="margin-left:19%;">Specify periodical sampling
 rate (denominator).</p>
 
 <p style="margin-top: 1em"><b>-C</b>
 <i>capture_length</i></p>
 
-<p style="margin-left:17%;">Specify length for packet
+<p style="margin-left:19%;">Specify length for packet
 capture (snaplen).</p>
 
 <p style="margin-top: 1em"><b>-R</b>
 <i>receive_port</i></p>
 
-<p style="margin-left:17%;">Specify port number for PSAMP
+<p style="margin-left:19%;">Specify port number for PSAMP
 receive mode.</p>
 
 <p style="margin-top: 1em"><b>-S</b>
 <i>send_interface_name</i></p>
 
-<p style="margin-left:17%;">Specify send interface name.
+<p style="margin-left:19%;">Specify send interface name.
 (This option works on Linux only because of use of
 SO_BINDTODEVICE for setsockopt.)</p>
 
-<p style="margin-left:6%; margin-top: 1em">Any further
-command-line arguments will be concatenated together and
-applied as a bpf(4) packet filter. This filter will cause
-<b>softflowd</b> to ignore the specified traffic.</p>
+<p style="margin-top: 1em"><b>-e</b>
+<i>exporter_ip_address</i></p>
 
-<p style="margin-left:6%; margin-top: 1em"><b>Timeouts <br>
-softflowd</b> will expire quiescent flows after
-user-configurable periods. The exact timeout used depends on
-the nature of the flow. The various timeouts that may be set
-from the command-line (using the <b>-t</b> option) and their
-meanings are:</p>
+<p style="margin-left:19%;">Specify exporter IPv4 or IPv6
+address.</p>
+
+<p style="margin-left:9%; margin-top: 1em">Any further
+command-line arguments will be concatenated together and
+applied as a <i>bpf</i>(4) packet filter. This filter will
+cause <b>softflowd</b> to ignore the specified traffic.</p>
+
+
+<p style="margin-left:4%; margin-top: 1em"><b>Timeouts</b></p>
+
+<p style="margin-left:9%;"><b>softflowd</b> will expire
+quiescent flows after user-configurable periods. The exact
+timeout used depends on the nature of the flow. The various
+timeouts that may be set from the command-line (using the
+<b>-t</b> option) and their meanings are:</p>
 
 <p style="margin-top: 1em"><i>general</i></p>
 
-<p style="margin-left:17%;">This is the general timeout
+<p style="margin-left:19%;">This is the general timeout
 applied to all traffic unless overridden by one of the other
 timeouts.</p>
 
 <p style="margin-top: 1em"><i>tcp</i></p>
 
-<p style="margin-left:17%; margin-top: 1em">This is the
+<p style="margin-left:19%; margin-top: 1em">This is the
 general TCP timeout, applied to open TCP connections.</p>
 
 <p style="margin-top: 1em"><i>tcp.rst</i></p>
 
-<p style="margin-left:17%;">This timeout is applied to a
+<p style="margin-left:19%;">This timeout is applied to a
 TCP connection when a RST packet has been sent by one or
 both endpoints.</p>
 
 <p style="margin-top: 1em"><i>tcp.fin</i></p>
 
-<p style="margin-left:17%;">This timeout is applied to a
+<p style="margin-left:19%;">This timeout is applied to a
 TCP connection when a FIN packet has been sent by both
 endpoints.</p>
 
 <p style="margin-top: 1em"><i>udp</i></p>
 
-<p style="margin-left:17%; margin-top: 1em">This is the
+<p style="margin-left:19%; margin-top: 1em">This is the
 general UDP timeout, applied to all UDP connections.</p>
 
 <p style="margin-top: 1em"><i>maxlife</i></p>
 
-<p style="margin-left:17%;">This is the maximum lifetime
+<p style="margin-left:19%;">This is the maximum lifetime
 that a flow may exist for. All flows are forcibly expired
 when they pass <i>maxlife</i> seconds. To disable this
 feature, specify a <i>maxlife</i> of 0.</p>
 
 <p style="margin-top: 1em"><i>expint</i></p>
 
-<p style="margin-left:17%; margin-top: 1em">Specify the
+<p style="margin-left:19%; margin-top: 1em">Specify the
 interval between expiry checks. Increase this to group more
 flows into a NetFlow packet. To disable this feature,
 specify a <i>expint</i> of 0.</p>
 
-<p style="margin-left:6%; margin-top: 1em">Flows may also
+<p style="margin-left:9%; margin-top: 1em">Flows may also
 be expired if there are not enough flow entries to hold them
 or if their traffic exceeds 2 Gib in either direction.
-softflowctl(8) may be used to print information on the
-average lifetimes of flows and the reasons for their
+<i>softflowctl</i>(8) may be used to print information on
+the average lifetimes of flows and the reasons for their
 expiry.</p>
 
-<p style="margin-left:6%; margin-top: 1em"><b>Time Formats
-<br>
-softflowd</b> command-line arguments that specify time may
-be expressed using a sequence of the form:
-<i>time</i>[<i>qualifier</i>], where <i>time</i> is a
-positive integer value and <i>qualifier</i> is one of the
-following:</p>
+<p style="margin-left:4%; margin-top: 1em"><b>Time
+Formats</b></p>
+
+<p style="margin-left:9%;"><b>softflowd</b> command-line
+arguments that specify time may be expressed using a
+sequence of the form: <i>time</i>[<i>qualifier</i>], where
+<i>time</i> is a positive integer value and <i>qualifier</i>
+is one of the following:</p>
 
 <p style="margin-top: 1em"><b>&lt;none&gt;</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">seconds</p>
+<p style="margin-left:27%; margin-top: 1em">seconds</p>
 
 <p><b>s</b> | <b>S</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">seconds</p>
+<p style="margin-left:27%; margin-top: 1em">seconds</p>
 
 <p><b>m</b> | <b>M</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">minutes</p>
+<p style="margin-left:27%; margin-top: 1em">minutes</p>
 
 <p><b>h</b> | <b>H</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">hours</p>
+<p style="margin-left:27%; margin-top: 1em">hours</p>
 
 <p><b>d</b> | <b>D</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">days</p>
+<p style="margin-left:27%; margin-top: 1em">days</p>
 
 <p><b>w</b> | <b>W</b></p>
 
-<p style="margin-left:24%; margin-top: 1em">weeks</p>
+<p style="margin-left:27%; margin-top: 1em">weeks</p>
 
-<p style="margin-left:6%; margin-top: 1em">Each member of
+<p style="margin-left:9%; margin-top: 1em">Each member of
 the sequence is added together to calculate the total time
 value.</p>
 
-<p style="margin-left:6%; margin-top: 1em">Time format
+<p style="margin-left:9%; margin-top: 1em">Time format
 examples:</p>
 
 <p style="margin-top: 1em">600</p>
 
-<p style="margin-left:24%; margin-top: 1em">600 seconds (10
+<p style="margin-left:27%; margin-top: 1em">600 seconds (10
 minutes)</p>
 
 <p>10m</p>
 
-<p style="margin-left:24%; margin-top: 1em">10 minutes</p>
+<p style="margin-left:27%; margin-top: 1em">10 minutes</p>
 
 <p>1h30m</p>
 
-<p style="margin-left:24%; margin-top: 1em">1 hour 30
+<p style="margin-left:27%; margin-top: 1em">1 hour 30
 minutes (90 minutes)</p>
 
-<p style="margin-left:6%; margin-top: 1em"><b>Run-time
-Control</b> <br>
-A daemonised <b>softflowd</b> instance may be controlled
-using the softflowctl(8) command. This interface allows one
-to shut down the daemon, force expiry of all tracked flows
-and extract debugging and summary data. Also, receipt of a
-SIGTERM or SIGINT will cause <b>softflowd</b> to exit, after
-expiring all flows (and thus sending flow export packets if
-<b>-n</b> was specified on the command-line). If you do not
-want to export flows upon shutdown, clear them first with
-softflowctl(8) or use softflowctl(8) &rsquo;s
+<p style="margin-left:4%; margin-top: 1em"><b>Run-time
+Control</b></p>
+
+<p style="margin-left:9%;">A daemonised <b>softflowd</b>
+instance may be controlled using the <i>softflowctl</i>(8)
+command. This interface allows one to shut down the daemon,
+force expiry of all tracked flows and extract debugging and
+summary data. Also, receipt of a SIGTERM or SIGINT will
+cause <b>softflowd</b> to exit, after expiring all flows
+(and thus sending flow export packets if <b>-n</b> was
+specified on the command-line). If you do not want to export
+flows upon shutdown, clear them first with
+<i>softflowctl</i>(8) or use <i>softflowctl</i>(8) &rsquo;s
 &ldquo;exit&rdquo; command.</p>
 
 <p style="margin-top: 1em"><b>EXAMPLES</b> <br>
 softflowd -i fxp0</p>
 
-<p style="margin-left:17%;">This command-line will cause
+<p style="margin-left:19%;">This command-line will cause
 <b>softflowd</b> to listen on interface fxp0 and to run in
 statistics gathering mode only (i.e. no NetFlow data
 export).</p>
@@ -439,7 +451,7 @@ export).</p>
 <p style="margin-top: 1em">softflowd -i fxp0 -n
 10.1.0.2:4432</p>
 
-<p style="margin-left:17%;">This command-line will cause
+<p style="margin-left:19%;">This command-line will cause
 <b>softflowd</b> to listen on interface fxp0 and to export
 NetFlow v.5 datagrams on flow expiry to a flow collector
 running on 10.1.0.2 port 4432.</p>
@@ -447,7 +459,7 @@ running on 10.1.0.2 port 4432.</p>
 <p style="margin-top: 1em">softflowd -i fxp0 -n
 10.1.0.2:4432,10.1.0.3:4432</p>
 
-<p style="margin-left:17%;">This command-line will cause
+<p style="margin-left:19%;">This command-line will cause
 <b>softflowd</b> to listen on interface fxp0 and to export
 NetFlow v.5 datagrams on flow expiry to a flow collector
 running on 10.1.0.2 port 4432 and 10.1.0.3 port 4432.</p>
@@ -455,7 +467,7 @@ running on 10.1.0.2 port 4432 and 10.1.0.3 port 4432.</p>
 <p style="margin-top: 1em">softflowd -i fxp0 -l -n
 10.1.0.2:4432,10.1.0.3:4432</p>
 
-<p style="margin-left:17%;">This command-line will cause
+<p style="margin-left:19%;">This command-line will cause
 <b>softflowd</b> to listen on interface fxp0 and to export
 NetFlow v.5 datagrams on flow expiry to a flow collector
 running on 10.1.0.2 port 4432 and 10.1.0.3 port 4432 with
@@ -466,7 +478,7 @@ load balncing mode. Odd netflow packets will be sent to
 <p style="margin-top: 1em">softflowd -v 5 -i fxp0 -n
 10.1.0.2:4432 -m 65536 -t udp=1m30s</p>
 
-<p style="margin-left:17%;">This command-line increases the
+<p style="margin-left:19%;">This command-line increases the
 number of concurrent flows that <b>softflowd</b> will track
 to 65536 and increases the timeout for UDP flows to 90
 seconds.</p>
@@ -474,7 +486,7 @@ seconds.</p>
 <p style="margin-top: 1em">softflowd -v 9 -i fxp0 -n
 224.0.1.20:4432 -L 64</p>
 
-<p style="margin-left:17%;">This command-line will export
+<p style="margin-left:19%;">This command-line will export
 NetFlow v.9 flows to the multicast group 224.0.1.20. The
 export datagrams will have their TTL set to 64, so multicast
 receivers can be many hops away.</p>
@@ -482,28 +494,29 @@ receivers can be many hops away.</p>
 <p style="margin-top: 1em">softflowd -i fxp0 -p
 /var/run/sfd.pid.fxp0 -c /var/run/sfd.ctl.fxp0</p>
 
-<p style="margin-left:17%;">This command-line specifies
+<p style="margin-left:19%;">This command-line specifies
 alternate locations for the control socket and pid file.
 Similar command-lines are useful when running multiple
 instances of <b>softflowd</b> on a single machine.</p>
 
-<p style="margin-top: 1em"><b>FILES</b> <br>
-/var/run/softflowd.pid</p>
+<p style="margin-top: 1em"><b>FILES</b> <i><br>
+/var/run/softflowd.pid</i></p>
 
-<p style="margin-left:17%;">This file stores the process ID
+<p style="margin-left:19%;">This file stores the process ID
 when <b>softflowd</b> is in daemon mode. This location may
 be overridden using the <b>-p</b> command-line option.</p>
 
-<p style="margin-top: 1em">/var/run/softflowd.ctl</p>
 
-<p style="margin-left:17%;">This is the remote control
+<p style="margin-top: 1em"><i>/var/run/softflowd.ctl</i></p>
+
+<p style="margin-left:19%;">This is the remote control
 socket. <b>softflowd</b> listens on this socket for commands
-from softflowctl(8). This location may be overridden using
-the <b>-c</b> command-line option.</p>
+from <i>softflowctl</i>(8). This location may be overridden
+using the <b>-c</b> command-line option.</p>
 
 <p style="margin-top: 1em"><b>BUGS</b></p>
 
-<p style="margin-left:6%;">Currently <b>softflowd</b> does
+<p style="margin-left:9%;">Currently <b>softflowd</b> does
 not handle maliciously fragmented packets properly, i.e.
 packets fragemented such that the UDP or TCP header does not
 fit into the first fragment. It will product correct traffic
@@ -514,27 +527,25 @@ https://github.com/irino/softflowd/issues</p>
 
 <p style="margin-top: 1em"><b>AUTHORS</b></p>
 
-<p style="margin-left:6%;">Damien Miller
+<p style="margin-left:9%;">Damien Miller
 &lt;djm@mindrot.org&gt; <br>
 Hitoshi Irino (current maintainer)
 &lt;irino@sfc.wide.ad.jp&gt;</p>
 
 <p style="margin-top: 1em"><b>SEE ALSO</b></p>
 
-<p style="margin-left:6%;">softflowctl(8), tcpdump(8),
-pcap(3), bpf(4)</p>
+<p style="margin-left:9%;"><i>softflowctl</i>(8),
+<i>tcpdump</i>(8), <i>pcap</i>(3), <i>bpf</i>(4)</p>
 
 
-<p style="margin-left:6%; margin-top: 1em">http://www.ietf.org/rfc/rfc3954.txt
+<p style="margin-left:9%; margin-top: 1em">http://www.ietf.org/rfc/rfc3954.txt
 <br>
 
 http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html
 <br>
 http://www.ietf.org/rfc/rfc5101.txt <br>
-http://www.ietf.org/rfc/rfc5103.txt</p>
-
-<p style="margin-left:6%; margin-top: 1em">BSD
-November&nbsp;17, 2019 BSD</p>
+http://www.ietf.org/rfc/rfc5103.txt Debian November 17, 2019
+<i>SOFTFLOWD</i>(8)</p>
 <hr>
 </body>
 </html>

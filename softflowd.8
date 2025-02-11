@@ -54,6 +54,7 @@
 .Op Fl R Ar receive_port
 .Op Fl S Ar send_interface_name
 .Op Fl x Ar number_of_mpls_labels
+.Op Fl e Ar exporter_ip_address
 .Op bpf_expression
 .Sh DESCRIPTION
 .Nm
@@ -275,6 +276,8 @@ Specify port number for PSAMP receive mode.
 Specify send interface name.
 (This option works on Linux only because of use of SO_BINDTODEVICE for
 setsockopt.)
+.It Fl e Ar exporter_ip_address
+Specify exporter IPv4 or IPv6 address.
 .El
 .Pp
 Any further command-line arguments will be concatenated together and
