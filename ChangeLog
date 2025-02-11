@@ -1,3 +1,257 @@
+commit c5523e0f1a0681912fb2b6639173d9895a703fea
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Thu Feb 20 14:26:03 2025 +0000
+
+    Update PROGVER to 1.1.1
+
+commit 9b7431cc81f2c7435f36aa0b62ddcdb55c5563a9
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Feb 11 00:56:31 2025 +0000
+
+    Update Changelog and NEWS for v1.1.1
+
+commit faa13350605e6bbe67ecae0f2c7011ee7ee7ab30
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Feb 11 00:32:59 2025 +0000
+
+    Add -e option in usage function
+
+commit bc0aeafbca13260e57b503e51ba1a74378787cb0
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Feb 11 00:28:54 2025 +0000
+
+    Update man page for -e option.
+    Add softflowd.html generated from softflowd.8 (groff -Thtml -mandoc -c softflowd.8 > softflowd.html)
+    Update softflowd.md generated from softflowd.html (pandoc -f html -t markdown softflowd.html > softflowd.md)
+
+commit 05b207b3f291bbb6228d81457e0c9b69706191aa
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Mon Feb 10 22:33:46 2025 +0000
+
+    Fix -e option bug (eternity loop bug)
+    
+    - fix for loop for exporter IP address and fix bug for memcpy source
+    - and indent -lp -br -brs -brf -ce -cdw -nut softflowd.c ipfix.c
+
+commit c2eb21f931a223d7f0c1a5a8c447a87f161d3814
+Merge: 698636b d20a549
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Nov 24 14:51:07 2024 +0900
+
+    Merge pull request #57 from bu7cher/pcap_activate_fix
+    
+    Do not exit if pcap_activate() returns warning.
+
+commit d20a549c33f7c6fbeef31d33215dc4f4928c629e
+Author: Andrey V. Elsukov <bu7cher@yandex.ru>
+Date:   Tue Nov 19 17:12:09 2024 +0300
+
+    Do not exit if pcap_activate() returns warning.
+    
+    pcap_activate() can return 0 on success, negative value on error and
+    positive value on partial success, e.g. PCAP_WARNING_PROMISC_NOTSUP when
+    an interface doesn't support promisc mode. This can happen with some
+    DLT_NULL interfaces.
+    
+    When there was used pcap_open_live() it worked, but after switch to
+    pcap_create+pcap_activate it stopped.
+    
+    Also, libpcap uses this in pcap_open_live():
+    
+            status = pcap_activate(p);
+            if (status < 0)
+                    goto fail;
+
+commit 698636b3b4ccb066eb7885996597df5fc447b931
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Nov 17 16:44:34 2024 +0900
+
+    bug fix: replace from IPFIX_exporterIPv4Address to IPFIX_exporterIPv6Address and from IPFIX_originalExporterIPv4Address to IPFIX_originalExporterIPv6Address
+
+commit 3ceeacc3d08ed25fdc3dedf24d07ca540a1407d2
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Nov 10 15:53:58 2024 +0900
+
+    add -e option to specify exporter IP address
+
+commit b2a58deb9b73d6424c394d2e640b56e8048975da
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Oct 6 04:44:12 2024 +0000
+
+    fix segmentation fault error in the case of reading file that introduced in last commit (05a11dbc657c2a5c0a4fac249a9e468bcc19f39b)
+
+commit 05a11dbc657c2a5c0a4fac249a9e468bcc19f39b
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Sep 1 06:25:19 2024 +0000
+
+    Get if_index value automatically in Linux environment.
+    
+    - Add ioctl SIOCGIFINDEX code
+    - indent -lp -br -brs -brf -ce -cdw -nut softflowd.c
+
+commit c00902dc98ff134925191d488c0d967ffe672201
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Mar 3 21:24:04 2024 +0900
+
+    use ft->param.track_level instead of track_level as global variable in process_packet
+
+commit 0fce1eda06c554aee86d93968f2b507498fb8b13
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Mar 3 16:35:54 2024 +0900
+
+    Refactoring: reduce gcc warning with some configure's enable options
+
+commit 66db0961642b916ee1bf48cf1a9b80e4b66a8528
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Mar 3 15:13:06 2024 +0900
+
+    Refactoring: change process_packet() arguments
+
+commit 100dad90bca34b2a05f6adb6d9d430b1f2456093
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Mar 3 13:45:09 2024 +0900
+
+    Refactoring: change to make less gcc warnings
+
+commit af7296d8f00f289ef85872fcb03e54dcff4c8777
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Mar 2 22:50:59 2024 +0900
+
+    Refactoring: change from int to void of return value in transport_to_flowrec and ether_to_flowrec
+
+commit 3369207b8947d66a5d9010c72ecee5930f59463d
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Mar 2 16:21:15 2024 +0900
+
+    Refactoring: changing process_packet and deleting make_ndx_ipv4 and make_ndx_ipv6.
+
+commit d5798cc9a6dc9a5a4daf9c00e24bf08829d58cfa
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Feb 27 23:10:16 2024 +0900
+
+    add -g option for benchmark and some refactoring
+
+commit 586591ec7a3f1cf4192a74df36033025d4f3a19b
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Feb 25 22:42:15 2024 +0900
+
+    change process in ipv4_to_flowrec and ipv6_to_flowrec
+
+commit 1d8f65aea054c2ad0d6fa2a56937f51077bcecbd
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Feb 25 16:23:07 2024 +0900
+
+    wrong description for -I option in usage () is delted
+
+commit 9e494e1a1d4e75b16abcb67dc48e2e34b76e2494
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sun Nov 5 22:23:02 2023 +0900
+
+    add -I option to specify boot time reinitialization.
+
+commit 3b3473c451846e264ff5269411172627257e58dc
+Merge: 433fbb7 f96142c
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Sat Oct 22 21:41:04 2022 +0900
+
+    Merge pull request #46 from micmac1/time64
+    
+    Use %lld for time_t always
+
+commit f96142c9f3267a09976cd8a6bb4cc601830bce9b
+Author: Sebastian Kemper <sebastian_ml@gmx.net>
+Date:   Fri Oct 21 23:37:42 2022 +0200
+
+    Use %lld for time_t always
+    
+    Compiling softflowd against musl 1.2.x for 32 bit targets shows some
+    warnings:
+    
+    softflowd.c: In function 'format_flow':
+    softflowd.c:307:13: warning: format '%ld' expects argument of type 'long int', but argument 15 has type 'suseconds_t' {aka 'long long int'} [-Wformat=]
+      307 |             "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
+          |             ^~~~~~~
+    ......
+      315 |             (flow->flow_start.tv_usec + 500) / 1000, fin_time,
+          |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+          |                                              |
+          |                                              suseconds_t {aka long long int}
+    softflowd.c:309:27: note: format string is defined here
+      309 |             "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
+          |                       ~~~~^
+          |                           |
+          |                           long int
+          |                       %03lld
+    softflowd.c:307:13: warning: format '%ld' expects argument of type 'long int', but argument 17 has type 'suseconds_t' {aka 'long long int'} [-Wformat=]
+      307 |             "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
+          |             ^~~~~~~
+    ......
+      316 |             (flow->flow_last.tv_usec + 500) / 1000, flow->tcp_flags[0],
+          |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+          |                                             |
+          |                                             suseconds_t {aka long long int}
+    softflowd.c:309:43: note: format string is defined here
+      309 |             "start:%s.%03ld finish:%s.%03ld tcp>:%02x tcp<:%02x "
+          |                                       ~~~~^
+          |                                           |
+          |                                           long int
+          |                                       %03lld
+    softflowd.c: In function 'dump_flows':
+    softflowd.c:1173:16: warning: format '%ld' expects argument of type 'long int', but argument 4 has type 'time_t' {aka 'long long int'} [-Wformat=]
+     1173 |                "EXPIRY EVENT for flow %" PRIu64 " in %ld seconds\n",
+          |                ^~~~~~~~~~~~~~~~~~~~~~~~~
+     1174 |                expiry->flow->flow_seq, (long int) expiry->expires_at - now);
+          |                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+          |                                                                      |
+          |                                                                      time_t {aka long long int}
+    softflowd.c:1173:56: note: format string is defined here
+     1173 |                "EXPIRY EVENT for flow %" PRIu64 " in %ld seconds\n",
+          |                                                      ~~^
+          |                                                        |
+          |                                                        long int
+          |                                                      %lld
+    
+    Dumping flow data results in a segmentation fault:
+    
+    root@OpenWrt:~# softflowctl dump-flows
+    softflowd[6688]: Dumping flow data:
+    
+    No further output. But in the system log a segmentation fault is
+    visible:
+    
+    Fri Oct 21 07:13:47 2022 kern.info kernel: [745743.417947] do_page_fault(): sending SIGSEGV to softflowd for invalid read access from 00000326
+    Fri Oct 21 07:13:47 2022 kern.info kernel: [745743.427175] epc = 77de0dc0 in libc.so[77d62000+a9000]
+    Fri Oct 21 07:13:47 2022 kern.info kernel: [745743.432682] ra  = 77de2b04 in libc.so[77d62000+a9000]
+    Fri Oct 21 07:13:47 2022 kern.info kernel: [745743.443552] device br-lan.1 left promiscuous mode
+    Fri Oct 21 07:13:47 2022 kern.info kernel: [745743.448485] device br-lan left promiscuous mode
+    Fri Oct 21 07:13:52 2022 kern.info kernel: [745748.464316] device br-lan.1 entered promiscuous mode
+    Fri Oct 21 07:13:52 2022 kern.info kernel: [745748.469774] device br-lan entered promiscuous mode
+    
+    This was reported on the OpenWrt "packages" repository's issue tracker
+    ([1]).
+    
+    musl 1.2 has time64 support, meaning it always uses 64 bit time_t (also
+    when compiling for 32 bit targets), to be Y2K38 safe. This commit
+    changes the format specifier from "%ld" to "%lld" to fix the compiler
+    warnings and make the segmentation fault go away.
+    
+    [1] https://github.com/openwrt/packages/issues/19655
+    
+    Signed-off-by: Sebastian Kemper <sebastian_ml@gmx.net>
+
+commit 433fbb7102616c671d523d4e41ae5315cd70d442
+Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
+Date:   Tue Sep 20 00:13:12 2022 +0000
+
+    Update for release softflowd-v1.1.0
+    
+    - Update NEWS
+    - Updtae ChangeLog
+    - Update PROGVER from "1.0.0" to "1.1.0" in common.h
+    - Update AC_INIT from "1.0.0" to "1.1.0" in configure.ac
+    - Update Version from "1.0.0" to "1.1.0" in softflowd.spec
+    - Update configure.ac by autoupdate
+
 commit 1d5ca1ca6423a96a0065dd493e8280e73d09d7bc
 Author: Hitoshi Irino <irino@sfc.wide.ad.jp>
 Date:   Mon Sep 19 14:11:53 2022 +0000

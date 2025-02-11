@@ -1,3 +1,13 @@
+Fri Feb 11 2025
+Softflowd 1.1.1
+This release contains some new features and some bug fix by community.
+
+Details
+This release contains the following new features:
+Add -I option to specify boot time reinitialization.
+Add -g option for benchmark.
+Add -e option to specify exporter IP address
+
 Fri Sep 20 2022
 Softflowd 1.1.0
 This release contains some new features and some bug fix by community.
