@@ -1755,6 +1755,7 @@ usage (void) {
            "  -x                      Specify number of MPLS labels\n"
            "  -I                      Specify seconds for reinitialize boot time\n"
            "  -g                      Gauge cpu clock for benchmark\n"
+           "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
            "  -h                      Display this help\n"
            "\n"
            "Valid timeout names and default values:\n"
