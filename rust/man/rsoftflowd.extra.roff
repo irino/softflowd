@@ -1,0 +1,125 @@
+.SH TIMEOUTS
+.PP
+\fBrsoftflowd\fR will expire quiescent flows after user-configurable periods.
+The exact timeout used depends on the nature of the flow.
+The various timeouts that may be set from the command-line (using the
+\fB-t\fR option) and their meanings are:
+.TP
+.I general
+This is the general timeout applied to all traffic unless overridden by
+one of the other timeouts.
+.TP
+.I tcp
+This is the general TCP timeout, applied to open TCP connections.
+.TP
+.I tcp.rst
+This timeout is applied to a TCP connection when a RST packet has been
+sent by one or both endpoints.
+.TP
+.I tcp.fin
+This timeout is applied to a TCP connection when a FIN packet has been
+sent by both endpoints.
+.TP
+.I udp
+This is the general UDP timeout, applied to all UDP connections.
+.TP
+.I maxlife
+This is the maximum lifetime that a flow may exist for.
+All flows are forcibly expired when they pass
+.I maxlife
+seconds. To disable this feature, specify a
+.I maxlife
+of 0.
+.TP
+.I expint
+Specify the interval between expiry checks.
+Increase this to group more flows into a NetFlow packet.
+To disable this feature, specify a
+.I expint
+of 0.
+.PP
+Flows may also be expired if there are not enough flow entries to hold them
+or if their traffic exceeds 2 GiB in either direction.
+\fBrsoftflowctl\fR(8) may be used to print information on the average lifetimes of flows and the reasons for their expiry.
+
+.SH TIME FORMATS
+.PP
+\fBrsoftflowd\fR command-line arguments that specify time may be expressed using a sequence of the form:
+.I time [qualifier]
+where
+.I time
+is a positive integer value and
+.I qualifier
+is one of the following:
+.RS
+.TP
+.B <none>
+seconds
+.TP
+.B s | S
+seconds
+.TP
+.B m | M
+minutes
+.TP
+.B h | H
+hours
+.TP
+.B d | D
+days
+.TP
+.B w | W
+weeks
+.RE
+.PP
+Each member of the sequence is added together to calculate the total time value.
+.PP
+Time format examples:
+.RS
+.TP
+.B 600
+600 seconds (10 minutes)
+.TP
+.B 10m
+10 minutes
+.TP
+.B 1h30m
+1 hour 30 minutes (90 minutes)
+.RE
+
+.SH RUN-TIME CONTROL
+.PP
+A daemonised \fBrsoftflowd\fR instance may be controlled using the \fBrsoftflowctl\fR(8) command. This interface allows one to shut down the daemon, force expiry of all tracked flows and extract debugging and summary data.
+Also, receipt of a SIGTERM or SIGINT will cause \fBrsoftflowd\fR to exit, after expiring all flows (and thus sending flow export packets if \fB-n\fR was specified on the command-line). If you do not want to export flows upon shutdown, clear them first with \fBrsoftflowctl\fR(8) or use \fBrsoftflowctl\fR(8)'s exit command.
+
+.SH EXAMPLES
+.TP
+.B rsoftflowd -i fxp0
+This command-line will cause \fBrsoftflowd\fR to listen on interface fxp0 and to run in statistics gathering mode only (i.e. no NetFlow data export).
+.TP
+.B rsoftflowd -i fxp0 -n 10.1.0.2:4432
+This command-line will cause \fBrsoftflowd\fR to listen on interface fxp0 and to export NetFlow v.5 datagrams on flow expiry to a flow collector running on 10.1.0.2 port 4432.
+.TP
+.B rsoftflowd -i fxp0 -n 10.1.0.2:4432,10.1.0.3:4432
+This command-line will cause \fBrsoftflowd\fR to listen on interface fxp0 and to export NetFlow v.5 datagrams on flow expiry to a flow collector running on 10.1.0.2 port 4432 and 10.1.0.3 port 4432.
+
+.SH FILES
+.TP
+.B /var/run/softflowd.pid
+This file stores the process ID when \fBrsoftflowd\fR is in daemon mode. This location may be overridden using the \fB-p\fR command-line option.
+.TP
+.B /var/run/softflowd.ctl
+This is the remote control socket. \fBrsoftflowd\fR listens on this socket for commands from \fBrsoftflowctl\fR(8). This location may be overridden using the \fB-c\fR command-line option.
+
+.SH BUGS
+Please report bugs in rsoftflowd to https://github.com/irino/softflowd/issues
+
+.SH AUTHORS
+Damien Miller <djm@mindrot.org>
+.br
+Hitoshi Irino (current maintainer) <irino@sfc.wide.ad.jp>
+
+.SH SEE ALSO
+.BR rsoftflowctl (8),
+.BR tcpdump (8),
+.BR pcap (3)

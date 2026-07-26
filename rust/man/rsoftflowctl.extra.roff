@@ -1,0 +1,49 @@
+.SH COMMANDS
+.TP
+.B shutdown
+Ask \fBrsoftflowd\fR(8) to gracefully exit. This is equivalent to sending it a SIGTERM or SIGINT.
+.TP
+.B exit
+Ask \fBrsoftflowd\fR(8) to immediately exit. No flow expiry processing or data export is performed.
+.TP
+.B expire-all
+Immediately expire all tracked flows.
+.TP
+.B delete-all
+Immediately delete all tracked flows. No flow expiry processing or data export is performed.
+.TP
+.B statistics
+Return statistics collected by \fBrsoftflowd\fR(8) on expired flows.
+.TP
+.B debug+
+Increase the debugging level of \fBrsoftflowd\fR(8).
+.TP
+.B debug-
+Decrease the debugging level.
+.TP
+.B stop-gather
+Stops network data collection by \fBrsoftflowd\fR(8).
+.TP
+.B start-gather
+Resumes network data collection.
+.TP
+.B dump-flows
+Return information on all tracked flows.
+.TP
+.B timeouts
+Print information on flow timeout parameters.
+.TP
+.B send-template
+Resend a NetFlow v.9 template record before the next flow export. Has no effect for other flow export versions.
+
+.SH BUGS
+All times are unconditionally displayed in UTC, regardless of the system timezone.
+Please report bugs in rsoftflowctl to https://github.com/irino/softflowd/issues
+
+.SH AUTHORS
+Damien Miller <djm@mindrot.org>
+.br
+Hitoshi Irino (current maintainer) <irino@sfc.wide.ad.jp>
+
+.SH SEE ALSO
+.BR rsoftflowd (8)

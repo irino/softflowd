@@ -1,0 +1,18 @@
+[package]
+name = "rsoftflowd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pcap = "2.0.0"
+clap = { version = "4.5", features = ["derive"] }
+nix = { version = "0.29.0", features = ["socket", "signal", "user", "net"] }
+byteorder = "1.5.0"
+log = "0.4.22"
+env_logger = "0.11.5"
+libc = "0.2.155"
+chrono = "0.4.38"
+
+[build-dependencies]
+clap = { version = "4.5", features = ["derive"] }
+clap_mangen = "0.2"
