@@ -386,6 +386,8 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
     break;
   case IPPROTO_ICMP:
   case IPPROTO_ICMPV6:
+    if (caplen < sizeof (*icmp))
+      return;
     /*
      * Encode ICMP type * 256 + code into dest port like
      * Cisco routers
@@ -451,7 +453,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
   /* Now loop through headers, looking for transport header */
   for (;;) {
     remain = caplen - size;
-    eh6 = (const struct ip6_ext *) pkt + size;
+    eh6 = (const struct ip6_ext *) (pkt + size);
     if (nxt == IPPROTO_HOPOPTS ||
         nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
       int eh6size = remain < sizeof (*eh6) ? 0 : (eh6->ip6e_len + 1) << 3;
