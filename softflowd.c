@@ -630,7 +630,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
       && cb_ctxt->linktype == DLT_EN10MB)
     ether_to_flowrec (&tmp, (const struct ether_header *) frame, ndx);
 
-  tmp.mplsLabelStackDepth = num_label;
+  tmp.mplsLabelStackDepth = num_label  < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
     tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
   }
