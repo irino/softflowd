@@ -175,6 +175,16 @@ struct FLOWTRACKPARAMETERS {
   u_int8_t max_num_label;
   struct timeval last_packet_time;
   u_int32_t boot_time_reinit;   /* seconds */
+
+  /*
+   * Optional MAC address used to determine IPFIX flowDirection.
+   * If direction_mac_set is non-zero, a flow record whose source
+   * MAC equals direction_mac is reported as Egress, and a flow
+   * record whose destination MAC equals direction_mac is reported
+   * as Ingress. Requires track_level >= TRACK_FULL_VLAN_ETHER.
+   */
+  u_int8_t direction_mac[6];
+  u_int8_t direction_mac_set;
 };
 /*
  * This structure is the root of the flow tracking system.

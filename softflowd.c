@@ -55,6 +55,15 @@
 #include <pcap.h>
 #ifdef LINUX
 #include <net/if.h>
+#include <net/if_arp.h>
+#include <sys/ioctl.h>
+#else /* LINUX */
+#include <ifaddrs.h>
+#ifdef __linux__
+#include <netpacket/packet.h>
+#else
+#include <net/if_dl.h>
+#endif
 #endif /* LINUX */
 
 #define IPFIX_PORT 4739
@@ -105,6 +114,66 @@ static const struct DATALINK lt[] = {
 #endif
   {-1, -1, -1, -1, -1, 0x00000000, 0xffff, 0xffff},
 };
+
+/*
+ * Try to auto-detect the MAC address of the given interface.
+ * Returns 0 on success, -1 if it could not be determined (e.g. the
+ * interface has no link-layer address, such as a tunnel or "any").
+*/
+static int
+get_interface_mac (const char *ifname, u_int8_t mac[6]) {
+#ifdef LINUX
+  int s;
+  struct ifreq ifr;
+
+  if (ifname == NULL)
+    return (-1);
+
+  if ((s = socket (AF_INET, SOCK_DGRAM, 0)) < 0)
+    return (-1);
+
+  memset (&ifr, 0, sizeof (ifr));
+  strncpy (ifr.ifr_name, ifname, IFNAMSIZ - 1);
+
+  if (ioctl (s, SIOCGIFHWADDR, &ifr) < 0) {
+    close (s);
+    return (-1);
+  }
+  close (s);
+
+  if (ifr.ifr_hwaddr.sa_family != ARPHRD_ETHER)
+    return (-1);
+
+  memcpy (mac, ifr.ifr_hwaddr.sa_data, 6);
+  return (0);
+#else /* LINUX */
+  struct ifaddrs *ifap, *p;
+  int found = -1;
+
+  if (ifname == NULL)
+    return (-1);
+
+  if (getifaddrs (&ifap) != 0)
+    return (-1);
+
+  for (p = ifap; p != NULL; p = p->ifa_next) {
+    if (p->ifa_addr == NULL || p->ifa_addr->sa_family != AF_LINK)
+      continue;
+    if (strcmp (p->ifa_name, ifname) != 0)
+      continue;
+
+    struct sockaddr_dl *sdl = (struct sockaddr_dl *) p->ifa_addr;
+    if (sdl->sdl_alen != 6)
+      continue;
+
+    memcpy (mac, LLADDR (sdl), 6);
+    found = 0;
+    break;
+  }
+  freeifaddrs (ifap);
+  return (found);
+#endif /* LINUX */
+}
 
 /* Netflow send functions */
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
@@ -630,7 +699,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
       && cb_ctxt->linktype == DLT_EN10MB)
     ether_to_flowrec (&tmp, (const struct ether_header *) frame, ndx);
 
-  tmp.mplsLabelStackDepth = num_label  < 10 ? num_label : 10;
+  tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
     tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
   }
@@ -1734,6 +1803,7 @@ usage (void) {
            "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
            "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
            "     ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
+           "  -H                      Specify MAC Address to determine direction (requires -T ether)\n"
            "  -6                      Track IPv6 flows, regardless of whether selected \n"
            "                          NetFlow export protocol supports it\n"
            "  -d                      Don't daemonise (run in foreground)\n"
@@ -1944,6 +2014,30 @@ drop_privs (void) {
   }
 }
 
+/*
+ * Parse a MAC address of the form aa:bb:cc:dd:ee:ff (or with '-'
+ * separators) into a 6-byte array. Returns 0 on success, -1 on
+ * malformed input.
+ */
+static int
+parse_mac_address (const char *str, u_int8_t mac[6]) {
+  unsigned int b[6];
+  int i;
+
+  if (sscanf (str, "%2x:%2x:%2x:%2x:%2x:%2x",
+              &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6 &&
+      sscanf (str, "%2x-%2x-%2x-%2x-%2x-%2x",
+              &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6)
+    return (-1);
+
+  for (i = 0; i < 6; i++) {
+    if (b[i] > 0xff)
+      return (-1);
+    mac[i] = (u_int8_t) b[i];
+  }
+  return (0);
+}
+
 int
 main (int argc, char **argv) {
   clock_t boottime = clock ();
@@ -1997,8 +2091,8 @@ main (int argc, char **argv) {
 
   while ((ch =
           getopt (argc, argv,
-                  "6hdDL:T:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:")) !=
-         -1) {
+                  "6hdDL:T:H:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:"))
+         != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2082,6 +2176,15 @@ main (int argc, char **argv) {
         exit (1);
       }
       track_level = flowtrack.param.track_level;
+      break;
+    case 'H':
+      if (optarg != NULL) {
+        if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
+          fprintf (stderr, "Invalid MAC address %s\n", optarg);
+          exit (1);
+        }
+        flowtrack.param.direction_mac_set = 1;
+      }
       break;
     case 'L':
       hoplimit = atoi (optarg);
@@ -2292,6 +2395,32 @@ main (int argc, char **argv) {
                           use_promisc, pcap_override_buffer_size);
   else if (rsock > 0)
     linktype = 1;               //LINKTYPE_ETHERNET
+
+  /*
+   * If ethernet-level tracking is enabled and the user has not
+   * explicitly specified a direction MAC address with -H, try to
+   * auto-detect it from the capture interface.
+   */
+  if (flowtrack.param.track_level >= TRACK_FULL_VLAN_ETHER &&
+      flowtrack.param.direction_mac_set == 0 && dev != NULL) {
+    if (get_interface_mac (dev, flowtrack.param.direction_mac) == 0) {
+      flowtrack.param.direction_mac_set = 1;
+      if (verbose_flag)
+        fprintf (stderr,
+                 "Auto-detected direction MAC %02x:%02x:%02x:%02x:%02x:%02x "
+                 "from interface %s\n",
+                 flowtrack.param.direction_mac[0],
+                 flowtrack.param.direction_mac[1],
+                 flowtrack.param.direction_mac[2],
+                 flowtrack.param.direction_mac[3],
+                 flowtrack.param.direction_mac[4],
+                 flowtrack.param.direction_mac[5], dev);
+    } else if (verbose_flag) {
+      fprintf (stderr,
+               "Could not auto-detect MAC address of %s; "
+               "flowDirection will use canonical ordering\n", dev);
+    }
+  }
 
   /* Netflow send socket */
   for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {

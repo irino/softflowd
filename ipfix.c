@@ -676,6 +676,36 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
   return index;
 }
 
+/* IPFIX flowDirection (IANA IE 61) values, RFC 7011 */
+#define IPFIX_FLOWDIRECTION_INGRESS 0x00
+#define IPFIX_FLOWDIRECTION_EGRESS  0x01
+
+/*
+ * Determine the IPFIX flowDirection for flow record slot i.
+ *
+ * flow->ethermac[i] holds the source MAC and flow->ethermac[i ^ 1]
+ * holds the destination MAC for that slot (see ether_to_flowrec()).
+ *
+ * If a direction MAC has been configured and ethernet tracking is
+ * enabled, a record whose source MAC matches is Egress (traffic
+ * leaving the configured interface/host) and a record whose
+ * destination MAC matches is Ingress (traffic arriving at it).
+ * If neither MAC matches (e.g. transit traffic between two other
+ * hosts) or the option is unset, fall back to the historical
+ * behaviour of using the canonical array index.
+ */
+static u_int8_t
+ipfix_flow_direction (const struct FLOW *flow, int i,
+                      const struct FLOWTRACKPARAMETERS *param) {
+  if (param->direction_mac_set && param->track_level >= TRACK_FULL_VLAN_ETHER) {
+    if (memcmp (flow->ethermac[i], param->direction_mac, 6) == 0)
+      return (IPFIX_FLOWDIRECTION_EGRESS);
+    if (memcmp (flow->ethermac[i ^ 1], param->direction_mac, 6) == 0)
+      return (IPFIX_FLOWDIRECTION_INGRESS);
+  }
+  return ((u_int8_t) i);
+}
+
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int len, u_int16_t ifidx,
@@ -727,7 +757,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
     dc[i]->octetDeltaCount = htonl (flow->octets[i]);
     dc[i]->packetDeltaCount = htonl (flow->packets[i]);
     dc[i]->ingressInterface = dc[i]->egressInterface = htonl (ifidx);
-    dc[i]->flowDirection = i;
+    dc[i]->flowDirection = ipfix_flow_direction (flow, i, param);
     dc[i]->flowEndReason = flow->flowEndReason;
 #ifdef ENABLE_IFNAME
     strncpy (dc[i]->interfaceName, option->interfaceName,

@@ -32,6 +32,7 @@
 .Op Fl 6dDhbalN
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
+.Op Fl H Ar mac_address
 .Op Fl c Ar ctl_sock
 .Bk -words
 .Oo Fl i\ \&
@@ -254,6 +255,48 @@ This will cause flows to be consolidated, reducing the quantity of output
 and CPU load that
 .Nm
 will place on the system at the cost of some detail being lost.
+.It Fl H Ar mac_address
+Specify a MAC address to use for determining the IPFIX/NetFlow v9
+.Ar flowDirection
+field.
+.Ar mac_address
+is given in the form
+.Dq aa:bb:cc:dd:ee:ff .
+For each flow record, if the source ethernet address matches
+.Ar mac_address
+the record is reported as
+.Dq egress ,
+and if the destination ethernet address matches
+.Ar mac_address
+the record is reported as
+.Dq ingress .
+If neither address matches (for example, transit traffic between two
+other hosts), the historical canonical-ordering behaviour is used
+instead.
+.Pp
+This option requires ethernet addresses to be tracked, i.e.
+.Fl T Ar ether
+must also be specified; otherwise the ethernet addresses needed for
+the comparison are not available and
+.Ar mac_address
+is ignored.
+.Pp
+If
+.Fl H
+is not given and an interface is specified with
+.Fl i ,
+.Nm
+will attempt to automatically detect the MAC address of that
+interface and use it in place of an explicit
+.Ar mac_address .
+Automatic detection is skipped when reading from a
+.Fl r
+capture file, since the capture may not have been taken on the
+system running
+.Nm ,
+and in that case
+.Fl H
+should be specified explicitly.
 .It Fl v Ar netflow_version
 Specify which version of the NetFlow(tm) protocol
 .Nm
