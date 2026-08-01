@@ -57,16 +57,28 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <sys/ioctl.h>
-#else /* LINUX */
+#endif /* LINUX */
+#ifdef HAVE_IFADDRS_H
 #include <ifaddrs.h>
-#ifdef __linux__
-#include <netpacket/packet.h>
-#else
+#endif /* HAVE_IFADDRS_H */
+#if !defined(LINUX) && defined(HAVE_IFADDRS_H)
 #include <net/if_dl.h>
 #endif
-#endif /* LINUX */
 
 #define IPFIX_PORT 4739
+
+/*
+ * pcap_pkthdr.ts is declared as struct timeval on most platforms,
+ * but as struct bpf_timeval (independently-sized tv_sec/tv_usec,
+ * not necessarily matching struct timeval) on OpenBSD. Copy the
+ * fields individually rather than assigning/copying the struct as
+ * a whole so this works regardless of which type phdr->ts actually
+ * is.
+ */
+#define PCAP_TS_TO_TIMEVAL(dst, src) do {     \
+    (dst).tv_sec = (src).tv_sec;              \
+    (dst).tv_usec = (src).tv_usec;            \
+  } while (0)
 
 /* Global variables */
 static int verbose_flag = 0;    /* Debugging flag */
@@ -712,7 +724,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
       return (PP_MALLOC_FAIL);
     }
     memcpy (flow, &tmp, sizeof (*flow));
-    memcpy (&flow->flow_start, &phdr->ts, sizeof (flow->flow_start));
+    PCAP_TS_TO_TIMEVAL (flow->flow_start, phdr->ts);
     flow->flow_seq = ft->param.next_flow_seq++;
     FLOW_INSERT (FLOWS, &ft->flows, flow);
 
@@ -742,7 +754,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
     flow->tcp_flags[1] |= tmp.tcp_flags[1];
   }
 
-  memcpy (&flow->flow_last, &phdr->ts, sizeof (flow->flow_last));
+  PCAP_TS_TO_TIMEVAL (flow->flow_last, phdr->ts);
 
   if (flow->expiry->expires_at != 0)
     flow_update_expiry (ft, flow);
@@ -1329,7 +1341,7 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
 
   if (cb_ctxt->ft->param.total_packets == 0) {
     if (cb_ctxt->ft->param.adjust_time) {
-      cb_ctxt->ft->param.system_boot_time = phdr->ts;
+      PCAP_TS_TO_TIMEVAL (cb_ctxt->ft->param.system_boot_time, phdr->ts);
     }
   }
 
@@ -1342,7 +1354,9 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
   }
   cb_ctxt->ft->param.total_packets++;
   if (cb_ctxt->ft->param.is_psamp) {
-    send_psamp (pkt, phdr->caplen, phdr->ts, cb_ctxt->target,
+    struct timeval ts;
+    PCAP_TS_TO_TIMEVAL (ts, phdr->ts);
+    send_psamp (pkt, phdr->caplen, ts, cb_ctxt->target,
                 cb_ctxt->ft->param.total_packets);
     return;
   }
@@ -1358,7 +1372,7 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
       cb_ctxt->fatal = 1;
   }
   if (cb_ctxt->ft->param.adjust_time)
-    cb_ctxt->ft->param.last_packet_time = phdr->ts;
+    PCAP_TS_TO_TIMEVAL (cb_ctxt->ft->param.last_packet_time, phdr->ts);
 }
 
 #ifdef ENABLE_PTHREAD

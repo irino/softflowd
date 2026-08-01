@@ -12,7 +12,7 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-AC_INIT([softflowd],[1.1.0])
+AC_INIT([softflowd],[1.1.1])
 AC_CONFIG_SRCDIR([softflowd.c])
 AM_INIT_AUTOMAKE
 
@@ -76,7 +76,20 @@ AC_ARG_WITH(chrootdir,
 
 AC_DEFINE([_BSD_SOURCE], [], [Define BSD SOURCE for Linux])
 AC_CHECK_HEADERS(net/bpf.h pcap.h pcap-bpf.h sys/endian.h endian.h)
-
+AC_CHECK_HEADERS(ifaddrs.h net/if_arp.h net/if_ether.h net/ethernet.h)
+dnl netinet/if_ether.h (OpenBSD) requires net/if_arp.h (for struct
+dnl arphdr) and net/if.h to be included first; the default
+dnl AC_CHECK_HEADERS prologue does not include these, so it must be
+dnl checked separately with explicit prerequisite headers.
+AC_CHECK_HEADERS([netinet/if_ether.h], [], [],
+[[#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#if HAVE_NET_IF_ARP_H
+#include <net/if_arp.h>
+#endif
+]])
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)
 dnl 
 dnl # This ugliness is because of autoconf's stupid default include list

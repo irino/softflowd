@@ -46,8 +46,18 @@
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
+#if defined(HAVE_NETINET_IF_ETHER_H)
+#if defined(HAVE_NET_IF_ARP_H)
+#include <net/if_arp.h>
+#endif
+#include <netinet/if_ether.h>
+#elif defined(HAVE_NET_IF_ETHER_H)
+#include <net/if_ether.h>
+#elif defined(HAVE_NET_ETHERNET_H)
 #include <net/ethernet.h>
-
+#else
+#error "No header providing struct ether_header found"
+#endif
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
