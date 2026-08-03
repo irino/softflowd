@@ -1,7 +1,40 @@
 # .github/workflows/bsd-build.yml
-name: BSD build test
+name: build test
 on: [push, pull_request]
 jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - ubuntu:26.04
+          - debian:12
+          - debian:13
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install git (needed by actions/checkout on minimal images)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential libpcap-dev autoconf automake libtool pkg-config
+
+      - name: Build with warnings
+        run: |
+          autoreconf -if
+          ./configure --enable-gcc-warnings
+          make
+
   freebsd:
     runs-on: ubuntu-latest
     steps:
