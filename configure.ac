@@ -25,9 +25,48 @@ WFLAGS="-Wall -Waggregate-return -Wcast-align -Wcast-qual"
 WFLAGS="$WFLAGS -Wmissing-declarations -Wmissing-prototypes"
 WFLAGS="$WFLAGS -Wno-conversion -Wpointer-arith -Wshadow"
 WFLAGS="$WFLAGS -Wuninitialized -Wcast-align -Wcast-qual"
-WFLAGS="$WFLAGS -Wformat=2 -Wformat-nonliteral -Wwrite-strings" 
+WFLAGS="$WFLAGS -Wformat=2 -Wformat-nonliteral -Wwrite-strings"
 
 # Process flag arguments early, so they are available for tests later
+AC_ARG_ENABLE(cpp,
+              AS_HELP_STRING([--enable-cpp],[build the C++ reimplementation (softflowd+/softflowctl+) under cpp/ (default NO)]),
+              [cpp=yes],[cpp=no])
+AC_ARG_ENABLE(rust,
+              AS_HELP_STRING([--enable-rust],[build the Rust reimplementation (rsoftflowd/rsoftctl) under rust/ (default NO)]),
+              [rust=yes],[rust=no])
+
+# AC_PROG_CXX must be called unconditionally (not inside a shell "if"),
+# because it registers Automake's per-language dependency-tracking
+# conditional (am__fastdepCXX). Wrapping it in a runtime shell
+# conditional leaves that AM_CONDITIONAL undefined whenever --enable-cpp
+# isn't given, which breaks every build. AC_CHECK_PROG is a plain
+# runtime check (no AM_CONDITIONAL involved), so it's fine to leave
+# inside the conditional below.
+AC_PROG_CXX
+
+if test "x$cpp" = "xyes"; then
+  AC_CHECK_PROG([CMAKE], [cmake], [cmake], [no])
+  if test "x$CXX" = "x"; then
+    AC_MSG_ERROR([--enable-cpp was given but no g++/C++ compiler was found])
+  fi
+  if test "x$CMAKE" = "xno"; then
+    AC_MSG_ERROR([--enable-cpp was given but cmake was not found])
+  fi
+fi
+AM_CONDITIONAL([ENABLE_CPP], [test x$cpp = xyes])
+
+if test "x$rust" = "xyes"; then
+  AC_CHECK_PROG([RUSTC], [rustc], [rustc], [no])
+  AC_CHECK_PROG([CARGO], [cargo], [cargo], [no])
+  if test "x$RUSTC" = "xno"; then
+    AC_MSG_ERROR([--enable-rust was given but rustc was not found])
+  fi
+  if test "x$CARGO" = "xno"; then
+    AC_MSG_ERROR([--enable-rust was given but cargo was not found])
+  fi
+fi
+AM_CONDITIONAL([ENABLE_RUST], [test x$rust = xyes])
+
 AC_ARG_ENABLE(gcc-warnings,
 	[  --enable-gcc-warnings   Enable verbose warnings (only for gcc)],
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
@@ -55,7 +94,7 @@ AC_ARG_ENABLE(expiry-spray,
 
 AC_ARG_WITH(cflags,
 	[  --with-cflags           Specify additional compiler flags],
-	[ if test "x$withval" != "xno" ; then CFLAGS="$CFLAGS $withval"; fi ]	
+	[ if test "x$withval" != "xno" ; then CFLAGS="$CFLAGS $withval"; fi ]
 )
 AC_ARG_WITH(cppflags,
 	[  --with-cppflags         Specify additional preprocessor flags] ,
@@ -63,15 +102,15 @@ AC_ARG_WITH(cppflags,
 )
 AC_ARG_WITH(ldflags,
 	[  --with-ldflags          Specify additional linker flags],
-	[ if test "x$withval" != "xno" ; then LDFLAGS="$LDFLAGS $withval"; fi ]	
+	[ if test "x$withval" != "xno" ; then LDFLAGS="$LDFLAGS $withval"; fi ]
 )
 AC_ARG_WITH(libs,
 	[  --with-libs             Specify additional libraries to link with],
-	[ if test "x$withval" != "xno" ; then LIBS="$LIBS $withval"; fi ]	
+	[ if test "x$withval" != "xno" ; then LIBS="$LIBS $withval"; fi ]
 )
 AC_ARG_WITH(chrootdir,
 	[  --with-chrootdir        Specify chroot directory],
-	[ AC_DEFINE_UNQUOTED([PRIVDROP_CHROOT_DIR], ["${withval}"], [privdrop chroot directory]) ]	
+	[ AC_DEFINE_UNQUOTED([PRIVDROP_CHROOT_DIR], ["${withval}"], [privdrop chroot directory]) ]
 )
 
 AC_DEFINE([_BSD_SOURCE], [], [Define BSD SOURCE for Linux])
@@ -91,10 +130,10 @@ AC_CHECK_HEADERS([netinet/if_ether.h], [], [],
 #endif
 ]])
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)
-dnl 
+dnl
 dnl # This ugliness is because of autoconf's stupid default include list
-dnl AC_CHECK_HEADERS([netinet/ip.h], 
-dnl 	[AC_DEFINE([HAVE_HAVE_NETINET_IP_H], 1, [has netinet/ip.h])], [], 
+dnl AC_CHECK_HEADERS([netinet/ip.h],
+dnl 	[AC_DEFINE([HAVE_HAVE_NETINET_IP_H], 1, [has netinet/ip.h])], [],
 dnl 	[
 dnl #include <sys/types.h>
 dnl #include <netinet/in.h>
@@ -103,7 +142,7 @@ dnl #include <netinet/in_systm.h>
 dnl #endif
 dnl 	])
 
-AC_CHECK_MEMBER([struct sockaddr.sa_len], 
+AC_CHECK_MEMBER([struct sockaddr.sa_len],
 	[AC_DEFINE([SOCK_HAS_LEN], 1, [struct sockaddr contains length])], ,
 	[#include <sys/types.h>
 	 #include <sys/socket.h>])
@@ -233,4 +272,3 @@ esac
 AC_EXEEXT
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
-

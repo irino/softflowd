@@ -53,7 +53,7 @@ void flatten(std::span<const ExportRecord> records,
                 flow.flow_start,
                 flow.flow_last,
                 key.protocol(),
-                key.tos(),
+                flow.tos[d],
                 flow.tcp_flags[d],
                 &flow.mpls_labels,
             };

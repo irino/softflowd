@@ -113,9 +113,13 @@ void test_chunking_across_multiple_packets() {
     auto packets = exporter.build_packets(
         records, boot + 1s, std::chrono::system_clock::time_point(1700000000s));
     assert(packets.size() == 2);
+    // Original: the per-flow `j >= NF5_MAXFLOWS - 1` (29) check flushes
+    // the first packet as soon as it reaches 29 records (not 30), to
+    // guarantee room for a flow that might need two records. With 35
+    // unidirectional (1-record) flows, that means 29 + 6, not 30 + 5.
     assert(packets[0].size() ==
-           kNetflow1HeaderSize + kNetflow1MaxRecordsPerPacket * kNetflow1RecordSize);
-    assert(packets[1].size() == kNetflow1HeaderSize + 5 * kNetflow1RecordSize);
+           kNetflow1HeaderSize + 29 * kNetflow1RecordSize);
+    assert(packets[1].size() == kNetflow1HeaderSize + 6 * kNetflow1RecordSize);
 }
 
 } // namespace

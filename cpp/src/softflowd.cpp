@@ -12,6 +12,22 @@
 // main()) without a duplicate-symbol error. See CMakeLists.txt.
 #include "softflow/softflowd.hpp"
 
+// Original: common.h's PROGNAME/PROGVER macros. There, they're literal
+// #defines that happen to be kept in sync with configure.ac's AC_INIT by
+// hand, not actually generated from it. Here, SOFTFLOWDPP_NAME/
+// SOFTFLOWDPP_VERSION are genuinely injected by CMakeLists.txt's
+// project(softflowd+ VERSION ...) declaration (see target_compile_
+// definitions(softflow_core ...)), so there is exactly one place --
+// CMakeLists.txt -- that defines this project's version. The fallback
+// definitions below only matter if this file is ever compiled outside
+// that CMake build (e.g. by a stray IDE indexer).
+#ifndef SOFTFLOWDPP_NAME
+#define SOFTFLOWDPP_NAME "softflowd+"
+#endif
+#ifndef SOFTFLOWDPP_VERSION
+#define SOFTFLOWDPP_VERSION "0.0.0"
+#endif
+
 #include "softflow/daemon.hpp"
 #include "softflow/ipfix.hpp"
 #include "softflow/netflow1.hpp"
@@ -22,6 +38,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
+#include <climits>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -31,11 +49,13 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <fcntl.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/ip_icmp.h>
 
 namespace softflow {
 
@@ -62,14 +82,89 @@ FlowTable<Backend>::FlowTable(std::size_t max_flows, TrackLevel track_level,
 }
 
 template <FlowIndexBackend Backend>
-TimePoint FlowTable<Backend>::compute_expiry(const Flow& flow, bool is_tcp_syn,
-                                              bool /*is_tcp_fin_or_rst*/) const {
-    // Original: softflowd.c's update_expiry(), simplified. Full per-protocol
-    // branching (TCP RST/FIN detection etc.) will be extended once NetFlow
-    // export (Stage 3) needs the finer-grained expiry reasons; this covers
-    // the data-model skeleton for now.
-    (void)is_tcp_syn;
-    return flow.flow_last + timeouts_.general;
+std::pair<TimePoint, ExpiryReason> FlowTable<Backend>::compute_expiry(
+    const Flow& flow, std::uint8_t protocol, AddressFamily af) const {
+    // Original: softflowd.c's flow_update_expiry(). Priority order:
+    // over-2GiB > max-lifetime > TCP RST > TCP FIN (both directions) >
+    // TCP general > UDP > ICMP/ICMPv6 > general fallback.
+    TimePoint expires_at;
+    ExpiryReason reason;
+
+    constexpr std::uint64_t kOverbytesThreshold = 1ULL << 31;
+    if (flow.octets[0] > kOverbytesThreshold || flow.octets[1] > kOverbytesThreshold) {
+        expires_at = flow.flow_last;
+        reason = ExpiryReason::OverBytes;
+    } else if (timeouts_.maximum_lifetime.count() != 0 &&
+               flow.flow_last - flow.flow_start > timeouts_.maximum_lifetime) {
+        expires_at = flow.flow_last;
+        reason = ExpiryReason::MaxLife;
+    } else {
+        constexpr std::uint8_t kTcpFin = 0x01;
+        constexpr std::uint8_t kTcpRst = 0x04;
+        bool matched = false;
+
+        if (protocol == IPPROTO_TCP) {
+            if (timeouts_.tcp_rst.count() != 0 &&
+                ((flow.tcp_flags[0] & kTcpRst) || (flow.tcp_flags[1] & kTcpRst))) {
+                expires_at = flow.flow_last + timeouts_.tcp_rst;
+                reason = ExpiryReason::TcpRst;
+                matched = true;
+            } else if (timeouts_.tcp_fin.count() != 0 &&
+                       ((flow.tcp_flags[0] & kTcpFin) && (flow.tcp_flags[1] & kTcpFin))) {
+                expires_at = flow.flow_last + timeouts_.tcp_fin;
+                reason = ExpiryReason::TcpFin;
+                matched = true;
+            } else if (timeouts_.tcp.count() != 0) {
+                expires_at = flow.flow_last + timeouts_.tcp;
+                reason = ExpiryReason::Tcp;
+                matched = true;
+            }
+        }
+
+        if (!matched && timeouts_.udp.count() != 0 && protocol == IPPROTO_UDP) {
+            expires_at = flow.flow_last + timeouts_.udp;
+            reason = ExpiryReason::Udp;
+            matched = true;
+        }
+
+        if (!matched && timeouts_.icmp.count() != 0 &&
+            ((af == AddressFamily::IPv4 && protocol == IPPROTO_ICMP) ||
+             (af == AddressFamily::IPv6 && protocol == IPPROTO_ICMPV6))) {
+            expires_at = flow.flow_last + timeouts_.icmp;
+            reason = ExpiryReason::Icmp;
+            matched = true;
+        }
+
+        if (!matched) {
+            expires_at = flow.flow_last + timeouts_.general;
+            reason = ExpiryReason::General;
+        }
+    }
+
+    if (timeouts_.second_granularity) {
+        // Original: expiry->expires_at is a plain time_t (whole seconds).
+        // Truncate (not round) to match `flow_last.tv_sec + N` integer
+        // arithmetic exactly.
+        //
+        // TimePoint (Clock::steady_clock) has no fixed relationship to
+        // real calendar seconds -- its epoch is an arbitrary point at
+        // process start, so directly flooring a TimePoint's own
+        // time_since_epoch() to whole seconds would align to an
+        // arbitrary phase, not to real wall-clock second boundaries
+        // (two packets on either side of a real second could end up in
+        // the same truncated bucket, or vice versa, depending on where
+        // that arbitrary phase happens to fall). Instead, compute how
+        // far *past* its own wall-clock second flow.wall_last (a real,
+        // correctly-epoched system_clock timestamp) is, and shift the
+        // monotonic expires_at back by that same amount -- equivalent to
+        // truncating in wall-clock space without needing to convert the
+        // whole computation there.
+        const auto wall_last_frac =
+            flow.wall_last - std::chrono::floor<std::chrono::seconds>(flow.wall_last);
+        expires_at -= std::chrono::duration_cast<Clock::duration>(wall_last_frac);
+    }
+
+    return {expires_at, reason};
 }
 
 template <FlowIndexBackend Backend>
@@ -78,8 +173,23 @@ void FlowTable<Backend>::reschedule_expiry(const FlowKey& key,
     // Original: the RB_REMOVE + RB_INSERT pair in sys-tree.h. Instead of
     // relinking a raw-pointer-based RB node, this simply erases the old
     // multimap entry (if any) and inserts a new one.
+    //
+    // Skip the erase+reinsert entirely when the new expiry time is
+    // unchanged from what's already scheduled: the original's tree node
+    // stays exactly where it is in this situation too (nothing calls
+    // RB_REMOVE/RB_INSERT unless the computed expiry actually differs),
+    // which matters for more than just efficiency -- for ties (several
+    // flows sharing the same expiry time, e.g. under
+    // --expiry-second-granularity), an unconditional reinsert would
+    // reorder a flow to the back of its tie group on every packet even
+    // when nothing about its schedule changed, diverging from the
+    // original's traversal order (and thus -D debug log order, and
+    // NetFlow/IPFIX export record order) for those flows.
     auto lookup_it = expiry_lookup_.find(key);
     if (lookup_it != expiry_lookup_.end()) {
+        if (lookup_it->second->first == new_expiry) {
+            return;
+        }
         expiry_index_.erase(lookup_it->second);
     }
     auto new_it = expiry_index_.emplace(new_expiry, key);
@@ -88,15 +198,12 @@ void FlowTable<Backend>::reschedule_expiry(const FlowKey& key,
 
 template <FlowIndexBackend Backend>
 Flow& FlowTable<Backend>::record_packet(const FlowKey& key, TimePoint now,
+                                         std::chrono::system_clock::time_point wall_now,
                                          std::uint8_t direction,
                                          std::uint64_t octet_delta,
-                                         bool is_tcp_syn,
-                                         bool is_tcp_fin_or_rst) {
+                                         std::uint8_t tcp_flags,
+                                         std::uint8_t tos) {
     if (direction > 1) {
-        // The original trusted the caller to pass a valid 0/1 direction and
-        // indexed octets[direction] without a range check. Here an
-        // out-of-range direction is caught and turned into an exception
-        // right at the boundary.
         throw std::out_of_range("direction must be 0 or 1");
     }
 
@@ -105,34 +212,89 @@ Flow& FlowTable<Backend>::record_packet(const FlowKey& key, TimePoint now,
 
     if (inserted) {
         flow.flow_start = now;
-        // A real deployment would draw this from a global sequence
-        // counter; this stage uses the table size as a simple stand-in.
+        flow.wall_start = wall_now;
         flow.flow_seq = static_cast<std::uint64_t>(flows_.size());
     }
 
     flow.flow_last = now;
+    flow.wall_last = wall_now;
     flow.octets[direction] += octet_delta;
     flow.packets[direction] += 1;
+    // Original: `flow->tos[*ndx] = ip->ip_tos;` -- last packet's ToS wins
+    // per direction. Deliberately *not* part of FlowKey (see FlowKey's
+    // own comment): flow_compare() in the reference implementation never
+    // compares ToS, so packets that differ only in ToS still belong to
+    // the same flow.
+    flow.tos[direction] = tos;
+    if (key.protocol() == IPPROTO_TCP) {
+        // Original: flow->tcp_flags[ndx] |= tcp_flags; -- flags accumulate
+        // over the flow's whole lifetime, not just the current packet.
+        flow.tcp_flags[direction] |= tcp_flags;
+    }
 
-    reschedule_expiry(key, compute_expiry(flow, is_tcp_syn, is_tcp_fin_or_rst));
+    const auto [expires_at, reason] =
+        compute_expiry(flow, key.protocol(), key.addr()[0].family);
+    flow.reason = reason;
+    reschedule_expiry(key, expires_at);
 
     stats_.total_packets += 1;
     return flow;
 }
 
 template <FlowIndexBackend Backend>
-std::vector<ExportRecord> FlowTable<Backend>::expire_flows(TimePoint now) {
-    // Original: softflowd.c's check_expired(), which walked the EXPIRIES
-    // tree from its smallest element, RB_REMOVE-ing and returning to the
-    // free list anything past its expiry.
+void FlowTable<Backend>::record_expiry_stats(const Flow& flow,
+                                              std::uint8_t protocol,
+                                              ExpiryReason reason_override,
+                                              bool override_reason) {
+    // Original: update_statistics() -- always runs for every expired flow.
+    const double duration_sec = std::chrono::duration<double>(
+        flow.flow_last - flow.flow_start).count();
+    const double clamped_duration = std::max(duration_sec, 0.0);
+    stats_.duration.update(clamped_duration);
+
+    const double total_octets =
+        static_cast<double>(flow.octets[0]) + static_cast<double>(flow.octets[1]);
+    stats_.octets.update(total_octets);
+
+    const double total_packets =
+        static_cast<double>(flow.packets[0]) + static_cast<double>(flow.packets[1]);
+    stats_.packets.update(total_packets);
+
+    stats_.flows_pp[protocol] += 1;
+    stats_.octets_pp[protocol] += static_cast<std::uint64_t>(total_octets);
+    stats_.packets_pp[protocol] += static_cast<std::uint64_t>(total_packets);
+    stats_.duration_pp[protocol].update(clamped_duration);
+
+    // Original: update_expiry_stats() -- per-reason counters. Force
+    // eviction (R_OVERFLOWS) and shutdown flush (R_FLUSH) override
+    // whatever compute_expiry() had last computed for this flow.
+    const ExpiryReason reason = override_reason ? reason_override : flow.reason;
+    switch (reason) {
+        case ExpiryReason::General:   stats_.expired_general   += 1; break;
+        case ExpiryReason::Tcp:       stats_.expired_tcp       += 1; break;
+        case ExpiryReason::TcpRst:    stats_.expired_tcp_rst   += 1; break;
+        case ExpiryReason::TcpFin:    stats_.expired_tcp_fin   += 1; break;
+        case ExpiryReason::Udp:       stats_.expired_udp       += 1; break;
+        case ExpiryReason::Icmp:      stats_.expired_icmp      += 1; break;
+        case ExpiryReason::MaxLife:   stats_.expired_maxlife   += 1; break;
+        case ExpiryReason::OverBytes: stats_.expired_overbytes += 1; break;
+        case ExpiryReason::OverFlows: stats_.expired_maxflows  += 1; break;
+        case ExpiryReason::Flush:     stats_.expired_flush     += 1; break;
+    }
+}
+
+template <FlowIndexBackend Backend>
+std::vector<ExportRecord> FlowTable<Backend>::expire_flows(TimePoint now, bool flush_all) {
     std::vector<ExportRecord> expired;
 
     auto it = expiry_index_.begin();
-    while (it != expiry_index_.end() && it->first <= now) {
+    while (it != expiry_index_.end() && (flush_all || it->first <= now)) {
         const FlowKey key = it->second; // copy before the iterator is invalidated
 
         auto flow_it = flows_.find(key);
         if (flow_it != flows_.end()) {
+            record_expiry_stats(flow_it->second, key.protocol(),
+                                 ExpiryReason::Flush, flush_all);
             expired.push_back(ExportRecord{key, flow_it->second});
             flows_.erase(flow_it);
         }
@@ -146,9 +308,6 @@ std::vector<ExportRecord> FlowTable<Backend>::expire_flows(TimePoint now) {
 
 template <FlowIndexBackend Backend>
 std::vector<ExportRecord> FlowTable<Backend>::force_expire_oldest(std::size_t count) {
-    // Original: softflowd.c's handling of exceeding the configured maximum
-    // flow count, forcibly evicting the flows whose expiry is nearest
-    // (i.e. whose most recent traffic is oldest).
     std::vector<ExportRecord> expired;
     expired.reserve(count);
 
@@ -158,6 +317,8 @@ std::vector<ExportRecord> FlowTable<Backend>::force_expire_oldest(std::size_t co
 
         auto flow_it = flows_.find(key);
         if (flow_it != flows_.end()) {
+            record_expiry_stats(flow_it->second, key.protocol(),
+                                 ExpiryReason::OverFlows, true);
             expired.push_back(ExportRecord{key, flow_it->second});
             flows_.erase(flow_it);
         }
@@ -218,21 +379,23 @@ FlowTableRuntime::FlowTableRuntime(FlowIndexBackend backend,
       }()) {}
 
 Flow& FlowTableRuntime::record_packet(const FlowKey& key, TimePoint now,
+                                       std::chrono::system_clock::time_point wall_now,
                                        std::uint8_t direction,
                                        std::uint64_t octet_delta,
-                                       bool is_tcp_syn,
-                                       bool is_tcp_fin_or_rst) {
+                                       std::uint8_t tcp_flags,
+                                       std::uint8_t tos) {
     return std::visit(
         [&](auto& table) -> Flow& {
-            return table.record_packet(key, now, direction, octet_delta,
-                                        is_tcp_syn, is_tcp_fin_or_rst);
+            return table.record_packet(key, now, wall_now, direction,
+                                        octet_delta, tcp_flags, tos);
         },
         table_);
 }
 
-std::vector<ExportRecord> FlowTableRuntime::expire_flows(TimePoint now) {
-    return std::visit([&](auto& table) { return table.expire_flows(now); },
-                       table_);
+std::vector<ExportRecord> FlowTableRuntime::expire_flows(TimePoint now, bool flush_all) {
+    return std::visit(
+        [&](auto& table) { return table.expire_flows(now, flush_all); },
+        table_);
 }
 
 std::vector<ExportRecord> FlowTableRuntime::force_expire_oldest(std::size_t count) {
@@ -267,6 +430,15 @@ const FlowTableStats& FlowTableRuntime::stats() const noexcept {
     return std::visit(
         [](const auto& table) -> const FlowTableStats& {
             return table.stats();
+        },
+        table_);
+}
+
+void FlowTableRuntime::record_export_stats(std::uint64_t flows, std::uint64_t records,
+                                            std::uint64_t packets, std::uint64_t failures) noexcept {
+    std::visit(
+        [&](auto& table) {
+            table.record_export_stats(flows, records, packets, failures);
         },
         table_);
 }
@@ -478,9 +650,14 @@ void PacketParser::parse_transport(
         packet.dst_port = read_be16(transport_payload, 2);
         break;
     case kProtoIcmp:
-    case kProtoIcmpV6:
-        if (transport_payload.size() < 2) {
-            return; // runt packet (the original had no check here at all)
+    case kProtoIcmpV6: {
+        // See PacketParser's icmp_typecode_only_ member (--icmp-typecode-only)
+        // for the full explanation of this threshold and why it's
+        // configurable.
+        const std::size_t required =
+            icmp_typecode_only_ ? 2 : sizeof(struct icmp);
+        if (transport_payload.size() < required) {
+            return; // runt packet
         }
         // Original: the Cisco-router-compatible encoding (icmp_type * 256 +
         // icmp_code, stored as the destination port).
@@ -489,17 +666,18 @@ void PacketParser::parse_transport(
             (static_cast<std::uint16_t>(transport_payload[0]) << 8) |
             transport_payload[1]);
         break;
+    }
     default:
         break;
     }
 }
 
-FlowKey make_flow_key(const ParsedPacket& packet,
-                      [[maybe_unused]] TrackLevel track_level,
+FlowKey make_flow_key(const ParsedPacket& packet, TrackLevel track_level,
                       std::array<std::uint16_t, 2> vlanid) {
+    const std::uint8_t tos = track_level >= TrackLevel::FullTos ? packet.tos : 0;
     return FlowKey::make_canonical(packet.src, packet.dst, packet.src_port,
-                                    packet.dst_port, packet.protocol,
-                                    packet.tos, vlanid);
+                                    packet.dst_port, packet.protocol, tos,
+                                    vlanid);
 }
 
 // =======================================================================
@@ -919,12 +1097,14 @@ const char* track_level_name(softflow::TrackLevel level) {
         return "proto";
     case TrackLevel::IpProtoPort:
         return "full";
+    case TrackLevel::FullTos:
+        return "full-tos";
     case TrackLevel::FullVlan:
         return "vlan";
     case TrackLevel::FullVlanEther:
         return "ether";
     }
-    return "unknown";
+    return "full";
 }
 
 // Original: softflowd.c's -n / -p / -c / -m / -t / -T / -v / -L / etc.
@@ -968,6 +1148,10 @@ struct DaemonConfig {
     int mpls_labels = 0;                                  // -x (implemented for -v 9/10)
     std::optional<int> psamp_receive_port;                // -R (implemented; -i only)
     bool adjust_pcap_time = false;                         // -a
+    std::chrono::seconds boot_time_reinit{0};              // -I (0 = disabled)
+    bool gauge_clock = false;                               // -g
+    bool icmp_typecode_only = false;                        // --icmp-typecode-only
+    bool netflow1_cisco_limit = false;                      // --netflow1-legacy
 
     std::string bpf_filter; // trailing bpf_expression
 
@@ -1049,10 +1233,12 @@ softflow::TrackLevel parse_track_level(const std::string& s) {
     if (s == "ip") return TrackLevel::IpOnly;
     if (s == "proto") return TrackLevel::IpProto;
     if (s == "full") return TrackLevel::IpProtoPort;
+    if (s == "full-tos") return TrackLevel::FullTos;
     if (s == "vlan") return TrackLevel::FullVlan;
     if (s == "ether") return TrackLevel::FullVlanEther;
-    throw std::invalid_argument("unknown track level '" + s +
-                                 "' (expected ip, proto, full, vlan, or ether)");
+    throw std::invalid_argument(
+        "unknown track level '" + s +
+        "' (expected ip, proto, full, full-tos, vlan, or ether)");
 }
 
 // Original: -v netflow_version.
@@ -1257,10 +1443,15 @@ public:
 
         switch (format_) {
         case ExportFormat::Netflow1:
-            netflow1_.emplace(boot_time);
+            netflow1_.emplace(
+                boot_time,
+                config.netflow1_cisco_limit
+                    ? softflow::kNetflow1CiscoMaxRecordsPerPacket
+                    : softflow::kNetflow1MaxRecordsPerPacket,
+                config.debug);
             break;
         case ExportFormat::Netflow5:
-            netflow5_.emplace(boot_time);
+            netflow5_.emplace(boot_time, config.debug);
             break;
         case ExportFormat::Netflow9:
             netflow9_.emplace(boot_time, /*source_id=*/0,
@@ -1311,11 +1502,29 @@ public:
         return false;
     }
 
-    void export_flows(const std::vector<softflow::ExportRecord>& records,
-                       softflow::TimePoint now,
-                       std::chrono::system_clock::time_point wall_now) {
+    // Original: -I boot_time_reinit periodic reset, driven by the main
+    // loop's expiry-check cadence. No-op for exporters that don't use
+    // boot_time (IPFIX/PSAMP).
+    void reinit_boot_time(softflow::TimePoint now) {
+        if (netflow1_.has_value()) netflow1_->set_boot_time(now);
+        if (netflow5_.has_value()) netflow5_->set_boot_time(now);
+        if (netflow9_.has_value()) netflow9_->set_boot_time(now);
+    }
+
+    // flows/records/packets/failures actually sent, so the caller can
+    // report them into FlowTableStats (see FlowTable::record_export_stats).
+    struct ExportOutcome {
+        std::uint64_t flows = 0;
+        std::uint64_t records = 0;
+        std::uint64_t packets = 0;
+        std::uint64_t failures = 0;
+    };
+
+    ExportOutcome export_flows(const std::vector<softflow::ExportRecord>& records,
+                                softflow::TimePoint now,
+                                std::chrono::system_clock::time_point wall_now) {
         if (records.empty() || !wants_flows()) {
-            return;
+            return {};
         }
         std::vector<std::vector<std::uint8_t>> packets;
         switch (format_) {
@@ -1336,6 +1545,43 @@ public:
             break;
         }
         dispatch(packets);
+        // Original: NetFlow v1/v5/v9 and IPFIX (non-biflow) each split a
+        // single (bidirectional) internal flow into up to two exported
+        // records -- one per direction that actually carried traffic
+        // (softflowd.c's `if (flows[i]->octets[0] > 0) {...}` /
+        // `octets[1] > 0` in netflow5.c, mirrored by this project's own
+        // flatten() helpers in netflow1.cpp/netflow5.cpp/netflow9.cpp/
+        // ipfix.cpp). So "records sent" is *not* the same as the number
+        // of input flows -- count directions with packets independently.
+        std::uint64_t record_count = 0;
+        for (const auto& r : records) {
+            record_count += (r.flow.packets[0] > 0 ? 1u : 0u) +
+                             (r.flow.packets[1] > 0 ? 1u : 0u);
+        }
+        // No per-record encoding failures are currently detectable, and
+        // send_packet() doesn't report per-destination failures -- so
+        // failures is always 0 for now.
+        //
+        // Original: netflow5.c's send_netflow_v5_v1() (used for both -v1
+        // and -v5) increments *both* `flows_exported` and `records_sent`
+        // via the *same* per-record `j++` -- i.e. for those two formats,
+        // "flows exported" and "records sent" are identical counts, not
+        // flows-before-splitting vs records-after.
+        //
+        // netflow9.c and ipfix.c do NOT follow this: their outer packing
+        // loop does `j += i;` where `i` is the index over the *original*
+        // (pre-split) flows array, while `records_sent`/`nf9->flows`
+        // separately accumulate the actual per-direction record count
+        // returned by nf_flow_to_flowset()/ipfix_flow_to_flowset(). So
+        // for v9/IPFIX, "flows exported" counts original flows and
+        // "records sent" counts post-split records -- these two counts
+        // genuinely differ whenever any flow has traffic in both
+        // directions, unlike v1/v5.
+        const bool flows_equals_records =
+            format_ == ExportFormat::Netflow1 || format_ == ExportFormat::Netflow5;
+        const std::uint64_t flow_count =
+            flows_equals_records ? record_count : records.size();
+        return ExportOutcome{flow_count, record_count, packets.size(), 0};
     }
 
     void export_samples(const std::vector<softflow::SampledPacket>& samples,
@@ -1471,9 +1717,223 @@ classify_frame(const softflow::CapturedPacket& pkt, softflow::DatalinkKind dl_ki
 }
 
 // =======================================================================
+// Original: softflowd.c's statistics(), called only when reading from a
+// pcap file (-r) in foreground mode (-d) -- see the call site in
+// run_pcap_file() below. Formatting intentionally mirrors the C version.
+void print_statistics(const softflow::FlowTableStats& s, std::size_t active_flows,
+                       std::FILE* out, const softflow::PcapHandle& handle) {
+    std::fprintf(out, "Number of active flows: %zu\n", active_flows);
+    std::fprintf(out, "Packets processed: %llu\n",
+                 static_cast<unsigned long long>(s.total_packets));
+    std::fprintf(out, "Fragments: %llu\n",
+                 static_cast<unsigned long long>(s.frag_packets));
+    std::fprintf(out,
+                 "Ignored packets: %llu (%llu non-IP, %llu too short)\n",
+                 static_cast<unsigned long long>(s.non_ip_packets + s.bad_packets),
+                 static_cast<unsigned long long>(s.non_ip_packets),
+                 static_cast<unsigned long long>(s.bad_packets));
+    std::fprintf(out, "Flows expired: %llu (%llu forced)\n",
+                 static_cast<unsigned long long>(s.flows_expired),
+                 static_cast<unsigned long long>(s.flows_force_expired));
+    std::fprintf(out,
+                 "Flows exported: %llu (%llu records) in %llu packets (%llu failures)\n",
+                 static_cast<unsigned long long>(s.flows_exported),
+                 static_cast<unsigned long long>(s.records_sent),
+                 static_cast<unsigned long long>(s.packets_sent),
+                 static_cast<unsigned long long>(s.flows_dropped));
+
+    if (auto ps = handle.stats(); ps.has_value()) {
+        std::fprintf(out, "Packets received by libpcap: %u\n", ps->ps_recv);
+        std::fprintf(out, "Packets dropped by libpcap: %u\n", ps->ps_drop);
+        std::fprintf(out, "Packets dropped by interface: %u\n", ps->ps_ifdrop);
+    }
+
+    std::fprintf(out, "\n");
+
+    if (s.flows_expired == 0) {
+        return;
+    }
+
+    std::fprintf(out, "Expired flow statistics:  minimum       average       maximum\n");
+    std::fprintf(out, "  Flow bytes:        %12.0f  %12.0f  %12.0f\n",
+                 s.octets.min, s.octets.mean, s.octets.max);
+    std::fprintf(out, "  Flow packets:      %12.0f  %12.0f  %12.0f\n",
+                 s.packets.min, s.packets.mean, s.packets.max);
+    std::fprintf(out, "  Duration:          %12.2fs %12.2fs %12.2fs\n",
+                 s.duration.min, s.duration.mean, s.duration.max);
+
+    std::fprintf(out, "\n");
+    std::fprintf(out, "Expired flow reasons:\n");
+    std::fprintf(out, "       tcp = %9llu   tcp.rst = %9llu   tcp.fin = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_tcp),
+                 static_cast<unsigned long long>(s.expired_tcp_rst),
+                 static_cast<unsigned long long>(s.expired_tcp_fin));
+    std::fprintf(out, "       udp = %9llu      icmp = %9llu   general = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_udp),
+                 static_cast<unsigned long long>(s.expired_icmp),
+                 static_cast<unsigned long long>(s.expired_general));
+    std::fprintf(out, "   maxlife = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_maxlife));
+    std::fprintf(out, "over 2 GiB = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_overbytes));
+    std::fprintf(out, "  maxflows = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_maxflows));
+    std::fprintf(out, "   flushed = %9llu\n",
+                 static_cast<unsigned long long>(s.expired_flush));
+
+    std::fprintf(out, "\n");
+    std::fprintf(out, "Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
+    for (std::size_t i = 0; i < 256; ++i) {
+        if (s.packets_pp[i] == 0) continue;
+        const struct protoent* pe = getprotobynumber(static_cast<int>(i));
+        char proto[32];
+        std::snprintf(proto, sizeof(proto), "%s (%zu)",
+                     pe != nullptr ? pe->p_name : "Unknown", i);
+        std::fprintf(out, "  %17s: %14llu %12llu   %8.2fs %10.2fs\n", proto,
+                     static_cast<unsigned long long>(s.octets_pp[i]),
+                     static_cast<unsigned long long>(s.packets_pp[i]),
+                     s.duration_pp[i].mean, s.duration_pp[i].max);
+    }
+}
+
 // run_pcap_file (original: softflowd.c's -r mode -- process a capture
 // file in a single pass, then print statistics and exit without forking)
 // =======================================================================
+// Original: softflowd.c's format_ethermac().
+std::string format_ethermac(const std::array<std::uint8_t, 6>& mac) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x", mac[0],
+                 mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return buf;
+}
+
+// Original: softflowd.c's format_time() -- gmtime + "%Y-%m-%dT%H:%M:%S".
+std::string format_time(std::chrono::system_clock::time_point t) {
+    const std::time_t tt = std::chrono::system_clock::to_time_t(t);
+    struct tm tm_buf{};
+    gmtime_r(&tt, &tm_buf);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+    return buf;
+}
+
+std::string format_address(const softflow::IpAddress& addr);
+
+// Original: softflowd.c's format_flow_brief() -- used by the "ADD FLOW"
+// debug log line (-D).
+std::string format_flow_brief(std::uint64_t flow_seq,
+                              const softflow::FlowKey& key,
+                              const softflow::Flow& flow) {
+    char buf[256];
+    std::snprintf(
+        buf, sizeof(buf),
+        "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u vlan>:%u vlan<:%u  ether:%s <> %s ",
+        static_cast<unsigned long long>(flow_seq),
+        format_address(key.addr()[0]).c_str(), key.port()[0],
+        format_address(key.addr()[1]).c_str(), key.port()[1],
+        static_cast<unsigned>(key.protocol()), key.vlanid()[0], key.vlanid()[1],
+        format_ethermac(flow.ethermac[0]).c_str(),
+        format_ethermac(flow.ethermac[1]).c_str());
+    return buf;
+}
+
+// Original: softflowd.c's format_flow() -- used by the "EXPIRED" debug
+// log line (-D). Note flow_start.tv_usec/flow_last.tv_usec in the
+// original are rounded to milliseconds via `(usec + 500) / 1000`; this
+// project's TimePoint doesn't retain sub-millisecond precision from the
+// pcap timestamp the same way internally, so milliseconds are derived
+// from the TimePoint's own duration instead of a separate usec field.
+std::string format_flow(const softflow::FlowKey& key,
+                        const softflow::Flow& flow) {
+    using namespace std::chrono;
+    const auto start_wall = flow.wall_start;
+    const auto last_wall = flow.wall_last;
+    // Original: `(flow->flow_start.tv_usec + 500) / 1000` -- round to the
+    // nearest millisecond (not truncate), matching this exactly.
+    const auto start_usec =
+        duration_cast<microseconds>(start_wall.time_since_epoch()).count() % 1000000;
+    const auto last_usec =
+        duration_cast<microseconds>(last_wall.time_since_epoch()).count() % 1000000;
+    const auto start_ms = (start_usec + 500) / 1000;
+    const auto last_ms = (last_usec + 500) / 1000;
+
+    char buf[512];
+    std::snprintf(
+        buf, sizeof(buf),
+        "seq:%llu [%s]:%hu <> [%s]:%hu proto:%u "
+        "octets>:%llu packets>:%llu octets<:%llu packets<:%llu "
+        "start:%s.%03lld finish:%s.%03lld tcp>:%02x tcp<:%02x "
+        "flowlabel>:%08x flowlabel<:%08x "
+        "vlan>:%u vlan<:%u ether:%s <> %s",
+        static_cast<unsigned long long>(flow.flow_seq),
+        format_address(key.addr()[0]).c_str(), key.port()[0],
+        format_address(key.addr()[1]).c_str(), key.port()[1],
+        static_cast<unsigned>(key.protocol()),
+        static_cast<unsigned long long>(flow.octets[0]),
+        static_cast<unsigned long long>(flow.packets[0]),
+        static_cast<unsigned long long>(flow.octets[1]),
+        static_cast<unsigned long long>(flow.packets[1]),
+        format_time(start_wall).c_str(), static_cast<long long>(start_ms),
+        format_time(last_wall).c_str(), static_cast<long long>(last_ms),
+        flow.tcp_flags[0], flow.tcp_flags[1], flow.ip6_flowlabel_a,
+        flow.ip6_flowlabel_b, key.vlanid()[0], key.vlanid()[1],
+        format_ethermac(flow.ethermac[0]).c_str(),
+        format_ethermac(flow.ethermac[1]).c_str());
+    return buf;
+}
+
+// Original: softflowd.c's check_expired(), whose -D (verbose_flag) debug
+// output this reproduces exactly: "Starting expiry scan: mode %d" before
+// the scan, "Queuing flow seq:... (%p) for expiry reason %d" per flow
+// found to be expiring, "Finished scan %d flow(s) to be evicted"
+// afterward, "sent %d netflow packets" once export has been attempted
+// (if there was anything to send), and "EXPIRED: %s (%p)" (the *verbose*
+// format_flow(), not format_flow_brief()) per expired flow. mode mirrors
+// the original's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
+// CE_EXPIRE_FORCED(1).
+void log_expiry_debug_start(bool debug, int mode) {
+    if (debug) {
+        std::fprintf(stderr, "Starting expiry scan: mode %d\n", mode);
+    }
+}
+
+void log_expiry_debug_queued(bool debug, const std::vector<softflow::ExportRecord>& expired) {
+    if (!debug) {
+        return;
+    }
+    for (const auto& record : expired) {
+        std::fprintf(stderr, "Queuing flow seq:%llu (%p) for expiry reason %d\n",
+                     static_cast<unsigned long long>(record.flow.flow_seq),
+                     static_cast<const void*>(&record.flow),
+                     static_cast<int>(record.flow.reason));
+    }
+    std::fprintf(stderr, "Finished scan %zu flow(s) to be evicted\n", expired.size());
+}
+
+void log_expiry_debug_sent(bool debug, int packets_sent) {
+    if (debug) {
+        std::fprintf(stderr, "sent %d netflow packets\n", packets_sent);
+    }
+}
+
+void log_expiry_debug_expired(bool debug, const std::vector<softflow::ExportRecord>& expired) {
+    if (!debug) {
+        return;
+    }
+    for (const auto& record : expired) {
+        std::fprintf(stderr, "EXPIRED: %s (%p)\n",
+                     format_flow(record.key, record.flow).c_str(),
+                     static_cast<const void*>(&record.flow));
+    }
+}
+
+// Original: softflowd.c's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
+// CE_EXPIRE_FORCED(1), passed to check_expired() and echoed in its
+// "Starting expiry scan: mode %d" debug line.
+constexpr int kCeExpireNormal = 0;
+constexpr int kCeExpireAll = -1;
+constexpr int kCeExpireForced = 1;
+
 int run_pcap_file(const DaemonConfig& config) {
     using namespace softflow;
 
@@ -1489,11 +1949,27 @@ int run_pcap_file(const DaemonConfig& config) {
     }
     const std::size_t skip = datalink_header_len(dl_kind);
 
-    PacketParser parser(config.track_level);
+    PacketParser parser(config.track_level, config.icmp_typecode_only);
     FlowTableRuntime table(config.backend, config.max_flows, config.track_level,
                             config.timeouts);
     const TimePoint boot_time = Clock::now();
     ExportPipeline exporter(config, boot_time);
+    TimePoint system_boot_time = boot_time; // mutable copy, tracks -I reinit
+    const std::clock_t cpu_start = std::clock(); // -g
+
+    // Original: softflowd.c's startup logit() calls (logit(LOG_NOTICE,
+    // "%s v%s starting data collection", PROGNAME, PROGVER); plus one
+    // "Exporting flows from %s to [%s]:%s" per destination). Mirrored
+    // here (full pcap path, not truncated to IFNAMSIZ like the original)
+    // so the two implementations' output is easy to diff line-for-line.
+    // Original: `logit(LOG_NOTICE, "%s v%s starting data collection",
+    // PROGNAME, PROGVER);`
+    std::fprintf(stderr, "%s v%s starting data collection\n",
+                 SOFTFLOWDPP_NAME, SOFTFLOWDPP_VERSION);
+    for (const auto& [host, port] : config.destinations) {
+        std::fprintf(stderr, "Exporting flows from %s to [%s]:%s\n",
+                     config.pcap_file.c_str(), host.c_str(), port.c_str());
+    }
 
     bool time_base_established = false;
     TimePoint time_base_mono{};
@@ -1536,23 +2012,52 @@ int run_pcap_file(const DaemonConfig& config) {
             }
         }
 
-        // Original: -a. Use libpcap's own recorded timestamp (relative to
-        // the first packet's) as the reference time for flow tracking,
-        // instead of this process's wall-clock time while reading the
-        // file. The very first packet establishes the mapping between the
-        // pcap file's timestamps and this process's monotonic clock.
-        TimePoint effective_time;
+        // Original: softflowd.c's process_packet() *always* sources
+        // flow->flow_start/flow->flow_last from phdr->ts (the pcap file's
+        // own recorded timestamp) via PCAP_TS_TO_TIMEVAL -- this is not
+        // conditional on -a. (-a/adjust_time only affects the separate
+        // system_boot_time/last_packet_time fields used for uptime-style
+        // export encoding, not per-flow timing.) So effective_time must
+        // always be derived from the file's own timestamps here, not from
+        // this process's wall clock -- otherwise flow durations reflect
+        // how fast this process reads the file instead of the capture's
+        // real elapsed time. The very first packet establishes the mapping
+        // between the pcap file's timestamps and this process's monotonic
+        // clock; every subsequent packet's effective_time is that anchor
+        // plus its own delta from the first packet's recorded time.
+        if (!time_base_established) {
+            time_base_mono = Clock::now();
+            time_base_wall = pkt->wall_timestamp;
+            time_base_established = true;
+        }
+        const TimePoint effective_time =
+            time_base_mono + std::chrono::duration_cast<Clock::duration>(
+                                  pkt->wall_timestamp - time_base_wall);
+
+        // Original: -a (adjust_time). softflowd.c's next_expire()/
+        // check_expired() use ft->param.last_packet_time (the replay
+        // clock) instead of gettimeofday() (this process's real wall
+        // clock) as "now" when deciding whether a flow is due for expiry.
+        // Without -a, reading a file happens in a tiny fraction of the
+        // real time the capture spans, so idle timeouts essentially never
+        // fire mid-file -- flows just accumulate until EOF (matching the
+        // no-op default below). With -a, timeouts are evaluated against
+        // the packets' own recorded times, so flows can idle out (and get
+        // exported) while the file is still being read, same as the
+        // original.
         if (config.adjust_pcap_time) {
-            if (!time_base_established) {
-                time_base_mono = Clock::now();
-                time_base_wall = pkt->wall_timestamp;
-                time_base_established = true;
+            log_expiry_debug_start(config.debug, kCeExpireForced);
+            const auto idle = table.expire_flows(effective_time);
+            log_expiry_debug_queued(config.debug, idle);
+            if (!idle.empty()) {
+                const auto outcome = exporter.export_flows(
+                    idle, effective_time, std::chrono::system_clock::now());
+                table.record_export_stats(outcome.flows, outcome.records,
+                                           outcome.packets, outcome.failures);
+                log_expiry_debug_sent(config.debug,
+                                      static_cast<int>(outcome.packets));
             }
-            effective_time =
-                time_base_mono + std::chrono::duration_cast<Clock::duration>(
-                                      pkt->wall_timestamp - time_base_wall);
-        } else {
-            effective_time = pkt->timestamp;
+            log_expiry_debug_expired(config.debug, idle);
         }
 
         if (config.export_format == ExportFormat::Psamp) {
@@ -1562,10 +2067,21 @@ int run_pcap_file(const DaemonConfig& config) {
 
         const auto key = make_flow_key(*parsed, parser.track_level());
         const std::uint8_t direction = (key.addr()[0] == parsed->src) ? 0 : 1;
-        Flow& flow = table.record_packet(key, effective_time, direction,
-                                          pkt->original_length,
-                                          (parsed->tcp_flags & 0x02) != 0,
-                                          (parsed->tcp_flags & 0x05) != 0);
+        // Original: `tmp.octets[ndx] = phdr->len - datalink_size;` --
+        // octet counts exclude the L2 (e.g. Ethernet) header. Using the
+        // raw on-the-wire length here over-counted every packet by the
+        // L2 header size (e.g. +14 bytes/packet for Ethernet).
+        const std::size_t size_before = table.size();
+        Flow& flow = table.record_packet(key, effective_time, pkt->wall_timestamp,
+                                          direction, pkt->original_length - skip,
+                                          parsed->tcp_flags, parsed->tos);
+        // Original: `if (verbose_flag) logit(LOG_DEBUG, "ADD FLOW %s", ...)`
+        // in process_packet(), logged only when a *new* flow entry is
+        // created (not on every packet belonging to an existing flow).
+        if (config.debug && table.size() != size_before) {
+            std::fprintf(stderr, "ADD FLOW %s\n",
+                         format_flow_brief(flow.flow_seq, key, flow).c_str());
+        }
         // Original: -x. Only actually stored (and later exported) when
         // requested, capped both by -x's own argument and by the IPFIX/
         // NetFlow v9 Information Element registry's defined range of 10
@@ -1583,34 +2099,59 @@ int run_pcap_file(const DaemonConfig& config) {
         // expires flows when max_flows is exceeded" -- no time-based
         // expiry happens mid-file, only this forced eviction.
         if (table.size() > table.max_flows()) {
+            log_expiry_debug_start(config.debug, kCeExpireForced);
             const auto forced = table.force_expire_oldest(
                 table.size() - table.max_flows());
-            exporter.export_flows(forced, effective_time,
-                                   std::chrono::system_clock::now());
+            log_expiry_debug_queued(config.debug, forced);
+            const auto outcome = exporter.export_flows(
+                forced, effective_time, std::chrono::system_clock::now());
+            table.record_export_stats(outcome.flows, outcome.records,
+                                       outcome.packets, outcome.failures);
+            log_expiry_debug_sent(config.debug, static_cast<int>(outcome.packets));
+            log_expiry_debug_expired(config.debug, forced);
+        }
+
+        // Original: softflowd.c's check_expired() -- if boot_time_reinit
+        // (-I) is set and more time than that has elapsed since the last
+        // reset, treat the current packet's time as the new reference
+        // point that uptime-based export fields are measured from.
+        if (config.boot_time_reinit.count() != 0 &&
+            effective_time - system_boot_time > config.boot_time_reinit) {
+            system_boot_time = effective_time;
+            exporter.reinit_boot_time(system_boot_time);
         }
     }
 
-    std::printf("[pcap, backend=%s, track=%s, version=%s] total frames: "
-                "%llu, parsed as IP: %llu\n",
-                config.backend == FlowIndexBackend::Hash ? "hash" : "tree",
-                track_level_name(config.track_level),
-                format_name(config.export_format),
-                static_cast<unsigned long long>(total),
-                static_cast<unsigned long long>(parsed_ok));
-    std::printf("[pcap] tracked flows remaining at EOF: %zu\n", table.size());
+    // Original: softflowd.c's main() -- reaching EOF on a pcap file sets
+    // graceful_shutdown_request, which the shared shutdown path then logs
+    // as both of these lines (yes, the original really does log "on user
+    // request" here too, even though EOF triggered it, not a user signal).
+    std::fprintf(stderr, "Shutting down after pcap EOF\n");
+    std::fprintf(stderr, "Shutting down on user request\n");
 
     const auto now = Clock::now();
     const auto wall_now = std::chrono::system_clock::now();
-    const auto expired = table.expire_flows(now + std::chrono::hours(2));
-    exporter.export_flows(expired, now, wall_now);
+    log_expiry_debug_start(config.debug, kCeExpireAll);
+    const auto expired = table.expire_flows(now, /*flush_all=*/true);
+    log_expiry_debug_queued(config.debug, expired);
+    const auto eof_outcome = exporter.export_flows(expired, now, wall_now);
+    table.record_export_stats(eof_outcome.flows, eof_outcome.records,
+                               eof_outcome.packets, eof_outcome.failures);
+    log_expiry_debug_sent(config.debug, static_cast<int>(eof_outcome.packets));
+    log_expiry_debug_expired(config.debug, expired);
     exporter.export_samples(pending_samples, now, wall_now);
 
-    std::printf("[pcap] flows expired at end-of-file flush: %zu\n",
-                expired.size());
-    if (exporter.has_sink()) {
-        std::printf("[pcap] export: %s%s%s\n", format_name(config.export_format),
-                    config.destinations.empty() ? "" : " -> network destination(s)",
-                    config.export_out.empty() ? "" : " + file");
+    // Original: `if (capfile != NULL && dontfork_flag) statistics(...)`.
+    // dontfork_flag looks like it depends on -d, but softflowd.c's own
+    // `case 'r':` unconditionally sets `dontfork_flag = 1` as a side
+    // effect of choosing -r -- so in the original, reading from a pcap
+    // file *always* forces foreground mode and this condition is always
+    // true, with or without -d. run_pcap_file() here only ever runs for
+    // -r, so the equivalent is: always print.
+    print_statistics(table.stats(), table.size(), stdout, handle);
+    if (config.gauge_clock) {
+        std::printf("cpu clocks: %ld\n",
+                     static_cast<long>(std::clock() - cpu_start));
     }
     return 0;
 }
@@ -1689,13 +2230,24 @@ std::string handle_control_command(const std::string& command,
     }
     if (command == kExpireAll) {
         const auto count = table.size();
-        exporter.export_flows(table.force_expire_oldest(count), Clock::now(),
-                               std::chrono::system_clock::now());
+        const bool debug = state.debug_level > 0;
+        log_expiry_debug_start(debug, kCeExpireAll);
+        const auto expired = table.force_expire_oldest(count);
+        log_expiry_debug_queued(debug, expired);
+        const auto outcome = exporter.export_flows(
+            expired, Clock::now(), std::chrono::system_clock::now());
+        table.record_export_stats(outcome.flows, outcome.records,
+                                   outcome.packets, outcome.failures);
+        log_expiry_debug_sent(debug, static_cast<int>(outcome.packets));
+        log_expiry_debug_expired(debug, expired);
         return "OK expire-all: expired " + std::to_string(count) + " flows";
     }
     if (command == kDeleteAll) {
         const auto count = table.size();
-        static_cast<void>(table.force_expire_oldest(count));
+        const bool debug = state.debug_level > 0;
+        log_expiry_debug_start(debug, kCeExpireAll);
+        const auto deleted = table.force_expire_oldest(count);
+        log_expiry_debug_queued(debug, deleted);
         return "OK delete-all: deleted " + std::to_string(count) +
                " flows (no export)";
     }
@@ -1778,7 +2330,7 @@ int run_live_capture(const DaemonConfig& config) {
     }
     const std::size_t skip = datalink_header_len(dl_kind);
 
-    PacketParser parser(config.track_level);
+    PacketParser parser(config.track_level, config.icmp_typecode_only);
     FlowTableRuntime table(config.backend, config.max_flows, config.track_level,
                             config.timeouts);
     const TimePoint boot_time = Clock::now();
@@ -2026,10 +2578,14 @@ int run_live_capture(const DaemonConfig& config) {
                 const auto key = make_flow_key(*parsed, parser.track_level());
                 const std::uint8_t direction =
                     (key.addr()[0] == parsed->src) ? 0 : 1;
+                const std::size_t size_before = table.size();
                 Flow& flow = table.record_packet(
-                    key, pkt->timestamp, direction, pkt->original_length,
-                    (parsed->tcp_flags & 0x02) != 0,
-                    (parsed->tcp_flags & 0x05) != 0);
+                    key, pkt->timestamp, pkt->wall_timestamp, direction,
+                    pkt->original_length - skip, parsed->tcp_flags, parsed->tos);
+                if (config.debug && table.size() != size_before) {
+                    std::fprintf(stderr, "ADD FLOW %s\n",
+                                 format_flow_brief(flow.flow_seq, key, flow).c_str());
+                }
                 if (config.mpls_labels > 0 && !frame->mpls_labels.empty()) {
                     const std::size_t keep = std::min<std::size_t>(
                         {frame->mpls_labels.size(),
@@ -2040,9 +2596,17 @@ int run_live_capture(const DaemonConfig& config) {
                 }
 
                 if (table.size() > table.max_flows()) {
-                    exporter.export_flows(
-                        table.force_expire_oldest(table.size() - table.max_flows()),
-                        pkt->timestamp, std::chrono::system_clock::now());
+                    log_expiry_debug_start(config.debug, kCeExpireForced);
+                    const auto forced = table.force_expire_oldest(
+                        table.size() - table.max_flows());
+                    log_expiry_debug_queued(config.debug, forced);
+                    const auto outcome = exporter.export_flows(
+                        forced, pkt->timestamp, std::chrono::system_clock::now());
+                    table.record_export_stats(outcome.flows, outcome.records,
+                                               outcome.packets, outcome.failures);
+                    log_expiry_debug_sent(config.debug,
+                                          static_cast<int>(outcome.packets));
+                    log_expiry_debug_expired(config.debug, forced);
                 }
             }
         }
@@ -2093,13 +2657,18 @@ int run_live_capture(const DaemonConfig& config) {
                                                    static_cast<std::size_t>(received)),
                     received_at, source_id);
                 for (const auto& sample : samples) {
+                    const std::uint8_t key_tos =
+                        config.track_level >= softflow::TrackLevel::FullTos
+                            ? sample.tos : 0;
                     const auto key = FlowKey::make_canonical(
                         sample.src, sample.dst, sample.src_port, sample.dst_port,
-                        sample.protocol, sample.tos, {0, 0});
+                        sample.protocol, key_tos, {0, 0});
                     const std::uint8_t direction =
                         (key.addr()[0] == sample.src) ? 0 : 1;
-                    table.record_packet(key, sample.observed_at, direction,
-                                         sample.observed_length, false, false);
+                    table.record_packet(key, sample.observed_at,
+                                         std::chrono::system_clock::now(),
+                                         direction, sample.observed_length, 0,
+                                         sample.tos);
                 }
             }
         }
@@ -2112,8 +2681,15 @@ int run_live_capture(const DaemonConfig& config) {
         const auto now = Clock::now();
         if (config.expiry_interval.count() == 0 ||
             now - last_expiry_check >= config.expiry_interval) {
-            exporter.export_flows(table.expire_flows(now), now,
-                                   std::chrono::system_clock::now());
+            log_expiry_debug_start(config.debug, kCeExpireNormal);
+            const auto due = table.expire_flows(now);
+            log_expiry_debug_queued(config.debug, due);
+            const auto outcome = exporter.export_flows(
+                due, now, std::chrono::system_clock::now());
+            table.record_export_stats(outcome.flows, outcome.records,
+                                       outcome.packets, outcome.failures);
+            log_expiry_debug_sent(config.debug, static_cast<int>(outcome.packets));
+            log_expiry_debug_expired(config.debug, due);
             exporter.export_samples(pending_samples, now,
                                      std::chrono::system_clock::now());
             pending_samples.clear();
@@ -2132,8 +2708,14 @@ int run_live_capture(const DaemonConfig& config) {
         // packets if -n was specified)".
         const auto now = Clock::now();
         const auto wall_now = std::chrono::system_clock::now();
-        exporter.export_flows(table.expire_flows(now + std::chrono::hours(2)),
-                               now, wall_now);
+        log_expiry_debug_start(config.debug, kCeExpireAll);
+        const auto expired = table.expire_flows(now, /*flush_all=*/true);
+        log_expiry_debug_queued(config.debug, expired);
+        const auto outcome = exporter.export_flows(expired, now, wall_now);
+        table.record_export_stats(outcome.flows, outcome.records,
+                                   outcome.packets, outcome.failures);
+        log_expiry_debug_sent(config.debug, static_cast<int>(outcome.packets));
+        log_expiry_debug_expired(config.debug, expired);
         exporter.export_samples(pending_samples, now, wall_now);
     }
 
@@ -2181,38 +2763,84 @@ int main(int argc, char** argv) {
 
     DaemonConfig config;
 
-    // This project's own GNU-style long options are filtered out of argv
-    // before the original's getopt()-based short options are parsed, so
-    // they can never collide with any of softflowd's own single-letter
-    // flags.
-    std::vector<char*> filtered_argv;
-    filtered_argv.push_back(argv[0]);
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--backend=hash") {
-            config.backend = softflow::FlowIndexBackend::Hash;
-        } else if (arg == "--backend=tree") {
-            config.backend = softflow::FlowIndexBackend::Tree;
-        } else if (arg.rfind("--export-out=", 0) == 0) {
-            config.export_out = arg.substr(std::string("--export-out=").size());
-        } else if (arg.rfind("--max-runtime=", 0) == 0) {
-            config.max_runtime = std::chrono::seconds(
-                std::stol(arg.substr(std::string("--max-runtime=").size())));
-        } else {
-            filtered_argv.push_back(argv[i]);
-        }
-    }
+    // This project's own additions are exposed as GNU-style long options
+    // via getopt_long(). Every existing short option keeps its exact
+    // original letter and argument-taking behavior (the optstring below is
+    // unchanged), so any script or invocation built against the original
+    // softflowd's short-option grammar continues to work unmodified;
+    // getopt_long() simply also accepts these long forms alongside them.
+    enum {
+        kOptBackend = 1000,
+        kOptExportOut,
+        kOptMaxRuntime,
+        kOptIcmpTypecodeOnly,
+        kOptNetflow1Legacy,
+        kOptExpirySecondGranularity,
+    };
+    static const struct option long_options[] = {
+        {"backend", required_argument, nullptr, kOptBackend},
+        {"export-out", required_argument, nullptr, kOptExportOut},
+        {"max-runtime", required_argument, nullptr, kOptMaxRuntime},
+        {"icmp-typecode-only", no_argument, nullptr, kOptIcmpTypecodeOnly},
+        {"netflow1-legacy", no_argument, nullptr, kOptNetflow1Legacy},
+        {"expiry-second-granularity", no_argument, nullptr, kOptExpirySecondGranularity},
+        {nullptr, 0, nullptr, 0},
+    };
 
-    const int fargc = static_cast<int>(filtered_argv.size());
-    char** fargv = filtered_argv.data();
+    const int fargc = argc;
+    char** fargv = argv;
     bool export_format_explicit = false;
 
     ::optind = 1;
     int opt;
     try {
-        while ((opt = getopt(fargc, fargv,
-                              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bal")) != -1) {
+        while ((opt = getopt_long(
+                    fargc, fargv,
+                    "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:balI:g",
+                    long_options, nullptr)) != -1) {
             switch (opt) {
+            case kOptBackend:
+                if (std::string(optarg) == "hash") {
+                    config.backend = softflow::FlowIndexBackend::Hash;
+                } else if (std::string(optarg) == "tree") {
+                    config.backend = softflow::FlowIndexBackend::Tree;
+                } else {
+                    std::fprintf(stderr, "Unknown --backend value: %s\n", optarg);
+                    print_usage(argv[0]);
+                    return 1;
+                }
+                break;
+            case kOptExportOut:
+                config.export_out = optarg;
+                break;
+            case kOptMaxRuntime:
+                config.max_runtime = std::chrono::seconds(std::stol(optarg));
+                break;
+            case kOptIcmpTypecodeOnly:
+                // See PacketParser's icmp_typecode_only_ member for the
+                // full explanation. Relaxes the default (C-compatible)
+                // sizeof(struct icmp) requirement down to the 2 bytes
+                // actually needed to read icmp_type/icmp_code.
+                config.icmp_typecode_only = true;
+                break;
+            case kOptNetflow1Legacy:
+                // See Netflow1Exporter's constructor comment. Switches
+                // -v 1's packing limit from 30 (matching a default,
+                // non-legacy softflowd build) to 24 (matching Cisco's
+                // original v1 specification, and a softflowd built with
+                // --enable-legacy).
+                config.netflow1_cisco_limit = true;
+                break;
+            case kOptExpirySecondGranularity:
+                // See FlowTimeouts::second_granularity's comment.
+                // Truncates expiry scheduling to whole seconds, matching
+                // the reference implementation's time_t-based expiry_at
+                // exactly -- including which flows tie (and therefore
+                // what order they're queued/expired/exported in) when
+                // several flows would otherwise expire within the same
+                // second at nanosecond-distinct times.
+                config.timeouts.second_granularity = true;
+                break;
             case 'n': {
                 auto dests = parse_destinations(optarg);
                 config.destinations.insert(config.destinations.end(),
@@ -2299,6 +2927,47 @@ int main(int argc, char** argv) {
                 break;
             case 'l':
                 config.load_balance = true;
+                break;
+            case 'I': {
+                // Original: BOOTTIME_MAX_DAY/HOUR/MIN/SEC clamps in
+                // softflowd.c's -I parsing.
+                constexpr long kBoottimeMaxDay = 49;
+                constexpr long kBoottimeMaxHour = 1193;
+                constexpr long kBoottimeMaxMin = 71582;
+                constexpr long kBoottimeMaxSec = 4294944;
+
+                char* timeunit = nullptr;
+                errno = 0;
+                long sec = std::strtol(optarg, &timeunit, 10);
+                if ((errno == ERANGE && (sec == LONG_MAX || sec == LONG_MIN)) ||
+                    (errno != 0 && sec == 0)) {
+                    std::perror("strtol");
+                    print_usage(argv[0]);
+                    return 1;
+                }
+                if (timeunit == optarg) {
+                    std::fprintf(stderr,
+                                 "No digits were found in boot_time_reinit\n");
+                    print_usage(argv[0]);
+                    return 1;
+                }
+                if (*timeunit == 'd' || *timeunit == 'D') {
+                    if (sec > kBoottimeMaxDay) sec = kBoottimeMaxDay;
+                    sec *= 24 * 60 * 60;
+                } else if (*timeunit == 'h' || *timeunit == 'H') {
+                    if (sec > kBoottimeMaxHour) sec = kBoottimeMaxHour;
+                    sec *= 60 * 60;
+                } else if (*timeunit == 'm' || *timeunit == 'M') {
+                    if (sec > kBoottimeMaxMin) sec = kBoottimeMaxMin;
+                    sec *= 60;
+                } else {
+                    if (sec > kBoottimeMaxSec) sec = kBoottimeMaxSec;
+                }
+                config.boot_time_reinit = std::chrono::seconds(sec);
+                break;
+            }
+            case 'g':
+                config.gauge_clock = true;
                 break;
             case '?':
             default:

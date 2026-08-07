@@ -170,7 +170,7 @@ void flatten(std::span<const ExportRecord> records,
                 flow.flow_start,
                 flow.flow_last,
                 key.protocol(),
-                key.tos(),
+                flow.tos[d],
                 flow.tcp_flags[d],
                 &flow.mpls_labels,
             };
@@ -246,7 +246,7 @@ void flatten_biflow(std::span<const ExportRecord> records,
         }
         BiflowRecord br{
             &key.addr()[0], &key.addr()[1], key.port()[0], key.port()[1],
-            key.protocol(), key.tos(),
+            key.protocol(), flow.tos[0],
             flow.octets[0], flow.packets[0], flow.tcp_flags[0],
             flow.octets[1], flow.packets[1], flow.tcp_flags[1],
             flow.flow_start, flow.flow_last, &flow.mpls_labels,

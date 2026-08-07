@@ -26,7 +26,14 @@ inline constexpr std::size_t kNetflow5RecordSize = 48;
 
 class Netflow5Exporter {
 public:
-    explicit Netflow5Exporter(TimePoint boot_time) : boot_time_(boot_time) {}
+    // debug: when true, mirrors the reference C softflowd's -D
+    // (verbose_flag) behavior of logging "Sending v5 flow packet len =
+    // %d" to stderr right before each UDP packet is handed off to
+    // send_multi_destinations().
+    explicit Netflow5Exporter(TimePoint boot_time, bool debug = false)
+        : boot_time_(boot_time), debug_(debug) {}
+
+    void set_boot_time(TimePoint boot_time) noexcept { boot_time_ = boot_time; }
 
     // Same time-parameter shape as Netflow1Exporter (see netflow1.hpp) --
     // now/wall_now are passed in explicitly rather than read from the
@@ -52,6 +59,7 @@ private:
 
     TimePoint boot_time_;
     std::uint32_t flow_seq_{0};
+    bool debug_{false};
 };
 
 } // namespace softflow

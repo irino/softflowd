@@ -76,9 +76,15 @@ def print_yellow(text: str):
 
 
 def check_command(cmd, apt_pkg, source_url):
+    # Try system PATH first
     path = shutil.which(cmd)
     if path:
         return path
+
+    # Try parent directory (project root)
+    parent_path = os.path.join(os.path.dirname(BASE_DIR), cmd)
+    if os.path.exists(parent_path) and os.access(parent_path, os.X_OK):
+        return parent_path
 
     print_red(f"Error: {cmd} not found.")
     print(f"Please install it using one of the following methods:")

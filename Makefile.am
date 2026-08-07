@@ -15,3 +15,4 @@ softflowd_LDADD = $(LEGACY) $(NTOPNG)
 softflowd_DEPENDENCIES = $(LEGACY) $(NTOPNG)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
+EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig

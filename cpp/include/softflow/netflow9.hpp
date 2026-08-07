@@ -61,6 +61,8 @@ public:
         : boot_time_(boot_time), source_id_(source_id),
           mpls_label_count_(std::min<std::uint8_t>(mpls_label_count, 10)) {}
 
+    void set_boot_time(TimePoint boot_time) noexcept { boot_time_ = boot_time; }
+
     // Returns one export packet per call to this function's internal
     // packing loop; multiple packets are returned when there are more
     // records than fit in a single FlowSet, or when both IPv4 and IPv6

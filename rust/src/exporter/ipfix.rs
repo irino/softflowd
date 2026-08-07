@@ -5,6 +5,10 @@ use crate::exporter::{SendParameter, get_active_now};
 const IPFIX_TEMPLATE_SET_ID: u16 = 2;
 const IPFIX_OPTION_TEMPLATE_SET_ID: u16 = 3;
 
+const IPFIX_SET_HEADER_LEN: u16 = 4;
+const IPFIX_TEMPLATE_HEADER_LEN: u16 = 4;
+const IPFIX_FIELD_SPEC_LEN: u16 = 4;
+
 const IPFIX_SOFTFLOWD_V4_TEMPLATE_ID: u16 = 1024;
 const IPFIX_SOFTFLOWD_V6_TEMPLATE_ID: u16 = 2048;
 const IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID: u16 = 256;
@@ -19,6 +23,14 @@ const IPFIX_INGRESS_INTERFACE: u16 = 10;
 const IPFIX_EGRESS_INTERFACE: u16 = 14;
 const IPFIX_FLOW_START_SYSUPTIME: u16 = 166;
 const IPFIX_FLOW_END_SYSUPTIME: u16 = 167;
+const IPFIX_FLOW_START_MILLISECONDS: u16 = 152;
+const IPFIX_FLOW_END_MILLISECONDS: u16 = 153;
+const IPFIX_FLOW_START_MICROSECONDS: u16 = 154;
+const IPFIX_FLOW_END_MICROSECONDS: u16 = 155;
+const IPFIX_FLOW_START_NANOSECONDS: u16 = 156;
+const IPFIX_FLOW_END_NANOSECONDS: u16 = 157;
+const IPFIX_FLOW_DIRECTION: u16 = 61;
+const IPFIX_MPLS_LABEL_STACK_SECTION: u16 = 70;
 const IPFIX_SOURCE_TRANSPORT_PORT: u16 = 7;
 const IPFIX_DESTINATION_TRANSPORT_PORT: u16 = 11;
 const IPFIX_PROTOCOL_IDENTIFIER: u16 = 4;
@@ -29,13 +41,15 @@ const IPFIX_SYSTEM_INIT_TIME_MILLISECONDS: u16 = 160;
 
 static mut PKTS_UNTIL_TEMPLATE: i32 = -1;
 
-fn write_templates(packet: &mut Vec<u8>) {
-    // 1. IPv4 Template Flowset
-    packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
-    packet.extend_from_slice(&64u16.to_be_bytes());
-    packet.extend_from_slice(&IPFIX_SOFTFLOWD_V4_TEMPLATE_ID.to_be_bytes());
-    packet.extend_from_slice(&14u16.to_be_bytes());
+fn write_templates(packet: &mut Vec<u8>, time_format: u8) {
+    let (start_ie, end_ie, time_len) = match time_format {
+        b'm' => (IPFIX_FLOW_START_MILLISECONDS, IPFIX_FLOW_END_MILLISECONDS, 8),
+        b'M' => (IPFIX_FLOW_START_MICROSECONDS, IPFIX_FLOW_END_MICROSECONDS, 8),
+        b'n' => (IPFIX_FLOW_START_NANOSECONDS, IPFIX_FLOW_END_NANOSECONDS, 8),
+        _ => (IPFIX_FLOW_START_SYSUPTIME, IPFIX_FLOW_END_SYSUPTIME, 4),
+    };
 
+    // 1. IPv4 Template Flowset
     let v4_fields = [
         (IPFIX_SOURCE_IPV4_ADDRESS, 4),
         (IPFIX_DESTINATION_IPV4_ADDRESS, 4),
@@ -49,20 +63,24 @@ fn write_templates(packet: &mut Vec<u8>) {
         (IPFIX_TCP_CONTROL_BITS, 1),
         (IPFIX_IP_VERSION, 1),
         (IPFIX_IP_CLASS_OF_SERVICE, 1),
-        (IPFIX_FLOW_START_SYSUPTIME, 4),
-        (IPFIX_FLOW_END_SYSUPTIME, 4),
+        (start_ie, time_len),
+        (end_ie, time_len),
+        (IPFIX_FLOW_DIRECTION, 1),
+        (IPFIX_MPLS_LABEL_STACK_SECTION, 0),
     ];
+    let v4_len = IPFIX_TEMPLATE_HEADER_LEN + (v4_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN);
+
+    packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
+    packet.extend_from_slice(&(IPFIX_SET_HEADER_LEN + v4_len).to_be_bytes());
+    packet.extend_from_slice(&IPFIX_SOFTFLOWD_V4_TEMPLATE_ID.to_be_bytes());
+    packet.extend_from_slice(&(v4_fields.len() as u16).to_be_bytes());
+
     for &(id, len) in &v4_fields {
         packet.extend_from_slice(&(id as u16).to_be_bytes());
         packet.extend_from_slice(&(len as u16).to_be_bytes());
     }
 
     // 2. IPv6 Template Flowset
-    packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
-    packet.extend_from_slice(&64u16.to_be_bytes());
-    packet.extend_from_slice(&IPFIX_SOFTFLOWD_V6_TEMPLATE_ID.to_be_bytes());
-    packet.extend_from_slice(&14u16.to_be_bytes());
-
     let v6_fields = [
         (IPFIX_SOURCE_IPV6_ADDRESS, 16),
         (IPFIX_DESTINATION_IPV6_ADDRESS, 16),
@@ -76,13 +94,32 @@ fn write_templates(packet: &mut Vec<u8>) {
         (IPFIX_TCP_CONTROL_BITS, 1),
         (IPFIX_IP_VERSION, 1),
         (IPFIX_IP_CLASS_OF_SERVICE, 1),
-        (IPFIX_FLOW_START_SYSUPTIME, 4),
-        (IPFIX_FLOW_END_SYSUPTIME, 4),
+        (start_ie, time_len),
+        (end_ie, time_len),
+        (IPFIX_FLOW_DIRECTION, 1),
+        (IPFIX_MPLS_LABEL_STACK_SECTION, 0),
     ];
+    let v6_len = IPFIX_TEMPLATE_HEADER_LEN + (v6_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN);
+
+    packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
+    packet.extend_from_slice(&(IPFIX_SET_HEADER_LEN + v6_len).to_be_bytes());
+    packet.extend_from_slice(&IPFIX_SOFTFLOWD_V6_TEMPLATE_ID.to_be_bytes());
+    packet.extend_from_slice(&(v6_fields.len() as u16).to_be_bytes());
+
     for &(id, len) in &v6_fields {
         packet.extend_from_slice(&(id as u16).to_be_bytes());
         packet.extend_from_slice(&(len as u16).to_be_bytes());
     }
+}
+
+pub fn get_flow_direction(flow: &crate::common::Flow, param: &crate::common::FlowTrackParameters) -> u8 {
+    if param.direction_mac_set && param.track_level >= crate::common::TrackLevel::FullVlanEther {
+        if let Some(mac) = param.direction_mac {
+            if flow.src_mac == mac { return 2; } // Egress
+            if flow.dst_mac == mac { return 1; } // Ingress
+        }
+    }
+    0
 }
 
 fn write_option_template(packet: &mut Vec<u8>) {
@@ -142,7 +179,7 @@ pub fn send_ipfix(sp: SendParameter) -> i32 {
         packet.extend_from_slice(&(sp.param.records_sent as u32).to_be_bytes()); // Sequence
         packet.extend_from_slice(&0u32.to_be_bytes()); // Observation Domain ID
 
-        write_templates(&mut packet);
+        write_templates(&mut packet, sp.param.time_format);
         write_option_template(&mut packet);
         write_option_data(&mut packet, &sp.param.system_boot_time);
 
@@ -247,11 +284,53 @@ pub fn send_ipfix(sp: SendParameter) -> i32 {
             packet.push(if is_v6 { 6 } else { 4 });
             packet.push(flow.tos[dir]);
 
-            // Flow start and end in SysUpTime (milliseconds)
-            let start_ms = flow.flow_start.sub_ms(&sp.param.system_boot_time);
-            let end_ms = flow.flow_last.sub_ms(&sp.param.system_boot_time);
-            packet.extend_from_slice(&(start_ms as u32).to_be_bytes());
-            packet.extend_from_slice(&(end_ms as u32).to_be_bytes());
+            // Flow start and end in SysUpTime or Absolute time
+            if sp.param.time_format == b's' {
+                // Seconds (8 bytes)
+                packet.extend_from_slice(&(flow.flow_start.tv_sec as u64).to_be_bytes());
+                packet.extend_from_slice(&(flow.flow_last.tv_sec as u64).to_be_bytes());
+            } else if sp.param.time_format == b'm' {
+                // Milliseconds (8 bytes)
+                let start_ms = (flow.flow_start.tv_sec as u64 * 1000) + (flow.flow_start.tv_usec as u64 / 1000);
+                let end_ms = (flow.flow_last.tv_sec as u64 * 1000) + (flow.flow_last.tv_usec as u64 / 1000);
+                packet.extend_from_slice(&start_ms.to_be_bytes());
+                packet.extend_from_slice(&end_ms.to_be_bytes());
+            } else if sp.param.time_format == b'M' {
+                // Microseconds (8 bytes)
+                let start_us = (flow.flow_start.tv_sec as u64 * 1_000_000) + flow.flow_start.tv_usec as u64;
+                let end_us = (flow.flow_last.tv_sec as u64 * 1_000_000) + flow.flow_last.tv_usec as u64;
+                packet.extend_from_slice(&start_us.to_be_bytes());
+                packet.extend_from_slice(&end_us.to_be_bytes());
+            } else if sp.param.time_format == b'n' {
+                // Nanoseconds (8 bytes)
+                let start_ns = (flow.flow_start.tv_sec as u64 * 1_000_000_000) + (flow.flow_start.tv_usec as u64 * 1000);
+                let end_ns = (flow.flow_last.tv_sec as u64 * 1_000_000_000) + (flow.flow_last.tv_usec as u64 * 1000);
+                packet.extend_from_slice(&start_ns.to_be_bytes());
+                packet.extend_from_slice(&end_ns.to_be_bytes());
+            } else {
+                // SysUpTime (4 bytes)
+                let start_ms = flow.flow_start.sub_ms(&sp.param.system_boot_time);
+                let end_ms = flow.flow_last.sub_ms(&sp.param.system_boot_time);
+                packet.extend_from_slice(&(start_ms as u32).to_be_bytes());
+                packet.extend_from_slice(&(end_ms as u32).to_be_bytes());
+            }
+
+            // Write flow direction
+            let dir_val = get_flow_direction(flow, &sp.param);
+            packet.push(dir_val);
+
+            // Write MPLS labels
+            if flow.key.mpls_label_depth > 0 {
+                let depth = flow.key.mpls_label_depth as usize;
+                // IPFIX mplsLabelStackSection format: 1 octet for number of labels + labels
+                packet.push(depth as u8);
+                for i in 0..depth {
+                    let label = flow.key.mpls_labels[i];
+                    packet.extend_from_slice(&label.to_be_bytes());
+                }
+            } else {
+                packet.push(0); // 0 labels
+            }
 
             flows_in_packet += 1;
         }

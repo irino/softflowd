@@ -64,7 +64,18 @@ enum class AddressFamily : std::uint8_t {
 enum class TrackLevel : std::uint8_t {
     IpOnly,       // "ip":    source/destination address only
     IpProto,      // "proto": + protocol
-    IpProtoPort,  // "full":  + source/destination port (the default)
+    IpProtoPort,  // "full":  + source/destination port (the default). ToS
+                  // is deliberately *not* part of flow identity at this
+                  // level, matching the reference implementation's actual
+                  // flow_compare() behavior (see FlowKey's own comment) --
+                  // despite softflowd.h describing "full" as a 6-tuple
+                  // that includes ToS, the real comparison function never
+                  // touches it.
+    FullTos,      // "full-tos": + ToS. Opt-in: makes ToS part of flow
+                  // identity too, matching what softflowd.h *documents*
+                  // (but the reference C implementation doesn't actually
+                  // do). Two packets identical except for ToS become
+                  // separate flows at this level.
     FullVlan,     // "vlan":  + VLAN ID
     FullVlanEther, // "ether": + source/destination Ethernet address
 };
@@ -162,6 +173,15 @@ public:
     // and a strict total order (used by the tree-based backend, in place of
     // the original's RB_GENERATE-produced comparison function). One
     // declaration serves both FlowTable backends described below.
+    //
+    // Original: softflowd.c's flow_compare() -- compares af/addr/protocol/
+    // port(/vlanid/ethermac when tracked) only; ToS is *not* part of flow
+    // identity there by default (see TrackLevel::IpProtoPort's comment).
+    // tos_ is always a member of FlowKey (so it participates in this
+    // defaulted comparison uniformly), but callers below only pass a real
+    // ToS value in when TrackLevel::FullTos or above is selected --
+    // otherwise they always pass 0, which makes tos_ a constant that never
+    // differentiates any flow, functionally identical to excluding it.
     friend auto operator<=>(const FlowKey&, const FlowKey&) = default;
     friend bool operator==(const FlowKey&, const FlowKey&) = default;
 
@@ -182,14 +202,32 @@ private:
 // out-of-bounds index becomes an immediately detectable exception/assertion
 // (std::array::at(), or a debug-build-checked operator[]) instead of silent
 // memory corruption.
+// Original: softflowd.h's R_GENERAL .. R_FLUSH expiry-reason enum, used to
+// classify why a flow was removed from the table for statistics purposes.
+enum class ExpiryReason : std::uint8_t {
+    General, Tcp, TcpRst, TcpFin, Udp, Icmp, MaxLife, OverBytes, OverFlows, Flush
+};
+
 struct Flow {
     std::uint64_t flow_seq{0};
     TimePoint flow_start{};
     TimePoint flow_last{};
+    // Wall-clock counterparts of flow_start/flow_last, for -D debug
+    // logging (format_flow()) and anything else that needs an actual
+    // calendar date/time -- flow_start/flow_last above are on the
+    // monotonic Clock (see softflowd.hpp's `using Clock =
+    // std::chrono::steady_clock`), which has no fixed relationship to
+    // wall-clock time on its own. In the original, flow->flow_start IS
+    // the real wall-clock pcap-recorded time (see PCAP_TS_TO_TIMEVAL），
+    // so these are populated alongside flow_start/flow_last in
+    // record_packet() from the packet's own wall_timestamp.
+    std::chrono::system_clock::time_point wall_start{};
+    std::chrono::system_clock::time_point wall_last{};
 
     std::array<std::uint64_t, 2> octets{};
     std::array<std::uint64_t, 2> packets{};
     std::array<std::uint8_t, 2> tcp_flags{};
+    std::array<std::uint8_t, 2> tos{};
     std::array<std::array<std::uint8_t, 6>, 2> ethermac{};
 
     std::uint32_t ip6_flowlabel_a{0};
@@ -198,6 +236,7 @@ struct Flow {
     MplsLabelStack mpls_labels;
 
     std::uint8_t flow_end_reason{0};
+    ExpiryReason reason{ExpiryReason::General};
 };
 
 // Original: NetFlow/IPFIX/PSAMP export code (in softflowd.c and the various
@@ -388,16 +427,76 @@ struct FlowTimeouts {
     std::chrono::seconds icmp{300};
     std::chrono::seconds general{3600};
     std::chrono::seconds maximum_lifetime{3600 * 24 * 7};
+
+    // Original: expiry->expires_at is a plain `time_t`, computed as
+    // `flow->flow_last.tv_sec + timeout_value` -- whole-second integer
+    // arithmetic that silently discards flow_last's tv_usec. This
+    // project's TimePoint retains full (sub-second) precision by
+    // default, so flows that would tie (same whole second) in the
+    // original can end up with distinct, differently-ordered expiry
+    // times here instead. When true (--expiry-second-granularity),
+    // compute_expiry() truncates its result down to a whole-second
+    // boundary, reproducing the original's tie behavior (and thus the
+    // original's "Queuing flow"/"EXPIRED" debug-log order, and NetFlow/
+    // IPFIX export packet record ordering) exactly. Only affects expiry
+    // *scheduling*; flow.flow_start/flow.flow_last themselves (and thus
+    // exported Duration/octets/packets statistics) keep full precision
+    // either way.
+    bool second_granularity = false;
 };
 
 // Original: struct FLOWTRACKPARAMETERS' statistics fields. The original had
 // a dozen-plus flat u_int64_t counters; only the subset needed so far is
 // kept here (NetFlow export statistics will be added in a later stage).
+// Original: struct STATISTIC (softflowd.h) + update_statistic() in
+// softflowd.c -- a running min/mean/max accumulator using Welford's
+// online-mean update.
+struct StatAccumulator {
+    double min{0.0};
+    double mean{0.0};
+    double max{0.0};
+    std::uint64_t n{0};
+
+    void update(double value) noexcept {
+        if (n == 0 || value < min) min = value;
+        if (n == 0 || value > max) max = value;
+        ++n;
+        mean += (value - mean) / static_cast<double>(n);
+    }
+};
+
 struct FlowTableStats {
     std::uint64_t total_packets{0};
     std::uint64_t bad_packets{0};
+    std::uint64_t non_ip_packets{0};
+    std::uint64_t frag_packets{0};
     std::uint64_t flows_expired{0};
     std::uint64_t flows_force_expired{0};
+
+    std::uint64_t flows_exported{0};
+    std::uint64_t records_sent{0};
+    std::uint64_t packets_sent{0};
+    std::uint64_t flows_dropped{0};
+
+    StatAccumulator duration;
+    StatAccumulator octets;
+    StatAccumulator packets;
+
+    std::array<std::uint64_t, 256> flows_pp{};
+    std::array<std::uint64_t, 256> octets_pp{};
+    std::array<std::uint64_t, 256> packets_pp{};
+    std::array<StatAccumulator, 256> duration_pp{};
+
+    std::uint64_t expired_general{0};
+    std::uint64_t expired_tcp{0};
+    std::uint64_t expired_tcp_rst{0};
+    std::uint64_t expired_tcp_fin{0};
+    std::uint64_t expired_udp{0};
+    std::uint64_t expired_icmp{0};
+    std::uint64_t expired_maxlife{0};
+    std::uint64_t expired_overbytes{0};
+    std::uint64_t expired_maxflows{0};
+    std::uint64_t expired_flush{0};
 };
 
 // Original: struct FLOWTRACK as a whole, plus the functionality of
@@ -451,17 +550,14 @@ public:
     // (by design, this reference is meant to be used immediately by the
     // caller rather than stored, so no raw pointer needs to be handed out).
     Flow& record_packet(const FlowKey& key, TimePoint now,
+                         std::chrono::system_clock::time_point wall_now,
                          std::uint8_t direction, std::uint64_t octet_delta,
-                         bool is_tcp_syn, bool is_tcp_fin_or_rst);
+                         std::uint8_t tcp_flags, std::uint8_t tos);
 
-    // Original: softflowd.c's check_expired(), which walked the EXPIRIES
-    // tree from its smallest element removing anything past its expiry
-    // time. Here that becomes iterating the ordered expiry index from the
-    // beginning. Expired flows are returned as ExportRecord values (each a
-    // copy of its key and its accumulated Flow), so the caller's copies are
-    // independent of FlowTable's internal lifetime -- no risk of a
-    // dangling reference even after the FlowTable is destroyed.
-    std::vector<ExportRecord> expire_flows(TimePoint now);
+    // flush_all: original's CE_EXPIRE_ALL (used on graceful shutdown).
+    // Expires every remaining flow regardless of its normal expiry time,
+    // tagging each with ExpiryReason::Flush for statistics purposes.
+    std::vector<ExportRecord> expire_flows(TimePoint now, bool flush_all = false);
 
     // Explicit forced eviction (original: softflowd.c's handling of
     // exceeding the configured maximum flow count with -m). Evicts the
@@ -477,13 +573,28 @@ public:
     std::size_t size() const noexcept { return flows_.size(); }
     std::size_t max_flows() const noexcept { return max_flows_; }
     const FlowTableStats& stats() const noexcept { return stats_; }
+
+    // Original: send_nflow5()/send_nflow9()/send_ipfix() etc. incrementing
+    // ft->param.flows_exported/records_sent/packets_sent/flows_dropped as
+    // a side effect of exporting. ExportPipeline is a standalone class
+    // with no reference to this table's stats_, so the caller (the main
+    // loop) reports the outcome of each export_flows() call back here.
+    void record_export_stats(std::uint64_t flows, std::uint64_t records,
+                              std::uint64_t packets, std::uint64_t failures) noexcept {
+        stats_.flows_exported += flows;
+        stats_.records_sent += records;
+        stats_.packets_sent += packets;
+        stats_.flows_dropped += failures;
+    }
     TrackLevel track_level() const noexcept { return track_level_; }
     const FlowTimeouts& timeouts() const noexcept { return timeouts_; }
     static constexpr FlowIndexBackend backend() noexcept { return Backend; }
 
 private:
-    TimePoint compute_expiry(const Flow& flow, bool is_tcp_syn,
-                              bool is_tcp_fin_or_rst) const;
+    std::pair<TimePoint, ExpiryReason> compute_expiry(
+        const Flow& flow, std::uint8_t protocol, AddressFamily af) const;
+    void record_expiry_stats(const Flow& flow, std::uint8_t protocol,
+                              ExpiryReason reason_override, bool override_reason);
     void reschedule_expiry(const FlowKey& key, TimePoint new_expiry);
 
     std::size_t max_flows_;
@@ -541,9 +652,10 @@ public:
                       FlowTimeouts timeouts = {});
 
     Flow& record_packet(const FlowKey& key, TimePoint now,
+                         std::chrono::system_clock::time_point wall_now,
                          std::uint8_t direction, std::uint64_t octet_delta,
-                         bool is_tcp_syn, bool is_tcp_fin_or_rst);
-    std::vector<ExportRecord> expire_flows(TimePoint now);
+                         std::uint8_t tcp_flags, std::uint8_t tos);
+    std::vector<ExportRecord> expire_flows(TimePoint now, bool flush_all = false);
     std::vector<ExportRecord> force_expire_oldest(std::size_t count);
     std::vector<ExportRecord> snapshot() const;
 
@@ -552,6 +664,8 @@ public:
     std::size_t size() const noexcept;
     std::size_t max_flows() const noexcept;
     const FlowTableStats& stats() const noexcept;
+    void record_export_stats(std::uint64_t flows, std::uint64_t records,
+                              std::uint64_t packets, std::uint64_t failures) noexcept;
     TrackLevel track_level() const noexcept;
     FlowIndexBackend backend() const noexcept;
 
@@ -604,7 +718,22 @@ struct ParsedPacket {
 // that failure is possible, which the original's plain `int` did not.)
 class PacketParser {
 public:
-    explicit PacketParser(TrackLevel track_level) : track_level_(track_level) {}
+    // icmp_typecode_only: when false (the default), mirrors the reference
+    // C softflowd's `if (caplen < sizeof(*icmp)) return;` check (sizeof
+    // struct icmp is 28 bytes on Linux/glibc; see <netinet/ip_icmp.h>) for
+    // both ICMPv4 and ICMPv6, even though only the first 2 bytes
+    // (type/code) are actually read -- matching the reference
+    // implementation byte-for-byte is the priority. On captures truncated
+    // to just past the ICMP header (small snaplen), this silently drops
+    // the type/code encoding and merges flows that would otherwise be
+    // told apart, exactly as the reference implementation does.
+    // --icmp-typecode-only relaxes this to the 2 bytes actually needed,
+    // for anyone who'd rather have more flows correctly told apart on
+    // such captures than match the reference implementation exactly.
+    explicit PacketParser(TrackLevel track_level,
+                          bool icmp_typecode_only = false)
+        : track_level_(track_level),
+          icmp_typecode_only_(icmp_typecode_only) {}
 
     // Original: ipv4_to_flowrec() / ipv6_to_flowrec()
     // ip_payload is the IP packet with the data-link layer header already
@@ -626,6 +755,7 @@ private:
                           std::uint8_t protocol) const;
 
     TrackLevel track_level_;
+    bool icmp_typecode_only_;
 };
 
 // Original: the "decide addr[ndx] vs addr[ndx^1] ordering" step that
@@ -729,6 +859,18 @@ public:
     // failure, which the caller had no way to observe. Here it's an
     // exception, so it cannot be silently ignored.
     void set_filter(const std::string& bpf_expression);
+
+    // Original: softflowd.c's statistics() called pcap_stats() directly on
+    // its pcap_t*. Returns std::nullopt if the stats are unavailable for
+    // this capture mode (notably, offline pcap files -- pcap_stats() only
+    // reports meaningful numbers for live captures).
+    std::optional<struct pcap_stat> stats() const noexcept {
+        struct pcap_stat ps{};
+        if (pcap_stats(handle_.get(), &ps) != 0) {
+            return std::nullopt;
+        }
+        return ps;
+    }
 
     // Original: a thin wrapper over pcap_next_ex().
     // Returns: a CapturedPacket if one was available; std::nullopt on a

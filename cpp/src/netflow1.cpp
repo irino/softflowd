@@ -1,6 +1,7 @@
 #include "softflow/netflow1.hpp"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace softflow {
 
@@ -42,14 +43,19 @@ Netflow1Exporter::build_packets(
     std::chrono::system_clock::time_point wall_now) const {
     std::vector<std::vector<std::uint8_t>> packets;
 
-    // Original: process_packet()/expire logic emitted one record per
-    // *direction* that actually carried traffic (a flow with only
-    // forward-direction packets produces one record, a bidirectional flow
-    // produces two). Build the flat list of (source, dest, octets,
-    // packets, first, last) directional entries first, then chunk that
-    // list into packets -- this keeps the "how many fit in one UDP
-    // payload" logic in one place, shared by every direction-producing
-    // record.
+    // Original: with the default (non-legacy) build, `-v 1` shares
+    // netflow5.c's send_netflow_v5_v1() with v5, including its packing
+    // behavior: before adding each flow's own record(s), it checks
+    // `j >= NF5_MAXFLOWS - 1` (29, not 30) and flushes the current packet
+    // first if so -- reserving room for a flow that turns out to need two
+    // records (both directions), which are never split across a packet
+    // boundary. This is a conservative check made once per flow, so a
+    // packet can still end up with exactly kNetflow1MaxRecordsPerPacket
+    // records (if the last flow added happened to bring it there
+    // directly), but will often flush early with one fewer, unlike a
+    // simple flat chunk-by-N packing. Replicating this exactly (rather
+    // than optimally packing a flattened list) matters for byte-for-byte
+    // parity in the reported packet count.
     struct DirectionalRecord {
         const IpAddress* src;
         const IpAddress* dst;
@@ -64,41 +70,16 @@ Netflow1Exporter::build_packets(
         std::uint8_t tcp_flags;
     };
 
-    std::vector<DirectionalRecord> flat;
-    flat.reserve(records.size() * 2);
-    for (const auto& record : records) {
-        const auto& key = record.key;
-        const auto& flow = record.flow;
-        for (int dir = 0; dir < 2; ++dir) {
-            if (flow.packets[static_cast<std::size_t>(dir)] == 0) {
-                continue; // no traffic was ever seen in this direction
-            }
-            flat.push_back(DirectionalRecord{
-                &key.addr()[static_cast<std::size_t>(dir)],
-                &key.addr()[static_cast<std::size_t>(dir ^ 1)],
-                key.port()[static_cast<std::size_t>(dir)],
-                key.port()[static_cast<std::size_t>(dir ^ 1)],
-                flow.octets[static_cast<std::size_t>(dir)],
-                flow.packets[static_cast<std::size_t>(dir)],
-                flow.flow_start,
-                flow.flow_last,
-                key.protocol(),
-                key.tos(),
-                flow.tcp_flags[static_cast<std::size_t>(dir)],
-            });
+    std::vector<DirectionalRecord> pending;
+
+    auto flush = [&](bool is_final) {
+        if (pending.empty()) {
+            return;
         }
-    }
-
-    for (std::size_t offset = 0; offset < flat.size();
-         offset += kNetflow1MaxRecordsPerPacket) {
-        const std::size_t chunk =
-            std::min(kNetflow1MaxRecordsPerPacket, flat.size() - offset);
-
         ByteWriter writer;
-        write_header(writer, static_cast<std::uint16_t>(chunk), now, wall_now);
-
-        for (std::size_t i = 0; i < chunk; ++i) {
-            const auto& r = flat[offset + i];
+        write_header(writer, static_cast<std::uint16_t>(pending.size()), now,
+                     wall_now);
+        for (const auto& r : pending) {
             // Original: struct NF1_FLOW, 48 bytes.
             writer.put_ipv4(*r.src);      // srcaddr
             writer.put_ipv4(*r.dst);      // dstaddr
@@ -121,9 +102,72 @@ Netflow1Exporter::build_packets(
             writer.put_u32(0); // reserved
             writer.put_u16(0); // reserved (total record size: 48 bytes)
         }
+        auto bytes = writer.take();
+        if (debug_) {
+            // Original: netflow1.c's OWN implementation (used only for
+            // --netflow1-legacy / a genuine --enable-legacy build) says
+            // "Sending flow packet len = %d" at *both* its mid-loop
+            // early-flush site and its trailing leftover-flush site --
+            // consistently, unlike netflow5.c's shared send_netflow_v5_v1()
+            // (used for the non-legacy default build's -v 1 *and* -v 5),
+            // whose two call sites disagree ("Sending flow packet len"
+            // vs "Sending v5 flow packet len"). Since this project's
+            // default (max_records_per_packet_ ==
+            // kNetflow1MaxRecordsPerPacket, i.e. --netflow1-legacy not
+            // given) represents that same shared function, it must
+            // reproduce the *same* mid/final inconsistency as
+            // Netflow5Exporter, not netflow1.c's own consistent wording.
+            const bool is_legacy =
+                max_records_per_packet_ == kNetflow1CiscoMaxRecordsPerPacket;
+            if (is_legacy || !is_final) {
+                std::fprintf(stderr, "Sending flow packet len = %zu\n", bytes.size());
+            } else {
+                std::fprintf(stderr, "Sending v5 flow packet len = %zu\n", bytes.size());
+            }
+        }
+        packets.push_back(std::move(bytes));
+        pending.clear();
+    };
 
-        packets.push_back(writer.take());
+    for (const auto& record : records) {
+        const auto& key = record.key;
+        const auto& flow = record.flow;
+
+        int this_flow_count = 0;
+        for (int dir = 0; dir < 2; ++dir) {
+            if (flow.packets[static_cast<std::size_t>(dir)] > 0) {
+                ++this_flow_count;
+            }
+        }
+        if (this_flow_count == 0) {
+            continue;
+        }
+
+        if (pending.size() >= max_records_per_packet_ - 1) {
+            flush(false);
+        }
+
+        for (int dir = 0; dir < 2; ++dir) {
+            const auto d = static_cast<std::size_t>(dir);
+            if (flow.packets[d] == 0) {
+                continue; // no traffic was ever seen in this direction
+            }
+            pending.push_back(DirectionalRecord{
+                &key.addr()[d],
+                &key.addr()[d ^ 1],
+                key.port()[d],
+                key.port()[d ^ 1],
+                flow.octets[d],
+                flow.packets[d],
+                flow.flow_start,
+                flow.flow_last,
+                key.protocol(),
+                flow.tos[d],
+                flow.tcp_flags[d],
+            });
+        }
     }
+    flush(true);
 
     return packets;
 }

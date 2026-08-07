@@ -167,6 +167,8 @@ pub struct Flow {
     pub tcp_flags: [u8; 2],
     pub tos: [u8; 2],
     pub ip6_flowlabel: [u32; 2],
+    pub src_mac: [u8; 6],
+    pub dst_mac: [u8; 6],
     pub flow_end_reason: u8,
     pub key: FlowKey,
     pub expiry_key: Option<ExpiryKey>,
@@ -223,7 +225,7 @@ pub struct FlowTrackParameters {
     pub flows_force_expired: u64,
     pub packets_sent: u64,
     pub records_sent: u64,
-    
+
     pub duration: Statistic,
     pub octets: Statistic,
     pub packets: Statistic,
@@ -250,11 +252,19 @@ pub struct FlowTrackParameters {
     pub metering_process_id: u32,
     pub interface_name: String,
     pub exporter_ip: Option<IpAddr>,
-    
+
+    // Optional MAC address used to determine IPFIX flowDirection
+    pub direction_mac: Option<[u8; 6]>,
+    pub direction_mac_set: bool,
+
     pub bidirection: bool,
+    pub time_format: u8,
+    pub pcap_buffer_size: usize,
+    pub gauge_clock: bool,
+    pub max_num_label: u8,
+    pub boot_time_reinit: u64,
     pub adjust_time: bool,
     pub is_psamp: bool,
-    pub max_num_label: u8,
     pub last_packet_time: TimeVal,
 }
 
@@ -305,10 +315,16 @@ impl Default for FlowTrackParameters {
             metering_process_id: std::process::id(),
             interface_name: String::new(),
             exporter_ip: None,
+            direction_mac: None,
+            direction_mac_set: false,
             bidirection: false,
+            time_format: b's',
+            pcap_buffer_size: 0,
+            gauge_clock: false,
+            max_num_label: 0,
+            boot_time_reinit: 0,
             adjust_time: false,
             is_psamp: false,
-            max_num_label: 0,
             last_packet_time: TimeVal::zero(),
         }
     }

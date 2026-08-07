@@ -1,0 +1,67 @@
+name: Build release packages
+
+on:
+  push:
+    tags:
+      - 'softflowd-*'
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpcap-dev autoconf automake libtool
+      - name: make dist
+        run: |
+          autoreconf -if
+          ./configure
+          make dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-tarball
+          path: softflowd-*.tar.gz
+
+  rpm:
+    needs: dist
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-tarball
+      - name: Install build deps
+        run: |
+          dnf install -y rpm-build rpmdevtools libpcap-devel \
+            autoconf automake libtool gcc make
+      - name: Build RPM
+        run: |
+          rpmdev-setuptree
+          tar xzf softflowd-*.tar.gz --wildcards '*/softflowd.spec' \
+            '*/softflowd.init' '*/softflowd.sysconfig' --strip-components=1
+          cp softflowd-*.tar.gz ~/rpmbuild/SOURCES/
+          cp softflowd.init softflowd.sysconfig ~/rpmbuild/SOURCES/
+          cp softflowd.spec ~/rpmbuild/SPECS/
+          rpmbuild -ba ~/rpmbuild/SPECS/softflowd.spec
+          find ~/rpmbuild/RPMS ~/rpmbuild/SRPMS -name '*.rpm' -exec cp {} . \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: '*.rpm'
+
+  release:
+    needs: rpm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpm-packages
+          path: rpm-packages
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: rpm-packages/*.rpm

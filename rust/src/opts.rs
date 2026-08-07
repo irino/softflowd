@@ -89,6 +89,50 @@ pub struct RsoftflowdArgs {
     #[arg(short = 'l', help = "Load balancing mode for multiple destinations")]
     pub load_balance: bool,
 
+    /// Track IPv6 flows, regardless of NetFlow export protocol support
+    #[arg(short = '6', help = "Track IPv6 flows, regardless of NetFlow export protocol support")]
+    pub always_v6: bool,
+
+    /// Specify MAC Address to determine direction (requires -T ether)
+    #[arg(short = 'H', help = "Specify MAC Address to determine direction (requires -T ether)")]
+    pub direction_mac: Option<String>,
+
+    /// Specify absolute time format for exporting records (sec|milli|micro|nano)
+    #[arg(short = 'A', help = "Specify absolute time format for exporting records (sec|milli|micro|nano)")]
+    pub time_format: Option<String>,
+
+    /// Libpcap buffer size in bytes
+    #[arg(short = 'B', help = "Libpcap buffer size in bytes")]
+    pub buffer_size: Option<usize>,
+
+    /// Bidirectional mode in IPFIX (-b work with -v 10)
+    #[arg(short = 'b', help = "Bidirectional mode in IPFIX (-b work with -v 10)")]
+    pub bidirection: bool,
+
+    /// Specify port number for PSAMP receive mode
+    #[arg(short = 'R', help = "Specify port number for PSAMP receive mode")]
+    pub recv_port: Option<u16>,
+
+    /// Enable multithread
+    #[arg(short = 'M', help = "Enable multithread")]
+    pub use_thread: bool,
+
+    /// Disable promiscuous mode
+    #[arg(short = 'N', help = "Disable promiscuous mode")]
+    pub no_promisc: bool,
+
+    /// Specify number of MPLS labels
+    #[arg(short = 'x', help = "Specify number of MPLS labels")]
+    pub max_num_label: Option<u32>,
+
+    /// Specify seconds for reinitialize boot time
+    #[arg(short = 'I', help = "Specify seconds for reinitialize boot time")]
+    pub boot_time_reinit: Option<String>,
+
+    /// Gauge cpu clock for benchmark
+    #[arg(short = 'g', help = "Gauge cpu clock for benchmark")]
+    pub gauge_clock: bool,
+
     /// BPF filter expression
     #[arg(trailing_var_arg = true, help = "BPF filter expression")]
     pub bpf_expression: Vec<String>,

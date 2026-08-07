@@ -48,6 +48,7 @@ pub fn parse_packet(
     caplen: u32,
     orig_len: u32,
     track_level: TrackLevel,
+    max_mpls_label: u8,
     timestamp: TimeVal,
 ) -> Option<ParsedPacket> {
     let caplen = caplen as usize;
@@ -91,7 +92,7 @@ pub fn parse_packet(
                     mpls_labels.push(shim);
                     offset += 4;
                     // Check Bottom of Stack bit (bit 8 from right, shifted by 8)
-                    if (shim & 0x00000100) != 0 {
+                    if (shim & 0x00000100) != 0 || mpls_labels.len() >= max_mpls_label as usize {
                         break;
                     }
                 }

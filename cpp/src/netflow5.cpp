@@ -1,6 +1,7 @@
 #include "softflow/netflow5.hpp"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace softflow {
 
@@ -25,34 +26,6 @@ struct DirectionalRecord {
     std::uint8_t tos;
     std::uint8_t tcp_flags;
 };
-
-std::vector<DirectionalRecord> flatten(std::span<const ExportRecord> records) {
-    std::vector<DirectionalRecord> flat;
-    flat.reserve(records.size() * 2);
-    for (const auto& record : records) {
-        const auto& key = record.key;
-        const auto& flow = record.flow;
-        for (int dir = 0; dir < 2; ++dir) {
-            if (flow.packets[static_cast<std::size_t>(dir)] == 0) {
-                continue;
-            }
-            flat.push_back(DirectionalRecord{
-                &key.addr()[static_cast<std::size_t>(dir)],
-                &key.addr()[static_cast<std::size_t>(dir ^ 1)],
-                key.port()[static_cast<std::size_t>(dir)],
-                key.port()[static_cast<std::size_t>(dir ^ 1)],
-                flow.octets[static_cast<std::size_t>(dir)],
-                flow.packets[static_cast<std::size_t>(dir)],
-                flow.flow_start,
-                flow.flow_last,
-                key.protocol(),
-                key.tos(),
-                flow.tcp_flags[static_cast<std::size_t>(dir)],
-            });
-        }
-    }
-    return flat;
-}
 
 } // namespace
 
@@ -85,18 +58,28 @@ Netflow5Exporter::build_packets(
     std::chrono::system_clock::time_point wall_now) {
     std::vector<std::vector<std::uint8_t>> packets;
 
-    const auto flat = flatten(records);
+    // Original: netflow5.c's send_nflow5(). Deliberately iterates the
+    // *original* (pre-split) flows, not a flattened list of individual
+    // records: before adding each flow's own record(s), it checks
+    // `j >= NF5_MAXFLOWS - 1` (29, not 30) and flushes the current packet
+    // first if so -- reserving room for a flow that turns out to need two
+    // records (both directions), which are never split across a packet
+    // boundary. This is a conservative check made once per flow, so a
+    // packet can still end up with exactly 30 records (if the last flow
+    // added happened to bring it there directly), but will often flush
+    // early with only 29, unlike a simple flat chunk-by-30 packing.
+    // Replicating this exactly (rather than optimally packing a flattened
+    // list) matters for byte-for-byte parity in the reported packet count.
+    std::vector<DirectionalRecord> pending;
 
-    for (std::size_t offset = 0; offset < flat.size();
-         offset += kNetflow5MaxRecordsPerPacket) {
-        const std::size_t chunk =
-            std::min(kNetflow5MaxRecordsPerPacket, flat.size() - offset);
-
+    auto flush = [&](bool is_final) {
+        if (pending.empty()) {
+            return;
+        }
         ByteWriter writer;
-        write_header(writer, static_cast<std::uint16_t>(chunk), now, wall_now);
-
-        for (std::size_t i = 0; i < chunk; ++i) {
-            const auto& r = flat[offset + i];
+        write_header(writer, static_cast<std::uint16_t>(pending.size()), now,
+                     wall_now);
+        for (const auto& r : pending) {
             // Original: struct NF5_FLOW, 48 bytes.
             writer.put_ipv4(*r.src);
             writer.put_ipv4(*r.dst);
@@ -121,10 +104,69 @@ Netflow5Exporter::build_packets(
             writer.put_u8(0);  // dst_mask (not tracked)
             writer.put_u16(0); // pad2
         }
+        flow_seq_ += static_cast<std::uint32_t>(pending.size());
+        auto bytes = writer.take();
+        if (debug_) {
+            // Original: the mid-loop early-flush site (`j >= NF5_MAXFLOWS - 1`)
+            // and the trailing leftover-flush site at the end of the
+            // function use *different* wording for the same message --
+            // "Sending flow packet len = %d" vs "Sending v5 flow packet
+            // len = %d" -- regardless of whether this is actually v1 or
+            // v5 (both share this one function). Reproduced exactly.
+            if (is_final) {
+                std::fprintf(stderr, "Sending v5 flow packet len = %zu\n", bytes.size());
+            } else {
+                std::fprintf(stderr, "Sending flow packet len = %zu\n", bytes.size());
+            }
+        }
+        packets.push_back(std::move(bytes));
+        pending.clear();
+    };
 
-        flow_seq_ += static_cast<std::uint32_t>(chunk);
-        packets.push_back(writer.take());
+    for (const auto& record : records) {
+        const auto& key = record.key;
+        const auto& flow = record.flow;
+
+        // How many records this flow will contribute (0, 1, or 2).
+        int this_flow_count = 0;
+        for (int dir = 0; dir < 2; ++dir) {
+            const auto d = static_cast<std::size_t>(dir);
+            if (flow.packets[d] > 0 && key.addr()[d].family == AddressFamily::IPv4) {
+                ++this_flow_count;
+            }
+        }
+        if (this_flow_count == 0) {
+            continue;
+        }
+
+        if (pending.size() >= kNetflow5MaxRecordsPerPacket - 1) {
+            flush(false);
+        }
+
+        for (int dir = 0; dir < 2; ++dir) {
+            const auto d = static_cast<std::size_t>(dir);
+            if (flow.packets[d] == 0) {
+                continue;
+            }
+            if (key.addr()[d].family != AddressFamily::IPv4) {
+                continue; // NetFlow v5 doesn't do IPv6, matching the original
+            }
+            pending.push_back(DirectionalRecord{
+                &key.addr()[d],
+                &key.addr()[d ^ 1],
+                key.port()[d],
+                key.port()[d ^ 1],
+                flow.octets[d],
+                flow.packets[d],
+                flow.flow_start,
+                flow.flow_last,
+                key.protocol(),
+                flow.tos[d],
+                flow.tcp_flags[d],
+            });
+        }
     }
+    flush(true);
 
     return packets;
 }

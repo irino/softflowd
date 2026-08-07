@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
-project(softflowd+ CXX)
+project(softflowd+ VERSION 0.0.1 LANGUAGES CXX)
+
+# Applied at directory scope (not just to a single target) because
+# SOFTFLOW_LOGIC_SOURCES, which includes softflowd.cpp, is compiled
+# directly into more than one target below (softflow_core, softflowd+),
+# not solely reused via the object library.
+add_compile_definitions(
+    SOFTFLOWDPP_NAME="${PROJECT_NAME}"
+    SOFTFLOWDPP_VERSION="${PROJECT_VERSION}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

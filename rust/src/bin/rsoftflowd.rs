@@ -36,6 +36,41 @@ fn parse_duration(s: &str) -> Option<i32> {
     Some(val)
 }
 
+fn parse_mac_address(mac_str: &str) -> Option<[u8; 6]> {
+    let parts: Vec<&str> = mac_str.split(|c| c == ':' || c == '-').collect();
+    if parts.len() != 6 {
+        return None;
+    }
+    let mut mac = [0u8; 6];
+    for i in 0..6 {
+        match u8::from_str_radix(parts[i], 16) {
+            Ok(val) => mac[i] = val,
+            Err(_) => return None,
+        }
+    }
+    Some(mac)
+}
+
+fn parse_boot_time_reinit(s: &str) -> Option<u64> {
+    let mut num_str = String::new();
+    let mut unit = 's';
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num_str.push(c);
+        } else {
+            unit = c.to_ascii_lowercase();
+        }
+    }
+    let val: u64 = num_str.parse().ok()?;
+    let mult = match unit {
+        'd' => 24 * 60 * 60,
+        'h' => 60 * 60,
+        'm' => 60,
+        _ => 1,
+    };
+    Some(val * mult)
+}
+
 fn apply_timeouts(tracker: &mut FlowTracker, timeout_specs: &[String]) {
     for spec in timeout_specs {
         let parts: Vec<&str> = spec.split('=').collect();
@@ -143,6 +178,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     apply_timeouts(&mut tracker, &args.timeouts);
+
+    if let Some(ref mac_str) = args.direction_mac {
+        if let Some(mac) = parse_mac_address(mac_str) {
+            tracker.param.direction_mac = Some(mac);
+            tracker.param.direction_mac_set = true;
+        } else {
+            log::error!("Invalid MAC address format: {}", mac_str);
+            std::process::exit(1);
+        }
+    }
+
+    tracker.param.bidirection = args.bidirection;
+    tracker.param.gauge_clock = args.gauge_clock;
+    tracker.param.max_num_label = args.max_num_label.unwrap_or(0) as u8;
+    if let Some(ref format) = args.time_format {
+        tracker.param.time_format = match format.as_str() {
+            "sec" => b's',
+            "milli" => b'm',
+            "micro" => b'M',
+            "nano" => b'n',
+            _ => b's',
+        };
+    }
+    if let Some(ref boot_reinit) = args.boot_time_reinit {
+        tracker.param.boot_time_reinit = parse_boot_time_reinit(boot_reinit).unwrap_or(0);
+    }
 
     // 4. Resolve and setup Netflow Exporter Targets
     let version = args.netflow_version.parse::<u16>().unwrap_or(5);
@@ -267,7 +328,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
 
-                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, timestamp) {
+                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, tracker.param.max_num_label, timestamp) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
@@ -287,8 +348,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let snaplen = args.capture_length.unwrap_or(256) as i32;
         let mut builder = pcap::Capture::from_device(dev_name.as_str())?
             .snaplen(snaplen)
-            .promisc(true)
-            .buffer_size(1024 * 1024);
+            .promisc(!args.no_promisc); // -N オプションを反映
+
+        // -B オプションを反映
+        if let Some(buf_size) = args.buffer_size {
+            builder = builder.buffer_size(buf_size as i32);
+        } else {
+            builder = builder.buffer_size(1024 * 1024);
+        }
         builder = builder.immediate_mode(true);
         let mut capture = builder.open()?;
 
@@ -313,7 +380,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
 
-                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, timestamp) {
+                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, tracker.param.max_num_label, timestamp) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
@@ -463,6 +530,15 @@ fn process_parsed_packet(tracker: &mut FlowTracker, parsed: ParsedPacket) {
         tracker.param.system_boot_time = parsed.timestamp;
     }
 
+    // -I オプション対応: ブートタイムの再初期化
+    if tracker.param.boot_time_reinit > 0 {
+        let diff = parsed.timestamp.tv_sec - tracker.param.system_boot_time.tv_sec;
+        if diff >= tracker.param.boot_time_reinit as i64 {
+            log::info!("Reinitializing system boot time due to -I option.");
+            tracker.param.system_boot_time = parsed.timestamp;
+        }
+    }
+
     // Sampling
     if tracker.param.sample_rate > 0 {
         if (tracker.param.total_packets + tracker.param.non_sampled_packets) % tracker.param.sample_rate as u64 > 0 {
@@ -512,6 +588,8 @@ fn process_parsed_packet(tracker: &mut FlowTracker, parsed: ParsedPacket) {
             tcp_flags: [0, 0],
             tos: [0, 0],
             ip6_flowlabel: [0, 0],
+            src_mac: parsed.src_mac,
+            dst_mac: parsed.dst_mac,
             flow_end_reason: 0,
             key: key.clone(),
             expiry_key: None,

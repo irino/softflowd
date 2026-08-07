@@ -4,7 +4,7 @@
 .SH NAME
 rsoftflowd \- Traffic flow monitoring daemon rewritten in Rust
 .SH SYNOPSIS
-\fBrsoftflowd\fR [\fB\-i \fR] [\fB\-r \fR] [\fB\-p \fR] [\fB\-c \fR] [\fB\-m \fR] [\fB\-t \fR] [\fB\-d \fR] [\fB\-D \fR] [\fB\-v \fR] [\fB\-n \fR] [\fB\-L \fR] [\fB\-T \fR] [\fB\-P \fR] [\fB\-s \fR] [\fB\-C \fR] [\fB\-S \fR] [\fB\-e \fR] [\fB\-l \fR] [\fB\-a \fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIBPF_EXPRESSION\fR] 
+\fBrsoftflowd\fR [\fB\-i \fR] [\fB\-r \fR] [\fB\-p \fR] [\fB\-c \fR] [\fB\-m \fR] [\fB\-t \fR] [\fB\-d \fR] [\fB\-D \fR] [\fB\-v \fR] [\fB\-n \fR] [\fB\-L \fR] [\fB\-T \fR] [\fB\-P \fR] [\fB\-s \fR] [\fB\-C \fR] [\fB\-S \fR] [\fB\-e \fR] [\fB\-l \fR] [\fB\-6 \fR] [\fB\-H \fR] [\fB\-A \fR] [\fB\-B \fR] [\fB\-b \fR] [\fB\-R \fR] [\fB\-M \fR] [\fB\-N \fR] [\fB\-x \fR] [\fB\-I \fR] [\fB\-g \fR] [\fB\-a \fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIBPF_EXPRESSION\fR] 
 .SH DESCRIPTION
 rsoftflowd is a software implementation of a flow\-based network traffic monitor.
 It reads network traffic and gathers information about active traffic flows. 
@@ -67,6 +67,39 @@ Specify exporter IP address
 .TP
 \fB\-l\fR
 Load balancing mode for multiple destinations
+.TP
+\fB\-6\fR
+Track IPv6 flows, regardless of NetFlow export protocol support
+.TP
+\fB\-H\fR \fI<DIRECTION_MAC>\fR
+Specify MAC Address to determine direction (requires \-T ether)
+.TP
+\fB\-A\fR \fI<TIME_FORMAT>\fR
+Specify absolute time format for exporting records (sec|milli|micro|nano)
+.TP
+\fB\-B\fR \fI<BUFFER_SIZE>\fR
+Libpcap buffer size in bytes
+.TP
+\fB\-b\fR
+Bidirectional mode in IPFIX (\-b work with \-v 10)
+.TP
+\fB\-R\fR \fI<RECV_PORT>\fR
+Specify port number for PSAMP receive mode
+.TP
+\fB\-M\fR
+Enable multithread
+.TP
+\fB\-N\fR
+Disable promiscuous mode
+.TP
+\fB\-x\fR \fI<MAX_NUM_LABEL>\fR
+Specify number of MPLS labels
+.TP
+\fB\-I\fR \fI<BOOT_TIME_REINIT>\fR
+Specify seconds for reinitialize boot time
+.TP
+\fB\-g\fR
+Gauge cpu clock for benchmark
 .TP
 \fB\-a\fR
 Adjust time to packet time
