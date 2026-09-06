@@ -531,7 +531,9 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     eh6 = (const struct ip6_ext *) (pkt + size);
     if (nxt == IPPROTO_HOPOPTS ||
 	nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
-      int eh6size = remain < sizeof (*eh6) ? 0 : (eh6->ip6e_len + 1) << 3;
+      if (remain < sizeof (*eh6))
+	return (size);		/* Runt */
+      int eh6size = (eh6->ip6e_len + 1) << 3;
       if (remain < eh6size)
 	return (size);		/* Runt */
       nxt = eh6->ip6e_nxt;
