@@ -23,9 +23,9 @@
  */
 
 /*
- * This is software implementation of Cisco's NetFlow(tm) traffic       
- * reporting system. It operates by listening (via libpcap) on a        
- * promiscuous interface and tracking traffic flows.                    
+ * This is software implementation of Cisco's NetFlow(tm) traffic
+ * reporting system. It operates by listening (via libpcap) on a
+ * promiscuous interface and tracking traffic flows.
  *
  * Traffic flows are recorded by source/destination/protocol
  * IP address or, in the case of TCP and UDP, by
@@ -80,9 +80,12 @@
     (dst).tv_usec = (src).tv_usec;            \
   } while (0)
 
+#define PRI_ETHERMAC "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x"
+#define FORMAT_ETHERMAC(em) em[0], em[1], em[2], em[3], em[4], em[5]
+
 /* Global variables */
-static int verbose_flag = 0;    /* Debugging flag */
-static u_int16_t if_index = 0;  /* "manual" interface index */
+static int verbose_flag = 0;	/* Debugging flag */
+static u_int16_t if_index = 0;	/* "manual" interface index */
 static int track_level;
 static int snaplen = 0;
 #ifdef ENABLE_PTHREAD
@@ -99,14 +102,14 @@ static volatile sig_atomic_t graceful_shutdown_request = 0;
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
 struct DATALINK {
-  int dlt;                      /* BPF datalink type */
-  int skiplen;                  /* Number of bytes to skip datalink header */
-  int ft_off;                   /* Datalink frametype offset */
-  int ft_len;                   /* Datalink frametype length */
-  int ft_is_be;                 /* Set if frametype is big-endian */
-  u_int32_t ft_mask;            /* Mask applied to frametype */
-  u_int32_t ft_v4;              /* IPv4 frametype */
-  u_int32_t ft_v6;              /* IPv6 frametype */
+  int dlt;			/* BPF datalink type */
+  int skiplen;			/* Number of bytes to skip datalink header */
+  int ft_off;			/* Datalink frametype offset */
+  int ft_len;			/* Datalink frametype length */
+  int ft_is_be;			/* Set if frametype is big-endian */
+  u_int32_t ft_mask;		/* Mask applied to frametype */
+  u_int32_t ft_v4;		/* IPv4 frametype */
+  u_int32_t ft_v6;		/* IPv6 frametype */
 };
 
 /* Datalink types that we know about */
@@ -371,15 +374,6 @@ format_time (time_t t) {
 
 }
 
-static const char *
-format_ethermac (uint8_t ethermac[6]) {
-  static char buf[1024];
-  snprintf (buf, sizeof (buf), "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x",
-            ethermac[0], ethermac[1], ethermac[2], ethermac[3],
-            ethermac[4], ethermac[5]);
-  return buf;
-}
-
 /* Format a flow in a verbose and ugly way */
 static const char *
 format_flow (struct FLOW *flow) {
@@ -390,25 +384,25 @@ format_flow (struct FLOW *flow) {
   inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
 
   snprintf (start_time, sizeof (start_time), "%s",
-            format_time (flow->flow_start.tv_sec));
+	    format_time (flow->flow_start.tv_sec));
   snprintf (fin_time, sizeof (fin_time), "%s",
-            format_time (flow->flow_last.tv_sec));
+	    format_time (flow->flow_last.tv_sec));
 
   snprintf (buf, sizeof (buf),
-            "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
-            "octets>:%u packets>:%u octets<:%u packets<:%u "
-            "start:%s.%03lld finish:%s.%03lld tcp>:%02x tcp<:%02x "
-            "flowlabel>:%08x flowlabel<:%08x "
-            "vlan>:%u vlan<:%u ether:%s <> %s", flow->flow_seq, addr1,
-            ntohs (flow->port[0]), addr2, ntohs (flow->port[1]),
-            (int) flow->protocol, flow->octets[0], flow->packets[0],
-            flow->octets[1], flow->packets[1], start_time,
-            (long long) ((flow->flow_start.tv_usec + 500) / 1000), fin_time,
-            (long long) ((flow->flow_last.tv_usec + 500) / 1000),
-            flow->tcp_flags[0], flow->tcp_flags[1], flow->ip6_flowlabel[0],
-            flow->ip6_flowlabel[1], flow->vlanid[0], flow->vlanid[1],
-            format_ethermac (flow->ethermac[0]),
-            format_ethermac (flow->ethermac[1]));
+	    "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
+	    "octets>:%u packets>:%u octets<:%u packets<:%u "
+	    "start:%s.%03lld finish:%s.%03lld tcp>:%02x tcp<:%02x "
+	    "flowlabel>:%08x flowlabel<:%08x "
+	    "vlan>:%u vlan<:%u ether:" PRI_ETHERMAC " <> " PRI_ETHERMAC,
+	    flow->flow_seq, addr1, ntohs (flow->port[0]), addr2,
+	    ntohs (flow->port[1]), (int) flow->protocol, flow->octets[0],
+	    flow->packets[0], flow->octets[1], flow->packets[1], start_time,
+	    (long long) ((flow->flow_start.tv_usec + 500) / 1000), fin_time,
+	    (long long) ((flow->flow_last.tv_usec + 500) / 1000),
+	    flow->tcp_flags[0], flow->tcp_flags[1], flow->ip6_flowlabel[0],
+	    flow->ip6_flowlabel[1], flow->vlanid[0], flow->vlanid[1],
+	    FORMAT_ETHERMAC (flow->ethermac[0]),
+	    FORMAT_ETHERMAC (flow->ethermac[1]));
 
   return (buf);
 }
@@ -423,13 +417,13 @@ format_flow_brief (struct FLOW *flow) {
   inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
 
   snprintf (buf, sizeof (buf),
-            "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
-            "vlan>:%u vlan<:%u  ether:%s <> %s ",
-            flow->flow_seq,
-            addr1, ntohs (flow->port[0]), addr2, ntohs (flow->port[1]),
-            (int) flow->protocol, flow->vlanid[0], flow->vlanid[1],
-            format_ethermac (flow->ethermac[0]),
-            format_ethermac (flow->ethermac[1]));
+	    "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
+	    "vlan>:%u vlan<:%u  ether:" PRI_ETHERMAC " <> " PRI_ETHERMAC " ",
+	    flow->flow_seq,
+	    addr1, ntohs (flow->port[0]), addr2, ntohs (flow->port[1]),
+	    (int) flow->protocol, flow->vlanid[0], flow->vlanid[1],
+	    FORMAT_ETHERMAC (flow->ethermac[0]),
+	    FORMAT_ETHERMAC (flow->ethermac[1]));
 
   return (buf);
 }
@@ -437,7 +431,7 @@ format_flow_brief (struct FLOW *flow) {
 /* Fill in transport-layer (tcp/udp) portions of flow record */
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
-                      const size_t caplen, int protocol, int ndx) {
+		      const size_t caplen, int protocol, int ndx) {
   const struct tcphdr *tcp = (const struct tcphdr *) pkt;
   const struct udphdr *udp = (const struct udphdr *) pkt;
   const struct icmp *icmp = (const struct icmp *) pkt;
@@ -486,12 +480,12 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
  */
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
-                 int *isfrag, int *isfirst, int *ndx, int track_lv) {
+		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip *ip = (const struct ip *) pkt;
   if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
       || ndx == NULL || caplen < 20 || caplen < ip->ip_hl * 4
       || ip->ip_v != 4)
-    return (-1);                /* Runt packet or Unsupported IP version */
+    return (-1);		/* Runt packet or Unsupported IP version */
 
   /* Prepare to store flow in canonical format */
   *ndx = memcmp (&ip->ip_src, &ip->ip_dst, sizeof (ip->ip_src)) > 0 ? 1 : 0;
@@ -510,7 +504,7 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
  */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
-                 int *isfrag, int *isfirst, int *ndx, int track_lv) {
+		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
   const struct ip6_frag *fh6;
@@ -518,7 +512,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
   if (flow == NULL || ip6 == NULL || isfrag == NULL || isfirst == NULL
       || ndx == NULL || caplen < sizeof (*ip6)
       || (ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
-    return (-1);                /* Runt packet or Unsupported IP version */
+    return (-1);		/* Runt packet or Unsupported IP version */
 
   *ndx =
     memcmp (&ip6->ip6_src, &ip6->ip6_dst, sizeof (ip6->ip6_src)) > 0 ? 1 : 0;
@@ -536,22 +530,24 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     remain = caplen - size;
     eh6 = (const struct ip6_ext *) (pkt + size);
     if (nxt == IPPROTO_HOPOPTS ||
-        nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
+	nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
       int eh6size = remain < sizeof (*eh6) ? 0 : (eh6->ip6e_len + 1) << 3;
       if (remain < eh6size)
-        return (size);          /* Runt */
+	return (size);		/* Runt */
       nxt = eh6->ip6e_nxt;
       size += eh6size;
-    } else if (nxt == IPPROTO_FRAGMENT) {
+    }
+    else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
       fh6 = (const struct ip6_frag *) eh6;
       if (remain < sizeof (*fh6))
-        return (size);          /* Runt */
+	return (size);		/* Runt */
       if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
-        *isfirst = 0;
+	*isfirst = 0;
       nxt = fh6->ip6f_nxt;
       size += sizeof (*fh6);
-    } else
+    }
+    else
       break;
   }
   flow->protocol = track_lv >= TRACK_IP_PROTO ? nxt : 0;
@@ -563,7 +559,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 
 static void
 ether_to_flowrec (struct FLOW *flow, const struct ether_header *ether,
-                  int ndx) {
+		  int ndx) {
   if (ndx < 0 || ether == NULL)
     return;
   memcpy (flow->ethermac[ndx], ether->ether_shost, ETH_ALEN);
@@ -596,18 +592,18 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
   if (flow->protocol == IPPROTO_TCP) {
     /* Reset TCP flows */
     if (ft->param.tcp_rst_timeout != 0 &&
-        ((flow->tcp_flags[0] & TH_RST) || (flow->tcp_flags[1] & TH_RST))) {
+	((flow->tcp_flags[0] & TH_RST) || (flow->tcp_flags[1] & TH_RST))) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
-        ft->param.tcp_rst_timeout;
+	ft->param.tcp_rst_timeout;
       flow->expiry->reason = R_TCP_RST;
       flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
     }
     /* Finished TCP flows */
     if (ft->param.tcp_fin_timeout != 0 &&
-        ((flow->tcp_flags[0] & TH_FIN) && (flow->tcp_flags[1] & TH_FIN))) {
+	((flow->tcp_flags[0] & TH_FIN) && (flow->tcp_flags[1] & TH_FIN))) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
-        ft->param.tcp_fin_timeout;
+	ft->param.tcp_fin_timeout;
       flow->expiry->reason = R_TCP_FIN;
       flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
@@ -616,7 +612,7 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
     /* TCP flows */
     if (ft->param.tcp_timeout != 0) {
       flow->expiry->expires_at = flow->flow_last.tv_sec +
-        ft->param.tcp_timeout;
+	ft->param.tcp_timeout;
       flow->expiry->reason = R_TCP;
       flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
       goto out;
@@ -651,8 +647,8 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
 out:
   if (ft->param.maximum_lifetime != 0 && flow->expiry->expires_at != 0) {
     flow->expiry->expires_at = MIN (flow->expiry->expires_at,
-                                    flow->flow_start.tv_sec +
-                                    ft->param.maximum_lifetime);
+				    flow->flow_start.tv_sec +
+				    ft->param.maximum_lifetime);
   }
 
   EXPIRY_INSERT (EXPIRIES, &ft->expiries, flow->expiry);
@@ -665,17 +661,17 @@ out:
 #define PP_MALLOC_FAIL	-3
 
 /*
- * Main per-packet processing function. Take a packet (provided by 
- * libpcap) and attempt to find a matching flow. If no such flow exists, 
- * then create one. 
+ * Main per-packet processing function. Take a packet (provided by
+ * libpcap) and attempt to find a matching flow. If no such flow exists,
+ * then create one.
  *
  * Also marks flows for fast expiry, based on flow or packet attributes
  * (the actual expiry is performed elsewhere)
  */
 static int
 process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
-                const u_char *frame, int datalink_size, int af,
-                u_int16_t vlanid, u_int8_t num_label) {
+		const u_char *frame, int datalink_size, int af,
+		u_int16_t vlanid, u_int8_t num_label) {
   struct FLOW tmp, *flow;
   struct FLOWTRACK *ft = cb_ctxt->ft;
   const u_int32_t caplen = phdr->caplen - datalink_size;
@@ -686,13 +682,14 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
   if (af == AF_INET) {
     size =
       ipv4_to_flowrec (&tmp, pkt, caplen, &frag, &first, &ndx,
-                       ft->param.track_level);
-  } else if (af == AF_INET6) {
+		       ft->param.track_level);
+  }
+  else if (af == AF_INET6) {
     size =
       ipv6_to_flowrec (&tmp, pkt, caplen, &frag, &first, &ndx,
-                       ft->param.track_level);
+		       ft->param.track_level);
   }
-  if ((af != AF_INET && af != AF_INET6) || ndx < 0 || size == -1) {     /* bad packet */
+  if ((af != AF_INET && af != AF_INET6) || ndx < 0 || size == -1) {	/* bad packet */
     ft->param.bad_packets++;
     return (PP_BAD_PACKET);
   }
@@ -731,7 +728,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
     /* Allocate and fill in the associated expiry event */
     if ((flow->expiry = expiry_get (ft)) == NULL) {
       logit (LOG_ERR, "process_packet: expiry_get failed",
-             sizeof (*flow->expiry));
+	     sizeof (*flow->expiry));
       return (PP_MALLOC_FAIL);
     }
     flow->expiry->flow = flow;
@@ -744,7 +741,8 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
     ft->param.num_flows++;
     if (verbose_flag)
       logit (LOG_DEBUG, "ADD FLOW %s", format_flow_brief (flow));
-  } else {
+  }
+  else {
     /* Update flow statistics */
     flow->packets[0] += tmp.packets[0];
     flow->octets[0] += tmp.octets[0];
@@ -780,9 +778,9 @@ timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
 
 int
 send_multi_destinations (int num_destinations,
-                         struct DESTINATION *destinations,
-                         u_int8_t is_loadbalance, u_int8_t *packet,
-                         int size) {
+			 struct DESTINATION *destinations,
+			 u_int8_t is_loadbalance, u_int8_t *packet,
+			 int size) {
   struct DESTINATION *dest;
   int i, err;
   socklen_t errsz;
@@ -791,9 +789,9 @@ send_multi_destinations (int num_destinations,
     if (!is_loadbalance || (is_loadbalance && (sent % num_destinations == i))) {
       dest = &destinations[i];
       errsz = sizeof (err);
-      getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz);      // Clear ICMP errors
+      getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz);	// Clear ICMP errors
       if (send (dest->sock, packet, (size_t) size, 0) == -1)
-        return (-1);
+	return (-1);
     }
   }
   sent++;
@@ -831,7 +829,7 @@ update_statistics (struct FLOWTRACK *ft, struct FLOW *flow) {
 
   update_statistic (&ft->param.duration, tmp, n);
   update_statistic (&ft->param.duration_pp[flow->protocol], tmp,
-                    (double) ft->param.flows_pp[flow->protocol % 256]);
+		    (double) ft->param.flows_pp[flow->protocol % 256]);
 
   tmp = flow->octets[0] + flow->octets[1];
   update_statistic (&ft->param.octets, tmp, n);
@@ -893,15 +891,15 @@ next_expire (struct FLOWTRACK *ft) {
     gettimeofday (&now, NULL);
 
   if ((expiry = EXPIRY_MIN (EXPIRIES, &ft->expiries)) == NULL)
-    return (-1);                /* indefinite */
+    return (-1);		/* indefinite */
 
   expires_at = expiry->expires_at;
 
   /* Don't cluster urgent expiries */
   if (expires_at == 0 && (expiry->reason == R_OVERBYTES ||
-                          expiry->reason == R_OVERFLOWS
-                          || expiry->reason == R_FLUSH))
-    return (0);                 /* Now */
+			  expiry->reason == R_OVERFLOWS
+			  || expiry->reason == R_FLUSH))
+    return (0);			/* Now */
 
   /* Cluster expiries by expiry_interval */
   if (ft->param.expiry_interval > 1) {
@@ -910,7 +908,7 @@ next_expire (struct FLOWTRACK *ft) {
   }
 
   if (expires_at < now.tv_sec)
-    return (0);                 /* Now */
+    return (0);			/* Now */
 
   ret = 999 + (expires_at - now.tv_sec) * 1000;
   return (ret);
@@ -920,9 +918,9 @@ next_expire (struct FLOWTRACK *ft) {
  * Scan the tree of expiry events and process expired flows. If zap_all
  * is set, then forcibly expire all flows.
  */
-#define CE_EXPIRE_NORMAL	0       /* Normal expiry processing */
-#define CE_EXPIRE_ALL		-1      /* Expire all flows immediately */
-#define CE_EXPIRE_FORCED	1       /* Only expire force-expired flows */
+#define CE_EXPIRE_NORMAL	0	/* Normal expiry processing */
+#define CE_EXPIRE_ALL		-1	/* Expire all flows immediately */
+#define CE_EXPIRE_FORCED	1	/* Only expire force-expired flows */
 static int
 check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   struct FLOW **expired_flows, **oldexp;
@@ -947,33 +945,33 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
        expiry != NULL; expiry = nexpiry) {
     nexpiry = EXPIRY_NEXT (EXPIRIES, &ft->expiries, expiry);
     if ((expiry->expires_at == 0) || (ex == CE_EXPIRE_ALL) ||
-        (ex != CE_EXPIRE_FORCED && (expiry->expires_at < now.tv_sec))) {
+	(ex != CE_EXPIRE_FORCED && (expiry->expires_at < now.tv_sec))) {
       /* Flow has expired */
       if (ft->param.maximum_lifetime != 0 &&
-          expiry->flow->flow_last.tv_sec -
-          expiry->flow->flow_start.tv_sec >= ft->param.maximum_lifetime)
-        expiry->reason = R_MAXLIFE;
+	  expiry->flow->flow_last.tv_sec -
+	  expiry->flow->flow_start.tv_sec >= ft->param.maximum_lifetime)
+	expiry->reason = R_MAXLIFE;
 
       if (verbose_flag)
-        logit (LOG_DEBUG,
-               "Queuing flow seq:%" PRIu64 " (%p) for expiry "
-               "reason %d", expiry->flow->flow_seq,
-               expiry->flow, expiry->reason);
+	logit (LOG_DEBUG,
+	       "Queuing flow seq:%" PRIu64 " (%p) for expiry "
+	       "reason %d", expiry->flow->flow_seq,
+	       expiry->flow, expiry->reason);
 
       /* Add to array of expired flows */
       oldexp = expired_flows;
       expired_flows = realloc (expired_flows,
-                               sizeof (*expired_flows) * (num_expired + 1));
+			       sizeof (*expired_flows) * (num_expired + 1));
       /* Don't fatal on realloc failures */
       if (expired_flows == NULL)
-        expired_flows = oldexp;
+	expired_flows = oldexp;
       else {
-        expired_flows[num_expired] = expiry->flow;
-        num_expired++;
+	expired_flows[num_expired] = expiry->flow;
+	num_expired++;
       }
 
       if (ex == CE_EXPIRE_ALL)
-        expiry->reason = R_FLUSH;
+	expiry->reason = R_FLUSH;
 
       update_expiry_stats (ft, expiry);
 
@@ -994,42 +992,43 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   if (num_expired > 0) {
     if (target != NULL) {
       struct SENDPARAMETER sp =
-        { expired_flows, num_expired, target, if_index, &ft->param,
-        verbose_flag
+	{ expired_flows, num_expired, target, if_index, &ft->param,
+	verbose_flag
       };
       netflow_send_func_t *func =
-        ft->param.bidirection ==
-        1 ? target->dialect->bidir_func : target->dialect->func;
+	ft->param.bidirection ==
+	1 ? target->dialect->bidir_func : target->dialect->func;
       if (func == NULL) {
-        func = target->dialect->func;
+	func = target->dialect->func;
       }
 #ifdef ENABLE_PTHREAD
       if (use_thread) {
-        pthread_t write_thread = 0;
-        sp.flows = calloc (num_expired, sizeof (struct FLOW));
-        memcpy (sp.flows, expired_flows, sizeof (struct FLOW) * num_expired);
-        if (pthread_create (&write_thread, NULL, (void *) func, (void *) &sp)
-            < 0) {
-          perror ("pthread_create error");
-          exit (1);
-        }
-        if (pthread_detach (write_thread) != 0) {
-          perror ("pthread_detach error");
-          exit (1);
-        }
-        r = 1;
-      } else
+	pthread_t write_thread = 0;
+	sp.flows = calloc (num_expired, sizeof (struct FLOW));
+	memcpy (sp.flows, expired_flows, sizeof (struct FLOW) * num_expired);
+	if (pthread_create (&write_thread, NULL, (void *) func, (void *) &sp)
+	    < 0) {
+	  perror ("pthread_create error");
+	  exit (1);
+	}
+	if (pthread_detach (write_thread) != 0) {
+	  perror ("pthread_detach error");
+	  exit (1);
+	}
+	r = 1;
+      }
+      else
 #endif /* ENABLE_PTHREAD */
-        r = func (sp);
+	r = func (sp);
       if (verbose_flag)
-        logit (LOG_DEBUG, "sent %d netflow packets", r);
+	logit (LOG_DEBUG, "sent %d netflow packets", r);
       if (r <= 0)
-        ft->param.flows_dropped += num_expired * 2;     /* XXX what if r < num_expired * 2 ? */
+	ft->param.flows_dropped += num_expired * 2;	/* XXX what if r < num_expired * 2 ? */
     }
     for (i = 0; i < num_expired; i++) {
       if (verbose_flag) {
-        logit (LOG_DEBUG, "EXPIRED: %s (%p)",
-               format_flow (expired_flows[i]), expired_flows[i]);
+	logit (LOG_DEBUG, "EXPIRED: %s (%p)",
+	       format_flow (expired_flows[i]), expired_flows[i]);
       }
       update_statistics (ft, expired_flows[i]);
       flow_put (ft, expired_flows[i]);
@@ -1039,7 +1038,7 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   }
   if (ft->param.boot_time_reinit != 0) {
     if (now.tv_sec - ft->param.system_boot_time.tv_sec >
-        ft->param.boot_time_reinit) {
+	ft->param.boot_time_reinit) {
       ft->param.system_boot_time = now;
     }
   }
@@ -1048,7 +1047,7 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
 }
 
 /*
- * Force expiry of num_to_expire flows (e.g. when flow table overfull) 
+ * Force expiry of num_to_expire flows (e.g. when flow table overfull)
  */
 static void
 force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
@@ -1060,21 +1059,21 @@ force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
     logit (LOG_INFO, "Forcing expiry of %d flows", num_to_expire);
 
   /*
-   * Do this in two steps, as it is dangerous to change a key on 
+   * Do this in two steps, as it is dangerous to change a key on
    * a tree entry without first removing it and then re-adding it.
    * It is even worse when this has to be done during a FOREACH :)
-   * To get around this, we make a list of expired flows and _then_ 
-   * alter them 
+   * To get around this, we make a list of expired flows and _then_
+   * alter them
    */
 
   if ((expiryv = calloc (num_to_expire, sizeof (*expiryv))) == NULL) {
     /*
-     * On malloc failure, expire ALL flows. I assume that 
-     * setting all the keys in a tree to the same value is 
+     * On malloc failure, expire ALL flows. I assume that
+     * setting all the keys in a tree to the same value is
      * safe.
      */
     logit (LOG_ERR, "Out of memory while expiring flows - "
-           "all flows expired");
+	   "all flows expired");
     EXPIRY_FOREACH (expiry, EXPIRIES, &ft->expiries) {
       expiry->expires_at = 0;
       expiry->reason = R_OVERFLOWS;
@@ -1092,7 +1091,7 @@ force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
   }
   if (i < num_to_expire) {
     logit (LOG_ERR, "Needed to expire %d flows, "
-           "but only %d active", num_to_expire, i);
+	   "but only %d active", num_to_expire, i);
     num_to_expire = i;
   }
 
@@ -1130,7 +1129,7 @@ delete_all_flows (struct FLOWTRACK *ft) {
 }
 
 /*
- * Log our current status. 
+ * Log our current status.
  * Includes summary counters and (in verbose mode) the list of current flows
  * and the tree of expiry events.
  */
@@ -1145,53 +1144,53 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
   fprintf (out, "Packets processed: %" PRIu64 "\n", ft->param.total_packets);
   if (ft->param.non_sampled_packets)
     fprintf (out, "Packets non-sampled: %" PRIu64 "\n",
-             ft->param.non_sampled_packets);
+	     ft->param.non_sampled_packets);
   fprintf (out, "Fragments: %" PRIu64 "\n", ft->param.frag_packets);
   fprintf (out,
-           "Ignored packets: %" PRIu64 " (%" PRIu64 " non-IP, %" PRIu64
-           " too short)\n", ft->param.non_ip_packets + ft->param.bad_packets,
-           ft->param.non_ip_packets, ft->param.bad_packets);
+	   "Ignored packets: %" PRIu64 " (%" PRIu64 " non-IP, %" PRIu64
+	   " too short)\n", ft->param.non_ip_packets + ft->param.bad_packets,
+	   ft->param.non_ip_packets, ft->param.bad_packets);
   fprintf (out, "Flows expired: %" PRIu64 " (%" PRIu64 " forced)\n",
-           ft->param.flows_expired, ft->param.flows_force_expired);
+	   ft->param.flows_expired, ft->param.flows_force_expired);
   fprintf (out,
-           "Flows exported: %" PRIu64 " (%" PRIu64 " records) in %" PRIu64
-           " packets (%" PRIu64 " failures)\n", ft->param.flows_exported,
-           ft->param.records_sent, ft->param.packets_sent,
-           ft->param.flows_dropped);
+	   "Flows exported: %" PRIu64 " (%" PRIu64 " records) in %" PRIu64
+	   " packets (%" PRIu64 " failures)\n", ft->param.flows_exported,
+	   ft->param.records_sent, ft->param.packets_sent,
+	   ft->param.flows_dropped);
 
   if (pcap_stats (pcap, &ps) == 0) {
     fprintf (out, "Packets received by libpcap: %lu\n",
-             (unsigned long) ps.ps_recv);
+	     (unsigned long) ps.ps_recv);
     fprintf (out, "Packets dropped by libpcap: %lu\n",
-             (unsigned long) ps.ps_drop);
+	     (unsigned long) ps.ps_drop);
     fprintf (out, "Packets dropped by interface: %lu\n",
-             (unsigned long) ps.ps_ifdrop);
+	     (unsigned long) ps.ps_ifdrop);
   }
 
   fprintf (out, "\n");
 
   if (ft->param.flows_expired != 0) {
     fprintf (out,
-             "Expired flow statistics:  minimum       average       maximum\n");
+	     "Expired flow statistics:  minimum       average       maximum\n");
     fprintf (out, "  Flow bytes:        %12.0f  %12.0f  %12.0f\n",
-             ft->param.octets.min, ft->param.octets.mean,
-             ft->param.octets.max);
+	     ft->param.octets.min, ft->param.octets.mean,
+	     ft->param.octets.max);
     fprintf (out, "  Flow packets:      %12.0f  %12.0f  %12.0f\n",
-             ft->param.packets.min, ft->param.packets.mean,
-             ft->param.packets.max);
+	     ft->param.packets.min, ft->param.packets.mean,
+	     ft->param.packets.max);
     fprintf (out, "  Duration:          %12.2fs %12.2fs %12.2fs\n",
-             ft->param.duration.min, ft->param.duration.mean,
-             ft->param.duration.max);
+	     ft->param.duration.min, ft->param.duration.mean,
+	     ft->param.duration.max);
 
     fprintf (out, "\n");
     fprintf (out, "Expired flow reasons:\n");
     fprintf (out, "       tcp = %9" PRIu64 "   tcp.rst = %9" PRIu64 "   "
-             "tcp.fin = %9" PRIu64 "\n", ft->param.expired_tcp,
-             ft->param.expired_tcp_rst, ft->param.expired_tcp_fin);
+	     "tcp.fin = %9" PRIu64 "\n", ft->param.expired_tcp,
+	     ft->param.expired_tcp_rst, ft->param.expired_tcp_fin);
     fprintf (out,
-             "       udp = %9" PRIu64 "      icmp = %9" PRIu64 "   "
-             "general = %9" PRIu64 "\n", ft->param.expired_udp,
-             ft->param.expired_icmp, ft->param.expired_general);
+	     "       udp = %9" PRIu64 "      icmp = %9" PRIu64 "   "
+	     "general = %9" PRIu64 "\n", ft->param.expired_udp,
+	     ft->param.expired_icmp, ft->param.expired_general);
     fprintf (out, "   maxlife = %9" PRIu64 "\n", ft->param.expired_maxlife);
     fprintf (out, "over 2 GiB = %9" PRIu64 "\n", ft->param.expired_overbytes);
     fprintf (out, "  maxflows = %9" PRIu64 "\n", ft->param.expired_maxflows);
@@ -1200,17 +1199,17 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
     fprintf (out, "\n");
 
     fprintf (out, "Per-protocol statistics:     Octets      "
-             "Packets   Avg Life    Max Life\n");
+	     "Packets   Avg Life    Max Life\n");
     for (i = 0; i < 256; i++) {
       if (ft->param.packets_pp[i]) {
-        pe = getprotobynumber (i);
-        snprintf (proto, sizeof (proto), "%s (%d)",
-                  pe != NULL ? pe->p_name : "Unknown", i);
-        fprintf (out, "  %17s: %14" PRIu64 " %12" PRIu64 "   %8.2fs "
-                 "%10.2fs\n", proto,
-                 ft->param.octets_pp[i],
-                 ft->param.packets_pp[i],
-                 ft->param.duration_pp[i].mean, ft->param.duration_pp[i].max);
+	pe = getprotobynumber (i);
+	snprintf (proto, sizeof (proto), "%s (%d)",
+		  pe != NULL ? pe->p_name : "Unknown", i);
+	fprintf (out, "  %17s: %14" PRIu64 " %12" PRIu64 "   %8.2fs "
+		 "%10.2fs\n", proto,
+		 ft->param.octets_pp[i],
+		 ft->param.packets_pp[i],
+		 ft->param.duration_pp[i].mean, ft->param.duration_pp[i].max);
       }
     }
   }
@@ -1229,29 +1228,30 @@ dump_flows (struct FLOWTRACK *ft, FILE *out) {
     fprintf (out, "ACTIVE %s\n", format_flow (expiry->flow));
     if ((long int) expiry->expires_at - now < 0) {
       fprintf (out,
-               "EXPIRY EVENT for flow %" PRIu64 " now%s\n",
-               expiry->flow->flow_seq,
-               expiry->expires_at == 0 ? " (FORCED)" : "");
-    } else {
+	       "EXPIRY EVENT for flow %" PRIu64 " now%s\n",
+	       expiry->flow->flow_seq,
+	       expiry->expires_at == 0 ? " (FORCED)" : "");
+    }
+    else {
       fprintf (out,
-               "EXPIRY EVENT for flow %" PRIu64 " in %lld seconds\n",
-               expiry->flow->flow_seq, (long long) expiry->expires_at - now);
+	       "EXPIRY EVENT for flow %" PRIu64 " in %lld seconds\n",
+	       expiry->flow->flow_seq, (long long) expiry->expires_at - now);
     }
     fprintf (out, "\n");
   }
 }
 
 /*
- * Figure out how many bytes to skip from front of packet to get past 
+ * Figure out how many bytes to skip from front of packet to get past
  * datalink headers. If pkt is specified, also check whether determine
  * whether or not it is one that we are interested in (IPv4 or IPv6 for now)
  *
- * Returns number of bytes to skip or -1 to indicate that entire 
+ * Returns number of bytes to skip or -1 to indicate that entire
  * packet should be skipped
  */
 static int
 datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
-                u_int16_t *vlanid, u_int8_t *num_label) {
+		u_int16_t *vlanid, u_int8_t *num_label) {
   int i, j;
   u_int32_t frametype;
   int vlan_size = 0;
@@ -1280,8 +1280,8 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
     frametype &= dl->ft_mask;
     if (frametype == ETHERTYPE_VLAN) {
       for (j = 0; j < 2; j++) {
-        *vlanid <<= 8;
-        *vlanid |= pkt[j + dl->skiplen];
+	*vlanid <<= 8;
+	*vlanid |= pkt[j + dl->skiplen];
       }
       /* Mask out the PCP and DEI values, leaving just the VID. */
       *vlanid &= 0xFFF;
@@ -1295,7 +1295,8 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
       frametype <<= 8;
       frametype |= pkt[j + dl->ft_off + vlan_size];
     }
-  } else {
+  }
+  else {
     for (j = dl->ft_len - 1; j >= 0; j--) {
       frametype <<= 8;
       frametype |= pkt[j + dl->ft_off + vlan_size];
@@ -1312,7 +1313,7 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
     u_int8_t ip_version = 0;
     do {
       shim =
-        *((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
+	*((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
@@ -1322,7 +1323,8 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
       *af = AF_INET6;
     else
       return (-1);
-  } else
+  }
+  else
     return (-1);
 
   return (dl->skiplen + vlan_size);
@@ -1357,18 +1359,19 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
     struct timeval ts;
     PCAP_TS_TO_TIMEVAL (ts, phdr->ts);
     send_psamp (pkt, phdr->caplen, ts, cb_ctxt->target,
-                cb_ctxt->ft->param.total_packets);
+		cb_ctxt->ft->param.total_packets);
     return;
   }
 
   s = datalink_check (cb_ctxt->linktype, pkt, phdr->caplen, &af,
-                      &vlanid, &num_label);
+		      &vlanid, &num_label);
   if (s < 0 || (!cb_ctxt->want_v6 && af == AF_INET6)) {
     cb_ctxt->ft->param.non_ip_packets++;
     cb_ctxt->ft->param.total_packets--;
-  } else {
+  }
+  else {
     if (process_packet (cb_ctxt, phdr, pkt, s, af, vlanid, num_label) ==
-        PP_MALLOC_FAIL)
+	PP_MALLOC_FAIL)
       cb_ctxt->fatal = 1;
   }
   if (cb_ctxt->ft->param.adjust_time)
@@ -1378,7 +1381,7 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
 #ifdef ENABLE_PTHREAD
 static void
 pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
-             const u_char *pkt) {
+	     const u_char *pkt) {
   pthread_mutex_lock (&read_mutex);
   memcpy (&packet_header, phdr, sizeof (struct pcap_pkthdr));
   memcpy (&packet_data, pkt, sizeof (packet_data));
@@ -1414,8 +1417,8 @@ print_timeouts (struct FLOWTRACK *ft, FILE *out) {
 
 static int
 accept_control (int lsock, struct NETFLOW_TARGET *target,
-                struct FLOWTRACK *ft, pcap_t *pcap, int *exit_request,
-                int *stop_collection_flag) {
+		struct FLOWTRACK *ft, pcap_t *pcap, int *exit_request,
+		int *stop_collection_flag) {
   char buf[64], *p;
   FILE *ctlf;
   int fd, ret;
@@ -1446,81 +1449,94 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
   if (strcmp (buf, "help") == 0) {
     fprintf (ctlf, "Valid control words are:\n");
     fprintf (ctlf, "\tdebug+ debug- delete-all dump-flows exit "
-             "expire-all\n");
+	     "expire-all\n");
     fprintf (ctlf, "\tshutdown start-gather statistics stop-gather "
-             "timeouts\n");
+	     "timeouts\n");
     fprintf (ctlf, "\tsend-template\n");
     ret = 0;
-  } else if (strcmp (buf, "shutdown") == 0) {
+  }
+  else if (strcmp (buf, "shutdown") == 0) {
     fprintf (ctlf, "softflowd[%u]: Shutting down gracefully...\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     graceful_shutdown_request = 1;
     ret = 1;
-  } else if (strcmp (buf, "exit") == 0) {
+  }
+  else if (strcmp (buf, "exit") == 0) {
     fprintf (ctlf, "softflowd[%u]: Exiting now...\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     *exit_request = 1;
     ret = 1;
-  } else if (strcmp (buf, "expire-all") == 0) {
+  }
+  else if (strcmp (buf, "expire-all") == 0) {
 #ifdef ENABLE_LEGACY
     netflow9_resend_template ();
 #else /* ENABLE_LEGACY */
     ipfix_resend_template ();
 #endif /* ENABLE_LEGACY */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
-             (unsigned int) getpid (), check_expired (ft, target,
-                                                      CE_EXPIRE_ALL));
+	     (unsigned int) getpid (), check_expired (ft, target,
+						      CE_EXPIRE_ALL));
     ret = 0;
-  } else if (strcmp (buf, "send-template") == 0) {
+  }
+  else if (strcmp (buf, "send-template") == 0) {
 #ifdef ENABLE_LEGACY
     netflow9_resend_template ();
 #else /* ENABLE_LEGACY */
     ipfix_resend_template ();
 #endif /* ENABLE_LEGACY */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
-             "next flow export\n", (unsigned int) getpid ());
+	     "next flow export\n", (unsigned int) getpid ());
     ret = 0;
-  } else if (strcmp (buf, "delete-all") == 0) {
+  }
+  else if (strcmp (buf, "delete-all") == 0) {
     fprintf (ctlf, "softflowd[%u]: Deleted %d flows.\n",
-             (unsigned int) getpid (), delete_all_flows (ft));
+	     (unsigned int) getpid (), delete_all_flows (ft));
     ret = 0;
-  } else if (strcmp (buf, "statistics") == 0) {
+  }
+  else if (strcmp (buf, "statistics") == 0) {
     fprintf (ctlf, "softflowd[%u]: Accumulated statistics "
-             "since %s UTC:\n", (unsigned int) getpid (),
-             format_time (ft->param.system_boot_time.tv_sec));
+	     "since %s UTC:\n", (unsigned int) getpid (),
+	     format_time (ft->param.system_boot_time.tv_sec));
     statistics (ft, ctlf, pcap);
     ret = 0;
-  } else if (strcmp (buf, "debug+") == 0) {
+  }
+  else if (strcmp (buf, "debug+") == 0) {
     fprintf (ctlf, "softflowd[%u]: Debug level increased.\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     verbose_flag = 1;
     ret = 0;
-  } else if (strcmp (buf, "debug-") == 0) {
+  }
+  else if (strcmp (buf, "debug-") == 0) {
     fprintf (ctlf, "softflowd[%u]: Debug level decreased.\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     verbose_flag = 0;
     ret = 0;
-  } else if (strcmp (buf, "stop-gather") == 0) {
+  }
+  else if (strcmp (buf, "stop-gather") == 0) {
     fprintf (ctlf, "softflowd[%u]: Data collection stopped.\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     *stop_collection_flag = 1;
     ret = 0;
-  } else if (strcmp (buf, "start-gather") == 0) {
+  }
+  else if (strcmp (buf, "start-gather") == 0) {
     fprintf (ctlf, "softflowd[%u]: Data collection resumed.\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     *stop_collection_flag = 0;
     ret = 0;
-  } else if (strcmp (buf, "dump-flows") == 0) {
+  }
+  else if (strcmp (buf, "dump-flows") == 0) {
     fprintf (ctlf, "softflowd[%u]: Dumping flow data:\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     dump_flows (ft, ctlf);
     ret = 0;
-  } else if (strcmp (buf, "timeouts") == 0) {
+  }
+  else if (strcmp (buf, "timeouts") == 0) {
     fprintf (ctlf, "softflowd[%u]: Printing timeouts:\n",
-             (unsigned int) getpid ());
+	     (unsigned int) getpid ());
     print_timeouts (ft, ctlf);
     ret = 0;
-  } else {
+  }
+  else {
     fprintf (ctlf, "Unknown control command \"%s\"\n", buf);
     ret = 0;
   }
@@ -1564,7 +1580,7 @@ bind_device (int sock, char *ifname) {
 
 static int
 connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
-          int protocol, struct addrinfo *exporterAddr) {
+	  int protocol, struct addrinfo *exporterAddr) {
   int s;
   unsigned int h6;
   unsigned char h4;
@@ -1574,15 +1590,15 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
 
   if ((s =
        socket (addr->ss_family,
-               protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM,
-               protocol)) == -1) {
+	       protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM,
+	       protocol)) == -1) {
     fprintf (stderr, "socket() error: %s\n", strerror (errno));
     exit (1);
   }
   if (exporterAddr != NULL) {
     for (rp = exporterAddr; rp != NULL; rp = rp->ai_next) {
       if (bind (s, rp->ai_addr, rp->ai_addrlen) == 0) {
-        break;
+	break;
       }
     }
     exporterAddr = rp;
@@ -1602,7 +1618,7 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
     h4 = hoplimit;
     if (setsockopt (s, IPPROTO_IP, IP_MULTICAST_TTL, &h4, sizeof (h4)) == -1) {
       fprintf (stderr, "setsockopt(IP_MULTICAST_TTL, "
-               "%u): %s\n", h4, strerror (errno));
+	       "%u): %s\n", h4, strerror (errno));
       exit (1);
     }
     break;
@@ -1614,9 +1630,9 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
       break;
     h6 = hoplimit;
     if (setsockopt (s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
-                    &h6, sizeof (h6)) == -1) {
+		    &h6, sizeof (h6)) == -1) {
       fprintf (stderr, "setsockopt(IPV6_MULTICAST_HOPS, %u): "
-               "%s\n", h6, strerror (errno));
+	       "%s\n", h6, strerror (errno));
       exit (1);
     }
   }
@@ -1653,7 +1669,7 @@ unix_listener (const char *path) {
   unlink (path);
   if (bind (s, (struct sockaddr *) &addr, addrlen) == -1) {
     fprintf (stderr, "unix domain bind(\"%s\") error: %s\n",
-             addr.sun_path, strerror (errno));
+	     addr.sun_path, strerror (errno));
     exit (1);
   }
   if (listen (s, 64) == -1) {
@@ -1666,8 +1682,8 @@ unix_listener (const char *path) {
 
 static void
 setup_packet_capture (struct pcap **pcap, int *linktype,
-                      char *dev, char *capfile, char *bpf_prog, int need_v6,
-                      int promisc, int buffer_size_override) {
+		      char *dev, char *capfile, char *bpf_prog, int need_v6,
+		      int promisc, int buffer_size_override) {
   char ebuf[PCAP_ERRBUF_SIZE];
   struct bpf_program prog_c;
   u_int32_t bpf_mask, bpf_net;
@@ -1695,8 +1711,8 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
     }
     if (buffer_size_override > 0)
       if ((res = pcap_set_buffer_size (*pcap, buffer_size_override)) != 0) {
-        fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr (*pcap));
-        exit (1);
+	fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr (*pcap));
+	exit (1);
       }
     if (pcap_lookupnet (dev, &bpf_net, &bpf_mask, ebuf) == -1)
       bpf_net = bpf_mask = 0;
@@ -1704,7 +1720,8 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
       fprintf (stderr, "pcap_activate: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
-  } else {
+  }
+  else {
     if ((*pcap = pcap_open_offline (capfile, ebuf)) == NULL) {
       fprintf (stderr, "pcap_open_offline(%s): %s\n", capfile, ebuf);
       exit (1);
@@ -1720,7 +1737,7 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
   if (bpf_prog != NULL) {
     if (pcap_compile (*pcap, &prog_c, bpf_prog, 1, bpf_mask) == -1) {
       fprintf (stderr, "pcap_compile(\"%s\"): %s\n",
-               bpf_prog, pcap_geterr (*pcap));
+	       bpf_prog, pcap_geterr (*pcap));
       exit (1);
     }
     if (pcap_setfilter (*pcap, &prog_c) == -1) {
@@ -1730,8 +1747,8 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
   }
 #ifdef BIOCLOCK
   /*
-   * If we are reading from an device (not a file), then 
-   * lock the underlying BPF device to prevent changes in the 
+   * If we are reading from an device (not a file), then
+   * lock the underlying BPF device to prevent changes in the
    * unprivileged child
    */
   if (dev != NULL && ioctl (pcap_fileno (*pcap), BIOCLOCK) < 0) {
@@ -1783,7 +1800,7 @@ argv_join (int argc, char **argv) {
     if (i == 0)
       ret[0] = '\0';
     else {
-      ret_len++;                /* Make room for ' ' */
+      ret_len++;		/* Make room for ' ' */
       strlcat (ret, " ", ret_len + 1);
     }
 
@@ -1797,69 +1814,69 @@ argv_join (int argc, char **argv) {
 static void
 usage (void) {
   fprintf (stderr,
-           "Usage: %s [options] [bpf_program]\n"
-           "This is %s version %s. Valid commandline options:\n"
-           "  -i [idx:]interface      Specify interface to listen on\n"
-           "  -r pcap_file            Specify packet capture file to read\n"
-           "  -t timeout=time         Specify named timeout\n"
-           "  -m max_flows            Specify maximum number of flows to track (default %d)\n"
-           "  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
-           "  -p pidfile              Record pid in specified file\n"
-           "                          (default: %s)\n"
-           "  -c socketfile           Location of control socket\n"
-           "                          (default: %s)\n"
-           "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
-           "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
+	   "Usage: %s [options] [bpf_program]\n"
+	   "This is %s version %s. Valid commandline options:\n"
+	   "  -i [idx:]interface      Specify interface to listen on\n"
+	   "  -r pcap_file            Specify packet capture file to read\n"
+	   "  -t timeout=time         Specify named timeout\n"
+	   "  -m max_flows            Specify maximum number of flows to track (default %d)\n"
+	   "  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
+	   "  -p pidfile              Record pid in specified file\n"
+	   "                          (default: %s)\n"
+	   "  -c socketfile           Location of control socket\n"
+	   "                          (default: %s)\n"
+	   "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
+	   "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
 #ifdef ENABLE_NTOPNG
-           "     ntopng               ntopng means direct injection to NTOPNG (if supported).\n"
+	   "     ntopng               ntopng means direct injection to NTOPNG (if supported).\n"
 #endif
-           "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
-           "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
-           "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
-           "     ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
-           "  -H                      Specify MAC Address to determine direction (requires -T ether)\n"
-           "  -6                      Track IPv6 flows, regardless of whether selected \n"
-           "                          NetFlow export protocol supports it\n"
-           "  -d                      Don't daemonise (run in foreground)\n"
-           "  -D                      Debug mode: foreground + verbosity + track v6 flows\n"
-           "  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
-           "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
-           "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
-           "  -B bytes                Libpcap buffer size in bytes\n"
-           "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
-           "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
-           "  -C capture_length       Specify length for packet capture (snaplen)\n"
-           "  -l                      Load balancing mode for multiple destinations\n"
-           "  -R receive_port         Specify port number for PSAMP receive mode\n"
+	   "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
+	   "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
+	   "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
+	   "     ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
+	   "  -H                      Specify MAC Address to determine direction (requires -T ether)\n"
+	   "  -6                      Track IPv6 flows, regardless of whether selected \n"
+	   "                          NetFlow export protocol supports it\n"
+	   "  -d                      Don't daemonise (run in foreground)\n"
+	   "  -D                      Debug mode: foreground + verbosity + track v6 flows\n"
+	   "  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
+	   "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
+	   "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
+	   "  -B bytes                Libpcap buffer size in bytes\n"
+	   "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
+	   "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
+	   "  -C capture_length       Specify length for packet capture (snaplen)\n"
+	   "  -l                      Load balancing mode for multiple destinations\n"
+	   "  -R receive_port         Specify port number for PSAMP receive mode\n"
 #ifdef ENABLE_PTHREAD
-           "  -M                      Enable multithread\n"
+	   "  -M                      Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
-           "  -N                      Disable promiscuous mode\n"
+	   "  -N                      Disable promiscuous mode\n"
 #ifdef LINUX
-           "  -S send_interface_name  Specify send interface name\n"
+	   "  -S send_interface_name  Specify send interface name\n"
 #endif /* LINUX */
-           "  -x                      Specify number of MPLS labels\n"
-           "  -I                      Specify seconds for reinitialize boot time\n"
-           "  -g                      Gauge cpu clock for benchmark\n"
-           "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
-           "  -h                      Display this help\n"
-           "\n"
-           "Valid timeout names and default values:\n"
-           "  tcp     (default %6d)"
-           "  tcp.rst (default %6d)"
-           "  tcp.fin (default %6d)\n"
-           "  udp     (default %6d)"
-           "  icmp    (default %6d)"
-           "  general (default %6d)\n"
-           "  maxlife (default %6d)"
-           "  expint  (default %6d)\n"
-           "\n",
-           PROGNAME, PROGNAME, PROGVER, DEFAULT_MAX_FLOWS, DEFAULT_PIDFILE,
-           DEFAULT_CTLSOCK,
-           DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
-           DEFAULT_TCP_FIN_TIMEOUT, DEFAULT_UDP_TIMEOUT, DEFAULT_ICMP_TIMEOUT,
-           DEFAULT_GENERAL_TIMEOUT, DEFAULT_MAXIMUM_LIFETIME,
-           DEFAULT_EXPIRY_INTERVAL);
+	   "  -x                      Specify number of MPLS labels\n"
+	   "  -I                      Specify seconds for reinitialize boot time\n"
+	   "  -g                      Gauge cpu clock for benchmark\n"
+	   "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
+	   "  -h                      Display this help\n"
+	   "\n"
+	   "Valid timeout names and default values:\n"
+	   "  tcp     (default %6d)"
+	   "  tcp.rst (default %6d)"
+	   "  tcp.fin (default %6d)\n"
+	   "  udp     (default %6d)"
+	   "  icmp    (default %6d)"
+	   "  general (default %6d)\n"
+	   "  maxlife (default %6d)"
+	   "  expint  (default %6d)\n"
+	   "\n",
+	   PROGNAME, PROGNAME, PROGVER, DEFAULT_MAX_FLOWS, DEFAULT_PIDFILE,
+	   DEFAULT_CTLSOCK,
+	   DEFAULT_TCP_TIMEOUT, DEFAULT_TCP_RST_TIMEOUT,
+	   DEFAULT_TCP_FIN_TIMEOUT, DEFAULT_UDP_TIMEOUT, DEFAULT_ICMP_TIMEOUT,
+	   DEFAULT_GENERAL_TIMEOUT, DEFAULT_MAXIMUM_LIFETIME,
+	   DEFAULT_EXPIRY_INTERVAL);
 }
 
 static void
@@ -1907,7 +1924,7 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
 
   if (ft->param.general_timeout == 0) {
     fprintf (stderr, "\"general\" flow timeout must be "
-             "greater than zero\n");
+	     "greater than zero\n");
     exit (1);
   }
 
@@ -1966,13 +1983,13 @@ parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
        hostport = strsep ((char **) &s, ",")) {
     dest[i].sslen = sizeof (dest[i].ss);
     parse_hostport (hostport, (struct sockaddr *) &dest[i].ss,
-                    &dest[i].sslen);
+		    &dest[i].sslen);
     i++;
   }
   return i;
 }
 
-/* 
+/*
  * Drop privileges and chroot, will exit on failure
  */
 static void
@@ -1985,12 +2002,12 @@ drop_privs (void) {
   }
   if (chdir (PRIVDROP_CHROOT_DIR) != 0) {
     logit (LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, strerror (errno));
+	   PRIVDROP_CHROOT_DIR, strerror (errno));
     exit (1);
   }
   if (chroot (PRIVDROP_CHROOT_DIR) != 0) {
     logit (LOG_ERR, "Unable to chroot to directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, strerror (errno));
+	   PRIVDROP_CHROOT_DIR, strerror (errno));
     exit (1);
   }
   if (chdir ("/") != 0) {
@@ -1999,7 +2016,7 @@ drop_privs (void) {
   }
   if (setgroups (1, &pw->pw_gid) != 0) {
     logit (LOG_ERR, "Couldn't setgroups (%u): %s",
-           (unsigned int) pw->pw_gid, strerror (errno));
+	   (unsigned int) pw->pw_gid, strerror (errno));
     exit (1);
   }
 #if defined(HAVE_SETRESGID)
@@ -2011,7 +2028,7 @@ drop_privs (void) {
 #endif
   {
     logit (LOG_ERR, "Couldn't set gid (%u): %s",
-           (unsigned int) pw->pw_gid, strerror (errno));
+	   (unsigned int) pw->pw_gid, strerror (errno));
     exit (1);
   }
 #if defined(HAVE_SETRESUID)
@@ -2023,7 +2040,7 @@ drop_privs (void) {
 #endif
   {
     logit (LOG_ERR, "Couldn't set uid (%u): %s",
-           (unsigned int) pw->pw_uid, strerror (errno));
+	   (unsigned int) pw->pw_uid, strerror (errno));
     exit (1);
   }
 }
@@ -2039,9 +2056,9 @@ parse_mac_address (const char *str, u_int8_t mac[6]) {
   int i;
 
   if (sscanf (str, "%2x:%2x:%2x:%2x:%2x:%2x",
-              &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6 &&
+	      &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6 &&
       sscanf (str, "%2x-%2x-%2x-%2x-%2x-%2x",
-              &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6)
+	      &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6)
     return (-1);
 
   for (i = 0; i < 6; i++) {
@@ -2104,9 +2121,9 @@ main (int argc, char **argv) {
   always_v6 = 0;
 
   while ((ch =
-          getopt (argc, argv,
-                  "6hdDL:T:H:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:"))
-         != -1) {
+	  getopt (argc, argv,
+		  "6hdDL:T:H:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:"))
+	 != -1) {
     switch (ch) {
     case '6':
       always_v6 = 1;
@@ -2123,9 +2140,9 @@ main (int argc, char **argv) {
       break;
     case 'i':
       if (capfile != NULL || dev != NULL) {
-        fprintf (stderr, "Packet source already " "specified.\n\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Packet source already " "specified.\n\n");
+	usage ();
+	exit (1);
       }
 #if defined(HAVE_STRSEP)
       dev = strsep (&optarg, ":");
@@ -2133,38 +2150,38 @@ main (int argc, char **argv) {
       dev = strtok (optarg, ":");
 #endif /* defined(HAVE_STRSEP) */
       if (optarg != NULL) {
-        if (strlen (dev) > 0) {
-          if_index = (u_int16_t) atoi (dev);
-        }
-        dev = optarg;
-        user_ifindex_flag = 1;
+	if (strlen (dev) > 0) {
+	  if_index = (u_int16_t) atoi (dev);
+	}
+	dev = optarg;
+	user_ifindex_flag = 1;
       }
       if (strlen (dev) == 0) {
-        fprintf (stderr, "Wrong interface is specified.\n\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Wrong interface is specified.\n\n");
+	usage ();
+	exit (1);
       }
       if (verbose_flag)
-        fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
+	fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
       strncpy (flowtrack.param.option.interfaceName, dev,
-               strlen (dev) <
-               sizeof (flowtrack.param.option.interfaceName) ?
-               strlen (dev) : sizeof (flowtrack.param.option.interfaceName));
+	       strlen (dev) <
+	       sizeof (flowtrack.param.option.interfaceName) ?
+	       strlen (dev) : sizeof (flowtrack.param.option.interfaceName));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
-        fprintf (stderr, "Packet source already " "specified.\n\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Packet source already " "specified.\n\n");
+	usage ();
+	exit (1);
       }
       capfile = optarg;
       dontfork_flag = 1;
       ctlsock_path = NULL;
       strncpy (flowtrack.param.option.interfaceName, capfile,
-               strlen (capfile) <
-               sizeof (flowtrack.param.option.interfaceName) ?
-               strlen (capfile) :
-               sizeof (flowtrack.param.option.interfaceName));
+	       strlen (capfile) <
+	       sizeof (flowtrack.param.option.interfaceName) ?
+	       strlen (capfile) :
+	       sizeof (flowtrack.param.option.interfaceName));
       break;
     case 't':
       /* Will exit on failure */
@@ -2172,86 +2189,86 @@ main (int argc, char **argv) {
       break;
     case 'T':
       if (strcasecmp (optarg, "full") == 0)
-        flowtrack.param.track_level = TRACK_FULL;
+	flowtrack.param.track_level = TRACK_FULL;
       else if (strcasecmp (optarg, "port") == 0)
-        flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
+	flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
       else if (strcasecmp (optarg, "proto") == 0)
-        flowtrack.param.track_level = TRACK_IP_PROTO;
+	flowtrack.param.track_level = TRACK_IP_PROTO;
       else if (strcasecmp (optarg, "ip") == 0)
-        flowtrack.param.track_level = TRACK_IP_ONLY;
+	flowtrack.param.track_level = TRACK_IP_ONLY;
       else if (strcasecmp (optarg, "vlan") == 0)
-        flowtrack.param.track_level = TRACK_FULL_VLAN;
+	flowtrack.param.track_level = TRACK_FULL_VLAN;
       else if (strcasecmp (optarg, "ether") == 0)
-        flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
+	flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
 
       else {
-        fprintf (stderr, "Unknown flow tracking " "level\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Unknown flow tracking " "level\n");
+	usage ();
+	exit (1);
       }
       track_level = flowtrack.param.track_level;
       break;
     case 'H':
       if (optarg != NULL) {
-        if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
-          fprintf (stderr, "Invalid MAC address %s\n", optarg);
-          exit (1);
-        }
-        flowtrack.param.direction_mac_set = 1;
+	if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
+	  fprintf (stderr, "Invalid MAC address %s\n", optarg);
+	  exit (1);
+	}
+	flowtrack.param.direction_mac_set = 1;
       }
       break;
     case 'L':
       hoplimit = atoi (optarg);
       if (hoplimit < 0 || hoplimit > 255) {
-        fprintf (stderr, "Invalid hop limit\n\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Invalid hop limit\n\n");
+	usage ();
+	exit (1);
       }
       break;
     case 'm':
       if ((flowtrack.param.max_flows = atoi (optarg)) < 0) {
-        fprintf (stderr, "Invalid maximum flows\n\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Invalid maximum flows\n\n");
+	usage ();
+	exit (1);
       }
       break;
     case 'n':
       /* Will exit on failure */
       target.num_destinations =
-        parse_hostports (optarg, target.destinations,
-                         SOFTFLOWD_MAX_DESTINATIONS);
+	parse_hostports (optarg, target.destinations,
+			 SOFTFLOWD_MAX_DESTINATIONS);
       break;
     case 'p':
       pidfile_path = optarg;
       break;
     case 'c':
       if (strcmp (optarg, "none") == 0)
-        ctlsock_path = NULL;
+	ctlsock_path = NULL;
       else
-        ctlsock_path = optarg;
+	ctlsock_path = optarg;
       break;
     case 'v':
       if (!strncmp (optarg, "psamp", sizeof ("psamp"))) {
-        flowtrack.param.is_psamp = 1;
-        break;
+	flowtrack.param.is_psamp = 1;
+	break;
       }
 #ifdef ENABLE_NTOPNG
       if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
-                    sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
-        version = SOFTFLOWD_NF_VERSION_NTOPNG;
+		    sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
+	version = SOFTFLOWD_NF_VERSION_NTOPNG;
       }
 #endif /* ENABLE_NTOPNG */
       version = version ? version : atoi (optarg);
       target.dialect = lookup_netflow_sender (version);
       if (target.dialect == NULL) {
-        fprintf (stderr, "Invalid NetFlow version\n");
-        exit (1);
+	fprintf (stderr, "Invalid NetFlow version\n");
+	exit (1);
       }
       break;
     case 's':
       flowtrack.param.option.sample = atoi (optarg);
       if (flowtrack.param.option.sample < 2) {
-        flowtrack.param.option.sample = 0;
+	flowtrack.param.option.sample = 0;
       }
       break;
     case 'B':
@@ -2259,32 +2276,32 @@ main (int argc, char **argv) {
       break;
     case 'P':
       if (strcasecmp (optarg, "udp") == 0)
-        protocol = IPPROTO_UDP;
+	protocol = IPPROTO_UDP;
       else if (strcasecmp (optarg, "tcp") == 0)
-        protocol = IPPROTO_TCP;
+	protocol = IPPROTO_TCP;
 #ifdef IPPROTO_SCTP
       else if (strcasecmp (optarg, "sctp") == 0)
-        protocol = IPPROTO_SCTP;
+	protocol = IPPROTO_SCTP;
 #endif
       else {
-        fprintf (stderr, "Unknown transport layer protocol" "\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Unknown transport layer protocol" "\n");
+	usage ();
+	exit (1);
       }
       break;
     case 'A':
       if (strcasecmp (optarg, "sec") == 0)
-        flowtrack.param.time_format = 's';
+	flowtrack.param.time_format = 's';
       else if (strcasecmp (optarg, "milli") == 0)
-        flowtrack.param.time_format = 'm';
+	flowtrack.param.time_format = 'm';
       else if (strcasecmp (optarg, "micro") == 0)
-        flowtrack.param.time_format = 'M';
+	flowtrack.param.time_format = 'M';
       else if (strcasecmp (optarg, "nano") == 0)
-        flowtrack.param.time_format = 'n';
+	flowtrack.param.time_format = 'n';
       else {
-        fprintf (stderr, "Unknown time format" "\n");
-        usage ();
-        exit (1);
+	fprintf (stderr, "Unknown time format" "\n");
+	usage ();
+	exit (1);
       }
       break;
     case 'b':
@@ -2293,16 +2310,16 @@ main (int argc, char **argv) {
     case 'a':
       flowtrack.param.adjust_time = 1;
       break;
-    case 'C':                  /* Capture Length */
+    case 'C':			/* Capture Length */
       snaplen = atoi (optarg);
       break;
-    case 'l':                  // load balancing
+    case 'l':			// load balancing
       target.is_loadbalance = 1;
       break;
     case 'R':
       recvport = atoi (optarg);
       if (recvport < 0 && recvport > 65535)
-        recvport = IPFIX_PORT;
+	recvport = IPFIX_PORT;
       rsock = recvsock ((uint16_t) recvport);
       break;
     case 'M':
@@ -2321,50 +2338,53 @@ main (int argc, char **argv) {
     case 'x':
       flowtrack.param.max_num_label = atoi (optarg);
       if (flowtrack.param.max_num_label < 0
-          || flowtrack.param.max_num_label > 10) {
-        fprintf (stderr, "Invalid number of MPLS label\n\n");
-        usage ();
-        exit (1);
+	  || flowtrack.param.max_num_label > 10) {
+	fprintf (stderr, "Invalid number of MPLS label\n\n");
+	usage ();
+	exit (1);
       }
       break;
     case 'I':
       boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
       if ((errno == ERANGE
-           && (boot_time_reinit_sec == LONG_MAX
-               || boot_time_reinit_sec == LONG_MIN))
-          || (errno != 0 && boot_time_reinit_sec == 0)) {
-        perror ("strtol");
-        usage ();
-        exit (EXIT_FAILURE);
+	   && (boot_time_reinit_sec == LONG_MAX
+	       || boot_time_reinit_sec == LONG_MIN))
+	  || (errno != 0 && boot_time_reinit_sec == 0)) {
+	perror ("strtol");
+	usage ();
+	exit (EXIT_FAILURE);
       }
       if (timeunit == optarg) {
-        fprintf (stderr, "No digits were found in boot_time_reinit\n");
-        usage ();
-        exit (EXIT_FAILURE);
+	fprintf (stderr, "No digits were found in boot_time_reinit\n");
+	usage ();
+	exit (EXIT_FAILURE);
       }
-      if (*timeunit == 'd' || *timeunit == 'D') {       /* days */
-        if (boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
-          boot_time_reinit_sec = BOOTTIME_MAX_DAY;
-        }
-        boot_time_reinit_sec *= (24 * 60 * 60); /* convert to seconds */
-      } else if (*timeunit == 'h' || *timeunit == 'H') {        /* hours */
-        if (boot_time_reinit_sec > BOOTTIME_MAX_HOUR) {
-          boot_time_reinit_sec = BOOTTIME_MAX_HOUR;
-        }
-        boot_time_reinit_sec *= (60 * 60);      /* convert to seconds */
-      } else if (*timeunit == 'm' || *timeunit == 'M') {        /* minutes */
-        if (boot_time_reinit_sec > BOOTTIME_MAX_MIN) {
-          boot_time_reinit_sec = BOOTTIME_MAX_MIN;
-        }
-        boot_time_reinit_sec *= 60;     /* convert to seconds */
-      } else {
-        if (boot_time_reinit_sec > BOOTTIME_MAX_SEC) {  /* seconds */
-          boot_time_reinit_sec = BOOTTIME_MAX_SEC;
-        }
+      if (*timeunit == 'd' || *timeunit == 'D') {	/* days */
+	if (boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
+	  boot_time_reinit_sec = BOOTTIME_MAX_DAY;
+	}
+	boot_time_reinit_sec *= (24 * 60 * 60);	/* convert to seconds */
+      }
+      else if (*timeunit == 'h' || *timeunit == 'H') {	/* hours */
+	if (boot_time_reinit_sec > BOOTTIME_MAX_HOUR) {
+	  boot_time_reinit_sec = BOOTTIME_MAX_HOUR;
+	}
+	boot_time_reinit_sec *= (60 * 60);	/* convert to seconds */
+      }
+      else if (*timeunit == 'm' || *timeunit == 'M') {	/* minutes */
+	if (boot_time_reinit_sec > BOOTTIME_MAX_MIN) {
+	  boot_time_reinit_sec = BOOTTIME_MAX_MIN;
+	}
+	boot_time_reinit_sec *= 60;	/* convert to seconds */
+      }
+      else {
+	if (boot_time_reinit_sec > BOOTTIME_MAX_SEC) {	/* seconds */
+	  boot_time_reinit_sec = BOOTTIME_MAX_SEC;
+	}
       }
       if (verbose_flag) {
-        fprintf (stderr, "boot_time_reinit is %ld seconds.\n",
-                 boot_time_reinit_sec);
+	fprintf (stderr, "boot_time_reinit is %ld seconds.\n",
+		 boot_time_reinit_sec);
       }
       break;
     case 'g':
@@ -2372,18 +2392,18 @@ main (int argc, char **argv) {
       break;
     case 'e':
       if (optarg != NULL) {
-        struct addrinfo hints;
-        hints.ai_family = AF_UNSPEC;
-        hints.ai_socktype =
-          protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
-        hints.ai_flags = 0;
-        hints.ai_protocol = protocol;
-        if (getaddrinfo
-            (optarg, NULL, &hints,
-             &flowtrack.param.option.exporterAddr) != 0) {
-          perror ("getaddrinfo");
-          break;
-        }
+	struct addrinfo hints;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype =
+	  protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
+	hints.ai_flags = 0;
+	hints.ai_protocol = protocol;
+	if (getaddrinfo
+	    (optarg, NULL, &hints,
+	     &flowtrack.param.option.exporterAddr) != 0) {
+	  perror ("getaddrinfo");
+	  break;
+	}
       }
       break;
     default:
@@ -2405,10 +2425,10 @@ main (int argc, char **argv) {
   /* Will exit on failure */
   if (capfile != NULL || dev != NULL)
     setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                          target.dialect->v6_capable || always_v6,
-                          use_promisc, pcap_override_buffer_size);
+			  target.dialect->v6_capable || always_v6,
+			  use_promisc, pcap_override_buffer_size);
   else if (rsock > 0)
-    linktype = 1;               //LINKTYPE_ETHERNET
+    linktype = 1;		//LINKTYPE_ETHERNET
 
   /*
    * If ethernet-level tracking is enabled and the user has not
@@ -2420,19 +2440,20 @@ main (int argc, char **argv) {
     if (get_interface_mac (dev, flowtrack.param.direction_mac) == 0) {
       flowtrack.param.direction_mac_set = 1;
       if (verbose_flag)
-        fprintf (stderr,
-                 "Auto-detected direction MAC %02x:%02x:%02x:%02x:%02x:%02x "
-                 "from interface %s\n",
-                 flowtrack.param.direction_mac[0],
-                 flowtrack.param.direction_mac[1],
-                 flowtrack.param.direction_mac[2],
-                 flowtrack.param.direction_mac[3],
-                 flowtrack.param.direction_mac[4],
-                 flowtrack.param.direction_mac[5], dev);
-    } else if (verbose_flag) {
+	fprintf (stderr,
+		 "Auto-detected direction MAC %02x:%02x:%02x:%02x:%02x:%02x "
+		 "from interface %s\n",
+		 flowtrack.param.direction_mac[0],
+		 flowtrack.param.direction_mac[1],
+		 flowtrack.param.direction_mac[2],
+		 flowtrack.param.direction_mac[3],
+		 flowtrack.param.direction_mac[4],
+		 flowtrack.param.direction_mac[5], dev);
+    }
+    else if (verbose_flag) {
       fprintf (stderr,
-               "Could not auto-detect MAC address of %s; "
-               "flowDirection will use canonical ordering\n", dev);
+	       "Could not auto-detect MAC address of %s; "
+	       "flowDirection will use canonical ordering\n", dev);
     }
   }
 
@@ -2441,39 +2462,40 @@ main (int argc, char **argv) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
       if ((err = getnameinfo ((struct sockaddr *) &dest->ss, dest->sslen,
-                              dest->hostname, sizeof (dest->hostname),
-                              dest->servname, sizeof (dest->servname),
-                              NI_NUMERICHOST | NI_NUMERICSERV)) == -1) {
-        fprintf (stderr, "getnameinfo: %d\n", err);
-        exit (1);
+			      dest->hostname, sizeof (dest->hostname),
+			      dest->servname, sizeof (dest->servname),
+			      NI_NUMERICHOST | NI_NUMERICSERV)) == -1) {
+	fprintf (stderr, "getnameinfo: %d\n", err);
+	exit (1);
       }
 #ifdef ENABLE_NTOPNG
       if (target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG) {
-        int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
+	int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
 
-        if (rc) {
-          fprintf (stderr,
-                   "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
-                   dest->hostname, dest->servname, rc, strerror (rc));
-          exit (1);
-        }
-      } else
+	if (rc) {
+	  fprintf (stderr,
+		   "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
+		   dest->hostname, dest->servname, rc, strerror (rc));
+	  exit (1);
+	}
+      }
+      else
 #endif
-        dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
-                               flowtrack.param.option.exporterAddr);
+	dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
+			       flowtrack.param.option.exporterAddr);
 #ifdef LINUX
       if (dest->sock > 0 && send_ifname != NULL) {
-        bind_device (dest->sock, send_ifname);
+	bind_device (dest->sock, send_ifname);
       }
       if (dev != NULL && user_ifindex_flag == 0) {
-        strncpy (ifr.ifr_name, dev, IFNAMSIZ - 1);
-        if (ioctl (pcap_get_selectable_fd (pcap), SIOCGIFINDEX, &ifr) < 0) {
-          perror ("ioctl SIOCGIFINDEX");
-        }
-        if_index = ifr.ifr_ifindex;
-        if (verbose_flag)
-          fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n",
-                   dev, if_index);
+	strncpy (ifr.ifr_name, dev, IFNAMSIZ - 1);
+	if (ioctl (pcap_get_selectable_fd (pcap), SIOCGIFINDEX, &ifr) < 0) {
+	  perror ("ioctl SIOCGIFINDEX");
+	}
+	if_index = ifr.ifr_ifindex;
+	if (verbose_flag)
+	  fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n",
+		   dev, if_index);
       }
 #endif /* LINUX */
     }
@@ -2481,11 +2503,12 @@ main (int argc, char **argv) {
 
   /* Control socket */
   if (ctlsock_path != NULL)
-    ctlsock = unix_listener (ctlsock_path);     /* Will exit on fail */
+    ctlsock = unix_listener (ctlsock_path);	/* Will exit on fail */
 
   if (dontfork_flag) {
     loginit (PROGNAME, 1);
-  } else {
+  }
+  else {
     FILE *pidfile;
 
     r = daemon (0, 0);
@@ -2494,23 +2517,23 @@ main (int argc, char **argv) {
     if ((pidfile = fopen (pidfile_path, "r")) != NULL) {
       int pid;
       if (fscanf (pidfile, "%u", &pid) == EOF) {
-        //fscanf error
-        if (ferror (pidfile)) {
-          perror ("fscanf");
-        }
+	//fscanf error
+	if (ferror (pidfile)) {
+	  perror ("fscanf");
+	}
       }
       fclose (pidfile);
 
       /* Check if the pid exists */
       int pidfree = (kill (pid, 0) && errno == ESRCH);
       if (!pidfree) {
-        fprintf (stderr, "Already running under pid %u\n", pid);
-        exit (1);
+	fprintf (stderr, "Already running under pid %u\n", pid);
+	exit (1);
       }
     }
     if ((pidfile = fopen (pidfile_path, "w")) == NULL) {
       fprintf (stderr, "Couldn't open pidfile %s: %s\n",
-               pidfile_path, strerror (errno));
+	       pidfile_path, strerror (errno));
       exit (1);
     }
     fprintf (pidfile, "%u\n", (unsigned int) getpid ());
@@ -2529,8 +2552,8 @@ main (int argc, char **argv) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
       logit (LOG_NOTICE, "Exporting flows from %s to [%s]:%s",
-             flowtrack.param.option.interfaceName,
-             dest->hostname, dest->servname);
+	     flowtrack.param.option.interfaceName,
+	     dest->hostname, dest->servname);
     }
   }
   flowtrack.param.option.meteringProcessId = getpid ();
@@ -2547,7 +2570,7 @@ main (int argc, char **argv) {
 #ifdef ENABLE_PTHREAD
   if (use_thread) {
     if (pthread_create
-        (&read_thread, NULL, process_packet_loop, (void *) &cb_ctxt) < 0) {
+	(&read_thread, NULL, process_packet_loop, (void *) &cb_ctxt) < 0) {
       perror ("pthread_create error");
       exit (1);
     }
@@ -2558,73 +2581,76 @@ main (int argc, char **argv) {
      * Silly libpcap's timeout function doesn't work, so we
      * do it here (only if we are reading live)
      */
-    if (capfile == NULL && (dev != NULL || rsock > 0)) {        //online
+    if (capfile == NULL && (dev != NULL || rsock > 0)) {	//online
       memset (pl, '\0', sizeof (pl));
 
       /* This can only be set via the control socket */
       if (!stop_collection_flag && dev != NULL) {
-        pl[0].events = POLLIN | POLLERR | POLLHUP;
-        pl[0].fd = pcap_fileno (pcap);
-      } else if (!stop_collection_flag && rsock > 0) {
-        pl[0].fd = rsock;
-        pl[0].events = POLLIN | POLLERR | POLLHUP;
+	pl[0].events = POLLIN | POLLERR | POLLHUP;
+	pl[0].fd = pcap_fileno (pcap);
+      }
+      else if (!stop_collection_flag && rsock > 0) {
+	pl[0].fd = rsock;
+	pl[0].events = POLLIN | POLLERR | POLLHUP;
       }
       if (ctlsock != -1) {
-        pl[1].fd = ctlsock;
-        pl[1].events = POLLIN | POLLERR | POLLHUP;
+	pl[1].fd = ctlsock;
+	pl[1].events = POLLIN | POLLERR | POLLHUP;
       }
 
       r = poll (pl, (ctlsock == -1) ? 1 : 2, next_expire (&flowtrack));
       if (r == -1 && errno != EINTR) {
-        logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
-        break;
+	logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
+	break;
       }
     }
 
     /* Accept connection on control socket if present */
     if (ctlsock != -1 && pl[1].revents != 0) {
       if (accept_control (ctlsock, &target, &flowtrack, pcap,
-                          &exit_request, &stop_collection_flag) != 0)
-        break;
+			  &exit_request, &stop_collection_flag) != 0)
+	break;
     }
 
     /* If we have data, run it through libpcap */
     if (!stop_collection_flag && (capfile != NULL || pl[0].revents != 0)) {
       if (capfile != NULL || dev != NULL) {
 #ifdef ENABLE_PTHREAD
-        if (use_thread)
-          r =
-            pcap_dispatch (pcap, flowtrack.param.max_flows, pcap_memcpy,
-                           NULL);
-        else
+	if (use_thread)
+	  r =
+	    pcap_dispatch (pcap, flowtrack.param.max_flows, pcap_memcpy,
+			   NULL);
+	else
 #endif /* ENABLE_PTHREAD */
-          r = pcap_dispatch (pcap, flowtrack.param.max_flows, flow_cb,
-                             (void *) &cb_ctxt);
-        if (r == -1) {
-          logit (LOG_ERR, "Exiting on pcap_dispatch: %s", pcap_geterr (pcap));
-          break;
-        } else if (r == 0 && capfile != NULL) {
-          logit (LOG_NOTICE, "Shutting down after " "pcap EOF");
-          graceful_shutdown_request = 1;
-          break;
-        }
-      } else if (rsock > 0) {
-        for (recvloop = 0;
-             recvloop < flowtrack.param.max_flows && pl[0].revents != 0;
-             recvloop++) {
-          r = recv_psamp (rsock, &cb_ctxt);
-          if (r == -1) {
-            logit (LOG_ERR, "recv_psamp error");
-            break;
-          }
-          if (recvloop + 1 == flowtrack.param.max_flows) {
-            r = poll (pl, 1, next_expire (&flowtrack));
-            if (r == -1 && errno != EINTR) {
-              logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
-              break;
-            }
-          }
-        }
+	  r = pcap_dispatch (pcap, flowtrack.param.max_flows, flow_cb,
+			     (void *) &cb_ctxt);
+	if (r == -1) {
+	  logit (LOG_ERR, "Exiting on pcap_dispatch: %s", pcap_geterr (pcap));
+	  break;
+	}
+	else if (r == 0 && capfile != NULL) {
+	  logit (LOG_NOTICE, "Shutting down after " "pcap EOF");
+	  graceful_shutdown_request = 1;
+	  break;
+	}
+      }
+      else if (rsock > 0) {
+	for (recvloop = 0;
+	     recvloop < flowtrack.param.max_flows && pl[0].revents != 0;
+	     recvloop++) {
+	  r = recv_psamp (rsock, &cb_ctxt);
+	  if (r == -1) {
+	    logit (LOG_ERR, "recv_psamp error");
+	    break;
+	  }
+	  if (recvloop + 1 == flowtrack.param.max_flows) {
+	    r = poll (pl, 1, next_expire (&flowtrack));
+	    if (r == -1 && errno != EINTR) {
+	      logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
+	      break;
+	    }
+	  }
+	}
       }
     }
     r = 0;
@@ -2637,30 +2663,30 @@ main (int argc, char **argv) {
 
     /*
      * Expiry processing happens every recheck_rate seconds
-     * or whenever we have exceeded the maximum number of active 
+     * or whenever we have exceeded the maximum number of active
      * flows
      */
     if (flowtrack.param.num_flows > flowtrack.param.max_flows ||
-        next_expire (&flowtrack) == 0) {
+	next_expire (&flowtrack) == 0) {
     expiry_check:
       /*
        * If we are reading from a capture file, we never
-       * expire flows based on time - instead we only 
-       * expire flows when the flow table is full. 
+       * expire flows based on time - instead we only
+       * expire flows when the flow table is full.
        */
       if (check_expired (&flowtrack, &target,
-                         capfile == NULL ? CE_EXPIRE_NORMAL :
-                         CE_EXPIRE_FORCED) < 0)
-        logit (LOG_WARNING, "Unable to export flows");
+			 capfile == NULL ? CE_EXPIRE_NORMAL :
+			 CE_EXPIRE_FORCED) < 0)
+	logit (LOG_WARNING, "Unable to export flows");
 
       /*
-       * If we are over max_flows, force-expire the oldest 
+       * If we are over max_flows, force-expire the oldest
        * out first and immediately reprocess to evict them
        */
       if (flowtrack.param.num_flows > flowtrack.param.max_flows) {
-        force_expire (&flowtrack,
-                      flowtrack.param.num_flows - flowtrack.param.max_flows);
-        goto expiry_check;
+	force_expire (&flowtrack,
+		      flowtrack.param.num_flows - flowtrack.param.max_flows);
+	goto expiry_check;
       }
     }
   }
@@ -2669,7 +2695,8 @@ main (int argc, char **argv) {
   if (graceful_shutdown_request) {
     logit (LOG_WARNING, "Shutting down on user request");
     check_expired (&flowtrack, &target, CE_EXPIRE_ALL);
-  } else if (exit_request)
+  }
+  else if (exit_request)
     logit (LOG_WARNING, "Exiting immediately on user request");
   else
     logit (LOG_ERR, "Exiting immediately on internal error");
