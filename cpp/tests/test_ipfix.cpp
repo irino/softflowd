@@ -31,6 +31,27 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& b, std::size_t off) {
     return v;
 }
 
+// Scans Sets starting right after the 16-byte message header and returns
+// the body offset (i.e. just past the 4-byte Set header) of the first Set
+// whose Set ID equals `target_id`. Every test below needs this: since
+// Template Sets, the Options Template Set, and the Options Data Set are
+// now each their own Set (see IpfixExporter::write_template_set()/
+// write_options_set()), a Data Set is no longer simply "whatever comes
+// right after offset 16".
+std::size_t find_set(const std::vector<std::uint8_t>& pkt, std::uint16_t target_id) {
+    std::size_t offset = 16;
+    while (offset + 4 <= pkt.size()) {
+        const auto set_id = read_u16(pkt, offset);
+        const auto set_len = read_u16(pkt, offset + 2);
+        if (set_id == target_id) {
+            return offset + 4;
+        }
+        offset += set_len;
+    }
+    assert(false && "target Set ID not found in packet");
+    return 0;
+}
+
 void test_header_version_and_length() {
     const auto boot = Clock::now();
     IpfixExporter exporter;
@@ -62,7 +83,12 @@ void test_header_version_and_length() {
 
 void test_absolute_timestamp_round_trip() {
     const auto boot = Clock::now();
-    IpfixExporter exporter;
+    // Explicit Milliseconds: IpfixExporter's default is now SysUpTime (see
+    // IpfixTimeFormat's doc comment), which is relative to boot_time, not
+    // absolute epoch time -- this test is specifically about the
+    // absolute-epoch-time encodings selectable via -A.
+    IpfixExporter exporter(/*observation_domain_id=*/0, /*mpls_label_count=*/0,
+                            IpfixTimeFormat::Milliseconds);
 
     const auto a = make_v4(1, 2, 3, 4);
     const auto b = make_v4(5, 6, 7, 8);
@@ -82,21 +108,15 @@ void test_absolute_timestamp_round_trip() {
     assert(packets.size() == 1);
     const auto& pkt = packets[0];
 
-    // Walk past the Template Set to reach the IPv4 Data Set.
-    std::size_t offset = 16;
-    assert(read_u16(pkt, offset) == 2);
-    offset += read_u16(pkt, offset + 2);
-    assert(read_u16(pkt, offset) == kIpfixTemplateIdV4);
-    const std::size_t record_start = offset + 4;
+    const std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
 
-    // Field order: octetDeltaCount(4) packetDeltaCount(4) protocol(1)
-    // tos(1) tcpFlags(1) srcPort(2) srcAddr(4) dstPort(2) dstAddr(4)
-    // flowEndMilliseconds(8) flowStartMilliseconds(8)
-    const std::size_t end_ms_offset = record_start + 4 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 4;
-    const std::size_t start_ms_offset = end_ms_offset + 8;
+    // Field order: sourceIPv4Address(4) destinationIPv4Address(4)
+    // flowStartMilliseconds(8) flowEndMilliseconds(8) ...
+    const std::size_t start_ms_offset = record_start + 4 + 4;
+    const std::size_t end_ms_offset = start_ms_offset + 8;
 
-    const std::uint64_t end_ms = read_u64(pkt, end_ms_offset);
     const std::uint64_t start_ms = read_u64(pkt, start_ms_offset);
+    const std::uint64_t end_ms = read_u64(pkt, end_ms_offset);
 
     // flow_last == now -> its epoch time should equal wall_now exactly.
     const auto expected_end_ms = static_cast<std::uint64_t>(
@@ -160,14 +180,10 @@ void test_biflow_combines_both_directions_into_one_record() {
     // the default per-direction encoding) -> sequence increments by 1.
     assert(exporter.sequence() == 1);
 
-    // Walk past the Template Set to the IPv4 Data Set and confirm its
-    // record count implies a single, wider record rather than two
-    // ordinary ones.
-    std::size_t offset = 16;
-    assert(read_u16(pkt, offset) == 2);
-    offset += read_u16(pkt, offset + 2);
-    assert(read_u16(pkt, offset) == kIpfixTemplateIdV4);
-    const std::size_t v4_set_length = read_u16(pkt, offset + 2);
+    // Find the IPv4 Data Set and confirm its record count implies a
+    // single, wider record rather than two ordinary ones.
+    const std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
+    const std::size_t v4_set_length = read_u16(pkt, record_start - 2);
     // Forward fields (39 bytes, as in the non-biflow case) + 9 bytes of
     // reverse octet/packet/tcpFlags -- 4-byte Set header + one 48-byte
     // record, no padding needed since 4+48=52 is already a multiple of 4.
@@ -194,16 +210,12 @@ void test_time_format_seconds_uses_four_byte_fields() {
     assert(packets.size() == 1);
     const auto& pkt = packets[0];
 
-    // The IPv4 Data Set's record is 4 bytes shorter per timestamp (4
-    // instead of 8 for each of flowEnd/flowStartSeconds) than the default
-    // millisecond encoding's 39-byte record -> 31 bytes here, then padded
-    // to a 4-byte boundary (4-byte Set header + 31-byte record = 35,
-    // padded up to 36).
-    std::size_t offset = 16;
-    offset += read_u16(pkt, offset + 2); // skip Template Set
-    assert(read_u16(pkt, offset) == kIpfixTemplateIdV4);
-    const std::size_t set_length = read_u16(pkt, offset + 2);
-    assert(set_length == 36);
+    // The IPv4 Data Set's record is addr(8) + time(4+4=8 for Seconds) +
+    // common(18) + transport(8) = 42 bytes -> 4-byte Set header + 42 = 46,
+    // padded up to a 4-byte boundary -> 48.
+    const std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
+    const std::size_t set_length = read_u16(pkt, record_start - 2);
+    assert(set_length == 48);
 }
 
 void test_time_format_microseconds_round_trips_via_ntp64() {
@@ -228,12 +240,10 @@ void test_time_format_microseconds_round_trips_via_ntp64() {
     assert(packets.size() == 1);
     const auto& pkt = packets[0];
 
-    std::size_t offset = 16;
-    offset += read_u16(pkt, offset + 2);
-    assert(read_u16(pkt, offset) == kIpfixTemplateIdV4);
-    const std::size_t record_start = offset + 4;
-    const std::size_t end_field_offset =
-        record_start + 4 + 4 + 1 + 1 + 1 + 2 + 4 + 2 + 4;
+    const std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
+    // Field order: sourceIPv4Address(4) destinationIPv4Address(4)
+    // flowStartMicroseconds(8, NTP64) flowEndMicroseconds(8, NTP64) ...
+    const std::size_t end_field_offset = record_start + 4 + 4 + 8;
     const std::uint64_t ntp64 = read_u64(pkt, end_field_offset);
 
     // NTP 64-bit format: top 32 bits are seconds since 1900-01-01. Since
@@ -266,12 +276,11 @@ void test_mpls_labels_are_included_when_configured() {
     assert(packets.size() == 1);
     const auto& pkt = packets[0];
 
-    std::size_t offset = 16;
-    offset += read_u16(pkt, offset + 2);
-    assert(read_u16(pkt, offset) == kIpfixTemplateIdV4);
-    const std::size_t record_start = offset + 4;
-    // 39 bytes of ordinary fields, then 2 * 3-byte MPLS label sections.
-    const std::size_t mpls_offset = record_start + 39;
+    std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
+    // addr(8) + time(4+4=8 for the default SysUpTime format) + common(18)
+    // + transport(8) = 42 bytes of ordinary fields, then 2 * 3-byte MPLS
+    // label sections.
+    const std::size_t mpls_offset = record_start + 42;
     const std::uint32_t first_section = (static_cast<std::uint32_t>(pkt[mpls_offset]) << 16) |
                                       (static_cast<std::uint32_t>(pkt[mpls_offset + 1]) << 8) |
                                       pkt[mpls_offset + 2];

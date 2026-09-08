@@ -10,13 +10,18 @@
 //     not export packets the way NetFlow v9's sequence number does.
 //   - The Template Set uses Set ID 2 (NetFlow v9 uses FlowSet ID 0 for the
 //     same purpose).
-//   - Per-record timestamps are exported as absolute epoch time (original:
-//     -A time_format) rather than device-uptime-relative values, since
-//     there is no uptime reference to convert from/to at all here (unlike
-//     Netflow1Exporter/Netflow5Exporter/Netflow9Exporter, no boot_time is
-//     needed).
+//   - Per-record timestamps default to the SAME device-uptime-relative
+//     encoding NetFlow v9 uses (flowStartSysUpTime/flowEndSysUpTime, IE
+//     22/21) -- see IpfixTimeFormat::SysUpTime below -- even though the
+//     IPFIX message header (unlike NetFlow v9's) has no SysUpTime field to
+//     carry the reference point. The original compensates for that by
+//     sending an Options Template/Record carrying
+//     systemInitTimeMilliseconds (see write_options_set()); -A can select
+//     one of the absolute-epoch-time encodings instead.
 #ifndef SOFTFLOW_IPFIX_HPP
 #define SOFTFLOW_IPFIX_HPP
+
+#include <string>
 
 #include <algorithm>
 #include <chrono>
@@ -28,27 +33,48 @@
 
 namespace softflow {
 
-inline constexpr std::uint16_t kIpfixTemplateIdV4 = 256;
-inline constexpr std::uint16_t kIpfixTemplateIdV6 = 257;
+// Original: ipfix.c's IPFIX_SOFTFLOWD_{V4,ICMPV4,V6,ICMPV6}_TEMPLATE_ID.
+// ICMP/ICMPv6 flows use a dedicated template (icmpTypeCode instead of a
+// source/destination port pair) and so get their own template IDs.
+inline constexpr std::uint16_t kIpfixTemplateIdV4 = 1024;
+inline constexpr std::uint16_t kIpfixTemplateIdIcmpV4 = 1025;
+inline constexpr std::uint16_t kIpfixTemplateIdV6 = 2048;
+inline constexpr std::uint16_t kIpfixTemplateIdIcmpV6 = 2049;
 inline constexpr std::size_t kIpfixMaxV4RecordsPerSet = 20;
 inline constexpr std::size_t kIpfixMaxV6RecordsPerSet = 10;
-inline constexpr std::uint32_t kIpfixTemplateResendInterval = 20;
+// Original: IPFIX_DEFAULT_TEMPLATE_INTERVAL.
+inline constexpr std::uint32_t kIpfixTemplateResendInterval = 16;
+// Original: IPFIX_SOFTFLOWD_MAX_PACKET_SIZE -- shared by NetFlow v9 and
+// IPFIX in send_ipfix_common() (the unified sender both versions actually
+// use in a default, non---enable-legacy build); NOT the smaller,
+// unused-by-default 512-byte buffer declared separately in netflow9.c's
+// own send_netflow_v9(), which only exists in --enable-legacy builds.
+inline constexpr std::size_t kIpfixMaxPacketSize = 1428;
 
-// Original: -A time_format. dateTimeSeconds (IE 150/151) is a plain 4-byte
-// integer; dateTimeMilliseconds (IE 152/153, this project's original
-// default and still the default here) is a plain 8-byte integer;
-// dateTimeMicroseconds/dateTimeNanoseconds (IE 154/155 and 156/157) both
-// use the same 64-bit NTP short-format encoding (RFC 7011 section 6.1.9:
-// 32-bit seconds since the NTP epoch of 1900-01-01, plus a 32-bit
-// fraction) -- the "nanoseconds" variant is only a difference in which
-// Information Element numbers are used, not in the underlying precision
-// actually achievable, since both share the same 32-bit fraction field.
-enum class IpfixTimeFormat { Seconds, Milliseconds, Microseconds, Nanoseconds };
+// Original: -A time_format. When absent (the default -- see softflowd.c's
+// FLOWTRACKPARAMETERS.time_format, left at its zero-value and never
+// matched by any of 's'/'m'/'M'/'n' in ipfix_init_template_time()), the
+// original falls through to field_timesysup: flowStartSysUpTime/
+// flowEndSysUpTime (IE 22/21), i.e. milliseconds elapsed since a reference
+// boot time -- the SAME encoding NetFlow v9 always uses, just without a
+// SysUpTime field in the IPFIX message header to carry the reference
+// (IPFIX's header has no such field). The original compensates by sending
+// an Options Template/Record carrying systemInitTimeMilliseconds (see
+// build_packets()'s Options Set), letting a receiver reconstruct absolute
+// time from the two together. SysUpTime is therefore this project's
+// default too, matching the original's actual default behavior; Seconds/
+// Milliseconds/Microseconds/Nanoseconds remain available via -A.
+enum class IpfixTimeFormat { SysUpTime, Seconds, Milliseconds, Microseconds, Nanoseconds };
 
 class IpfixExporter {
 public:
     // mpls_label_count: see Netflow9Exporter's constructor (netflow9.hpp)
     // -- the same -x semantics apply here.
+    //
+    // boot_time/boot_wall_time: reference point for
+    // IpfixTimeFormat::SysUpTime's millisecond-elapsed encoding
+    // (monotonic) and for the Options Record's systemInitTimeMilliseconds
+    // (wall-clock epoch) -- see set_boot_time().
     //
     // biflow (original: -b): when true, uses RFC 5103 biflow encoding --
     // one record per flow (not per direction), with the reverse
@@ -57,11 +83,23 @@ public:
     // alongside the forward direction's ordinary fields.
     explicit IpfixExporter(std::uint32_t observation_domain_id = 0,
                             std::uint8_t mpls_label_count = 0,
-                            IpfixTimeFormat time_format = IpfixTimeFormat::Milliseconds,
-                            bool biflow = false)
+                            IpfixTimeFormat time_format = IpfixTimeFormat::SysUpTime,
+                            bool biflow = false, TimePoint boot_time = TimePoint{},
+                            std::chrono::system_clock::time_point boot_wall_time = {},
+                            std::string interface_name = {})
         : observation_domain_id_(observation_domain_id),
           mpls_label_count_(std::min<std::uint8_t>(mpls_label_count, 10)),
-          time_format_(time_format), biflow_(biflow) {}
+          time_format_(time_format), biflow_(biflow), boot_time_(boot_time),
+          boot_wall_time_(boot_wall_time), interface_name_(std::move(interface_name)) {}
+
+    // Original: softflowd.c's `ft->param.system_boot_time`, refreshed from
+    // the first packet's own (pcap or wall-clock) timestamp -- see
+    // softflowd.cpp's call sites alongside Netflow9Exporter::set_boot_time.
+    void set_boot_time(TimePoint boot_time,
+                        std::chrono::system_clock::time_point boot_wall_time) noexcept {
+        boot_time_ = boot_time;
+        boot_wall_time_ = boot_wall_time;
+    }
 
     // now/wall_now are used together to compute each record's absolute
     // timestamp fields: since Flow's timestamps are recorded on the
@@ -78,11 +116,15 @@ private:
     void write_header(ByteWriter& writer, std::uint16_t message_length,
                        std::chrono::system_clock::time_point wall_now) const;
     void write_template_set(ByteWriter& writer) const;
+    void write_options_set(ByteWriter& writer) const;
 
     std::uint32_t observation_domain_id_;
     std::uint8_t mpls_label_count_;
     IpfixTimeFormat time_format_;
     bool biflow_;
+    TimePoint boot_time_;
+    std::chrono::system_clock::time_point boot_wall_time_;
+    std::string interface_name_; // Original: -i dev, or capfile in -r mode
     std::uint32_t sequence_{0}; // count of Data Records sent so far
     std::uint32_t packets_since_template_{0};
 };

@@ -220,12 +220,26 @@ Flow& FlowTable<Backend>::record_packet(const FlowKey& key, TimePoint now,
     flow.wall_last = wall_now;
     flow.octets[direction] += octet_delta;
     flow.packets[direction] += 1;
-    // Original: `flow->tos[*ndx] = ip->ip_tos;` -- last packet's ToS wins
-    // per direction. Deliberately *not* part of FlowKey (see FlowKey's
-    // own comment): flow_compare() in the reference implementation never
-    // compares ToS, so packets that differ only in ToS still belong to
-    // the same flow.
-    flow.tos[direction] = tos;
+    // Original: `flow->tos[*ndx] = ip->ip_tos` only runs inside
+    // ipv4_to_flowrec()/ipv6_to_flowrec(), which fill a scratch `tmp`
+    // FLOW that gets memcpy()'d wholesale into the real flow *only* when
+    // the flow is first created. For every subsequent packet on an
+    // already-existing flow, process_packet()'s "update flow statistics"
+    // branch touches only packets[]/octets[]/tcp_flags[] -- ToS is never
+    // revisited. Concretely: whichever direction's packet arrives first
+    // fixes flow.tos[0] (or [1]) for the flow's whole lifetime, and the
+    // *other* direction's slot stays at the scratch struct's zero-fill
+    // until (unless) a first packet from that direction happens to also
+    // arrive while the flow is being created -- which, since creation
+    // happens on the very first packet seen for the flow, only occurs for
+    // the direction of that first packet. So in practice one direction's
+    // ToS is "live" (set once, at creation, from that same first packet)
+    // and the other is always 0, regardless of what ToS any later
+    // opposite-direction packets actually carried. Reproduced here by
+    // only writing tos[] when the flow is new.
+    if (inserted) {
+        flow.tos[direction] = tos;
+    }
     if (key.protocol() == IPPROTO_TCP) {
         // Original: flow->tcp_flags[ndx] |= tcp_flags; -- flags accumulate
         // over the flow's whole lifetime, not just the current packet.
@@ -235,6 +249,28 @@ Flow& FlowTable<Backend>::record_packet(const FlowKey& key, TimePoint now,
     const auto [expires_at, reason] =
         compute_expiry(flow, key.protocol(), key.addr()[0].family);
     flow.reason = reason;
+    // Original: flow_update_expiry() sets flow->flowEndReason (IPFIX IE
+    // 136) alongside expiry->reason, from the same classification. Unlike
+    // expiry->reason, flowEndReason is never overwritten again when a flow
+    // is later force-flushed (R_FLUSH) or evicted for table space
+    // (R_OVERFLOWS) -- those only affect the expiry-reason *statistics*
+    // bucket, not the wire-format reason already recorded on the flow.
+    // Values are RFC 7011's flowEndReason code points.
+    switch (reason) {
+    case ExpiryReason::TcpRst:
+    case ExpiryReason::TcpFin:
+        flow.flow_end_reason = 0x03; // endOfFlow
+        break;
+    case ExpiryReason::MaxLife:
+        flow.flow_end_reason = 0x02; // activeTimeout
+        break;
+    case ExpiryReason::OverBytes:
+        flow.flow_end_reason = 0x05; // lackOfResource
+        break;
+    default:
+        flow.flow_end_reason = 0x01; // idleTimeout
+        break;
+    }
     reschedule_expiry(key, expires_at);
 
     stats_.total_packets += 1;
@@ -1054,10 +1090,12 @@ enum class ExportFormat { None, Netflow1, Netflow5, Netflow9, Ipfix, Psamp };
 
 enum class TransportProtocol { Udp, Tcp, Sctp };
 
-enum class TimeFormat { Seconds, Milliseconds, Microseconds, Nanoseconds };
+enum class TimeFormat { SysUpTime, Seconds, Milliseconds, Microseconds, Nanoseconds };
 
 softflow::IpfixTimeFormat to_ipfix_time_format(TimeFormat format) {
     switch (format) {
+    case TimeFormat::SysUpTime:
+        return softflow::IpfixTimeFormat::SysUpTime;
     case TimeFormat::Seconds:
         return softflow::IpfixTimeFormat::Seconds;
     case TimeFormat::Milliseconds:
@@ -1067,7 +1105,7 @@ softflow::IpfixTimeFormat to_ipfix_time_format(TimeFormat format) {
     case TimeFormat::Nanoseconds:
         return softflow::IpfixTimeFormat::Nanoseconds;
     }
-    return softflow::IpfixTimeFormat::Milliseconds;
+    return softflow::IpfixTimeFormat::SysUpTime;
 }
 
 const char* format_name(ExportFormat format) {
@@ -1140,7 +1178,7 @@ struct DaemonConfig {
     ExportFormat export_format = ExportFormat::Netflow5; // -v (default: version 5)
 
     TransportProtocol transport = TransportProtocol::Udp; // -P (udp and tcp implemented; see README for sctp)
-    TimeFormat time_format = TimeFormat::Milliseconds;    // -A (sec/milli/micro/nano all implemented, IPFIX/PSAMP only)
+    TimeFormat time_format = TimeFormat::SysUpTime;        // -A (sec/milli/micro/nano/sysuptime[default] -- IPFIX/PSAMP only)
     std::uint32_t sampling_rate = 1;                      // -s (1 = every packet, no sampling)
     int snaplen = 65535;                                  // -C
     std::size_t buffer_bytes = 0;                         // -B (0 = let libpcap choose)
@@ -1461,7 +1499,10 @@ public:
             ipfix_.emplace(/*observation_domain_id=*/0,
                             static_cast<std::uint8_t>(config.mpls_labels),
                             to_ipfix_time_format(config.time_format),
-                            config.bidirectional_ipfix);
+                            config.bidirectional_ipfix, boot_time,
+                            std::chrono::system_clock::now(),
+                            config.interface.empty() ? config.pcap_file
+                                                      : config.interface);
             break;
         case ExportFormat::Psamp:
             psamp_.emplace(/*observation_domain_id=*/0,
@@ -1504,11 +1545,15 @@ public:
 
     // Original: -I boot_time_reinit periodic reset, driven by the main
     // loop's expiry-check cadence. No-op for exporters that don't use
-    // boot_time (IPFIX/PSAMP).
+    // boot_time (PSAMP; IPFIX's SysUpTime encoding uses it too, but is
+    // reinitialized here alongside the others).
     void reinit_boot_time(softflow::TimePoint now) {
         if (netflow1_.has_value()) netflow1_->set_boot_time(now);
         if (netflow5_.has_value()) netflow5_->set_boot_time(now);
         if (netflow9_.has_value()) netflow9_->set_boot_time(now);
+        if (ipfix_.has_value()) {
+            ipfix_->set_boot_time(now, std::chrono::system_clock::now());
+        }
     }
 
     // flows/records/packets/failures actually sent, so the caller can
@@ -2776,6 +2821,7 @@ int main(int argc, char** argv) {
         kOptIcmpTypecodeOnly,
         kOptNetflow1Legacy,
         kOptExpirySecondGranularity,
+        kOptNoExpirySecondGranularity,
     };
     static const struct option long_options[] = {
         {"backend", required_argument, nullptr, kOptBackend},
@@ -2784,6 +2830,7 @@ int main(int argc, char** argv) {
         {"icmp-typecode-only", no_argument, nullptr, kOptIcmpTypecodeOnly},
         {"netflow1-legacy", no_argument, nullptr, kOptNetflow1Legacy},
         {"expiry-second-granularity", no_argument, nullptr, kOptExpirySecondGranularity},
+        {"no-expiry-second-granularity", no_argument, nullptr, kOptNoExpirySecondGranularity},
         {nullptr, 0, nullptr, 0},
     };
 
@@ -2832,14 +2879,18 @@ int main(int argc, char** argv) {
                 config.netflow1_cisco_limit = true;
                 break;
             case kOptExpirySecondGranularity:
-                // See FlowTimeouts::second_granularity's comment.
-                // Truncates expiry scheduling to whole seconds, matching
-                // the reference implementation's time_t-based expiry_at
-                // exactly -- including which flows tie (and therefore
-                // what order they're queued/expired/exported in) when
-                // several flows would otherwise expire within the same
-                // second at nanosecond-distinct times.
+                // See FlowTimeouts::second_granularity's comment. This is
+                // now the default (matching the original's only actual
+                // behavior); the flag is kept as a harmless no-op so
+                // existing invocations that pass it explicitly still work.
                 config.timeouts.second_granularity = true;
+                break;
+            case kOptNoExpirySecondGranularity:
+                // Opts into full sub-second expiry-scheduling precision,
+                // deviating from the original's whole-second `time_t`
+                // expires_at (and, as a result, its expiry queue/export
+                // ordering) in exchange for more precise expiry timing.
+                config.timeouts.second_granularity = false;
                 break;
             case 'n': {
                 auto dests = parse_destinations(optarg);

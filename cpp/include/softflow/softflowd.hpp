@@ -333,6 +333,18 @@ public:
     const std::vector<std::uint8_t>& bytes() const noexcept { return buf_; }
     std::vector<std::uint8_t> take() { return std::move(buf_); }
 
+    // Discards everything written after `new_size` bytes. Used to roll
+    // back a Set/FlowSet header that was opened speculatively but turned
+    // out to have no room for even a single record before a packet-size
+    // budget was reached -- see e.g. ipfix.c's `last_valid` rollback in
+    // send_ipfix_common().
+    void truncate(std::size_t new_size) {
+        if (new_size > buf_.size()) {
+            throw std::out_of_range("ByteWriter::truncate: new_size exceeds current size");
+        }
+        buf_.resize(new_size);
+    }
+
 private:
     std::vector<std::uint8_t> buf_;
 };
@@ -430,19 +442,22 @@ struct FlowTimeouts {
 
     // Original: expiry->expires_at is a plain `time_t`, computed as
     // `flow->flow_last.tv_sec + timeout_value` -- whole-second integer
-    // arithmetic that silently discards flow_last's tv_usec. This
-    // project's TimePoint retains full (sub-second) precision by
-    // default, so flows that would tie (same whole second) in the
-    // original can end up with distinct, differently-ordered expiry
-    // times here instead. When true (--expiry-second-granularity),
-    // compute_expiry() truncates its result down to a whole-second
-    // boundary, reproducing the original's tie behavior (and thus the
-    // original's "Queuing flow"/"EXPIRED" debug-log order, and NetFlow/
-    // IPFIX export packet record ordering) exactly. Only affects expiry
-    // *scheduling*; flow.flow_start/flow.flow_last themselves (and thus
-    // exported Duration/octets/packets statistics) keep full precision
-    // either way.
-    bool second_granularity = false;
+    // arithmetic that silently discards flow_last's tv_usec, UNCONDITIONALLY
+    // (the original has no finer-grained mode to opt into). This project's
+    // TimePoint retains full (sub-second) precision, so flows that would
+    // tie (same whole second) in the original can end up with distinct,
+    // differently-ordered expiry times here instead -- this is not a rare
+    // edge case: many real captures have several flows finishing within
+    // the same wall-clock second, especially under -r where a whole
+    // multi-second capture can be read in milliseconds, and every one of
+    // those ties changes NetFlow/IPFIX export packet record ordering
+    // relative to the original. So this defaults to true, matching the
+    // original's only actual behavior; --no-expiry-second-granularity is
+    // available to opt into full sub-second precision instead. Only
+    // affects expiry *scheduling*; flow.flow_start/flow.flow_last
+    // themselves (and thus exported Duration/octets/packets statistics)
+    // keep full precision either way.
+    bool second_granularity = true;
 };
 
 // Original: struct FLOWTRACKPARAMETERS' statistics fields. The original had

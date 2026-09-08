@@ -66,10 +66,11 @@ struct TimeField {
 
 TimeField observation_time_field(IpfixTimeFormat format) {
     switch (format) {
-    case IpfixTimeFormat::Seconds:
-        return {322, 4};
+    case IpfixTimeFormat::SysUpTime: // PSAMP has no boot_time/uptime concept
     case IpfixTimeFormat::Milliseconds:
         return {323, 8};
+    case IpfixTimeFormat::Seconds:
+        return {322, 4};
     case IpfixTimeFormat::Microseconds:
         return {324, 8};
     case IpfixTimeFormat::Nanoseconds:
@@ -87,6 +88,7 @@ void write_observation_time(ByteWriter& writer, IpfixTimeFormat format,
     case IpfixTimeFormat::Seconds:
         writer.put_u32(static_cast<std::uint32_t>(ms / 1000));
         break;
+    case IpfixTimeFormat::SysUpTime: // PSAMP has no boot_time/uptime concept
     case IpfixTimeFormat::Milliseconds:
         writer.put_u64(ms);
         break;
