@@ -147,20 +147,18 @@ void write_time_values(ByteWriter& writer, IpfixTimeFormat format, TimePoint boo
 // share an implementation file, mirroring the original's separate
 // netflow9.c/ipfix.c).
 // Original: -x. Writes mpls_label_count 3-octet mplsLabelStackSectionN
-// fields (IANA Information Elements 70-79). Per the IANA definition, this
-// 24-bit field mirrors the top 3 bytes of the original 4-byte MPLS shim
-// (label(20 bits) | EXP(3 bits) | S(1 bit) | TTL(8 bits)) -- i.e. bits
-// 31-8 of the shim, with the would-be TTL-adjacent bit set to 0. Since
-// this project's packet parser only extracts the label value itself (see
-// softflowd.cpp's parse_mpls_label_stack()), EXP is always encoded as 0.
+// fields (IANA Information Elements 70-79). Values are passed straight
+// through from MplsLabelStack -- see its doc comment and
+// softflowd.cpp's MplsShimEntry for why that's already exactly the right
+// 24-bit (label|EXP|S) value, verbatim from the original packet, with no
+// reconstruction needed here. Indices beyond the flow's actual label
+// count (fewer real labels than mpls_label_count) are zero-filled,
+// matching the original's raw, zero-initialized flow->mplsLabels[]
+// entries beyond the real captured depth.
 void write_mpls_labels(ByteWriter& writer, const MplsLabelStack& labels,
                         std::uint8_t mpls_label_count) {
     for (std::uint8_t i = 0; i < mpls_label_count; ++i) {
-        std::uint32_t section = 0;
-        if (i < labels.size()) {
-            const bool bottom = (static_cast<std::size_t>(i) + 1 == labels.size());
-            section = (labels[i] << 4) | (bottom ? 0x1u : 0u);
-        }
+        const std::uint32_t section = (i < labels.size()) ? labels[i] : 0;
         writer.put_u8(static_cast<std::uint8_t>(section >> 16));
         writer.put_u8(static_cast<std::uint8_t>(section >> 8));
         writer.put_u8(static_cast<std::uint8_t>(section));
@@ -327,7 +325,9 @@ struct BiflowRecord {
     std::uint16_t src_port;
     std::uint16_t dst_port;
     std::uint8_t protocol;
-    std::uint8_t tos;
+    std::uint8_t tos;     // forward (flow.tos[0])
+    std::uint8_t rev_tos; // reverse (flow.tos[1])
+    std::uint8_t flow_end_reason;
     std::uint64_t fwd_octets, fwd_packets;
     std::uint8_t fwd_tcp_flags;
     std::uint64_t rev_octets, rev_packets;
@@ -337,25 +337,50 @@ struct BiflowRecord {
 };
 
 void flatten_biflow(std::span<const ExportRecord> records,
-                     std::vector<BiflowRecord>& v4, std::vector<BiflowRecord>& v6) {
+                     std::vector<BiflowRecord>& out) {
     for (const auto& record : records) {
         const auto& key = record.key;
         const auto& flow = record.flow;
         if (flow.packets[0] == 0 && flow.packets[1] == 0) {
             continue; // no traffic in either direction; nothing to report
         }
-        BiflowRecord br{
+        out.push_back(BiflowRecord{
             &key.addr()[0], &key.addr()[1], key.port()[0], key.port()[1],
-            key.protocol(), flow.tos[0],
+            key.protocol(), flow.tos[0], flow.tos[1], flow.flow_end_reason,
             flow.octets[0], flow.packets[0], flow.tcp_flags[0],
             flow.octets[1], flow.packets[1], flow.tcp_flags[1],
             flow.flow_start, flow.flow_last, &flow.mpls_labels,
-        };
-        if (br.src->family == AddressFamily::IPv4) {
-            v4.push_back(br);
-        } else {
-            v6.push_back(br);
-        }
+        });
+    }
+}
+
+// Original: ipfix_flow_to_flowset()'s bi_flag branch writes ONE record per
+// flow (frecnum=1, always i=0 -- "forward" is always FlowKey's canonical
+// addr()[0]/port()[0]) with the SAME field layout/order as the
+// unidirectional case (address, time, common(18), transport-or-icmp) --
+// see write_v4_record()/write_v4_icmp_record() -- followed by a
+// Reverse-Information-Element tail: reverse octetDeltaCount(4),
+// packetDeltaCount(4), ipClassOfService(1) [field_bicommon], then EITHER
+// reverse tcpControlBits(1) [field_bitransport] OR reverse icmpTypeCode(2)
+// [field_biicmp4/6] depending on protocol -- never both. flowDirection is
+// always 0 here (ipfix_flow_direction()'s fallback for i=0, the only
+// index this loop ever uses).
+//
+// The reverse icmpTypeCode is `flow->port[1]` in the original -- the SAME
+// raw value as the forward record's own icmpTypeCode field
+// (`flow->port[i ^ 1]` with i=0, i.e. also port[1]), not a value for the
+// "other" direction's own type/code. Reproduced here as-is rather than
+// corrected, since this is about matching the original's actual output.
+void write_biflow_common_tail(ByteWriter& writer, const BiflowRecord& r, bool is_icmp) {
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.rev_octets, 0xFFFFFFFFu))); // reverse octetDeltaCount
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.rev_packets, 0xFFFFFFFFu))); // reverse packetDeltaCount
+    writer.put_u8(r.rev_tos); // reverse ipClassOfService
+    if (is_icmp) {
+        writer.put_u16(r.dst_port); // reverse icmpTypeCode == flow->port[1] == dst_port
+    } else {
+        writer.put_u8(r.rev_tcp_flags); // reverse tcpControlBits
     }
 }
 
@@ -363,51 +388,98 @@ void write_biflow_v4_record(ByteWriter& writer, const BiflowRecord& r,
                              IpfixTimeFormat time_format,
                              std::uint8_t mpls_label_count, TimePoint boot_time, TimePoint now,
                              std::chrono::system_clock::time_point wall_now) {
+    writer.put_ipv4(*r.src);
+    writer.put_ipv4(*r.dst);
+    write_time_values(writer, time_format, boot_time, now, wall_now, r.first, r.last);
     writer.put_u32(static_cast<std::uint32_t>(
         std::min<std::uint64_t>(r.fwd_octets, 0xFFFFFFFFu)));
     writer.put_u32(static_cast<std::uint32_t>(
         std::min<std::uint64_t>(r.fwd_packets, 0xFFFFFFFFu)));
-    writer.put_u8(r.protocol);
-    writer.put_u8(r.tos);
-    writer.put_u8(r.fwd_tcp_flags);
+    writer.put_u32(0); // ingressInterface
+    writer.put_u32(0); // egressInterface
+    writer.put_u8(0);  // flowDirection -- always 0 in biflow mode; see doc comment above
+    writer.put_u8(r.flow_end_reason);
     writer.put_u16(r.src_port);
-    writer.put_ipv4(*r.src);
     writer.put_u16(r.dst_port);
+    writer.put_u8(r.protocol);
+    writer.put_u8(r.fwd_tcp_flags);
+    writer.put_u8(4); // ipVersion
+    writer.put_u8(r.tos);
+    write_mpls_labels(writer, *r.mpls_labels, mpls_label_count);
+    write_biflow_common_tail(writer, r, /*is_icmp=*/false);
+}
+
+void write_biflow_v4_icmp_record(ByteWriter& writer, const BiflowRecord& r,
+                                  IpfixTimeFormat time_format,
+                                  std::uint8_t mpls_label_count, TimePoint boot_time,
+                                  TimePoint now,
+                                  std::chrono::system_clock::time_point wall_now) {
+    writer.put_ipv4(*r.src);
     writer.put_ipv4(*r.dst);
     write_time_values(writer, time_format, boot_time, now, wall_now, r.first, r.last);
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.fwd_octets, 0xFFFFFFFFu)));
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.fwd_packets, 0xFFFFFFFFu)));
+    writer.put_u32(0);
+    writer.put_u32(0);
+    writer.put_u8(0);
+    writer.put_u8(r.flow_end_reason);
+    writer.put_u16(r.dst_port); // forward icmpTypeCode == flow->port[i^1] == port[1] == dst_port
+    writer.put_u8(r.protocol);
+    writer.put_u8(4);
+    writer.put_u8(r.tos);
     write_mpls_labels(writer, *r.mpls_labels, mpls_label_count);
-    // Reverse Information Elements (RFC 5103): the same three "traffic
-    // volume" fields, but for the direction FlowKey's canonical ordering
-    // put in slot [1].
-    writer.put_u32(static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(r.rev_octets, 0xFFFFFFFFu)));
-    writer.put_u32(static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(r.rev_packets, 0xFFFFFFFFu)));
-    writer.put_u8(r.rev_tcp_flags);
+    write_biflow_common_tail(writer, r, /*is_icmp=*/true);
 }
 
 void write_biflow_v6_record(ByteWriter& writer, const BiflowRecord& r,
                              IpfixTimeFormat time_format,
                              std::uint8_t mpls_label_count, TimePoint boot_time, TimePoint now,
                              std::chrono::system_clock::time_point wall_now) {
+    writer.put_ipv6(*r.src);
+    writer.put_ipv6(*r.dst);
+    write_time_values(writer, time_format, boot_time, now, wall_now, r.first, r.last);
     writer.put_u32(static_cast<std::uint32_t>(
         std::min<std::uint64_t>(r.fwd_octets, 0xFFFFFFFFu)));
     writer.put_u32(static_cast<std::uint32_t>(
         std::min<std::uint64_t>(r.fwd_packets, 0xFFFFFFFFu)));
-    writer.put_u8(r.protocol);
-    writer.put_u8(r.tos);
-    writer.put_u8(r.fwd_tcp_flags);
+    writer.put_u32(0);
+    writer.put_u32(0);
+    writer.put_u8(0);
+    writer.put_u8(r.flow_end_reason);
     writer.put_u16(r.src_port);
-    writer.put_ipv6(*r.src);
     writer.put_u16(r.dst_port);
+    writer.put_u8(r.protocol);
+    writer.put_u8(r.fwd_tcp_flags);
+    writer.put_u8(6);
+    writer.put_u8(r.tos);
+    write_mpls_labels(writer, *r.mpls_labels, mpls_label_count);
+    write_biflow_common_tail(writer, r, /*is_icmp=*/false);
+}
+
+void write_biflow_v6_icmp_record(ByteWriter& writer, const BiflowRecord& r,
+                                  IpfixTimeFormat time_format,
+                                  std::uint8_t mpls_label_count, TimePoint boot_time,
+                                  TimePoint now,
+                                  std::chrono::system_clock::time_point wall_now) {
+    writer.put_ipv6(*r.src);
     writer.put_ipv6(*r.dst);
     write_time_values(writer, time_format, boot_time, now, wall_now, r.first, r.last);
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.fwd_octets, 0xFFFFFFFFu)));
+    writer.put_u32(static_cast<std::uint32_t>(
+        std::min<std::uint64_t>(r.fwd_packets, 0xFFFFFFFFu)));
+    writer.put_u32(0);
+    writer.put_u32(0);
+    writer.put_u8(0);
+    writer.put_u8(r.flow_end_reason);
+    writer.put_u16(r.dst_port);
+    writer.put_u8(r.protocol);
+    writer.put_u8(6);
+    writer.put_u8(r.tos);
     write_mpls_labels(writer, *r.mpls_labels, mpls_label_count);
-    writer.put_u32(static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(r.rev_octets, 0xFFFFFFFFu)));
-    writer.put_u32(static_cast<std::uint32_t>(
-        std::min<std::uint64_t>(r.rev_packets, 0xFFFFFFFFu)));
-    writer.put_u8(r.rev_tcp_flags);
+    write_biflow_common_tail(writer, r, /*is_icmp=*/true);
 }
 
 } // namespace
@@ -607,38 +679,79 @@ void IpfixExporter::write_template_set(ByteWriter& writer) const {
         write_template(kIpfixTemplateIdIcmpV6, v6_icmp_fields);
     } else {
         // Field order must exactly match write_biflow_v4_record()/
-        // write_biflow_v6_record(): forward fields, time, MPLS, then the
-        // three Reverse Information Elements (RFC 5103).
-        //
-        // TODO(compat): biflow mode (-b) does not yet have the ICMP-specific
-        // template/field-order fix applied to the non-biflow path above --
-        // it still uses the pre-existing (non-C-matching) field order and
-        // has no icmpTypeCode template. Tracked as a follow-up; -b+ICMP
-        // byte-for-byte compatibility is not yet verified.
+        // write_biflow_v4_icmp_record()/write_biflow_v6_record()/
+        // write_biflow_v6_icmp_record(): the SAME forward layout as the
+        // non-biflow branch above (address, time, common, transport-or-
+        // icmp), then MPLS, then the Reverse Information Elements (RFC
+        // 5103): reverse octetDeltaCount/packetDeltaCount/
+        // ipClassOfService [field_bicommon], then EITHER reverse
+        // tcpControlBits [field_bitransport] OR reverse icmpTypeCode
+        // [field_biicmp4/6].
         std::vector<FieldSpec> v4_fields = {
-            {1, 4},  {2, 4},  {4, 1},  {5, 1},  {6, 1},
-            {7, 2},  {8, 4},  {11, 2}, {12, 4},
-            start_field, end_field,
+            {8, 4}, {12, 4}, // sourceIPv4Address, destinationIPv4Address
         };
         std::vector<FieldSpec> v6_fields = {
-            {1, 4},  {2, 4},  {4, 1},   {5, 1},   {6, 1},
-            {7, 2},  {27, 16}, {11, 2}, {28, 16},
-            start_field, end_field,
+            {27, 16}, {28, 16}, // sourceIPv6Address, destinationIPv6Address
         };
-        for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
-            v4_fields.push_back({static_cast<std::uint16_t>(70 + i), 3});
-            v6_fields.push_back({static_cast<std::uint16_t>(70 + i), 3});
+        for (auto* fields : {&v4_fields, &v6_fields}) {
+            fields->push_back(start_field);
+            fields->push_back(end_field);
+            fields->insert(fields->end(), kCommonFields.begin(), kCommonFields.end());
         }
+        std::vector<FieldSpec> v4_icmp_fields = v4_fields;
+        std::vector<FieldSpec> v6_icmp_fields = v6_fields;
+
+        v4_fields.push_back({7, 2});
+        v4_fields.push_back({11, 2});
+        v4_fields.push_back({4, 1});
+        v4_fields.push_back({6, 1});
+        v4_fields.push_back({60, 1});
+        v4_fields.push_back({5, 1});
+
+        v6_fields.push_back({7, 2});
+        v6_fields.push_back({11, 2});
+        v6_fields.push_back({4, 1});
+        v6_fields.push_back({6, 1});
+        v6_fields.push_back({60, 1});
+        v6_fields.push_back({5, 1});
+
+        v4_icmp_fields.push_back({32, 2}); // icmpTypeCodeIPv4
+        v4_icmp_fields.push_back({4, 1});
+        v4_icmp_fields.push_back({60, 1});
+        v4_icmp_fields.push_back({5, 1});
+
+        v6_icmp_fields.push_back({139, 2}); // icmpTypeCodeIPv6
+        v6_icmp_fields.push_back({4, 1});
+        v6_icmp_fields.push_back({60, 1});
+        v6_icmp_fields.push_back({5, 1});
+
+        for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
+            const FieldSpec mpls{static_cast<std::uint16_t>(70 + i), 3};
+            for (auto* fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
+                fields->push_back(mpls);
+            }
+        }
+
         const FieldSpec reverse_octets{1, 4, kReversePen};
         const FieldSpec reverse_packets{2, 4, kReversePen};
+        const FieldSpec reverse_tos{5, 1, kReversePen};
         const FieldSpec reverse_tcp_flags{6, 1, kReversePen};
-        for (auto* fields : {&v4_fields, &v6_fields}) {
+        const FieldSpec reverse_icmp4{32, 2, kReversePen};
+        const FieldSpec reverse_icmp6{139, 2, kReversePen};
+        for (auto* fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
             fields->push_back(reverse_octets);
             fields->push_back(reverse_packets);
-            fields->push_back(reverse_tcp_flags);
+            fields->push_back(reverse_tos);
         }
+        v4_fields.push_back(reverse_tcp_flags);
+        v6_fields.push_back(reverse_tcp_flags);
+        v4_icmp_fields.push_back(reverse_icmp4);
+        v6_icmp_fields.push_back(reverse_icmp6);
+
         write_template(kIpfixTemplateIdV4, v4_fields);
+        write_template(kIpfixTemplateIdIcmpV4, v4_icmp_fields);
         write_template(kIpfixTemplateIdV6, v6_fields);
+        write_template(kIpfixTemplateIdIcmpV6, v6_icmp_fields);
     }
 }
 
@@ -672,104 +785,25 @@ IpfixExporter::build_packets(
     // packet/Set assembly loop are identical in shape between biflow and
     // non-biflow modes; only which per-record write function is called
     // and how the two per-family lists are populated differ.
-    const auto pack = [&](auto& v4, auto& v6, std::uint16_t v4_template_id,
-                           std::uint16_t v6_template_id, auto write_v4, auto write_v6) {
-        std::size_t v4_idx = 0, v6_idx = 0;
-        while (v4_idx < v4.size() || v6_idx < v6.size()) {
-            ByteWriter body;
-            std::uint32_t data_records_in_packet = 0;
-
-            const bool send_template = (packets_since_template_ == 0);
-            if (send_template) {
-                write_template_set(body);
-                write_options_set(body);
-            }
-
-            if (v4_idx < v4.size()) {
-                const std::size_t chunk =
-                    std::min(kIpfixMaxV4RecordsPerSet, v4.size() - v4_idx);
-                const std::size_t set_start = body.size();
-                body.put_u16(v4_template_id);
-                body.put_u16(0);
-                for (std::size_t i = 0; i < chunk; ++i) {
-                    write_v4(body, v4[v4_idx + i]);
-                }
-                finish_set(body, set_start);
-                data_records_in_packet += static_cast<std::uint32_t>(chunk);
-                v4_idx += chunk;
-            }
-
-            if (v6_idx < v6.size()) {
-                const std::size_t chunk =
-                    std::min(kIpfixMaxV6RecordsPerSet, v6.size() - v6_idx);
-                const std::size_t set_start = body.size();
-                body.put_u16(v6_template_id);
-                body.put_u16(0);
-                for (std::size_t i = 0; i < chunk; ++i) {
-                    write_v6(body, v6[v6_idx + i]);
-                }
-                finish_set(body, set_start);
-                data_records_in_packet += static_cast<std::uint32_t>(chunk);
-                v6_idx += chunk;
-            }
-
-            // Original: `*records_sent += records;` happens BEFORE
-            // `ipfix->sequence = htonl(*records_sent ...)` -- the header's
-            // Sequence Number for a packet is the cumulative Data Record
-            // count INCLUDING this packet's own records, not the count
-            // from before it.
-            sequence_ += data_records_in_packet;
-            ByteWriter packet;
-            const auto message_length =
-                static_cast<std::uint16_t>(16 /* header */ + body.size());
-            write_header(packet, message_length, wall_now);
-            packet.put_bytes(body.bytes());
-            packets.push_back(packet.take());
-
-            packets_since_template_ = send_template ? 1 : packets_since_template_ + 1;
-            if (packets_since_template_ >= kIpfixTemplateResendInterval) {
-                packets_since_template_ = 0;
-            }
-        }
+    // Original: ipfix_flow_to_template_index() -- routes ICMP/ICMPv6 flows
+    // to the dedicated ICMP template ID, everything else to the ordinary
+    // one. Shared by both the non-biflow and biflow packing passes below
+    // since both use the same four template IDs.
+    const auto template_id_for = [&](bool is_v6, bool is_icmp) -> std::uint16_t {
+        if (!is_v6) return is_icmp ? kIpfixTemplateIdIcmpV4 : kIpfixTemplateIdV4;
+        return is_icmp ? kIpfixTemplateIdIcmpV6 : kIpfixTemplateIdV6;
     };
 
-    if (!biflow_) {
-        std::vector<DirectionalRecord> all;
-        flatten(records, all);
-
-        const std::size_t sizes[2][2] = {
-            // [is_v6][is_icmp]
-            {record_size(false, false, time_format_, mpls_label_count_),
-             record_size(false, true, time_format_, mpls_label_count_)},
-            {record_size(true, false, time_format_, mpls_label_count_),
-             record_size(true, true, time_format_, mpls_label_count_)},
-        };
-        const auto template_id_for = [&](bool is_v6, bool is_icmp) -> std::uint16_t {
-            if (!is_v6) return is_icmp ? kIpfixTemplateIdIcmpV4 : kIpfixTemplateIdV4;
-            return is_icmp ? kIpfixTemplateIdIcmpV6 : kIpfixTemplateIdV6;
-        };
-        const auto write_dispatch = [&](ByteWriter& w, const DirectionalRecord& r,
-                                         bool is_v6, bool is_icmp) {
-            if (!is_v6 && !is_icmp) {
-                write_v4_record(w, r, time_format_, mpls_label_count_, boot_time_, now, wall_now);
-            } else if (!is_v6 && is_icmp) {
-                write_v4_icmp_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
-                                      wall_now);
-            } else if (is_v6 && !is_icmp) {
-                write_v6_record(w, r, time_format_, mpls_label_count_, boot_time_, now, wall_now);
-            } else {
-                write_v6_icmp_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
-                                      wall_now);
-            }
-        };
-
-        // Original: send_ipfix_common()'s single interleaved pass over
-        // `flows[]`, opening a new Set only when the (address family,
-        // ICMP-ness) of the next record differs from the currently-open
-        // Set (or none is open yet), and budgeting packet space by byte
-        // count against kIpfixMaxPacketSize rather than a fixed
-        // records-per-Set limit -- see build_packets()'s doc comment/the
-        // TODO this replaces for why a fixed count was wrong.
+    // Original: send_ipfix_common()'s single interleaved pass over
+    // `flows[]`, opening a new Set only when the (address family,
+    // ICMP-ness) of the next record differs from the currently-open Set
+    // (or none is open yet), and budgeting packet space by byte count
+    // against kIpfixMaxPacketSize rather than a fixed records-per-Set
+    // limit. Shared between the non-biflow and biflow paths -- the
+    // original's own packing loop is likewise the same code for both,
+    // parameterized only by bi_flag's effect on frecnum/record layout.
+    const auto pack_interleaved = [&](auto& all, auto is_v6_of, auto is_icmp_of,
+                                       auto record_size_of, auto write_dispatch) {
         std::size_t idx = 0;
         while (idx < all.size()) {
             ByteWriter body;
@@ -788,9 +822,9 @@ IpfixExporter::build_packets(
 
             while (idx < all.size()) {
                 const auto& r = all[idx];
-                const bool is_v6 = (r.src->family == AddressFamily::IPv6);
-                const bool is_icmp = is_icmp_protocol(r.protocol);
-                const std::size_t rec_size = sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0];
+                const bool is_v6 = is_v6_of(r);
+                const bool is_icmp = is_icmp_of(r);
+                const std::size_t rec_size = record_size_of(is_v6, is_icmp);
 
                 if (!set_open || is_v6 != last_is_v6 || is_icmp != last_is_icmp) {
                     if (set_open) {
@@ -852,18 +886,73 @@ IpfixExporter::build_packets(
                 packets_since_template_ = 0;
             }
         }
+    };
+
+    if (!biflow_) {
+        std::vector<DirectionalRecord> all;
+        flatten(records, all);
+
+        const std::size_t sizes[2][2] = {
+            // [is_v6][is_icmp]
+            {record_size(false, false, time_format_, mpls_label_count_),
+             record_size(false, true, time_format_, mpls_label_count_)},
+            {record_size(true, false, time_format_, mpls_label_count_),
+             record_size(true, true, time_format_, mpls_label_count_)},
+        };
+        pack_interleaved(
+            all,
+            [](const DirectionalRecord& r) { return r.src->family == AddressFamily::IPv6; },
+            [](const DirectionalRecord& r) { return is_icmp_protocol(r.protocol); },
+            [&](bool is_v6, bool is_icmp) { return sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
+            [&](ByteWriter& w, const DirectionalRecord& r, bool is_v6, bool is_icmp) {
+                if (!is_v6 && !is_icmp) {
+                    write_v4_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
+                                     wall_now);
+                } else if (!is_v6 && is_icmp) {
+                    write_v4_icmp_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
+                                          wall_now);
+                } else if (is_v6 && !is_icmp) {
+                    write_v6_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
+                                     wall_now);
+                } else {
+                    write_v6_icmp_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
+                                          wall_now);
+                }
+            });
     } else {
-        std::vector<BiflowRecord> v4, v6;
-        flatten_biflow(records, v4, v6);
-        pack(
-            v4, v6, kIpfixTemplateIdV4, kIpfixTemplateIdV6,
-            [&](ByteWriter& w, const BiflowRecord& r) {
-                write_biflow_v4_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
-                                        wall_now);
-            },
-            [&](ByteWriter& w, const BiflowRecord& r) {
-                write_biflow_v6_record(w, r, time_format_, mpls_label_count_, boot_time_, now,
-                                        wall_now);
+        std::vector<BiflowRecord> all;
+        flatten_biflow(records, all);
+
+        // Original: field_bicommon (9 bytes: reverse octets/packets/tos)
+        // plus either field_bitransport (1 byte: reverse tcpControlBits)
+        // or field_biicmp4/6 (2 bytes: reverse icmpTypeCode) tacked onto
+        // the ordinary per-family/ICMP-ness record size -- see
+        // write_biflow_common_tail().
+        const std::size_t bi_sizes[2][2] = {
+            {record_size(false, false, time_format_, mpls_label_count_) + 9 + 1,
+             record_size(false, true, time_format_, mpls_label_count_) + 9 + 2},
+            {record_size(true, false, time_format_, mpls_label_count_) + 9 + 1,
+             record_size(true, true, time_format_, mpls_label_count_) + 9 + 2},
+        };
+        pack_interleaved(
+            all,
+            [](const BiflowRecord& r) { return r.src->family == AddressFamily::IPv6; },
+            [](const BiflowRecord& r) { return is_icmp_protocol(r.protocol); },
+            [&](bool is_v6, bool is_icmp) { return bi_sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
+            [&](ByteWriter& w, const BiflowRecord& r, bool is_v6, bool is_icmp) {
+                if (!is_v6 && !is_icmp) {
+                    write_biflow_v4_record(w, r, time_format_, mpls_label_count_, boot_time_,
+                                            now, wall_now);
+                } else if (!is_v6 && is_icmp) {
+                    write_biflow_v4_icmp_record(w, r, time_format_, mpls_label_count_,
+                                                 boot_time_, now, wall_now);
+                } else if (is_v6 && !is_icmp) {
+                    write_biflow_v6_record(w, r, time_format_, mpls_label_count_, boot_time_,
+                                            now, wall_now);
+                } else {
+                    write_biflow_v6_icmp_record(w, r, time_format_, mpls_label_count_,
+                                                 boot_time_, now, wall_now);
+                }
             });
     }
 

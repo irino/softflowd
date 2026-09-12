@@ -184,10 +184,12 @@ void test_biflow_combines_both_directions_into_one_record() {
     // single, wider record rather than two ordinary ones.
     const std::size_t record_start = find_set(pkt, kIpfixTemplateIdV4);
     const std::size_t v4_set_length = read_u16(pkt, record_start - 2);
-    // Forward fields (39 bytes, as in the non-biflow case) + 9 bytes of
-    // reverse octet/packet/tcpFlags -- 4-byte Set header + one 48-byte
-    // record, no padding needed since 4+48=52 is already a multiple of 4.
-    assert(v4_set_length == 4 + 48);
+    // Forward fields: addr(8) + time(8+8=16 for Milliseconds) +
+    // common(18) + transport(8) = 50 bytes, plus the Reverse Information
+    // Elements tail: reverse octets(4) + packets(4) + tos(1) +
+    // tcpControlBits(1) = 10 bytes -- 4-byte Set header + 60-byte record
+    // = 64, already a multiple of 4 (no padding needed).
+    assert(v4_set_length == 4 + 60);
 }
 
 void test_time_format_seconds_uses_four_byte_fields() {
@@ -267,7 +269,10 @@ void test_mpls_labels_are_included_when_configured() {
     flow.flow_last = flow.flow_start;
     flow.octets = {10, 0};
     flow.packets = {1, 0};
-    flow.mpls_labels = {12345, 999}; // top label first
+    // Raw wire sections (label(20)|EXP(3)|S(1)): label 12345 with EXP=3,
+    // not bottom-of-stack; label 999 with EXP=0, bottom-of-stack. Chosen
+    // to also exercise EXP pass-through, not just the label number.
+    flow.mpls_labels = {(12345u << 4) | (3u << 1) | 0u, (999u << 4) | (0u << 1) | 1u};
     ExportRecord record{key, flow};
 
     auto packets = exporter.build_packets(
@@ -284,16 +289,16 @@ void test_mpls_labels_are_included_when_configured() {
     const std::uint32_t first_section = (static_cast<std::uint32_t>(pkt[mpls_offset]) << 16) |
                                       (static_cast<std::uint32_t>(pkt[mpls_offset + 1]) << 8) |
                                       pkt[mpls_offset + 2];
-    const std::uint32_t first_label = first_section >> 4;
-    const bool first_bottom = (first_section & 0x1) != 0;
-    assert(first_label == 12345);
-    assert(!first_bottom); // not the last label in the stack
+    assert((first_section >> 4) == 12345);
+    assert(((first_section >> 1) & 0x7) == 3); // EXP, passed through verbatim
+    assert((first_section & 0x1) == 0);        // not the last label in the stack
 
     const std::uint32_t second_section =
         (static_cast<std::uint32_t>(pkt[mpls_offset + 3]) << 16) |
         (static_cast<std::uint32_t>(pkt[mpls_offset + 4]) << 8) |
         pkt[mpls_offset + 5];
     assert((second_section >> 4) == 999);
+    assert(((second_section >> 1) & 0x7) == 0);
     assert((second_section & 0x1) != 0); // bottom-of-stack
 }
 

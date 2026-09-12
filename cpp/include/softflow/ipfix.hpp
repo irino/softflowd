@@ -40,8 +40,6 @@ inline constexpr std::uint16_t kIpfixTemplateIdV4 = 1024;
 inline constexpr std::uint16_t kIpfixTemplateIdIcmpV4 = 1025;
 inline constexpr std::uint16_t kIpfixTemplateIdV6 = 2048;
 inline constexpr std::uint16_t kIpfixTemplateIdIcmpV6 = 2049;
-inline constexpr std::size_t kIpfixMaxV4RecordsPerSet = 20;
-inline constexpr std::size_t kIpfixMaxV6RecordsPerSet = 10;
 // Original: IPFIX_DEFAULT_TEMPLATE_INTERVAL.
 inline constexpr std::uint32_t kIpfixTemplateResendInterval = 16;
 // Original: IPFIX_SOFTFLOWD_MAX_PACKET_SIZE -- shared by NetFlow v9 and

@@ -105,6 +105,12 @@ struct IpAddress {
 // forgets to keep the two in sync is a buffer overrun / uninitialized read
 // waiting to happen (this is exactly the pattern in the article's second
 // example). std::vector ties the length to the data itself.
+// Each element is the top 3 octets of one MPLS shim header --
+// label(20 bits) | EXP(3 bits) | S(1 bit), i.e. bits 31-8 of the 4-byte
+// shim, TTL octet dropped -- stored verbatim rather than decomposed, so
+// it can be passed straight through to the IPFIX
+// mplsTopLabelStackSectionN field unchanged. See
+// softflowd.cpp's MplsShimEntry and ipfix.cpp's write_mpls_labels().
 using MplsLabelStack = std::vector<std::uint32_t>;
 
 // ---------------------------------------------------------------------

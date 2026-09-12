@@ -1669,8 +1669,21 @@ private:
 // "next protocol" field, so -- following the same convention other MPLS-
 // aware tools use -- the IP version nibble of the first byte after the
 // label stack determines whether what follows is IPv4 or IPv6.
+// Original: `tmp.mplsLabels[i] = *(((const u_int32_t *) (frame +
+// datalink_size)) + i);` -- a raw, NOT byte-swapped, 4-byte memory copy of
+// each MPLS shim header straight from the wire into a u_int32_t. Read
+// this way (no ntohl()) and later written out the same way (another raw
+// memcpy(), not htonl()) in ipfix_flow_to_flowset(), the net effect
+// cancels out to a verbatim pass-through of the original wire bytes' top
+// 3 octets (label(20 bits) | EXP(3 bits) | S(1 bit), dropping only the
+// TTL octet) into the IPFIX mplsTopLabelStackSectionN field -- see
+// ipfix.cpp's write_mpls_labels(). So `section` here is exactly those
+// top 3 octets (bits 31-8 of the 4-byte shim), stored verbatim rather
+// than decomposed into a label number, so it can be passed through
+// unchanged instead of needing to be (incompletely -- see the EXP bits)
+// reconstructed at export time.
 struct MplsShimEntry {
-    std::uint32_t label; // 20 bits
+    std::uint32_t section; // top 3 octets of the shim: label(20)|EXP(3)|S(1)
     bool bottom_of_stack;
 };
 
@@ -1694,9 +1707,8 @@ parse_mpls_label_stack(std::span<const std::uint8_t> data, std::size_t& consumed
             (static_cast<std::uint32_t>(data[offset + 1]) << 16) |
             (static_cast<std::uint32_t>(data[offset + 2]) << 8) |
             static_cast<std::uint32_t>(data[offset + 3]);
-        const std::uint32_t label = shim >> 12;
         const bool bottom = (shim & 0x00000100u) != 0; // the S bit
-        labels.push_back(MplsShimEntry{label, bottom});
+        labels.push_back(MplsShimEntry{shim >> 8, bottom});
         offset += 4;
         if (bottom) {
             break;
@@ -1744,7 +1756,7 @@ classify_frame(const softflow::CapturedPacket& pkt, softflow::DatalinkKind dl_ki
             std::vector<std::uint32_t> labels;
             labels.reserve(shim_entries->size());
             for (const auto& entry : *shim_entries) {
-                labels.push_back(entry.label);
+                labels.push_back(entry.section);
             }
             const AddressFamily af = (ip_bytes[consumed] >> 4) == 6
                                           ? AddressFamily::IPv6
