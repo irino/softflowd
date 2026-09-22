@@ -1724,6 +1724,23 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
       fprintf (stderr, "pcap_set_timeout: %s\n", pcap_geterr (*pcap));
       exit (1);
     }
+#ifdef HAVE_PCAP_SET_IMMEDIATE_MODE
+    /*
+     * Deliver packets to the read loop as soon as they arrive instead of
+     * batching them. On Linux (libpcap >= 1.5) capture uses a memory-mapped
+     * PACKET_RX_RING; combined with the 0 read timeout set above, a ring block
+     * is only handed to userspace once it fills, so poll() on the pcap fd never
+     * signals POLLIN on low-rate interfaces and the pcap_dispatch() callback
+     * never runs -- "Packets processed" stays 0 while pcap_stats() still counts
+     * the frames as received. Immediate mode disables that batching so poll()
+     * wakes per packet. (Related: low-traffic interfaces exporting only in long
+     * intervals, issue #48.)
+     */
+    if ((res = pcap_set_immediate_mode (*pcap, 1)) != 0) {
+      fprintf (stderr, "pcap_set_immediate_mode: %s\n", pcap_geterr (*pcap));
+      exit (1);
+    }
+#endif /* HAVE_PCAP_SET_IMMEDIATE_MODE */
     if (buffer_size_override > 0)
       if ((res = pcap_set_buffer_size (*pcap, buffer_size_override)) != 0) {
 	fprintf (stderr, "pcap_set_buffer_size: %s\n", pcap_geterr (*pcap));

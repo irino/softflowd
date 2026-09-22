@@ -165,6 +165,12 @@ AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)
 AC_CHECK_LIB(pcap, pcap_open_live)
 
+dnl pcap_set_immediate_mode() appeared in libpcap 1.5; guard its use so the
+dnl build still works against older libpcap.
+AC_CHECK_LIB(pcap, pcap_set_immediate_mode,
+	[AC_DEFINE([HAVE_PCAP_SET_IMMEDIATE_MODE], 1,
+		[libpcap provides pcap_set_immediate_mode()])])
+
 AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep)
 AC_CHECK_DECLS([htobe64, htonll])
 
