@@ -74,6 +74,9 @@ AC_ARG_ENABLE(gcc-warnings,
 AC_ARG_ENABLE(legacy,
               AS_HELP_STRING([--enable-legacy],[enable legacy NetFlow implementation (default NO)]),
               [legacy=yes],[legacy=no])
+AC_ARG_ENABLE(unified-export,
+              AS_HELP_STRING([--enable-unified-export],[enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in flowexport.c (default NO)]),
+              [unified_export=yes],[unified_export=no])
 AC_ARG_ENABLE(pthread,
               AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
               [pthread=yes],[pthread=no])
@@ -179,6 +182,10 @@ if test "x$legacy" = "xyes" ; then
   AC_SUBST([LEGACY])
 fi
 AM_CONDITIONAL([ENABLE_LEGACY], [test x$legacy = xyes])
+if test "x$unified_export" = "xyes" ; then
+  AC_DEFINE([ENABLE_UNIFIED_EXPORT], 1, [enable unified NetFlow v1/v5/v9/IPFIX exporter (flowexport.c)])
+fi
+AM_CONDITIONAL([ENABLE_UNIFIED_EXPORT], [test x$unified_export = xyes])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])

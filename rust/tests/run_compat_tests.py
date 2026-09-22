@@ -422,7 +422,7 @@ def test_differential_packets(
 
             r_lines = sorted(
                 [
-                    (line.split(",", 2)[2] if ignore_timestamp else line)
+                    (strip_columns(line, 2) if ignore_timestamp else line)
                     for line in r_output.splitlines()
                     if not line.startswith("firstSeen") and line.strip()
                 ]

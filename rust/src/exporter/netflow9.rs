@@ -281,8 +281,13 @@ if send_templates_now {
             packet.push(if is_v6 { 6 } else { 4 });
             packet.push(flow.tos[dir]);
 
-            // ICMP type/code (port contains type * 256 + code in canonical endianness)
-            packet.extend_from_slice(&flow.key.port[dir ^ 1].to_be_bytes());
+            // ICMP type/code (port contains type * 256 + code; 0 for non-ICMP)
+            let icmp_val = if flow.key.protocol == 1 || flow.key.protocol == 58 {
+                flow.key.port[dir ^ 1]
+            } else {
+                0
+            };
+            packet.extend_from_slice(&icmp_val.to_be_bytes());
             // VLAN ID
             packet.extend_from_slice(&flow.key.vlanid[dir].to_be_bytes());
 

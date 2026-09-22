@@ -26,6 +26,7 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
+#include "netflow5.h"
 
 /*
  * This is the Cisco Netflow(tm) version 5 packet format
@@ -33,13 +34,6 @@
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html#wp1007472
  */
-struct NF5_HEADER {
-  u_int16_t version, flows;     // same as netflow v1
-  u_int32_t uptime_ms, time_sec, time_nanosec;  // same as netflow v1
-  u_int32_t flow_sequence;
-  u_int8_t engine_type, engine_id;
-  u_int16_t sampling_interval;
-};
 struct NF5_FLOW {
   u_int32_t src_ip, dest_ip, nexthop_ip;        // same as netflow v1
   u_int16_t if_index_in, if_index_out;  // same as netflow v1
@@ -62,7 +56,6 @@ struct NF1_FLOW_PROTO_TOS_TCPF {
 #define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
-#define NF1_HEADER_SIZE 16
 #define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NF5_FLOW) - \
                                   sizeof(struct NF1_FLOW_PROTO_TOS_TCPF))
 

@@ -200,8 +200,20 @@ struct NETFLOW_SENDER {
   int v6_capable;
 };
 
-/* Array of NetFlow export function that we know of. NB. nf[0] is default */
+/*
+ * Array of NetFlow export function that we know of. NB. nf[0] is default.
+ *
+ * When --enable-unified-export is configured, all four of v1/v5/v9/IPFIX
+ * are instead routed through the single switch-case based engine in
+ * flowexport.c (see the design comment at the top of that file).
+ */
 static const struct NETFLOW_SENDER nf[] = {
+#ifdef ENABLE_UNIFIED_EXPORT
+  {5, send_netflow_v5_unified, NULL, 0},
+  {1, send_netflow_v1_unified, NULL, 0},
+  {9, send_nflow9_unified, NULL, 1},
+  {NF_VERSION_IPFIX, send_ipfix_unified, send_ipfix_bi_unified, 1},
+#else /* ENABLE_UNIFIED_EXPORT */
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
 #ifdef ENABLE_LEGACY
@@ -210,6 +222,7 @@ static const struct NETFLOW_SENDER nf[] = {
   {9, send_nflow9, NULL, 1},
 #endif /* ENABLE_LEGACY */
   {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
+#endif /* ENABLE_UNIFIED_EXPORT */
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
 #endif
