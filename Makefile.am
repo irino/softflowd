@@ -1,7 +1,7 @@
 sbin_PROGRAMS = softflowd softflowctl
 COMMON = common.h convtime.h treetype.h sys-tree.h\
   convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
-if ENABLE_LEGACY
+if UNIFIED_EXPORT_TYPE_NONE
   LEGACY_SOURCES = netflow9.c netflow1.c
 endif
 if ENABLE_NTOPNG

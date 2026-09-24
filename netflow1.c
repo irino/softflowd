@@ -27,7 +27,7 @@
 #include "treetype.h"
 #include "softflowd.h"
 
-#ifdef ENABLE_LEGACY
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
 /*
  * This is the Cisco Netflow(tm) version 1 packet format
  * Based on:
@@ -175,4 +175,4 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* ENABLE_LEGACY */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */

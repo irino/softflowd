@@ -67,14 +67,8 @@
 
 #define IPFIX_PORT 4739
 
-/*
- * pcap_pkthdr.ts is declared as struct timeval on most platforms,
- * but as struct bpf_timeval (independently-sized tv_sec/tv_usec,
- * not necessarily matching struct timeval) on OpenBSD. Copy the
- * fields individually rather than assigning/copying the struct as
- * a whole so this works regardless of which type phdr->ts actually
- * is.
- */
+/* Copy tv_sec and tv_usec individually to support platforms where
+ * pcap_pkthdr.ts is a struct bpf_timeval (e.g. OpenBSD). */
 #define PCAP_TS_TO_TIMEVAL(dst, src) do {     \
     (dst).tv_sec = (src).tv_sec;              \
     (dst).tv_usec = (src).tv_usec;            \
@@ -130,11 +124,8 @@ static const struct DATALINK lt[] = {
   {-1, -1, -1, -1, -1, 0x00000000, 0xffff, 0xffff},
 };
 
-/*
- * Try to auto-detect the MAC address of the given interface.
- * Returns 0 on success, -1 if it could not be determined (e.g. the
- * interface has no link-layer address, such as a tunnel or "any").
-*/
+/* Auto-detect the MAC address of the given interface.
+ * Returns 0 on success, -1 on failure (e.g. tunnel or "any" interface). */
 static int
 get_interface_mac (const char *ifname, u_int8_t mac[6]) {
 #ifdef LINUX
@@ -200,29 +191,25 @@ struct NETFLOW_SENDER {
   int v6_capable;
 };
 
-/*
- * Array of NetFlow export function that we know of. NB. nf[0] is default.
- *
- * When --enable-unified-export is configured, all four of v1/v5/v9/IPFIX
- * are instead routed through the single switch-case based engine in
- * ipfix.c (see the design comment at the top of that file).
- */
+/* Known NetFlow export functions (nf[0] is default).
+ * When --enable-unified-export-type=full is enabled, all versions
+ * (v1/v5/v9/IPFIX) route through the unified engine in ipfix.c. */
 static const struct NETFLOW_SENDER nf[] = {
-#ifdef ENABLE_UNIFIED_EXPORT
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
   {5, send_netflow_v5_unified, NULL, 0},
   {1, send_netflow_v1_unified, NULL, 0},
   {9, send_nflow9_unified, NULL, 1},
   {NF_VERSION_IPFIX, send_ipfix_unified, send_ipfix_bi_unified, 1},
-#else /* ENABLE_UNIFIED_EXPORT */
+#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL */
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-#ifdef ENABLE_LEGACY
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
   {9, send_netflow_v9, NULL, 1},
-#else /* ENABLE_LEGACY */
+#else /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL */
   {9, send_nflow9, NULL, 1},
-#endif /* ENABLE_LEGACY */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
   {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
-#endif /* ENABLE_UNIFIED_EXPORT */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
 #endif
@@ -1483,22 +1470,22 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     ret = 1;
   }
   else if (strcmp (buf, "expire-all") == 0) {
-#ifdef ENABLE_LEGACY
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
     netflow9_resend_template ();
-#else /* ENABLE_LEGACY */
+#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_NONE */
     ipfix_resend_template ();
-#endif /* ENABLE_LEGACY */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
 	     (unsigned int) getpid (), check_expired (ft, target,
 						      CE_EXPIRE_ALL));
     ret = 0;
   }
   else if (strcmp (buf, "send-template") == 0) {
-#ifdef ENABLE_LEGACY
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
     netflow9_resend_template ();
-#else /* ENABLE_LEGACY */
+#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_NONE */
     ipfix_resend_template ();
-#endif /* ENABLE_LEGACY */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
 	     "next flow export\n", (unsigned int) getpid ());
     ret = 0;
@@ -2077,11 +2064,8 @@ drop_privs (void) {
   }
 }
 
-/*
- * Parse a MAC address of the form aa:bb:cc:dd:ee:ff (or with '-'
- * separators) into a 6-byte array. Returns 0 on success, -1 on
- * malformed input.
- */
+/* Parse MAC address string (aa:bb:cc:dd:ee:ff or aa-bb-cc-dd-ee-ff)
+ * into a 6-byte array. Returns 0 on success, -1 on error. */
 static int
 parse_mac_address (const char *str, u_int8_t mac[6]) {
   unsigned int b[6];

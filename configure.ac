@@ -213,16 +213,33 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
-if test "x$legacy" = "xyes" ; then
-  AC_DEFINE([ENABLE_LEGACY], 1, [enable legacy NetFlow implementation])
-  LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
-  AC_SUBST([LEGACY])
-fi
-AM_CONDITIONAL([ENABLE_LEGACY], [test x$legacy = xyes])
+dnl Resolve legacy/unified_export flags into a single tri-state macro.
+dnl 'unified_export=yes' overrides legacy to avoid compiling unreachable
+dnl legacy exporter code (netflow1.c / netflow9.c).
 if test "x$unified_export" = "xyes" ; then
-  AC_DEFINE([ENABLE_UNIFIED_EXPORT], 1, [enable unified NetFlow v1/v5/v9/IPFIX exporter (ipfix.c)])
+  resolved_export_type=full
+elif test "x$legacy" = "xyes" ; then
+  resolved_export_type=none
+else
+  resolved_export_type=partial
 fi
-AM_CONDITIONAL([ENABLE_UNIFIED_EXPORT], [test x$unified_export = xyes])
+AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_FULL], [1],
+          [sentinel value: single switch/if-else based unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c])
+AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL], [2],
+          [sentinel value: per-version NetFlow v1/v5/v9/IPFIX exporters in ipfix.c sharing unified field tables (default)])
+AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_NONE], [3],
+          [sentinel value: fully separate legacy NetFlow v9 exporter in netflow9.c])
+case "$resolved_export_type" in
+  full)    AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_FULL],
+                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above]) ;;
+  none)    AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_NONE],
+                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above])
+           LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
+           AC_SUBST([LEGACY]) ;;
+  partial) AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL],
+                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above]) ;;
+esac
+AM_CONDITIONAL([UNIFIED_EXPORT_TYPE_NONE], [test "x$resolved_export_type" = xnone])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])

@@ -107,11 +107,11 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
 
 
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
- * ENABLE_UNIFIED_EXPORT to avoid duplication. */
+ * ENABLE_UNIFIED_EXPORT_TYPE_FULL to avoid duplication. */
 /* DEF_FIELD_ENC(ie, len, fn): Single macro to define field tables for both
- * with and without ENABLE_UNIFIED_EXPORT without duplicating IE lists.
- * Forward-declares encoder types so the unified expansion can compile. */
-#ifdef ENABLE_UNIFIED_EXPORT
+ * with and without ENABLE_UNIFIED_EXPORT_TYPE_FULL without duplicating IE
+ * lists. Forward-declares encoder types so the unified expansion can compile. */
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
 struct IPFIX_UNIFIED_CTX;
 typedef void (*ipfix_unified_encoder_t) (u_char * dst, u_int16_t length,
                                          const struct IPFIX_UNIFIED_CTX *
@@ -120,7 +120,7 @@ struct IPFIX_FIELD_SPECIFIER_ENCODER {
   struct IPFIX_FIELD_SPECIFIER field;
   ipfix_unified_encoder_t encoder;
 };
-/* Forward declarations for 'fn' in DEF_FIELD_ENC (for ENABLE_UNIFIED_EXPORT). */
+/* Forward declarations for 'fn' in DEF_FIELD_ENC (for ENABLE_UNIFIED_EXPORT_TYPE_FULL). */
 static void enc_sourceIPv4Address (u_char *, u_int16_t,
                                    const struct IPFIX_UNIFIED_CTX *);
 static void enc_destinationIPv4Address (u_char *, u_int16_t,
@@ -194,7 +194,7 @@ static void enc_interfaceName (u_char *, u_int16_t,
 #endif
 
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
- * ENABLE_UNIFIED_EXPORT to avoid duplication. */
+ * ENABLE_UNIFIED_EXPORT_TYPE_FULL to avoid duplication. */
 const IPFIX_FIELD_TABLE_TYPE field_v4[] = {
   DEF_FIELD_ENC (IPFIX_sourceIPv4Address, 4, enc_sourceIPv4Address),
   DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)
@@ -335,9 +335,9 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
   struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
-/* #ifndef ENABLE_UNIFIED_EXPORT (partial mode): Shares IPFIX field tables above,
- * but retains distinct per-version send functions. */
-#ifndef ENABLE_UNIFIED_EXPORT
+/* ENABLE_UNIFIED_EXPORT_TYPE != FULL (partial or none): Shares IPFIX
+ * field tables above, but retains distinct per-version send functions. */
+#if ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL
 
 /* Stuff pertaining to the templates that softflowd uses */
 #define IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS          \
@@ -1181,10 +1181,10 @@ send_ipfix_bi (struct SENDPARAMETER sp) {
                             sp.param, sp.verbose_flag, 1, 10);
 }
 
-#else /* ENABLE_UNIFIED_EXPORT */
-/* Unified NetFlow v1/v5/v9/IPFIX exporter (#ifdef ENABLE_UNIFIED_EXPORT):
+#else /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
+/* Unified NetFlow v1/v5/v9/IPFIX exporter (ENABLE_UNIFIED_EXPORT_TYPE_FULL):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
- * Active only under --enable-unified-export (psamp.c remains separate). */
+ * Active only under --enable-unified-export-type=full (psamp.c remains separate). */
 
 /* Context for resolving field values: flow, packet index, interface, boot time,
  * and flow direction for data records, or params/boot time for Options fields. */
@@ -2276,4 +2276,4 @@ send_ipfix_bi_unified (struct SENDPARAMETER sp) {
                                        10);
 }
 
-#endif /* ENABLE_UNIFIED_EXPORT */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */

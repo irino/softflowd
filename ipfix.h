@@ -41,14 +41,7 @@
 #define IPFIX_tcpControlBits            6
 #define IPFIX_sourceTransportPort       7
 #define IPFIX_sourceIPv4Address         8
-/*
- * The following four IEs (9, 15, 16, 17) were added to support the
- * unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (see the design
- * comment at the top of that file). They let the fixed, non-template
- * NetFlow v1/v5 record layouts be re-expressed purely in terms of
- * IPFIX Information Elements,
- * per https://www.iana.org/assignments/ipfix.
- */
+/* IEs 9, 15, 16, 17: Express NetFlow v1/v5 layouts for the unified engine (per IANA). */
 #define IPFIX_sourceIPv4PrefixLength    9
 #define IPFIX_ingressInterface          10
 #define IPFIX_destinationTransportPort  11
@@ -67,17 +60,13 @@
 /* ... */
 #define IPFIX_icmpTypeCodeIPv4          32
 /* ... */
-/* Deprecated (in favour of PSAMP_samplingPacketInterval, id 305), but
- * still the correct read of the NetFlow v9 SamplingInterval Header
- * field per the IPFIX registry; used only for documentation/comment
- * purposes in ipfix.c's unified exporter (== NFLOW9_SAMPLING_INTERVAL, see
- * netflow9.h). */
+/* Deprecated NetFlow v9 SamplingInterval (superseded by ID 305) */
 #define IPFIX_samplingInterval          34
 /* ... */
 #define IPFIX_engineType                38
 #define IPFIX_engineId                  39
-#define IPFIX_exportedMessageTotalCount 41
-#define IPFIX_exportedFlowRecordTotalCount 42
+#define IPFIX_exportedMessageTotalCount 41　/* v9 packet sequence */
+#define IPFIX_exportedFlowRecordTotalCount 42 /* v5/IPFIX record sequence */
 /* ... */
 #define IPFIX_sourceMacAddress          56
 #define IPFIX_postDestinationMacAddress 57
@@ -90,19 +79,7 @@
 #define IPFIX_observationDomainId        149
 #define IPFIX_interfaceName             82
 /* ... */
-/*
- * exportProtocolVersion (214) is used, in ipfix.c's unified exporter, as
- * the literal wire value of the Version field common to every NetFlow
- * v1/v5/v9 and IPFIX packet header; exportedFlowRecordTotalCount (42,
- * reduced to 4 octets per RFC 7011 Reduced-Size Encoding) and
- * exportedMessageTotalCount (41, same encoding) are used the same way
- * for the NetFlow v5/IPFIX and NetFlow v9 header Sequence Number
- * fields respectively -- see the design comment at the top of
- * ipfix.c for why those two, rather than a single IE, are the
- * right substitution (NetFlow v9's Sequence Number counts Export
- * Packets, not Flow/Data Records, unlike v5's and IPFIX's).
- */
-#define IPFIX_exportProtocolVersion        214
+#define IPFIX_exportProtocolVersion        214 /* NetFlow/IPFIX header version */
 #define IPFIX_paddingOctets              210
 /* ... */
 #define IPFIX_exporterIPv4Address       130
@@ -191,20 +168,15 @@ int send_nflow9 (struct SENDPARAMETER sp);
 int send_ipfix (struct SENDPARAMETER sp);
 int send_ipfix_bi (struct SENDPARAMETER sp);
 
-#ifdef ENABLE_UNIFIED_EXPORT
-/*
- * Prototypes for the unified NetFlow v1/v5/v9/IPFIX exporter in
- * ipfix.c's #ifdef ENABLE_UNIFIED_EXPORT block (single switch-based
- * field encoder shared by all four wire formats).
- */
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
+/* Prototypes for the unified v1/v5/v9/IPFIX exporter (ENABLE_UNIFIED_EXPORT_TYPE_FULL). */
 int send_netflow_v1_unified (struct SENDPARAMETER sp);
 int send_netflow_v5_unified (struct SENDPARAMETER sp);
 int send_nflow9_unified (struct SENDPARAMETER sp);
 int send_ipfix_unified (struct SENDPARAMETER sp);
 int send_ipfix_bi_unified (struct SENDPARAMETER sp);
-#endif /* ENABLE_UNIFIED_EXPORT */
-/* Force a resend of the flow template (both branches above provide
- * this symbol; only one is compiled at a time). */
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
+/* Force a resend of the flow template. */
 void ipfix_resend_template (void);
 int ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int * index,
                        const struct IPFIX_FIELD_SPECIFIER *src,

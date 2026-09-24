@@ -25,17 +25,9 @@
 #ifndef _NETFLOW5_H
 #define _NETFLOW5_H
 
-/*
- * This is the Cisco Netflow(tm) version 5 packet header format.
- * Extracted here (out of netflow5.c) so it can be shared with
- * ipfix.c's unified exporter (#ifdef ENABLE_UNIFIED_EXPORT), which
- * needs the exact same layout: NetFlow v1's header is these same
- * first 16 octets (see NF1_HEADER_SIZE below), NetFlow v5's is the
- * full 24-octet struct.
- * Based on:
- * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html
- * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html#wp1007472
- */
+/* Cisco NetFlow v5 header format (shared with ipfix.c unified exporter).
+ * NetFlow v1 shares the first 16 bytes (NF1_HEADER_SIZE).
+ * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */
 struct NF5_HEADER {
   u_int16_t version, flows;     // same as netflow v1
   u_int32_t uptime_ms, time_sec, time_nanosec;  // same as netflow v1
