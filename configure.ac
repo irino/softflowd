@@ -72,11 +72,42 @@ AC_ARG_ENABLE(gcc-warnings,
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
 AC_ARG_ENABLE(legacy,
-              AS_HELP_STRING([--enable-legacy],[enable legacy NetFlow implementation (default NO)]),
-              [legacy=yes],[legacy=no])
+              AS_HELP_STRING([--enable-legacy],[(deprecated; use --enable-unified-export-type=none) enable legacy NetFlow implementation (default NO)]),
+              [legacy=$enableval],[legacy=])
 AC_ARG_ENABLE(unified-export,
-              AS_HELP_STRING([--enable-unified-export],[enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default NO)]),
-              [unified_export=yes],[unified_export=no])
+              AS_HELP_STRING([--enable-unified-export],[(deprecated; use --enable-unified-export-type=full) enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default NO)]),
+              [unified_export=$enableval],[unified_export=])
+AC_ARG_ENABLE(unified-export-type,
+              AS_HELP_STRING([--enable-unified-export-type=full|partial|none],
+                             [choose the NetFlow v1/v5/v9/IPFIX exporter architecture in ipfix.c: full (single switch/if-else based unified exporter for all versions), partial (default; per-version exporters that share unified field tables), or none (fully separate legacy NetFlow v9 exporter in netflow9.c)]),
+              [unified_export_type=$enableval],[unified_export_type=])
+if test -n "$unified_export_type" ; then
+  dnl New-style option was given: it decides, and wins over the
+  dnl deprecated flags below if both happen to be present.
+  case "$unified_export_type" in
+    full|partial|none) ;;
+    *) AC_MSG_ERROR([--enable-unified-export-type must be one of: full, partial, none (got: $unified_export_type)]) ;;
+  esac
+  if test -n "$legacy" -o -n "$unified_export" ; then
+    AC_MSG_WARN([--enable-unified-export-type=$unified_export_type overrides the deprecated --enable-legacy/--enable-unified-export options])
+  fi
+  legacy=no
+  unified_export=no
+  case "$unified_export_type" in
+    full) unified_export=yes ;;
+    none) legacy=yes ;;
+  esac
+else
+  dnl Only the deprecated flags (or neither) were given: keep their
+  dnl old, independent-boolean behavior exactly as before, including
+  dnl the (functionally redundant but previously allowed) case of
+  dnl both being enabled together.
+  test -z "$legacy" && legacy=no
+  test -z "$unified_export" && unified_export=no
+  if test "x$legacy" = "xyes" -o "x$unified_export" = "xyes" ; then
+    AC_MSG_WARN([--enable-legacy/--enable-unified-export are deprecated; use --enable-unified-export-type=full|partial|none instead])
+  fi
+fi
 AC_ARG_ENABLE(pthread,
               AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
               [pthread=yes],[pthread=no])
