@@ -43,9 +43,10 @@
 #define IPFIX_sourceIPv4Address         8
 /*
  * The following four IEs (9, 15, 16, 17) were added to support the
- * flowexport.c unified NetFlow v1/v5/v9/IPFIX exporter (see flowexport.c
- * for the design). They let the fixed, non-template NetFlow v1/v5 record
- * layouts be re-expressed purely in terms of IPFIX Information Elements,
+ * unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (see the design
+ * comment at the top of that file). They let the fixed, non-template
+ * NetFlow v1/v5 record layouts be re-expressed purely in terms of
+ * IPFIX Information Elements,
  * per https://www.iana.org/assignments/ipfix.
  */
 #define IPFIX_sourceIPv4PrefixLength    9
@@ -69,7 +70,7 @@
 /* Deprecated (in favour of PSAMP_samplingPacketInterval, id 305), but
  * still the correct read of the NetFlow v9 SamplingInterval Header
  * field per the IPFIX registry; used only for documentation/comment
- * purposes in flowexport.c (== NFLOW9_SAMPLING_INTERVAL, see
+ * purposes in ipfix.c's unified exporter (== NFLOW9_SAMPLING_INTERVAL, see
  * netflow9.h). */
 #define IPFIX_samplingInterval          34
 /* ... */
@@ -90,14 +91,14 @@
 #define IPFIX_interfaceName             82
 /* ... */
 /*
- * exportProtocolVersion (214) is used, in flowexport.c, as the literal
- * wire value of the Version field common to every NetFlow v1/v5/v9 and
- * IPFIX packet header; exportedFlowRecordTotalCount (42, reduced to 4
- * octets per RFC 7011 Reduced-Size Encoding) and
+ * exportProtocolVersion (214) is used, in ipfix.c's unified exporter, as
+ * the literal wire value of the Version field common to every NetFlow
+ * v1/v5/v9 and IPFIX packet header; exportedFlowRecordTotalCount (42,
+ * reduced to 4 octets per RFC 7011 Reduced-Size Encoding) and
  * exportedMessageTotalCount (41, same encoding) are used the same way
  * for the NetFlow v5/IPFIX and NetFlow v9 header Sequence Number
  * fields respectively -- see the design comment at the top of
- * flowexport.c for why those two, rather than a single IE, are the
+ * ipfix.c for why those two, rather than a single IE, are the
  * right substitution (NetFlow v9's Sequence Number counts Export
  * Packets, not Flow/Data Records, unlike v5's and IPFIX's).
  */

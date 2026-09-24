@@ -75,7 +75,7 @@ AC_ARG_ENABLE(legacy,
               AS_HELP_STRING([--enable-legacy],[enable legacy NetFlow implementation (default NO)]),
               [legacy=yes],[legacy=no])
 AC_ARG_ENABLE(unified-export,
-              AS_HELP_STRING([--enable-unified-export],[enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in flowexport.c (default NO)]),
+              AS_HELP_STRING([--enable-unified-export],[enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default NO)]),
               [unified_export=yes],[unified_export=no])
 AC_ARG_ENABLE(pthread,
               AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
@@ -189,7 +189,7 @@ if test "x$legacy" = "xyes" ; then
 fi
 AM_CONDITIONAL([ENABLE_LEGACY], [test x$legacy = xyes])
 if test "x$unified_export" = "xyes" ; then
-  AC_DEFINE([ENABLE_UNIFIED_EXPORT], 1, [enable unified NetFlow v1/v5/v9/IPFIX exporter (flowexport.c)])
+  AC_DEFINE([ENABLE_UNIFIED_EXPORT], 1, [enable unified NetFlow v1/v5/v9/IPFIX exporter (ipfix.c)])
 fi
 AM_CONDITIONAL([ENABLE_UNIFIED_EXPORT], [test x$unified_export = xyes])
 if test "x$pthread" = "xyes" ; then

@@ -205,7 +205,7 @@ struct NETFLOW_SENDER {
  *
  * When --enable-unified-export is configured, all four of v1/v5/v9/IPFIX
  * are instead routed through the single switch-case based engine in
- * flowexport.c (see the design comment at the top of that file).
+ * ipfix.c (see the design comment at the top of that file).
  */
 static const struct NETFLOW_SENDER nf[] = {
 #ifdef ENABLE_UNIFIED_EXPORT
