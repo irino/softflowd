@@ -54,7 +54,7 @@ struct ZMQ {
 #define PRIVDROP_CHROOT_DIR	"/var/empty"
 #endif
 /*
- * Capture length for libpcap: Must fit the link layer header, plus 
+ * Capture length for libpcap: Must fit the link layer header, plus
  * a maximally sized ip/ipv6 header and most of a TCP header
  */
 #define LIBPCAP_SNAPLEN_V4		96
@@ -73,7 +73,7 @@ struct ZMQ {
 #define DEFAULT_EXPIRY_INTERVAL		60
 
 /*
- * Default maximum number of flow to track simultaneously 
+ * Default maximum number of flow to track simultaneously
  * 8192 corresponds to just under 1Mb of flow data
  */
 #define DEFAULT_MAX_FLOWS	8192
@@ -176,13 +176,8 @@ struct FLOWTRACKPARAMETERS {
   struct timeval last_packet_time;
   u_int32_t boot_time_reinit;   /* seconds */
 
-  /*
-   * Optional MAC address used to determine IPFIX flowDirection.
-   * If direction_mac_set is non-zero, a flow record whose source
-   * MAC equals direction_mac is reported as Egress, and a flow
-   * record whose destination MAC equals direction_mac is reported
-   * as Ingress. Requires track_level >= TRACK_FULL_VLAN_ETHER.
-   */
+  /* Optional MAC for IPFIX flowDirection (Src = Egress, Dst = Ingress).
+   * Requires track_level >= TRACK_FULL_VLAN_ETHER. */
   u_int8_t direction_mac[6];
   u_int8_t direction_mac_set;
 };
@@ -203,8 +198,8 @@ struct FLOWTRACK {
 };
 
 /*
- * This structure is an entry in the tree of flows that we are 
- * currently tracking. 
+ * This structure is an entry in the tree of flows that we are
+ * currently tracking.
  *
  * Because flows are matched _bi-directionally_, they must be stored in
  * a canonical format: the numerically lowest address and port number must
@@ -243,18 +238,18 @@ struct FLOW {
 };
 
 /*
- * This is an entry in the tree of expiry events. The tree is used to 
+ * This is an entry in the tree of expiry events. The tree is used to
  * avoid traversion the whole tree of active flows looking for ones to
  * expire. "expires_at" is the time at which the flow should be discarded,
- * or zero if it is scheduled for immediate disposal. 
+ * or zero if it is scheduled for immediate disposal.
  *
- * When a flow which hasn't been scheduled for immediate expiry registers 
- * traffic, it is deleted from its current position in the tree and 
+ * When a flow which hasn't been scheduled for immediate expiry registers
+ * traffic, it is deleted from its current position in the tree and
  * re-inserted (subject to its updated timeout).
  *
  * Expiry scans operate by starting at the head of the tree and expiring
  * each entry with expires_at < now
- * 
+ *
  */
 struct EXPIRY {
   EXPIRY_ENTRY (EXPIRY) trp;    /* Tree pointer */

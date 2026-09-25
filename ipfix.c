@@ -1328,6 +1328,7 @@ enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
 
 IPFIX_UNIFIED_ENC_HTON (enc_vlanId, ctx->flow->vlanid[ctx->i], 2)
 IPFIX_UNIFIED_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
+#ifdef ENABLE_IFNAME
 static void
 enc_interfaceName (u_char *dst, u_int16_t length,
                    const struct IPFIX_UNIFIED_CTX *ctx) {
@@ -1338,7 +1339,7 @@ enc_interfaceName (u_char *dst, u_int16_t length,
   /* Copies string up to its own length (capped at 'n'), leaving remaining field bytes
    * zeroed by the packet buffer's initial clearance. */
 }
-
+#endif /* ENABLE_IFNAME */
 static void
 enc_ipVersion (u_char *dst, u_int16_t length,
                const struct IPFIX_UNIFIED_CTX *ctx) {
@@ -1422,11 +1423,6 @@ union IPFIX_UNIFIED_HEADER {
 };
 
 /* Options-record-only context (not derived from a FLOW). */
-struct IPFIX_UNIFIED_HDRCTX {
-  u_int32_t systemInitTimeMilliseconds; /* sysUptime, relative ms since boot */
-  struct timeval export_time;
-  u_int16_t sampling_interval_raw;      /* pre-packed NF v5 SamplingInterval */
-};
 
 /* Encodes a single Options-record IE into dst (returns length).
  * Flow data records use compile-time resolved encoders and never hit this switch. */
@@ -1530,8 +1526,17 @@ ipfix_unified_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
  * fields as 0 to be patched in place once the packet is complete. */
 static u_int
 ipfix_unified_build_header (u_char *packet, u_int16_t version,
-                            const struct IPFIX_UNIFIED_HDRCTX *hctx) {
+                            const struct FLOWTRACKPARAMETERS *param) {
   union IPFIX_UNIFIED_HEADER *h = (union IPFIX_UNIFIED_HEADER *) packet;
+  struct timeval now;
+  u_int32_t systemInitTimeMilliseconds;
+
+  if (param->adjust_time)
+    now = param->last_packet_time;
+  else
+    gettimeofday (&now, NULL);
+
+  systemInitTimeMilliseconds = timeval_sub_ms (&now, &param->system_boot_time);
 
   h->version = htons (version);
   switch (version) {
@@ -1540,27 +1545,32 @@ ipfix_unified_build_header (u_char *packet, u_int16_t version,
     /* NF1's header is exactly NF5's first NF1_HEADER_SIZE octets (see
      * union IPFIX_UNIFIED_HEADER's comment), so this much is shared. */
     h->nf5.flows = 0;
-    h->nf5.uptime_ms = htonl (hctx->systemInitTimeMilliseconds);
-    h->nf5.time_sec = htonl ((u_int32_t) hctx->export_time.tv_sec);
+    h->nf5.uptime_ms = htonl (systemInitTimeMilliseconds);
+    h->nf5.time_sec = htonl ((u_int32_t) now.tv_sec);
     h->nf5.time_nanosec =
-      htonl ((u_int32_t) hctx->export_time.tv_usec * 1000);
+      htonl ((u_int32_t) now.tv_usec * 1000);
     if (version == 1)
       return NF1_HEADER_SIZE;
     h->nf5.flow_sequence = 0;
     h->nf5.engine_type = 0;
     h->nf5.engine_id = 0;
-    h->nf5.sampling_interval = htons (hctx->sampling_interval_raw);
+    if (param->option.sample > 0) {
+      u_int16_t sampling_interval_raw = (0x01 << 14) | (param->option.sample & 0x3FFF);
+      h->nf5.sampling_interval = htons (sampling_interval_raw);
+    } else {
+      h->nf5.sampling_interval = 0;
+    }
     return sizeof (h->nf5);
   case 9:
     h->nf9.flows = 0;
-    h->nf9.uptime_ms = htonl (hctx->systemInitTimeMilliseconds);
-    h->nf9.export_time = htonl ((u_int32_t) hctx->export_time.tv_sec);
+    h->nf9.uptime_ms = htonl (systemInitTimeMilliseconds);
+    h->nf9.export_time = htonl ((u_int32_t) now.tv_sec);
     h->nf9.sequence = 0;
     h->nf9.od_id = 0;
     return sizeof (h->nf9);
   default:                     /* 10 = IPFIX */
     h->ipfix.length = 0;
-    h->ipfix.export_time = htonl ((u_int32_t) hctx->export_time.tv_sec);
+    h->ipfix.export_time = htonl ((u_int32_t) (param->adjust_time ? now.tv_sec : time (NULL)));
     h->ipfix.sequence = 0;
     h->ipfix.od_id = 0;
     return sizeof (h->ipfix);
@@ -1595,9 +1605,7 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   u_int maxflows =
     (version == 1) ? IPFIX_UNIFIED_NF1_MAXFLOWS : IPFIX_UNIFIED_NF5_MAXFLOWS;
   u_int offset, j, i, k, num_packets, flowcount;
-  struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
-  struct IPFIX_UNIFIED_HDRCTX hctx;
   struct IPFIX_UNIFIED_CTX ctx;
 
   if (version != 1 && version != 5)
@@ -1607,16 +1615,9 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   else
     gettimeofday (&now, NULL);
 
-  memset (&hctx, 0, sizeof (hctx));
-  hctx.systemInitTimeMilliseconds = timeval_sub_ms (&now, system_boot_time);
-  hctx.export_time = now;
-  if (param->option.sample > 0)
-    hctx.sampling_interval_raw =
-      (0x01 << 14) | (param->option.sample & 0x3FFF);
-
   memset (&ctx, 0, sizeof (ctx));
   ctx.ifidx = ifidx;
-  ctx.system_boot_time = system_boot_time;
+  ctx.system_boot_time = &param->system_boot_time;
   ctx.param = param;
 
   num_packets = offset = j = flowcount = 0;
@@ -1637,7 +1638,7 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
     }
     if (j == 0) {
       memset (packet, 0, sizeof (packet));
-      offset = ipfix_unified_build_header (packet, version, &hctx);
+      offset = ipfix_unified_build_header (packet, version, param);
       if (version == 5)
         ((union IPFIX_UNIFIED_HEADER *) packet)->nf5.flow_sequence =
           htonl ((u_int32_t) * flows_exported);
@@ -2118,10 +2119,8 @@ send_ipfix_unified_templated (struct FLOW **flows, int num_flows,
   int r;
   u_int records = 0;
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
-  struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   u_int64_t *records_sent = &param->records_sent;
-  struct IPFIX_UNIFIED_HDRCTX hctx;
   static u_int sequence = 1;
 
   if (version != 9 && version != 10)
@@ -2137,14 +2136,10 @@ send_ipfix_unified_templated (struct FLOW **flows, int num_flows,
     unified_pkts_until_template = 0;
   }
 
-  memset (&hctx, 0, sizeof (hctx));
-  hctx.systemInitTimeMilliseconds = timeval_sub_ms (&now, system_boot_time);
-  hctx.export_time.tv_sec = param->adjust_time ? now.tv_sec : time (NULL);
-
   last_valid = num_packets = 0;
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
-    offset = ipfix_unified_build_header (packet, version, &hctx);
+    offset = ipfix_unified_build_header (packet, version, param);
     h = (union IPFIX_UNIFIED_HEADER *) packet;
 
     if (unified_pkts_until_template <= 0) {
@@ -2168,7 +2163,7 @@ send_ipfix_unified_templated (struct FLOW **flows, int num_flows,
             (target->num_destinations, target->destinations, 0, packet,
              offset) < 0)
           return (-1);
-        offset = ipfix_unified_build_header (packet, version, &hctx);
+        offset = ipfix_unified_build_header (packet, version, param);
       }
     }
 
@@ -2200,10 +2195,10 @@ send_ipfix_unified_templated (struct FLOW **flows, int num_flows,
         dh->length = sizeof (*dh);
         offset += sizeof (*dh);
       }
-      r = ipfix_unified_flow_to_flowset (flows[i + j], packet + offset,
-                                         sizeof (packet) - offset, ifidx,
-                                         system_boot_time, &inc, param,
-                                         bi_flag, version);
+	      r = ipfix_unified_flow_to_flowset (flows[i + j], packet + offset,
+	                                         sizeof (packet) - offset, ifidx,
+	                                         &param->system_boot_time, &inc, param,
+	                                         bi_flag, version);
       if (r <= 0) {
         if (last_valid)
           offset = last_valid;
