@@ -13,6 +13,7 @@ jobs:
           - ubuntu:26.04
           - debian:12
           - debian:13
+        export_type: [full, partial, none]
     container:
       image: ${{ matrix.image }}
     steps:
@@ -32,8 +33,62 @@ jobs:
       - name: Build with warnings
         run: |
           autoreconf -if
-          ./configure --enable-gcc-warnings
+          ./configure --enable-gcc-warnings --enable-unified-export-type=${{ matrix.export_type }}
           make
+
+  # Builds compile every --enable-unified-export-type variant above, but
+  # never actually run the resulting binary -- which is exactly how a
+  # NULL-pointer dereference in the unified exporter's per-flow record
+  # path went unnoticed (it happened to not crash at -O2 on the one
+  # version tried by hand, purely by luck of stack layout). This job
+  # replays a small generated pcap through every NetFlow/IPFIX version,
+  # under ASan+UBSan so a bug like that aborts deterministically
+  # instead of silently "working" by chance.
+  runtime-smoke-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        export_type: [full, partial, none]
+    env:
+      # Pre-existing, unrelated issues must not fail this job: alignment
+      # warnings from casting raw packet bytes to struct ip/icmp/etc. in
+      # softflowd.c's parser (UBSan, non-fatal here), and a few small
+      # long-lived allocations (freelist growth, getaddrinfo) that
+      # LeakSanitizer would otherwise flag (detect_leaks=0) -- fixing
+      # those is a separate concern. A real memory-safety bug (SEGV,
+      # heap corruption, NULL deref, use-after-free) still aborts the
+      # process with a nonzero exit code, which the run step below checks.
+      UBSAN_OPTIONS: halt_on_error=0:print_stacktrace=1
+      ASAN_OPTIONS: abort_on_error=1:detect_leaks=0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libpcap-dev autoconf automake libtool pkg-config python3
+
+      - name: Generate smoke-test pcap
+        run: python3 tools/gen_ci_smoke_pcap.py ci_smoke.pcap
+
+      - name: Build with AddressSanitizer/UndefinedBehaviorSanitizer
+        run: |
+          autoreconf -if
+          ./configure --enable-unified-export-type=${{ matrix.export_type }} \
+            CFLAGS="-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
+          make
+
+      - name: Run against smoke-test pcap for every export version
+        run: |
+          set -e
+          for v in 1 5 9 10; do
+            echo "== NetFlow/IPFIX version $v (export-type=${{ matrix.export_type }}) =="
+            ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v "$v"
+          done
+          echo "== bidirectional IPFIX (-b, version 10) =="
+          ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v 10 -b
 
   freebsd:
     runs-on: ubuntu-latest

@@ -1217,11 +1217,10 @@ send_ipfix_bi (struct SENDPARAMETER sp) {
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
  * Active only under --enable-unified-export-type=full (psamp.c remains separate). */
 
-/* Context for resolving field values: flow, endpoint index, and flow direction. */
+/* Context for resolving field values: flow and endpoint index. */
 struct IPFIX_UNIFIED_CTX {
   const struct FLOW *flow;
   u_int i;                      /* which endpoint (0/1) is "source" here */
-  u_int8_t flow_direction;      /* precomputed IPFIX flowDirection value */
 };
 
 /* Stores host-order 'val' (low 'len' octets) as big-endian at dst.
@@ -1392,8 +1391,7 @@ enc_flowDirection (u_char *dst, u_int16_t length,
                    const struct SENDPARAMETER *sp,
                    const struct IPFIX_UNIFIED_CTX *ctx) {
   (void) length; /* Silence -Wunused-parameter warning */
-  (void) sp;
-  *dst = ctx->flow_direction;
+  *dst = ipfix_flow_direction (ctx->flow, ctx->i, sp->param);
 }
 
 /* NetFlow v1/v5 fixed data records: same IEs as field_netflow_v1v5_common[]. */
@@ -2087,25 +2085,20 @@ ipfix_unified_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   struct IPFIX_UNIFIED_TEMPLATE *tmpl = &unified_templates[tmplindex];
   u_int offset = 0, nflows = 0, k;
   u_int frecnum = bi_flag ? 1 : 2;
-  int i;
-  struct IPFIX_UNIFIED_CTX ctx;
+  struct IPFIX_UNIFIED_CTX ctx = { .flow = flow, .i = 0 };
 
   (void) version;               /* only used to size frecnum via bi_flag */
   if (len < tmpl->data_len * frecnum)
     return (-1);
 
-  memset (&ctx, 0, sizeof (ctx));
-  ctx.flow = flow;
-  for (i = 0; i < (int) frecnum; i++) {
-    if (bi_flag == 0 && flow->octets[i] == 0)
+  for (ctx.i = 0; ctx.i < frecnum; ctx.i++) {
+    if (bi_flag == 0 && flow->octets[ctx.i] == 0)
       continue;
     nflows++;
-    ctx.i = i;
-    ctx.flow_direction = ipfix_flow_direction (flow, i, sp->param);
     offset =
       ipfix_unified_emit_group_enc (tmpl->hr, tmpl->hr_count, packet, offset,
                                     sp, &ctx);
-    if (bi_flag && i == 0) {
+    if (bi_flag && ctx.i == 0) {
       struct IPFIX_UNIFIED_CTX bictx = ctx;
       bictx.i = 1;              /* reverse direction */
       offset =
