@@ -31,6 +31,9 @@
 #define IPFIX_OPTION_TEMPLATE_SET_ID    3
 #define IPFIX_MIN_RECORD_SET_ID         256
 
+#define IPFIX_BIFLAG_OFF                0
+#define IPFIX_BIFLAG_ON                 1
+
 /* Flowset record ies the we care about */
 #define IPFIX_octetDeltaCount           1
 #define IPFIX_packetDeltaCount          2
@@ -170,8 +173,6 @@ int send_ipfix_bi (struct SENDPARAMETER sp);
 
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
 /* Prototypes for the unified v1/v5/v9/IPFIX exporter (ENABLE_UNIFIED_EXPORT_TYPE_FULL). */
-int send_netflow_v1_unified (struct SENDPARAMETER sp);
-int send_netflow_v5_unified (struct SENDPARAMETER sp);
 int send_nflow9_unified (struct SENDPARAMETER sp);
 int send_ipfix_unified (struct SENDPARAMETER sp);
 int send_ipfix_bi_unified (struct SENDPARAMETER sp);

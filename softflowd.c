@@ -195,14 +195,12 @@ struct NETFLOW_SENDER {
  * When --enable-unified-export-type=full is enabled, all versions
  * (v1/v5/v9/IPFIX) route through the unified engine in ipfix.c. */
 static const struct NETFLOW_SENDER nf[] = {
+  {5, send_netflow_v5, NULL, 0},
+  {1, send_netflow_v1, NULL, 0},
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
-  {5, send_netflow_v5_unified, NULL, 0},
-  {1, send_netflow_v1_unified, NULL, 0},
   {9, send_nflow9_unified, NULL, 1},
   {NF_VERSION_IPFIX, send_ipfix_unified, send_ipfix_bi_unified, 1},
 #else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL */
-  {5, send_netflow_v5, NULL, 0},
-  {1, send_netflow_v1, NULL, 0},
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
   {9, send_netflow_v9, NULL, 1},
 #else /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL */

@@ -1582,6 +1582,19 @@ ipfix_unified_build_header (u_char *packet, u_int16_t version,
 }
 
 /* ------------------------------------------------------------------ */
+/* Shared packet flush / multi-destination send helper for unified exporters. */
+static inline int
+ipfix_unified_send_packet (struct NETFLOW_TARGET *target, u_char *packet,
+                           u_int offset, int verbose_flag) {
+  if (verbose_flag)
+    logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
+  if (send_multi_destinations
+      (target->num_destinations, target->destinations,
+       target->is_loadbalance, packet, offset) < 0)
+    return (-1);
+  return (0);
+}
+
 /* NetFlow v1 / v5: fixed (non-templated) export.                      */
 /* ------------------------------------------------------------------ */
 
@@ -1616,13 +1629,9 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   num_packets = offset = j = flowcount = 0;
   for (i = 0; i < (u_int) num_flows; i++) {
     if (j >= maxflows) {
-      if (verbose_flag)
-        logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += flowcount;
       ((union IPFIX_UNIFIED_HEADER *) packet)->nf5.flows = htons (flowcount);
-      if (send_multi_destinations
-          (sp.target->num_destinations, sp.target->destinations,
-           sp.target->is_loadbalance, packet, offset) < 0)
+      if (ipfix_unified_send_packet (sp.target, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -1664,13 +1673,9 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   }
 
   if (j != 0) {
-    if (verbose_flag)
-      logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     param->records_sent += flowcount;
     ((union IPFIX_UNIFIED_HEADER *) packet)->nf5.flows = htons (flowcount);
-    if (send_multi_destinations
-        (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset) < 0)
+    if (ipfix_unified_send_packet (sp.target, packet, offset, verbose_flag) < 0)
       return (-1);
     *flows_exported += j;
     num_packets++;
@@ -1685,12 +1690,12 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
 }
 
 int
-send_netflow_v1_unified (struct SENDPARAMETER sp) {
+send_netflow_v1 (struct SENDPARAMETER sp) {
   return send_ipfix_unified_fixed (sp, 1);
 }
 
 int
-send_netflow_v5_unified (struct SENDPARAMETER sp) {
+send_netflow_v5 (struct SENDPARAMETER sp) {
   return send_ipfix_unified_fixed (sp, 5);
 }
 
@@ -1831,36 +1836,33 @@ ipfix_unified_send_option (u_char *packet, u_int *offset, u_int16_t version,
   *offset += doff;
 }
 
-static u_int
-ipfix_unified_init_fields (struct IPFIX_UNIFIED_TEMPLATE *tmpl, u_int *index,
-                           const struct IPFIX_FIELD_SPECIFIER_ENCODER *src,
-                           u_int field_number) {
-  u_int i, length = 0;
-  for (i = 0; i < field_number && *index + i < IPFIX_UNIFIED_MAXFIELDS; i++) {
-    tmpl->r[*index + i].ie = htons (src[i].field.ie);
-    tmpl->r[*index + i].length = htons (src[i].field.length);
-    tmpl->hr[*index + i] = src[i];
-    length += src[i].field.length;
-  }
-  tmpl->hr_count = *index + i;
-  *index += i;
-  return length;
-}
+#define IPFIX_BIFLAG_OFF 0
+#define IPFIX_BIFLAG_ON  1
 
 static u_int
-ipfix_unified_init_bifields (struct IPFIX_UNIFIED_TEMPLATE *tmpl,
-                             u_int *index,
-                             const struct IPFIX_FIELD_SPECIFIER_ENCODER *src,
-                             u_int field_number) {
+ipfix_unified_init_fields (struct IPFIX_UNIFIED_TEMPLATE *tmpl,
+                           u_int *index,
+                           const struct IPFIX_FIELD_SPECIFIER_ENCODER *src,
+                           u_int field_number, int bi_flag) {
   u_int i, length = 0;
-  for (i = 0; i < field_number && *index + i < IPFIX_UNIFIED_MAXBIFIELDS; i++) {
-    tmpl->v[*index + i].ie = htons (src[i].field.ie | 0x8000);
-    tmpl->v[*index + i].length = htons (src[i].field.length);
-    tmpl->v[*index + i].pen = htonl (REVERSE_PEN);
-    tmpl->hbi[*index + i] = src[i];
+  u_int max_fields = bi_flag ? IPFIX_UNIFIED_MAXBIFIELDS : IPFIX_UNIFIED_MAXFIELDS;
+  for (i = 0; i < field_number && *index + i < max_fields; i++) {
+    if (bi_flag) {
+      tmpl->v[*index + i].ie = htons (src[i].field.ie | 0x8000);
+      tmpl->v[*index + i].length = htons (src[i].field.length);
+      tmpl->v[*index + i].pen = htonl (REVERSE_PEN);
+      tmpl->hbi[*index + i] = src[i];
+    } else {
+      tmpl->r[*index + i].ie = htons (src[i].field.ie);
+      tmpl->r[*index + i].length = htons (src[i].field.length);
+      tmpl->hr[*index + i] = src[i];
+    }
     length += src[i].field.length;
   }
-  tmpl->hbi_count = *index + i;
+  if (bi_flag)
+    tmpl->hbi_count = *index + i;
+  else
+    tmpl->hr_count = *index + i;
   *index += i;
   return length;
 }
@@ -1872,14 +1874,14 @@ ipfix_unified_init_template_time (struct FLOWTRACKPARAMETERS *param,
   /* Absolute (calendar) timestamps are IPFIX-only
    * NetFlow v9 always uses the relative sysUpTime form. */
   if (version == 10 && param->time_format == 's')
-    return ipfix_unified_init_fields (tmpl, index, field_timesec_enc, 2);
+    return ipfix_unified_init_fields (tmpl, index, field_timesec_enc, 2, IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'm')
-    return ipfix_unified_init_fields (tmpl, index, field_timemsec_enc, 2);
+    return ipfix_unified_init_fields (tmpl, index, field_timemsec_enc, 2, IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'M')
-    return ipfix_unified_init_fields (tmpl, index, field_timeusec_enc, 2);
+    return ipfix_unified_init_fields (tmpl, index, field_timeusec_enc, 2, IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'n')
-    return ipfix_unified_init_fields (tmpl, index, field_timensec_enc, 2);
-  return ipfix_unified_init_fields (tmpl, index, field_timesysup_enc, 2);
+    return ipfix_unified_init_fields (tmpl, index, field_timensec_enc, 2, IPFIX_BIFLAG_OFF);
+  return ipfix_unified_init_fields (tmpl, index, field_timesysup_enc, 2, IPFIX_BIFLAG_OFF);
 }
 
 static void
@@ -1897,58 +1899,58 @@ ipfix_unified_init_template_unity (struct FLOWTRACKPARAMETERS *param,
   if (v6_flag)
     length += ipfix_unified_init_fields (tmpl, &index, field_v6_enc,
                                          IPFIX_UNIFIED_NFIELDS_ENC
-                                         (field_v6_enc));
+                                         (field_v6_enc), IPFIX_BIFLAG_OFF);
   else
     length += ipfix_unified_init_fields (tmpl, &index, field_v4_enc,
                                          IPFIX_UNIFIED_NFIELDS_ENC
-                                         (field_v4_enc));
+                                         (field_v4_enc), IPFIX_BIFLAG_OFF);
   length += ipfix_unified_init_template_time (param, tmpl, &index, version);
   length += ipfix_unified_init_fields (tmpl, &index, field_common_enc,
                                        IPFIX_UNIFIED_NFIELDS_ENC
-                                       (field_common_enc));
+                                       (field_common_enc), IPFIX_BIFLAG_OFF);
   if (icmp_flag) {
     if (v6_flag)
       length += ipfix_unified_init_fields (tmpl, &index, field_icmp6_enc,
                                            IPFIX_UNIFIED_NFIELDS_ENC
-                                           (field_icmp6_enc));
+                                           (field_icmp6_enc), IPFIX_BIFLAG_OFF);
     else
       length += ipfix_unified_init_fields (tmpl, &index, field_icmp4_enc,
                                            IPFIX_UNIFIED_NFIELDS_ENC
-                                           (field_icmp4_enc));
+                                           (field_icmp4_enc), IPFIX_BIFLAG_OFF);
   } else {
     length += ipfix_unified_init_fields (tmpl, &index, field_transport_enc,
                                          IPFIX_UNIFIED_NFIELDS_ENC
-                                         (field_transport_enc));
+                                         (field_transport_enc), IPFIX_BIFLAG_OFF);
   }
   if (param->track_level >= TRACK_FULL_VLAN)
     length += ipfix_unified_init_fields (tmpl, &index, field_vlan_enc,
                                          IPFIX_UNIFIED_NFIELDS_ENC
-                                         (field_vlan_enc));
+                                         (field_vlan_enc), IPFIX_BIFLAG_OFF);
   if (param->track_level >= TRACK_FULL_VLAN_ETHER)
     length += ipfix_unified_init_fields (tmpl, &index, field_ether_enc,
                                          IPFIX_UNIFIED_NFIELDS_ENC
-                                         (field_ether_enc));
+                                         (field_ether_enc), IPFIX_BIFLAG_OFF);
   if (bi_flag && version == 10) {
     length +=
-      ipfix_unified_init_bifields (tmpl, &bi_index, field_bicommon_enc,
-                                   IPFIX_UNIFIED_NFIELDS_ENC
-                                   (field_bicommon_enc));
+      ipfix_unified_init_fields (tmpl, &bi_index, field_bicommon_enc,
+                                 IPFIX_UNIFIED_NFIELDS_ENC
+                                 (field_bicommon_enc), IPFIX_BIFLAG_ON);
     if (icmp_flag) {
       if (v6_flag)
         length +=
-          ipfix_unified_init_bifields (tmpl, &bi_index, field_biicmp6_enc,
-                                       IPFIX_UNIFIED_NFIELDS_ENC
-                                       (field_biicmp6_enc));
+          ipfix_unified_init_fields (tmpl, &bi_index, field_biicmp6_enc,
+                                     IPFIX_UNIFIED_NFIELDS_ENC
+                                     (field_biicmp6_enc), IPFIX_BIFLAG_ON);
       else
         length +=
-          ipfix_unified_init_bifields (tmpl, &bi_index, field_biicmp4_enc,
-                                       IPFIX_UNIFIED_NFIELDS_ENC
-                                       (field_biicmp4_enc));
+          ipfix_unified_init_fields (tmpl, &bi_index, field_biicmp4_enc,
+                                     IPFIX_UNIFIED_NFIELDS_ENC
+                                     (field_biicmp4_enc), IPFIX_BIFLAG_ON);
     } else {
       length +=
-        ipfix_unified_init_bifields (tmpl, &bi_index, field_bitransport_enc,
-                                     IPFIX_UNIFIED_NFIELDS_ENC
-                                     (field_bitransport_enc));
+        ipfix_unified_init_fields (tmpl, &bi_index, field_bitransport_enc,
+                                   IPFIX_UNIFIED_NFIELDS_ENC
+                                   (field_bitransport_enc), IPFIX_BIFLAG_ON);
     }
   }
   tmpl->bi_count = bi_index;
@@ -2006,8 +2008,6 @@ ipfix_unified_valuate_icmp (const struct FLOW *flow) {
     return flow->protocol == IPPROTO_ICMPV6;
   return 0;
 }
-
-/* flowDirection uses ipfix_flow_direction(). */
 
 static void
 ipfix_unified_memcpy_template (u_char *packet, u_int *offset,
@@ -2138,9 +2138,7 @@ send_ipfix_unified_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
           h->nf9.flows = htons (1);
           h->nf9.sequence = htonl (sequence++);
         }
-        if (send_multi_destinations
-            (target->num_destinations, target->destinations, 0, packet,
-             offset) < 0)
+        if (ipfix_unified_send_packet (target, packet, offset, 0) < 0)
           return (-1);
         offset = ipfix_unified_build_header (packet, version, param);
       }
@@ -2207,11 +2205,7 @@ send_ipfix_unified_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
       h->nf9.sequence = htonl (sequence++);
     }
 
-    if (verbose_flag)
-      logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
-    if (send_multi_destinations
-        (target->num_destinations, target->destinations,
-         target->is_loadbalance, packet, offset) < 0)
+    if (ipfix_unified_send_packet (target, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
     unified_pkts_until_template--;

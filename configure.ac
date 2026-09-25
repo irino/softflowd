@@ -240,6 +240,7 @@ case "$resolved_export_type" in
                       [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above]) ;;
 esac
 AM_CONDITIONAL([UNIFIED_EXPORT_TYPE_NONE], [test "x$resolved_export_type" = xnone])
+AM_CONDITIONAL([UNIFIED_EXPORT_TYPE_FULL], [test "x$resolved_export_type" = xfull])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])
