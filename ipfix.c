@@ -351,17 +351,18 @@ const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
 #endif
 };
 
-/* Shared Options Template struct sized for IPFIX (the larger set);
- * NF9 reuses the same layout with fewer slots. */
+/* Shared template sized for IPFIX (reused by NF9).
+ * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)
+ * to avoid over-counting and potential array bounds issues. */
 #define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS   \
-    sizeof(field_scope) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+    (sizeof(field_scope) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 #define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS        \
-    sizeof(field_option) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+    (sizeof(field_option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 
 #define NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS  \
-    sizeof(field_nf9scope) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+    (sizeof(field_nf9scope) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 #define NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS       \
-    sizeof(field_nf9option) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+    (sizeof(field_nf9option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 
 struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
   struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
@@ -1720,7 +1721,7 @@ struct IPFIX_UNIFIED_TEMPLATE {
 static struct IPFIX_UNIFIED_TEMPLATE unified_templates[TMPLMAX];
 static int unified_pkts_until_template = -1;
 
-/* Emits NFv9/IPFIX Options Templates and Data Records using ipfix_unified_emit_field().
+/* Emits NFv9/IPFIX Options Templates and Data Records using ipfix_unified_emit_group_enc().
  * Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to avoid duplicate padded declarations. */
 struct IPFIX_UNIFIED_OPTION_TEMPLATE {
   struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;
