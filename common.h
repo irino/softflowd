@@ -222,4 +222,13 @@ extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #define htobe64(x) OSSwapHostToBigInt64(x)
 #endif /* __APPLE__ */
 
+/* Set 'now' to last_packet_time (-a) or real wall-clock time.
+ * Exporters must call this before computing export_time to ensure reproducibility. */
+#define SET_EXPORT_NOW(now, param) do {                                \
+    if ((param)->adjust_time)                                         \
+      (now) = (param)->last_packet_time;                              \
+    else                                                              \
+      gettimeofday (&(now), NULL);                                    \
+  } while (0)
+
 #endif /* _SFD_COMMON_H */

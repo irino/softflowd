@@ -76,10 +76,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
 
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
   uptime_ms = timeval_sub_ms (&now, system_boot_time);
 
   hdr = (struct NF1_HEADER *) packet;

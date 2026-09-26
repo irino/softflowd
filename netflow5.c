@@ -94,10 +94,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   if (version != 5 && version != 1)
     return (-1);
 
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
   uptime_ms = timeval_sub_ms (&now, system_boot_time);
   hdr = (struct NF5_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {

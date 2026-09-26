@@ -348,10 +348,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   u_int64_t *packets_sent = &param->packets_sent;
   struct OPTION *option = &param->option;
 
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
 
   if (nf9_pkts_until_template == -1) {
     nf9_init_template ();
@@ -369,7 +366,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     nf9->version = htons (9);
     nf9->flows = 0;             /* Filled as we go, htons at end */
     nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
-    nf9->export_time = htonl (time (NULL));
+    nf9->export_time = htonl ((u_int32_t) now.tv_sec);
     nf9->od_id = 0;
     offset = sizeof (*nf9);
 

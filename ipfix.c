@@ -1026,10 +1026,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 
   if (version != 9 && version != 10)
     return (-1);
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
 
   if (ipfix_pkts_until_template == -1) {
     ipfix_init_template (param, bi_flag, version);
@@ -1050,10 +1047,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
       ipfix = (struct IPFIX_HEADER *) packet;
       ipfix->version = htons (version);
       ipfix->length = 0;        /* Filled as we go, htons at end */
-      if (param->adjust_time)
-        ipfix->export_time = htonl (now.tv_sec);
-      else
-        ipfix->export_time = htonl (time (NULL));
+      ipfix->export_time = htonl ((u_int32_t) now.tv_sec);
       ipfix->od_id = 0;
       offset = sizeof (*ipfix);
     } else if (version == 9) {
@@ -1061,10 +1055,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
       nf9->version = htons (version);
       nf9->flows = 0;           /* Filled as we go, htons at end */
       nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
-      if (param->adjust_time)
-        nf9->export_time = htonl (now.tv_sec);
-      else
-        nf9->export_time = htonl (time (NULL));
+      nf9->export_time = htonl ((u_int32_t) now.tv_sec);
       nf9->od_id = 0;
       offset = sizeof (*nf9);
     }
@@ -1536,10 +1527,7 @@ ipfix_unified_build_header (u_char *packet, u_int16_t version,
   struct timeval now;
   u_int32_t systemInitTimeMilliseconds;
 
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
 
   systemInitTimeMilliseconds = timeval_sub_ms (&now, &param->system_boot_time);
 
@@ -1575,7 +1563,7 @@ ipfix_unified_build_header (u_char *packet, u_int16_t version,
     return sizeof (h->nf9);
   default:                     /* 10 = IPFIX */
     h->ipfix.length = 0;
-    h->ipfix.export_time = htonl ((u_int32_t) (param->adjust_time ? now.tv_sec : time (NULL)));
+    h->ipfix.export_time = htonl ((u_int32_t) now.tv_sec);
     h->ipfix.sequence = 0;
     h->ipfix.od_id = 0;
     return sizeof (h->ipfix);
@@ -2105,10 +2093,7 @@ send_ipfix_unified_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
 
   if (version != 9 && version != 10)
     return (-1);
-  if (param->adjust_time)
-    now = param->last_packet_time;
-  else
-    gettimeofday (&now, NULL);
+  SET_EXPORT_NOW (now, param);
 
   if (unified_pkts_until_template == -1) {
     ipfix_unified_init_templates (param, bi_flag, version);
