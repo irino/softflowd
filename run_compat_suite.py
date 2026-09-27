@@ -162,7 +162,7 @@ def build_c_stable(commit_hash: str, output_dir: str) -> Tuple[str, str, str, st
     """
     print_cyan(f"\n[Build] Compiling C stable version (Commit/Tag: {commit_hash})...")
     worktree_dir = os.path.join(SUITE_TMP_DIR, "c_stable_worktree")
-    
+
     run_command(["git", "worktree", "add", "-f", worktree_dir, commit_hash], cwd=PROJECT_ROOT)
     atexit.register(lambda: subprocess.run(["git", "worktree", "remove", "-f", worktree_dir], cwd=PROJECT_ROOT, stderr=subprocess.DEVNULL))
 
@@ -207,7 +207,7 @@ def build_c_dev(output_dir: str) -> Tuple[str, str, str, str, str, str]:
       3. Unified export (softflowd-unified / softflowctl-unified)
     """
     print_cyan("\n[Build] Compiling C development version (current source tree)...")
-    
+
     # 1. Default C Dev
     print("  -> Configuring and building C development default...")
     run_command(["autoreconf", "-i"], cwd=PROJECT_ROOT)
@@ -484,17 +484,25 @@ def normalize_nfdump_csv(
     """Parse and normalize CSV records for deterministic comparison.
 
     The first line of `nfdump -o csv` output is a field-name header (e.g.
-    'ts,te,td,...,tr'), not a record; it is skipped here rather than treated
+    'firstSeen,duration,proto,srcAddr,srcPort,dstAddr,dstPort,packets,bytes,
+    flows'), not a record; it is skipped here rather than treated
     as data. By default, columns in COLLECTOR_METADATA_COLUMNS are masked
     out (pass include_collector_metadata=True to compare them too).
 
-    normalize_icmp_reclass masks the 'pr' and 'dp' columns (looked up by
-    header name, since nfdump's `-o csv` column order/count varies across
+    normalize_icmp_reclass masks the 'proto' and 'dstPort' columns (looked up
+    by header name, since nfdump's `-o csv` column order/count varies across
     versions) on any row whose own 'pr' is in ICMP_RECLASSIFICATION_PROTOCOLS
     -- see that constant's docstring. This only ever removes a difference
     from view when every *other* column on the row already matched, since
     the two normalized CSVs are still compared with plain equality; it
     cannot turn an otherwise-mismatched row into a false "matched" result.
+
+    The header row is identified by its first field being exactly 'ts' --
+    nfdump's flow-start column, always named and always first across every
+    `-o csv` column layout it emits -- rather than by guessing at the
+    character set of every field name, which does not hold across nfdump
+    versions/builds and previously caused header detection (and therefore
+    all header-dependent masking above) to silently no-op.
     """
     header_fields: Optional[List[str]] = None
     mask_idx: List[int] = []
@@ -508,14 +516,14 @@ def normalize_nfdump_csv(
         parts = line.split(",")
         if len(parts) < 10:
             continue
-        if header_fields is None and all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", p) for p in parts):
+        if header_fields is None and (parts[0].strip().lower() == "ts" or parts[0].strip().lower() == "firstseen"):
             header_fields = parts
             if not include_collector_metadata:
                 mask_idx = [i for i, name in enumerate(header_fields) if name in COLLECTOR_METADATA_COLUMNS]
             if normalize_icmp_reclass:
-                icmp_mask_idx = [i for i, name in enumerate(header_fields) if name in ("pr", "dp")]
-                if "pr" in header_fields:
-                    pr_idx = header_fields.index("pr")
+                icmp_mask_idx = [i for i, name in enumerate(header_fields) if name in ("proto", "dstPort")]
+                if "proto" in header_fields:
+                    pr_idx = header_fields.index("proto")
             continue
         if ignore_timestamp:
             parts[0] = "TIMESTAMP"
@@ -528,6 +536,17 @@ def normalize_nfdump_csv(
             if i < len(parts):
                 parts[i] = "COLLECTOR_METADATA"
         lines.append(",".join(parts))
+    if header_fields is None and (normalize_icmp_reclass or not include_collector_metadata) and lines:
+        print_yellow(
+            "    [WARN] nfdump CSV header (first field 'firstSeen') not found -- "
+            "collector-metadata masking and/or ICMP proto/destPort tolerance did not run "
+            "for this capture; comparing raw fields instead."
+        )
+    elif header_fields is not None and normalize_icmp_reclass and pr_idx is None:
+        print_yellow(
+            "    [WARN] nfdump CSV header found but has no 'pr' column -- ICMP pr/dp "
+            f"tolerance did not run for this capture. Detected header: {header_fields}"
+        )
     return sorted(lines)
 
 
@@ -591,11 +610,13 @@ def test_differential_output(
             print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")
         else:
             print_red(f"    - {display_name}: FAILED (Records: stable={len(norm_stable)}, dev={len(norm_dev)})")
+            show = max(len(norm_stable), len(norm_dev), 3)
+            show = min(show, 20)  # cap so a large real regression doesn't flood the terminal
             print("--- Stable Expected ---")
-            for l in norm_stable[:3]:
+            for l in norm_stable[:show]:
                 print(l)
             print("--- Dev Actual ---")
-            for l in norm_dev[:3]:
+            for l in norm_dev[:show]:
                 print(l)
             all_matched = False
 
