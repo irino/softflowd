@@ -43,7 +43,8 @@ Options:
     --auto-ignore-icmp-reclass : When the stable side of a pair is the old C reference,
                               tolerate its known ICMPv6 protocol/type misclassification bug
                               (fixed upstream in ipv6_to_flowrec(), commit 262225e) by masking
-                              the 'pr' and 'dp' columns only for rows either side reports as
+                              the protocol and destination-port columns (whatever they are
+                              named in this nfdump build) only for rows either side reports as
                               ICMP/ICMPv6 -- and only where every other column still matches
                               (default: True)
     --no-auto-ignore-icmp-reclass : Disable the above; compare those columns too
@@ -58,7 +59,6 @@ Options:
 import argparse
 import atexit
 import os
-import re
 import shutil
 import struct
 import subprocess
@@ -95,6 +95,18 @@ COLLECTOR_METADATA_COLUMNS = {"ra", "eng", "exid", "tr"}
 # (ICMPv4) is included defensively even though the bug is IPv6-specific, since
 # ICMPv4 rows use the same 'pr'/'dp' overlay convention.
 ICMP_RECLASSIFICATION_PROTOCOLS = {"0", "1", "58"}
+
+# Known aliases nfdump's `-o csv` uses for the protocol / destination-port
+# columns across versions and builds (e.g. terse 'pr'/'dp' vs the more
+# descriptive 'proto'/'dstPort' seen on some builds). Compared case-
+# insensitively. The header row itself is located purely positionally (see
+# normalize_nfdump_csv) since no single name is safe to assume there either;
+# these sets are only consulted to find the two specific columns the ICMP
+# tolerance needs, once the header row is already known. If a build uses
+# names outside both sets, the ICMP tolerance simply does not activate for
+# that capture (see the [WARN] it prints) rather than guessing.
+PROTOCOL_COLUMN_NAMES = {"pr", "proto", "protocol"}
+DST_PORT_COLUMN_NAMES = {"dp", "dstport", "destport", "destinationport"}
 
 
 def print_green(text: str) -> None:
@@ -484,25 +496,29 @@ def normalize_nfdump_csv(
     """Parse and normalize CSV records for deterministic comparison.
 
     The first line of `nfdump -o csv` output is a field-name header (e.g.
-    'firstSeen,duration,proto,srcAddr,srcPort,dstAddr,dstPort,packets,bytes,
-    flows'), not a record; it is skipped here rather than treated
-    as data. By default, columns in COLLECTOR_METADATA_COLUMNS are masked
-    out (pass include_collector_metadata=True to compare them too).
+    'ts,te,td,...,tr' or, on some builds, 'firstSeen,duration,proto,
+    srcAddr,...'), not a record; it is skipped here rather than treated as
+    data. By default, columns in COLLECTOR_METADATA_COLUMNS are masked out
+    (pass include_collector_metadata=True to compare them too).
 
-    normalize_icmp_reclass masks the 'proto' and 'dstPort' columns (looked up
-    by header name, since nfdump's `-o csv` column order/count varies across
-    versions) on any row whose own 'pr' is in ICMP_RECLASSIFICATION_PROTOCOLS
-    -- see that constant's docstring. This only ever removes a difference
-    from view when every *other* column on the row already matched, since
-    the two normalized CSVs are still compared with plain equality; it
-    cannot turn an otherwise-mismatched row into a false "matched" result.
+    normalize_icmp_reclass masks the protocol and destination-port columns
+    (located via PROTOCOL_COLUMN_NAMES / DST_PORT_COLUMN_NAMES, whichever
+    the header actually uses) on any row whose own protocol value is in
+    ICMP_RECLASSIFICATION_PROTOCOLS -- see that constant's docstring. This
+    only ever removes a difference from view when every *other* column on
+    the row already matched, since the two normalized CSVs are still
+    compared with plain equality; it cannot turn an otherwise-mismatched row
+    into a false "matched" result.
 
-    The header row is identified by its first field being exactly 'ts' --
-    nfdump's flow-start column, always named and always first across every
-    `-o csv` column layout it emits -- rather than by guessing at the
-    character set of every field name, which does not hold across nfdump
-    versions/builds and previously caused header detection (and therefore
-    all header-dependent masking above) to silently no-op.
+    The header row is identified positionally -- it is simply the first
+    line that survives the filters below -- rather than by matching any
+    specific field-name string. nfdump always emits exactly one such line
+    before any data for `-o csv`, but the literal names it uses for each
+    column (e.g. 'ts' vs 'firstSeen', 'pr' vs 'proto') differ across
+    versions/builds, so relying on a particular name (or set of names) here
+    is exactly what previously caused header detection -- and therefore all
+    header-dependent masking above -- to silently no-op on builds that
+    phrase the header differently.
     """
     header_fields: Optional[List[str]] = None
     mask_idx: List[int] = []
@@ -516,14 +532,17 @@ def normalize_nfdump_csv(
         parts = line.split(",")
         if len(parts) < 10:
             continue
-        if header_fields is None and (parts[0].strip().lower() == "ts" or parts[0].strip().lower() == "firstseen"):
+        if header_fields is None:
             header_fields = parts
+            lower_fields = [f.strip().lower() for f in header_fields]
             if not include_collector_metadata:
-                mask_idx = [i for i, name in enumerate(header_fields) if name in COLLECTOR_METADATA_COLUMNS]
+                mask_idx = [i for i, name in enumerate(lower_fields) if name in COLLECTOR_METADATA_COLUMNS]
             if normalize_icmp_reclass:
-                icmp_mask_idx = [i for i, name in enumerate(header_fields) if name in ("proto", "dstPort")]
-                if "proto" in header_fields:
-                    pr_idx = header_fields.index("proto")
+                icmp_mask_idx = [i for i, name in enumerate(lower_fields)
+                                  if name in PROTOCOL_COLUMN_NAMES or name in DST_PORT_COLUMN_NAMES]
+                pr_candidates = [i for i, name in enumerate(lower_fields) if name in PROTOCOL_COLUMN_NAMES]
+                if pr_candidates:
+                    pr_idx = pr_candidates[0]
             continue
         if ignore_timestamp:
             parts[0] = "TIMESTAMP"
@@ -536,16 +555,11 @@ def normalize_nfdump_csv(
             if i < len(parts):
                 parts[i] = "COLLECTOR_METADATA"
         lines.append(",".join(parts))
-    if header_fields is None and (normalize_icmp_reclass or not include_collector_metadata) and lines:
+    if header_fields is not None and normalize_icmp_reclass and pr_idx is None:
         print_yellow(
-            "    [WARN] nfdump CSV header (first field 'firstSeen') not found -- "
-            "collector-metadata masking and/or ICMP proto/destPort tolerance did not run "
-            "for this capture; comparing raw fields instead."
-        )
-    elif header_fields is not None and normalize_icmp_reclass and pr_idx is None:
-        print_yellow(
-            "    [WARN] nfdump CSV header found but has no 'pr' column -- ICMP pr/dp "
-            f"tolerance did not run for this capture. Detected header: {header_fields}"
+            "    [WARN] nfdump CSV header found but no recognized protocol column "
+            f"(looked for one of {sorted(PROTOCOL_COLUMN_NAMES)}) -- ICMP protocol/"
+            f"dest-port tolerance did not run for this capture. Detected header: {header_fields}"
         )
     return sorted(lines)
 
@@ -604,7 +618,7 @@ def test_differential_output(
         if should_ignore_ts and not ignore_timestamp:
             display_name += " [timestamp ignored: known stable-legacy NetFlow v9 bug]"
         if norm_icmp:
-            display_name += " [ICMP pr/dp tolerance active]"
+            display_name += " [ICMP protocol/dest-port tolerance active]"
 
         if norm_stable == norm_dev and len(norm_stable) > 0:
             print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")
