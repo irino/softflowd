@@ -53,10 +53,15 @@ Options:
                               columns (ra/eng/exid/tr); masked out by default since
                               they reflect nfcapd's own receive time/state, not the
                               exporter's output
+    --gauge-clock             : Also run each daemon once per test case with its own
+                              -g flag and print the "cpu clocks" (total) and
+                              "cpu clocks (export)" (time inside the export call)
+                              counters it reports on exit, for stable and dev
     -h, --help              : Show this help message
 """
 
 import argparse
+import re
 import atexit
 import os
 import shutil
@@ -487,6 +492,29 @@ def run_nfdump_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
             nfcapd_proc.kill()
 
 
+def run_gauge_capture(pcap_path: str, daemon_bin: str, version: int) -> Optional[Tuple[int, Optional[int], Optional[int]]]:
+    """Run daemon once with -g and parse the "cpu clocks" lines it prints on exit.
+
+    Returns (total_clocks, export_clocks, export_calls), where export_clocks/
+    export_calls are None if the daemon predates the export-clock counter or
+    ran with threaded export (-M), which reports "n/a" for export clocks.
+    Returns None if the daemon does not support -g at all (no output line).
+    """
+    cmd = [daemon_bin, "-g", "-r", pcap_path, "-n", "127.0.0.1:2055", "-v", str(version)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    total = export = calls = None
+    for line in res.stderr.splitlines():
+        m = re.search(r"cpu clocks:\s*(\d+)", line)
+        if m:
+            total = int(m.group(1))
+        m = re.search(r"cpu clocks \(export\):\s*(\d+)\s*\((\d+) calls\)", line)
+        if m:
+            export, calls = int(m.group(1)), int(m.group(2))
+    if total is None:
+        return None
+    return total, export, calls
+
+
 def normalize_nfdump_csv(
     csv_text: str,
     ignore_timestamp: bool = False,
@@ -572,7 +600,8 @@ def test_differential_output(
     auto_ignore_legacy_v9: bool,
     auto_ignore_icmp_reclass: bool,
     ignore_ipv6: bool,
-    include_collector_metadata: bool = False
+    include_collector_metadata: bool = False,
+    gauge_clock: bool = False
 ) -> bool:
     """Compare nfdump output across NetFlow v1, v5, v9 and IPFIX."""
     print("  [Step 3] Verifying Differential Packet Export (nfdump output)...")
@@ -620,6 +649,19 @@ def test_differential_output(
         if norm_icmp:
             display_name += " [ICMP protocol/dest-port tolerance active]"
 
+        if gauge_clock:
+            g_stable = run_gauge_capture(pcap_path, stable_daemon, version)
+            g_dev = run_gauge_capture(pcap_path, dev_daemon, version)
+
+            def fmt(g):
+                if g is None:
+                    return "-g not supported"
+                total, export, calls = g
+                if export is None:
+                    return f"total={total}"
+                return f"total={total} export={export} ({calls} calls)"
+            print(f"      cpu clocks: stable[{fmt(g_stable)}]  dev[{fmt(g_dev)}]")
+
         if norm_stable == norm_dev and len(norm_stable) > 0:
             print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")
         else:
@@ -648,7 +690,8 @@ def run_single_comparison(
     auto_ignore_legacy_v9: bool,
     auto_ignore_icmp_reclass: bool,
     ignore_ipv6: bool,
-    include_collector_metadata: bool = False
+    include_collector_metadata: bool = False,
+    gauge_clock: bool = False
 ) -> bool:
     """Run full verification between a stable and development daemon/ctl implementation pair."""
     print("=" * 60)
@@ -669,7 +712,7 @@ def run_single_comparison(
     # 3. Differential Output Verification
     if not test_differential_output(
         stable_daemon, dev_daemon, pair_name, ignore_timestamp, auto_ignore_legacy_v9,
-        auto_ignore_icmp_reclass, ignore_ipv6, include_collector_metadata
+        auto_ignore_icmp_reclass, ignore_ipv6, include_collector_metadata, gauge_clock
     ):
         return False
 
@@ -784,6 +827,14 @@ def main():
              "they legitimately differ between the suite's two separate capture runs; "
              "off by default"
     )
+    parser.add_argument(
+        "--gauge-clock",
+        dest="gauge_clock",
+        action="store_true",
+        help="Also run each daemon once per test case with its own -g flag and print "
+             "the \"cpu clocks\" (total) and \"cpu clocks (export)\" counters it reports "
+             "on exit, for stable and dev (default: False)"
+    )
     args = parser.parse_args()
 
     # Verify required environment tools
@@ -806,7 +857,8 @@ def main():
             auto_ignore_legacy_v9=args.auto_ignore_legacy_v9,
             auto_ignore_icmp_reclass=args.auto_ignore_icmp_reclass,
             ignore_ipv6=args.ignore_ipv6,
-            include_collector_metadata=args.include_collector_metadata
+            include_collector_metadata=args.include_collector_metadata,
+            gauge_clock=args.gauge_clock
         )
         sys.exit(0 if success else 1)
 
@@ -904,7 +956,8 @@ def main():
             auto_ignore_legacy_v9=args.auto_ignore_legacy_v9,
             auto_ignore_icmp_reclass=args.auto_ignore_icmp_reclass,
             ignore_ipv6=args.ignore_ipv6,
-            include_collector_metadata=args.include_collector_metadata
+            include_collector_metadata=args.include_collector_metadata,
+            gauge_clock=args.gauge_clock
         )
         if not passed:
             overall_passed = False
