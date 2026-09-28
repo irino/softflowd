@@ -1608,7 +1608,7 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
     IPFIX_UNIFIED_NFIELDS_ENC (field_netflowv5_tail_enc);
   u_int maxflows =
     (version == 1) ? IPFIX_UNIFIED_NF1_MAXFLOWS : IPFIX_UNIFIED_NF5_MAXFLOWS;
-  u_int offset, j, i, k, num_packets, flowcount;
+  u_int offset, j, i, k, num_packets, flowcount, need;
   u_int64_t *flows_exported = &param->flows_exported;
   struct IPFIX_UNIFIED_CTX ctx = { .sp = &sp, .flow = NULL, .i = 0 };
 
@@ -1617,7 +1617,12 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
 
   num_packets = offset = j = flowcount = 0;
   for (i = 0; i < (u_int) num_flows; i++) {
-    if (j >= maxflows) {
+    /* Records this flow adds: IPv4 only, one per direction with data.
+     * Flush first if they do not all fit, so that the two directions of
+     * one flow are never split across packets (or emitted twice). */
+    need = (flows[i]->af == AF_INET) ?
+      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    if (j + need > maxflows) {
       param->records_sent += flowcount;
       ((union IPFIX_UNIFIED_HEADER *) packet)->nf5.flows = htons (flowcount);
       if (ipfix_unified_send_packet (sp.target, packet, offset, verbose_flag) < 0)
@@ -1642,11 +1647,6 @@ send_ipfix_unified_fixed (struct SENDPARAMETER sp, u_int16_t version) {
     for (k = 0; k < 2; k++) {
       if (flows[i]->octets[k] == 0)
         continue;
-      if (j >= maxflows) {
-        /* out of space in this packet; flush and retry this record */
-        i--;
-        break;
-      }
       ctx.flow = flows[i];
       ctx.i = k;
       offset = ipfix_unified_emit_group_enc (field_netflow_v1v5_common_enc,
