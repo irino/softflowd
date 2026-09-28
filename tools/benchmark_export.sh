@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # benchmark_export.sh -- compare softflowd's NetFlow/IPFIX export
-# implementations (legacy / default / --enable-unified-export) across
-# one or more pcap files and NetFlow/IPFIX versions.
+# implementations (none / partial / full, see --enable-unified-export-type)
+# across one or more pcap files and NetFlow/IPFIX versions.
 #
 # Usage:
 #   ./benchmark_export.sh [options] pcap1.pcap [pcap2.pcap ...]
@@ -11,12 +11,20 @@
 #   -v VERSIONS   comma-separated NetFlow/IPFIX versions to test
 #                 (default: 1,5,9,10)
 #   -b BUILDS     comma-separated build variants to compare:
-#                 default,legacy,unified (default: default,unified)
+#                 none,partial,full (default: partial,full).
+#                 Aliases: default=partial, legacy=none, unified=full
 #   -w WARMUP     hyperfine --warmup count (default: 3)
 #   -m MIN_RUNS   hyperfine --min-runs count (default: 10)
 #   -M MAX_RUNS   hyperfine --max-runs count (optional, unset = no cap)
 #   -o OUTFILE    combined CSV output path (default: benchmark_results.csv)
 #   -p            also run `perf stat` once per combination (needs perf)
+#   -C            also run callgrind once per combination (needs valgrind
+#                 and callgrind_annotate); writes instruction counts to
+#                 OUTFILE.callgrind.csv and per-function profiles to
+#                 OUTFILE.callgrind/. Callgrind is ~50x slower than a
+#                 native run, so use a small pcap with this option.
+#   -T TOPN       number of functions shown per callgrind profile
+#                 (default: 15)
 #   -s SRCDIR     softflowd source directory (default: .)
 #   -j JOBS       parallel `make` jobs when building (default: 2)
 #   -k            keep/reuse already-built variant binaries (skip rebuild
@@ -27,7 +35,8 @@
 #
 # Requires: hyperfine (falls back to a plain `time`-based loop if
 # missing), python3 (only used to parse hyperfine's --export-json
-# output; skipped in the fallback path). `perf` is optional (-p).
+# output; skipped in the fallback path). `perf` is optional (-p),
+# valgrind/callgrind_annotate are optional (-C).
 #
 # What this does for each (pcap, build variant, version) combination:
 #   1. Builds (once per variant, reused across pcaps/versions) a
@@ -45,16 +54,22 @@
 #      wall time, plus user/system time when hyperfine is used).
 #   5. With -p, also runs `perf stat` once per combination and prints
 #      instructions/branches/branch-misses alongside the timing.
+#   6. With -C, also runs callgrind once per combination and records the
+#      total instruction count (Ir) and the self Ir spent in the exporter
+#      sources (ipfix.c, netflow*.c, psamp.c), then prints the Ir ratio of
+#      each build relative to the first build in -b.
 
 set -euo pipefail
 
 VERSIONS="1,5,9,10"
-BUILDS="default,unified"
+BUILDS="partial,full"
 WARMUP=3
 MIN_RUNS=10
 MAX_RUNS=""
 OUTFILE="benchmark_results.csv"
 RUN_PERF=0
+RUN_CALLGRIND=0
+TOPN=15
 SRCDIR="."
 JOBS=2
 REUSE_BUILDS=0
@@ -62,7 +77,7 @@ PORT=2055
 
 usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
 
-while getopts "v:b:w:m:M:o:ps:j:kP:h" opt; do
+while getopts "v:b:w:m:M:o:pCT:s:j:kP:h" opt; do
   case "$opt" in
     v) VERSIONS="$OPTARG" ;;
     b) BUILDS="$OPTARG" ;;
@@ -71,6 +86,8 @@ while getopts "v:b:w:m:M:o:ps:j:kP:h" opt; do
     M) MAX_RUNS="$OPTARG" ;;
     o) OUTFILE="$OPTARG" ;;
     p) RUN_PERF=1 ;;
+    C) RUN_CALLGRIND=1 ;;
+    T) TOPN="$OPTARG" ;;
     s) SRCDIR="$OPTARG" ;;
     j) JOBS="$OPTARG" ;;
     k) REUSE_BUILDS=1 ;;
@@ -101,6 +118,13 @@ HAVE_PY3=0; command -v python3 >/dev/null 2>&1 && HAVE_PY3=1
 if [ "$RUN_PERF" -eq 1 ] && [ "$HAVE_PERF" -ne 1 ]; then
   echo "warning: -p requested but 'perf' not found; skipping perf stat" >&2
   RUN_PERF=0
+fi
+if [ "$RUN_CALLGRIND" -eq 1 ]; then
+  if ! command -v valgrind >/dev/null 2>&1 \
+     || ! command -v callgrind_annotate >/dev/null 2>&1; then
+    echo "warning: -C requested but valgrind/callgrind_annotate not found; skipping callgrind" >&2
+    RUN_CALLGRIND=0
+  fi
 fi
 if [ "$HAVE_HYPERFINE" -ne 1 ]; then
   echo "note: hyperfine not found; falling back to a plain time(1) loop" >&2
@@ -149,10 +173,10 @@ cleanup () { stop_sink; rm -rf "$WORKDIR"; }
 
 configure_flags_for () {
   case "$1" in
-    default) echo "" ;;
-    legacy)  echo "--enable-legacy" ;;
-    unified) echo "--enable-unified-export" ;;
-    *) echo "error: unknown build variant '$1' (expected default|legacy|unified)" >&2
+    default|partial) echo "--enable-unified-export-type=partial" ;;
+    legacy|none)     echo "--enable-unified-export-type=none" ;;
+    unified|full)    echo "--enable-unified-export-type=full" ;;
+    *) echo "error: unknown build variant '$1' (expected none|partial|full)" >&2
        exit 1 ;;
   esac
 }
@@ -234,6 +258,43 @@ run_fallback_case () {
   echo "$pcap,$variant,$version,$mean,,$median,,,$n,time-loop" >> "$OUTFILE"
 }
 
+CG_CSV="$OUTFILE.callgrind.csv"
+CG_DIR="$OUTFILE.callgrind"
+if [ "$RUN_CALLGRIND" -eq 1 ]; then
+  mkdir -p "$CG_DIR"
+  echo "pcap,build,version,total_ir,exporter_self_ir" > "$CG_CSV"
+fi
+
+# Run callgrind once for one (pcap, variant, version) combination.
+# Records total Ir and the self Ir of exporter sources (ipfix.c,
+# netflow*.c, psamp.c) in CG_CSV, and keeps the annotated profile.
+run_callgrind_case () {
+  local pcap="$1" variant="$2" version="$3" bin="$SRCDIR/softflowd-$variant"
+  local tag; tag="$(basename "$pcap" .pcap)_${variant}_v${version}"
+  local out="$CG_DIR/$tag.out" txt="$CG_DIR/$tag.txt"
+  echo "== callgrind: $variant / v$version / $(basename "$pcap") ==" >&2
+  valgrind --tool=callgrind --callgrind-out-file="$out" \
+    "$bin" -r "$pcap" -n "127.0.0.1:$PORT" -v "$version" \
+    >/dev/null 2>"$CG_DIR/$tag.log" || true
+  if [ ! -s "$out" ]; then
+    echo "warning: no callgrind output for $tag (see $CG_DIR/$tag.log)" >&2
+    return
+  fi
+  callgrind_annotate --auto=no --threshold=100 "$out" > "$txt" 2>/dev/null || true
+  local total; total=$(awk '/^totals:/ {print $2; exit}' "$out")
+  # Self Ir per function line: "1,234 (12.3%)  path/file.c:func [obj]".
+  # Only the file:function table is summed (auto-annotation is off).
+  local exp; exp=$(awk '
+    /file:function/ { f = 1; next }
+    f && /%\)/ && $0 ~ /(ipfix|netflow[0-9]+|psamp)\.c:/ {
+      gsub(",", "", $1); sum += $1
+    }
+    END { printf "%d", sum }' "$txt")
+  echo "$pcap,$variant,$version,$total,$exp" >> "$CG_CSV"
+  echo "-- top $TOPN functions ($tag) --" >&2
+  awk -v n="$TOPN" '/file:function/ {f=1; next} f && /%\)/ {print; c++} c>=n {exit}' "$txt" >&2
+}
+
 start_sink
 
 for pcap in "${PCAPS[@]}"; do
@@ -253,6 +314,9 @@ for pcap in "${PCAPS[@]}"; do
           "$SRCDIR/softflowd-$variant" -r "$pcap" -n "127.0.0.1:$PORT" -v "$version" \
           >/dev/null 2>>"$OUTFILE.perf.log" || true
       fi
+      if [ "$RUN_CALLGRIND" -eq 1 ]; then
+        run_callgrind_case "$pcap" "$variant" "$version"
+      fi
     done
   done
 done
@@ -260,6 +324,9 @@ done
 stop_sink
 
 echo "== done. Results: $OUTFILE ==" >&2
+if [ "$RUN_CALLGRIND" -eq 1 ]; then
+  echo "== callgrind results: $CG_CSV (profiles in $CG_DIR/) ==" >&2
+fi
 [ "$RUN_PERF" -eq 1 ] && echo "== perf stat details: $OUTFILE.perf.log ==" >&2
 
 if [ "$HAVE_PY3" -eq 1 ]; then
@@ -280,5 +347,29 @@ for r in rows:
     except ValueError:
         mean = stddev = user = sysv = "-"
     print(f'{r["pcap"][:23]:<24}{r["build"]:<10}{r["version"]:<5}{mean:>10}{stddev:>10}{user:>10}{sysv:>10}')
+PYEOF
+fi
+
+if [ "$RUN_CALLGRIND" -eq 1 ] && [ "$HAVE_PY3" -eq 1 ]; then
+  python3 - "$CG_CSV" "${BUILD_LIST[0]}" <<'PYEOF'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+base = sys.argv[2]
+if not rows:
+    sys.exit(0)
+ref = {(r["pcap"], r["version"]): r for r in rows if r["build"] == base}
+print()
+print(f"callgrind Ir (ratio vs '{base}')")
+print(f'{"pcap":<24}{"build":<10}{"ver":<5}{"total Ir":>16}{"ratio":>8}{"exporter Ir":>16}{"ratio":>8}')
+for r in rows:
+    b = ref.get((r["pcap"], r["version"]))
+    def ratio(k):
+        try:
+            return f'{float(r[k]) / float(b[k]):.3f}x'
+        except (TypeError, ValueError, ZeroDivisionError):
+            return "-"
+    print(f'{r["pcap"][:23]:<24}{r["build"]:<10}{r["version"]:<5}'
+          f'{int(r["total_ir"]):>16,}{ratio("total_ir"):>8}'
+          f'{int(r["exporter_self_ir"]):>16,}{ratio("exporter_self_ir"):>8}')
 PYEOF
 fi
