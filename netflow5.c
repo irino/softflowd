@@ -53,6 +53,7 @@ struct NF1_FLOW_PROTO_TOS_TCPF {
   u_int32_t reserved1;
 };
 
+#define NF1_MAXFLOWS		24
 #define NF5_MAXFLOWS		30
 #define NF5_MAXPACKET_SIZE	(sizeof(struct NF5_HEADER) + \
 				 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
@@ -90,6 +91,8 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   struct OPTION *option = &param->option;
+  int maxflows = (version == 1) ? NF1_MAXFLOWS : NF5_MAXFLOWS;
+  int need;
 
   if (version != 5 && version != 1)
     return (-1);
@@ -98,7 +101,10 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   uptime_ms = timeval_sub_ms (&now, system_boot_time);
   hdr = (struct NF5_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
-    if (j >= NF5_MAXFLOWS - 1) {
+    /* Records this flow adds: IPv4 only, one per direction with data. */
+    need = (flows[i]->af == AF_INET) ?
+      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    if (j + need > maxflows) {
       if (verbose_flag)
         logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += hdr->flows;
