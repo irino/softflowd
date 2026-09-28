@@ -134,13 +134,12 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       if (version == 1)
         offset = NF1_HEADER_SIZE;
     }
-    flw = (struct NF5_FLOW *) (packet + offset);
-    flw->if_index_in = flw->if_index_out = htons (ifidx);
-
     /* NetFlow v.5 doesn't do IPv6 */
     if (flows[i]->af != AF_INET)
       continue;
     if (flows[i]->octets[0] > 0) {
+      flw = (struct NF5_FLOW *) (packet + offset);
+      flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[0].v4.s_addr;
       flw->dest_ip = flows[i]->addr[1].v4.s_addr;
       flw->src_port = flows[i]->port[0];
@@ -165,10 +164,9 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       hdr->flows++;
     }
 
-    flw = (struct NF5_FLOW *) (packet + offset);
-    flw->if_index_in = flw->if_index_out = htons (ifidx);
-
     if (flows[i]->octets[1] > 0) {
+      flw = (struct NF5_FLOW *) (packet + offset);
+      flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[1].v4.s_addr;
       flw->dest_ip = flows[i]->addr[0].v4.s_addr;
       flw->src_port = flows[i]->port[1];
