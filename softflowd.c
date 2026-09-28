@@ -82,6 +82,9 @@ static int verbose_flag = 0;	/* Debugging flag */
 static u_int16_t if_index = 0;	/* "manual" interface index */
 static int track_level;
 static int snaplen = 0;
+static int gauge_clock = 0;		/* -g: report cpu clocks */
+static clock_t export_clocks = 0;	/* cpu clocks spent in the export function */
+static unsigned long export_calls = 0;
 #ifdef ENABLE_PTHREAD
 pthread_mutex_t read_mutex;
 pthread_cond_t read_cond;
@@ -1019,7 +1022,15 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
       }
       else
 #endif /* ENABLE_PTHREAD */
+      {
+	clock_t export_start = gauge_clock ? clock () : 0;
+
 	r = func (sp);
+	if (gauge_clock) {
+	  export_clocks += clock () - export_start;
+	  export_calls++;
+	}
+      }
       if (verbose_flag)
 	logit (LOG_DEBUG, "sent %d netflow packets", r);
       if (r <= 0)
@@ -1874,7 +1885,7 @@ usage (void) {
 #endif /* LINUX */
 	   "  -x                      Specify number of MPLS labels\n"
 	   "  -I                      Specify seconds for reinitialize boot time\n"
-	   "  -g                      Gauge cpu clock for benchmark\n"
+	   "  -g                      Gauge cpu clock (total and export) for benchmark\n"
 	   "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
 	   "  -h                      Display this help\n"
 	   "\n"
@@ -2117,7 +2128,6 @@ main (int argc, char **argv) {
   int use_promisc = 1;
   long int boot_time_reinit_sec = 0;
   char *timeunit;
-  int gauge_clock = 0;
 
   closefrom (STDERR_FILENO + 1);
 
@@ -2739,7 +2749,15 @@ main (int argc, char **argv) {
 
   if (rsock > 0)
     close (rsock);
-  if (gauge_clock)
+  if (gauge_clock) {
     logit (LOG_INFO, "cpu clocks: %ld\n", clock () - boottime);
+#ifdef ENABLE_PTHREAD
+    if (use_thread)
+      logit (LOG_INFO, "cpu clocks (export): n/a with threaded export\n");
+    else
+#endif /* ENABLE_PTHREAD */
+      logit (LOG_INFO, "cpu clocks (export): %ld (%lu calls)\n",
+	     (long) export_clocks, export_calls);
+  }
   return (r == 0 ? 0 : 1);
 }
