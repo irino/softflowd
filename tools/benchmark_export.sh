@@ -25,6 +25,10 @@
 #                 native run, so use a small pcap with this option.
 #   -T TOPN       number of functions shown per callgrind profile
 #                 (default: 15)
+#   -g            also run once per combination with softflowd's own -g
+#                 flag and record its "cpu clocks" (total) and
+#                 "cpu clocks (export)" (time inside the export call)
+#                 counters in OUTFILE.gauge.csv
 #   -s SRCDIR     softflowd source directory (default: .)
 #   -j JOBS       parallel `make` jobs when building (default: 2)
 #   -k            keep/reuse already-built variant binaries (skip rebuild
@@ -36,7 +40,8 @@
 # Requires: hyperfine (falls back to a plain `time`-based loop if
 # missing), python3 (only used to parse hyperfine's --export-json
 # output; skipped in the fallback path). `perf` is optional (-p),
-# valgrind/callgrind_annotate are optional (-C).
+# valgrind/callgrind_annotate are optional (-C). -g relies on softflowd's
+# own -g flag, so it needs no extra tool.
 #
 # What this does for each (pcap, build variant, version) combination:
 #   1. Builds (once per variant, reused across pcaps/versions) a
@@ -58,6 +63,9 @@
 #      total instruction count (Ir) and the self Ir spent in the exporter
 #      sources (ipfix.c, netflow*.c, psamp.c), then prints the Ir ratio of
 #      each build relative to the first build in -b.
+#   7. With -g, also runs the binary once per combination with -g and
+#      records the "cpu clocks" and "cpu clocks (export)" lines it
+#      prints in OUTFILE.gauge.csv.
 
 set -euo pipefail
 
@@ -70,14 +78,15 @@ OUTFILE="benchmark_results.csv"
 RUN_PERF=0
 RUN_CALLGRIND=0
 TOPN=15
+RUN_GAUGE=0
 SRCDIR="."
 JOBS=2
 REUSE_BUILDS=0
 PORT=2055
 
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,69p' "$0" | sed 's/^# \{0,1\}//'; }
 
-while getopts "v:b:w:m:M:o:pCT:s:j:kP:h" opt; do
+while getopts "v:b:w:m:M:o:pCT:gs:j:kP:h" opt; do
   case "$opt" in
     v) VERSIONS="$OPTARG" ;;
     b) BUILDS="$OPTARG" ;;
@@ -88,6 +97,7 @@ while getopts "v:b:w:m:M:o:pCT:s:j:kP:h" opt; do
     p) RUN_PERF=1 ;;
     C) RUN_CALLGRIND=1 ;;
     T) TOPN="$OPTARG" ;;
+    g) RUN_GAUGE=1 ;;
     s) SRCDIR="$OPTARG" ;;
     j) JOBS="$OPTARG" ;;
     k) REUSE_BUILDS=1 ;;
@@ -265,6 +275,29 @@ if [ "$RUN_CALLGRIND" -eq 1 ]; then
   echo "pcap,build,version,total_ir,exporter_self_ir" > "$CG_CSV"
 fi
 
+GAUGE_CSV="$OUTFILE.gauge.csv"
+if [ "$RUN_GAUGE" -eq 1 ]; then
+  echo "pcap,build,version,cpu_clocks_total,cpu_clocks_export,export_calls" > "$GAUGE_CSV"
+fi
+
+# Run once with softflowd's own -g and record the "cpu clocks" /
+# "cpu clocks (export)" lines it prints on exit (see softflowd.c).
+run_gauge_case () {
+  local pcap="$1" variant="$2" version="$3" bin="$SRCDIR/softflowd-$variant"
+  local log="$WORKDIR/gauge.log"
+  "$bin" -g -r "$pcap" -n "127.0.0.1:$PORT" -v "$version" >/dev/null 2>"$log" || true
+  local total export calls
+  total=$(sed -n 's/^cpu clocks: \([0-9]*\)/\1/p' "$log" | tail -1)
+  export=$(sed -n 's/^cpu clocks (export): \([0-9]*\).*/\1/p' "$log" | tail -1)
+  calls=$(sed -n 's/^cpu clocks (export): [0-9]* (\([0-9]*\) calls)/\1/p' "$log" | tail -1)
+  if [ -z "$total" ]; then
+    echo "warning: no 'cpu clocks' output for $variant/v$version/$(basename "$pcap") (see $log)" >&2
+    return
+  fi
+  # export is empty (n/a) for threaded export (-M); leave the CSV field blank.
+  echo "$pcap,$variant,$version,$total,${export:-},${calls:-}" >> "$GAUGE_CSV"
+}
+
 # Run callgrind once for one (pcap, variant, version) combination.
 # Records total Ir and the self Ir of exporter sources (ipfix.c,
 # netflow*.c, psamp.c) in CG_CSV, and keeps the annotated profile.
@@ -317,6 +350,9 @@ for pcap in "${PCAPS[@]}"; do
       if [ "$RUN_CALLGRIND" -eq 1 ]; then
         run_callgrind_case "$pcap" "$variant" "$version"
       fi
+      if [ "$RUN_GAUGE" -eq 1 ]; then
+        run_gauge_case "$pcap" "$variant" "$version"
+      fi
     done
   done
 done
@@ -326,6 +362,9 @@ stop_sink
 echo "== done. Results: $OUTFILE ==" >&2
 if [ "$RUN_CALLGRIND" -eq 1 ]; then
   echo "== callgrind results: $CG_CSV (profiles in $CG_DIR/) ==" >&2
+fi
+if [ "$RUN_GAUGE" -eq 1 ]; then
+  echo "== gauge (-g) results: $GAUGE_CSV ==" >&2
 fi
 [ "$RUN_PERF" -eq 1 ] && echo "== perf stat details: $OUTFILE.perf.log ==" >&2
 
@@ -371,5 +410,31 @@ for r in rows:
     print(f'{r["pcap"][:23]:<24}{r["build"]:<10}{r["version"]:<5}'
           f'{int(r["total_ir"]):>16,}{ratio("total_ir"):>8}'
           f'{int(r["exporter_self_ir"]):>16,}{ratio("exporter_self_ir"):>8}')
+PYEOF
+fi
+
+if [ "$RUN_GAUGE" -eq 1 ] && [ "$HAVE_PY3" -eq 1 ]; then
+  python3 - "$GAUGE_CSV" "${BUILD_LIST[0]}" <<'PYEOF'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))
+base = sys.argv[2]
+if not rows:
+    sys.exit(0)
+ref = {(r["pcap"], r["version"]): r for r in rows if r["build"] == base}
+print()
+print(f"-g cpu clocks (ratio vs '{base}')")
+print(f'{"pcap":<24}{"build":<10}{"ver":<5}{"total":>14}{"ratio":>8}{"export":>14}{"ratio":>8}{"calls":>8}')
+for r in rows:
+    b = ref.get((r["pcap"], r["version"]))
+    def ratio(k):
+        try:
+            return f'{float(r[k]) / float(b[k]):.3f}x'
+        except (TypeError, ValueError, ZeroDivisionError):
+            return "-"
+    exp = r["cpu_clocks_export"] or "n/a"
+    print(f'{r["pcap"][:23]:<24}{r["build"]:<10}{r["version"]:<5}'
+          f'{int(r["cpu_clocks_total"]):>14,}{ratio("cpu_clocks_total"):>8}'
+          f'{exp:>14}{ratio("cpu_clocks_export") if r["cpu_clocks_export"] else "-":>8}'
+          f'{r["export_calls"] or "-":>8}')
 PYEOF
 fi
