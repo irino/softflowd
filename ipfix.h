@@ -167,15 +167,16 @@ struct ntp_time_t {
 };
 
 /* Prototypes for functions to send NetFlow packets */
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
+/* Default: the unified v1/v5/v9/IPFIX exporter */
 int send_nflow9 (struct SENDPARAMETER sp);
 int send_ipfix (struct SENDPARAMETER sp);
 int send_ipfix_bi (struct SENDPARAMETER sp);
-
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
-/* Prototypes for the unified v1/v5/v9/IPFIX exporter (ENABLE_UNIFIED_EXPORT_TYPE_FULL). */
-int send_nflow9_unified (struct SENDPARAMETER sp);
-int send_ipfix_unified (struct SENDPARAMETER sp);
-int send_ipfix_bi_unified (struct SENDPARAMETER sp);
+#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL */
+/* Per-version exporters (partial or none) */
+int send_nflow9_partial (struct SENDPARAMETER sp);
+int send_ipfix_partial (struct SENDPARAMETER sp);
+int send_ipfix_bi_partial (struct SENDPARAMETER sp);
 #endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
 /* Force a resend of the flow template. */
 void ipfix_resend_template (void);

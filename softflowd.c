@@ -251,15 +251,15 @@ static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
-  {9, send_nflow9_unified, NULL, 1},
-  {NF_VERSION_IPFIX, send_ipfix_unified, send_ipfix_bi_unified, 1},
+  {9, send_nflow9, NULL, 1},
+  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
 #else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL */
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
   {9, send_netflow_v9, NULL, 1},
 #else /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL */
-  {9, send_nflow9, NULL, 1},
+  {9, send_nflow9_partial, NULL, 1},
 #endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
-  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
+  {NF_VERSION_IPFIX, send_ipfix_partial, send_ipfix_bi_partial, 1},
 #endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
