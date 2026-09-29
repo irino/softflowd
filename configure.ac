@@ -79,7 +79,7 @@ AC_ARG_ENABLE(unified-export,
               [unified_export=$enableval],[unified_export=])
 AC_ARG_ENABLE(unified-export-type,
               AS_HELP_STRING([--enable-unified-export-type=full|partial|none],
-                             [choose the NetFlow v1/v5/v9/IPFIX exporter architecture in ipfix.c: full (single switch/if-else based unified exporter for all versions), partial (default; per-version exporters that share unified field tables), or none (fully separate legacy NetFlow v9 exporter in netflow9.c)]),
+                             [choose the NetFlow v1/v5/v9/IPFIX exporter architecture in ipfix.c: full (default; single switch/if-else based unified exporter for all versions), partial (per-version exporters that share unified field tables), or none (fully separate legacy NetFlow v9 exporter in netflow9.c)]),
               [unified_export_type=$enableval],[unified_export_type=])
 if test -n "$unified_export_type" ; then
   dnl New-style option was given: it decides, and wins over the
@@ -91,21 +91,25 @@ if test -n "$unified_export_type" ; then
   if test -n "$legacy" -o -n "$unified_export" ; then
     AC_MSG_WARN([--enable-unified-export-type=$unified_export_type overrides the deprecated --enable-legacy/--enable-unified-export options])
   fi
-  legacy=no
-  unified_export=no
-  case "$unified_export_type" in
-    full) unified_export=yes ;;
-    none) legacy=yes ;;
-  esac
+  resolved_export_type=$unified_export_type
 else
   dnl Only the deprecated flags (or neither) were given: keep their
   dnl old, independent-boolean behavior exactly as before, including
   dnl the (functionally redundant but previously allowed) case of
-  dnl both being enabled together.
+  dnl both being enabled together. Neither flag given resolves to
+  dnl the current default architecture (full) below, same as an
+  dnl explicit --enable-unified-export-type=full would.
   test -z "$legacy" && legacy=no
   test -z "$unified_export" && unified_export=no
   if test "x$legacy" = "xyes" -o "x$unified_export" = "xyes" ; then
     AC_MSG_WARN([--enable-legacy/--enable-unified-export are deprecated; use --enable-unified-export-type=full|partial|none instead])
+  fi
+  if test "x$unified_export" = "xyes" ; then
+    resolved_export_type=full
+  elif test "x$legacy" = "xyes" ; then
+    resolved_export_type=none
+  else
+    resolved_export_type=full
   fi
 fi
 AC_ARG_ENABLE(pthread,
@@ -213,20 +217,14 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
-dnl Resolve legacy/unified_export flags into a single tri-state macro.
-dnl 'unified_export=yes' overrides legacy to avoid compiling unreachable
-dnl legacy exporter code (netflow1.c / netflow9.c).
-if test "x$unified_export" = "xyes" ; then
-  resolved_export_type=full
-elif test "x$legacy" = "xyes" ; then
-  resolved_export_type=none
-else
-  resolved_export_type=partial
-fi
+dnl resolved_export_type was already determined above, directly from
+dnl --enable-unified-export-type if given, or from the deprecated
+dnl --enable-legacy/--enable-unified-export flags (defaulting to full)
+dnl otherwise.
 AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_FULL], [1],
-          [sentinel value: single switch/if-else based unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c])
+          [sentinel value: single switch/if-else based unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default)])
 AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL], [2],
-          [sentinel value: per-version NetFlow v1/v5/v9/IPFIX exporters in ipfix.c sharing unified field tables (default)])
+          [sentinel value: per-version NetFlow v1/v5/v9/IPFIX exporters in ipfix.c sharing unified field tables])
 AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_NONE], [3],
           [sentinel value: fully separate legacy NetFlow v9 exporter in netflow9.c])
 case "$resolved_export_type" in
