@@ -722,10 +722,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   nf9opt_data.samplingInterval =
     htonl (option->sample > 1 ? option->sample : 1);
   nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
-  strncpy (nf9opt_data.interfaceName, option->interfaceName,
-           strlen (option->interfaceName) <
-           sizeof (nf9opt_data.interfaceName) ?
-           strlen (option->interfaceName) :
+  strlcpy (nf9opt_data.interfaceName, option->interfaceName,
            sizeof (nf9opt_data.interfaceName));
 }
 
@@ -762,10 +759,7 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   option_data.samplingInterval = htonl (1);
   option_data.samplingSpace =
     htonl (option->sample > 0 ? option->sample - 1 : 0);
-  strncpy (option_data.interfaceName, option->interfaceName,
-           strlen (option->interfaceName) <
-           sizeof (option_data.interfaceName) ?
-           strlen (option->interfaceName) :
+  strlcpy (option_data.interfaceName, option->interfaceName,
            sizeof (option_data.interfaceName));
   if (option->exporterAddr != NULL) {
     struct addrinfo *rp;
@@ -886,10 +880,8 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
     dc[i]->flowDirection = ipfix_flow_direction (flow, i, param);
     dc[i]->flowEndReason = flow->flowEndReason;
 #ifdef ENABLE_IFNAME
-    strncpy (dc[i]->interfaceName, option->interfaceName,
-             strlen (option->interfaceName) <
-             sizeof (dc[i]->interfaceName) ?
-             strlen (option->interfaceName) : sizeof (dc[i]->interfaceName));
+    strlcpy (dc[i]->interfaceName, option->interfaceName,
+             sizeof (dc[i]->interfaceName));
 #endif /* ENABLE_IFNAME */
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 

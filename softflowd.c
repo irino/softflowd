@@ -2187,10 +2187,8 @@ main (int argc, char **argv) {
       }
       if (verbose_flag)
 	fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
-      strncpy (flowtrack.param.option.interfaceName, dev,
-	       strlen (dev) <
-	       sizeof (flowtrack.param.option.interfaceName) ?
-	       strlen (dev) : sizeof (flowtrack.param.option.interfaceName));
+      strlcpy (flowtrack.param.option.interfaceName, dev,
+	       sizeof (flowtrack.param.option.interfaceName));
       break;
     case 'r':
       if (capfile != NULL || dev != NULL) {
@@ -2201,10 +2199,7 @@ main (int argc, char **argv) {
       capfile = optarg;
       dontfork_flag = 1;
       ctlsock_path = NULL;
-      strncpy (flowtrack.param.option.interfaceName, capfile,
-	       strlen (capfile) <
-	       sizeof (flowtrack.param.option.interfaceName) ?
-	       strlen (capfile) :
+      strlcpy (flowtrack.param.option.interfaceName, capfile,
 	       sizeof (flowtrack.param.option.interfaceName));
       break;
     case 't':
