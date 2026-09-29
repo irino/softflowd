@@ -30,9 +30,29 @@
 #define IPFIX_TEMPLATE_SET_ID           2
 #define IPFIX_OPTION_TEMPLATE_SET_ID    3
 #define IPFIX_MIN_RECORD_SET_ID         256
+#define IPFIX_PORT                      4739
 
 #define IPFIX_BIFLAG_OFF                0
 #define IPFIX_BIFLAG_ON                 1
+
+/* Template IDs and template re-send interval (packets); shared with NetFlow v9 */
+#define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID      1024
+#define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID  1025
+#define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID      2048
+#define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID  2049
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID  256
+#define IPFIX_DEFAULT_TEMPLATE_INTERVAL     16
+
+/* Option template scope types (same values in NetFlow v9 and IPFIX) */
+#define IPFIX_OPTION_SCOPE_SYSTEM               1
+#define IPFIX_OPTION_SCOPE_INTERFACE            2
+#define IPFIX_OPTION_SCOPE_LINECARD             3
+#define IPFIX_OPTION_SCOPE_CACHE                4
+#define IPFIX_OPTION_SCOPE_TEMPLATE             5
+
+/* Sampling algorithms (same values in NetFlow v9 and IPFIX) */
+#define IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC  1
+#define IPFIX_SAMPLING_ALGORITHM_RANDOM         2
 
 /* Flowset record ies the we care about */
 #define IPFIX_octetDeltaCount           1
@@ -117,8 +137,16 @@
 #define IPFIX_flowEndReason_forceEnd       0x04
 #define IPFIX_flowEndReason_lackOfResource 0x05
 
+// flowDirection for ipfix ie 61
+#define IPFIX_FLOWDIRECTION_INGRESS        0x00
+#define IPFIX_FLOWDIRECTION_EGRESS         0x01
+
 #define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE  1428
 #define IPFIX_mplsLabelStackSection_SIZE 3
+
+/* Upper limits of the field arrays in the templated exporter */
+#define IPFIX_UNIFIED_MAXFIELDS          32
+#define IPFIX_UNIFIED_MAXBIFIELDS        8
 
 
 struct IPFIX_HEADER {

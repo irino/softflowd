@@ -47,17 +47,12 @@ struct NF9_TEMPLATE_FLOWSET_RECORD {
 struct NF9_DATA_FLOWSET_HEADER {
   struct NF9_FLOWSET_HEADER_COMMON c;
 } __packed;
-#define NF9_MIN_RECORD_FLOWSET_ID	256
-
 /* Stuff pertaining to the templates that softflowd uses */
-#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	16
 struct NF9_SOFTFLOWD_TEMPLATE {
   struct NF9_TEMPLATE_FLOWSET_HEADER h;
   struct NF9_TEMPLATE_FLOWSET_RECORD r[NF9_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
 
-#define NF9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS	1
-#define NF9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS	2
 struct NF9_SOFTFLOWD_OPTION_TEMPLATE {
   struct NF9_OPTION_TEMPLATE_FLOWSET_HEADER h;
   struct NF9_TEMPLATE_FLOWSET_RECORD
@@ -95,19 +90,7 @@ struct NF9_SOFTFLOWD_OPTION_DATA {
 } __packed;
 
 /* Local data: templates and counters */
-#define NF9_SOFTFLOWD_MAX_PACKET_SIZE	512
-#define NF9_SOFTFLOWD_V4_TEMPLATE_ID	1024
-#define NF9_SOFTFLOWD_V6_TEMPLATE_ID	2048
-#define NF9_SOFTFLOWD_OPTION_TEMPLATE_ID	256
 
-#define NF9_DEFAULT_TEMPLATE_INTERVAL	16
-
-/* ... */
-#define NF9_OPTION_SCOPE_SYSTEM    1
-#define NF9_OPTION_SCOPE_INTERFACE 2
-#define NF9_OPTION_SCOPE_LINECARD  3
-#define NF9_OPTION_SCOPE_CACHE     4
-#define NF9_OPTION_SCOPE_TEMPLATE  5
 
 static struct NF9_SOFTFLOWD_TEMPLATE v4_template;
 static struct NF9_SOFTFLOWD_TEMPLATE v6_template;
@@ -120,7 +103,7 @@ nf9_init_template (void) {
   memset (&v4_template, 0, sizeof (v4_template));
   v4_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v4_template.h.c.length = htons (sizeof (v4_template));
-  v4_template.h.template_id = htons (NF9_SOFTFLOWD_V4_TEMPLATE_ID);
+  v4_template.h.template_id = htons (IPFIX_SOFTFLOWD_V4_TEMPLATE_ID);
   v4_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
   v4_template.r[0].type = htons (IPFIX_sourceIPv4Address);
   v4_template.r[0].length = htons (4);
@@ -157,7 +140,7 @@ nf9_init_template (void) {
   memset (&v6_template, 0, sizeof (v6_template));
   v6_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
-  v6_template.h.template_id = htons (NF9_SOFTFLOWD_V6_TEMPLATE_ID);
+  v6_template.h.template_id = htons (IPFIX_SOFTFLOWD_V6_TEMPLATE_ID);
   v6_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
   v6_template.r[0].type = htons (IPFIX_sourceIPv6Address);
   v6_template.r[0].length = htons (16);
@@ -199,10 +182,10 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.flowset_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
-  option_template.h.template_id = htons (NF9_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_template.h.template_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.scope_length = htons (sizeof (option_template.s));
   option_template.h.option_length = htons (sizeof (option_template.r));
-  option_template.s[0].type = htons (NF9_OPTION_SCOPE_INTERFACE);
+  option_template.s[0].type = htons (IPFIX_OPTION_SCOPE_INTERFACE);
   option_template.s[0].length = htons (sizeof (option_data.scope_ifidx));
   option_template.r[0].type = htons (IPFIX_samplingInterval);
   option_template.r[0].length =
@@ -212,11 +195,11 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
     htons (sizeof (option_data.sampling_algorithm));
 
   memset (&option_data, 0, sizeof (option_data));
-  option_data.c.flowset_id = htons (NF9_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_data.c.flowset_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_ifidx = htonl (ifidx);
   option_data.sampling_interval = htonl (option->sample);
-  option_data.sampling_algorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
+  option_data.sampling_algorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
 }
 
 static int
@@ -360,7 +343,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
         nf9->flows++;
       }
 
-      nf9_pkts_until_template = NF9_DEFAULT_TEMPLATE_INTERVAL;
+      nf9_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
     }
 
     dh = NULL;

@@ -41,11 +41,34 @@ struct NF5_HEADER {
 
 #define NF1_HEADER_SIZE 16
 
+/* Cisco NetFlow v5 flow record (48 octets); NetFlow v1 records are the same size. */
+struct NF5_FLOW {
+  u_int32_t src_ip, dest_ip, nexthop_ip;        // same as netflow v1
+  u_int16_t if_index_in, if_index_out;  // same as netflow v1
+  u_int32_t flow_packets, flow_octets;  // same as netflow v1
+  u_int32_t flow_start, flow_finish;    // same as netflow v1
+  u_int16_t src_port, dest_port;        // same as netflow v1
+  u_int8_t pad1;
+  u_int8_t tcp_flags, protocol, tos;
+  u_int16_t src_as, dest_as;
+  u_int8_t src_mask, dst_mask;
+  u_int16_t pad2;
+};
+
+/* Maximum number of flows per packet */
+#define NF1_MAXFLOWS            24
+#define NF5_MAXFLOWS            30
+#define NF5_MAXPACKET_SIZE      (sizeof(struct NF5_HEADER) + \
+                                 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
+
 #define NFLOW9_TEMPLATE_SET_ID          0
 #define NFLOW9_OPTION_TEMPLATE_SET_ID   1
 
-#define NFLOW9_OPTION_SCOPE_INTERFACE           2
-#define NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC 1
+/* Legacy (--enable-unified-export-type=none) NetFlow v9 exporter limits */
+#define NF9_SOFTFLOWD_MAX_PACKET_SIZE                   512
+#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
+#define NF9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
+#define NF9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
 
 struct NFLOW9_HEADER {
   u_int16_t version, flows;

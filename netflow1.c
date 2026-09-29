@@ -26,6 +26,7 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
+#include "netflow.h"
 
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
 /*
@@ -51,8 +52,6 @@ struct NF1_FLOW {
   u_int8_t reserved2;           /* XXX: no longer used */
 #endif
 };
-/* Maximum of 24 flows per packet */
-#define NF1_MAXFLOWS		24
 #define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
 				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
 

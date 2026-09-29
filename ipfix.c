@@ -65,19 +65,8 @@ conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
     (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32));
 }
 
-/* Template/Set IDs and packet-size limit. */
-#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE     1428
-#define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID      1024
-#define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID  1025
-#define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID      2048
-#define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID  2049
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID  256
-#define IPFIX_DEFAULT_TEMPLATE_INTERVAL     16
-
 /* IPFIX flowDirection (IANA IE 61, RFC 7011): Use MAC match (Src=Egress, Dst=Ingress)
  * if configured with ethernet tracking; otherwise fall back to array index i. */
-#define IPFIX_FLOWDIRECTION_INGRESS 0x00
-#define IPFIX_FLOWDIRECTION_EGRESS  0x01
 
 static u_int8_t
 ipfix_flow_direction (const struct FLOW *flow, int i,
@@ -337,7 +326,7 @@ const IPFIX_FIELD_TABLE_TYPE field_option[] = {
 };
 
 const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {
-  DEF_FIELD_ENC (NFLOW9_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)
+  DEF_FIELD_ENC (IPFIX_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)
 };
 
 const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
@@ -545,7 +534,7 @@ IPFIX_UNIFIED_ENC_HTON (enc_samplingPacketSpace,
 IPFIX_UNIFIED_ENC_HTON (enc_selectorAlgorithm, PSAMP_selectorAlgorithm_count,
                         length)
 IPFIX_UNIFIED_ENC_BYTE (enc_samplingAlgorithm,
-                        NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC)
+                        IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC)
 
 static void
 enc_exporterAddress (u_char *dst, u_int16_t length,
@@ -749,11 +738,6 @@ ipfix_send_packet (struct NETFLOW_TARGET *target, u_char *packet,
 /* NetFlow v1 / v5: fixed (non-templated) export.                      */
 /* ------------------------------------------------------------------ */
 
-#define IPFIX_UNIFIED_NF1_MAXFLOWS 24
-#define IPFIX_UNIFIED_NF5_MAXFLOWS 30
-/* 24 = worst-case (v5) header length: sizeof(struct NF5_HEADER). */
-#define IPFIX_UNIFIED_FIXED_MAXPACKET_SIZE (24 + IPFIX_UNIFIED_NF5_MAXFLOWS * 48)
-
 /* Shared engine for NF1/NF5 fixed formats using 48-octet data records,
  * leveraging the same field-list logic as the v9/IPFIX templated exporter. */
 static int
@@ -762,14 +746,14 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   int num_flows = sp.num_flows;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
-  u_char packet[IPFIX_UNIFIED_FIXED_MAXPACKET_SIZE];
+  u_char packet[NF5_MAXPACKET_SIZE];
   const struct IPFIX_FIELD_SPECIFIER_ENCODER *tail_fields =
     (version == 1) ? field_netflowv1_tail_enc : field_netflowv5_tail_enc;
   u_int tail_nfields =
     (version == 1) ? IPFIX_UNIFIED_NFIELDS_ENC (field_netflowv1_tail_enc) :
     IPFIX_UNIFIED_NFIELDS_ENC (field_netflowv5_tail_enc);
   u_int maxflows =
-    (version == 1) ? IPFIX_UNIFIED_NF1_MAXFLOWS : IPFIX_UNIFIED_NF5_MAXFLOWS;
+    (version == 1) ? NF1_MAXFLOWS : NF5_MAXFLOWS;
   u_int offset, j, i, k, num_packets, flowcount, need;
   u_int64_t *flows_exported = &param->flows_exported;
   struct IPFIX_UNIFIED_CTX ctx = { .sp = &sp, .flow = NULL, .i = 0 };
@@ -853,9 +837,6 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
 /* ------------------------------------------------------------------ */
 /* NetFlow v9 / IPFIX: templated export.                                */
 /* ------------------------------------------------------------------ */
-
-#define IPFIX_UNIFIED_MAXFIELDS  32
-#define IPFIX_UNIFIED_MAXBIFIELDS 8
 
 struct IPFIX_UNIFIED_TEMPLATE {
   struct IPFIX_TEMPLATE_SET_HEADER h;
@@ -986,9 +967,6 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
   c->length = htons (doff);
   *offset += doff;
 }
-
-#define IPFIX_BIFLAG_OFF 0
-#define IPFIX_BIFLAG_ON  1
 
 static u_int
 ipfix_init_template_fields (struct IPFIX_UNIFIED_TEMPLATE *tmpl,
@@ -1515,17 +1493,6 @@ struct NFLOW9_SOFTFLOWD_OPTION_DATA {
 
 /* Local data: templates and counters */
 
-/* ... */
-#define IPFIX_OPTION_SCOPE_SYSTEM               1
-#define IPFIX_OPTION_SCOPE_INTERFACE            2
-#define IPFIX_OPTION_SCOPE_LINECARD             3
-#define IPFIX_OPTION_SCOPE_CACHE                4
-#define IPFIX_OPTION_SCOPE_TEMPLATE             5
-/* ... */
-#define IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC  1
-#define IPFIX_SAMPLING_ALGORITHM_RANDOM         2
-/* ... */
-
 // prototype
 void memcpy_template (u_char * packet, u_int * offset,
                       struct IPFIX_SOFTFLOWD_TEMPLATE *template,
@@ -1735,7 +1702,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   nf9opt_data.scope_ifidx = htonl (ifidx);
   nf9opt_data.samplingInterval =
     htonl (option->sample > 1 ? option->sample : 1);
-  nf9opt_data.samplingAlgorithm = NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC;
+  nf9opt_data.samplingAlgorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
   strlcpy (nf9opt_data.interfaceName, option->interfaceName,
            sizeof (nf9opt_data.interfaceName));
 }
