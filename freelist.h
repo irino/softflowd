@@ -27,6 +27,10 @@
 
 #include "common.h"
 
+#define FREELIST_MAX_ALLOC	0x1000000
+#define FREELIST_ALLOC_ALIGN	16
+#define FREELIST_INITIAL_ALLOC	16
+
 /* Simple freelist of fixed-sized allocations */
 struct freelist {
 	size_t allocsz;

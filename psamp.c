@@ -28,9 +28,6 @@
 #include "psamp.h"
 #include <pcap.h>
 
-#define PSAMP_SOFTFLOWD_TEMPLATE_ID       3072
-#define PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS 4
-
 #define PSAMP_DATALINKFRAME_SIZE IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - \
   sizeof(struct IPFIX_HEADER) - sizeof(struct IPFIX_SET_HEADER) - 8 - 8 -2
 

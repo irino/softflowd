@@ -65,18 +65,6 @@
 #include <net/if_dl.h>
 #endif
 
-#define IPFIX_PORT 4739
-
-/* Copy tv_sec and tv_usec individually to support platforms where
- * pcap_pkthdr.ts is a struct bpf_timeval (e.g. OpenBSD). */
-#define PCAP_TS_TO_TIMEVAL(dst, src) do {     \
-    (dst).tv_sec = (src).tv_sec;              \
-    (dst).tv_usec = (src).tv_usec;            \
-  } while (0)
-
-#define PRI_ETHERMAC "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x"
-#define FORMAT_ETHERMAC(em) em[0], em[1], em[2], em[3], em[4], em[5]
-
 /* Global variables */
 static int verbose_flag = 0;	/* Debugging flag */
 static u_int16_t if_index = 0;	/* "manual" interface index */
@@ -708,11 +696,6 @@ out:
 }
 
 
-/* Return values from process_packet */
-#define PP_OK		0
-#define PP_BAD_PACKET	-2
-#define PP_MALLOC_FAIL	-3
-
 /*
  * Main per-packet processing function. Take a packet (provided by
  * libpcap) and attempt to find a matching flow. If no such flow exists,
@@ -971,9 +954,6 @@ next_expire (struct FLOWTRACK *ft) {
  * Scan the tree of expiry events and process expired flows. If zap_all
  * is set, then forcibly expire all flows.
  */
-#define CE_EXPIRE_NORMAL	0	/* Normal expiry processing */
-#define CE_EXPIRE_ALL		-1	/* Expire all flows immediately */
-#define CE_EXPIRE_FORCED	1	/* Only expire force-expired flows */
 static int
 check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   struct FLOW **expired_flows, **oldexp;

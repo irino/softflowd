@@ -97,6 +97,26 @@ enum {
 
 #define SOFTFLOWD_MAX_DESTINATIONS 16
 
+/* Copy tv_sec and tv_usec individually to support platforms where
+ * pcap_pkthdr.ts is a struct bpf_timeval (e.g. OpenBSD). */
+#define PCAP_TS_TO_TIMEVAL(dst, src) do {     \
+    (dst).tv_sec = (src).tv_sec;              \
+    (dst).tv_usec = (src).tv_usec;            \
+  } while (0)
+
+#define PRI_ETHERMAC "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x"
+#define FORMAT_ETHERMAC(em) em[0], em[1], em[2], em[3], em[4], em[5]
+
+/* Return values from process_packet */
+#define PP_OK		0
+#define PP_BAD_PACKET	-2
+#define PP_MALLOC_FAIL	-3
+
+/* check_expired() modes */
+#define CE_EXPIRE_NORMAL	0	/* Normal expiry processing */
+#define CE_EXPIRE_ALL		-1	/* Expire all flows immediately */
+#define CE_EXPIRE_FORCED	1	/* Only expire force-expired flows */
+
 #define BOOTTIME_MAX_DAY 49
 #define BOOTTIME_MAX_HOUR 1193
 #define BOOTTIME_MAX_MIN 71582

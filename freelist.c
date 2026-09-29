@@ -26,10 +26,6 @@
 #include "freelist.h"
 #include "log.h"
 
-#define FREELIST_MAX_ALLOC	0x1000000
-#define FREELIST_ALLOC_ALIGN	16
-#define FREELIST_INITIAL_ALLOC	16
-
 #ifndef roundup
 #define roundup(x, y) ((((x) + (y) - 1)/(y))*(y))
 #endif /* roundup */

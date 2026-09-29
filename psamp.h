@@ -39,6 +39,9 @@
 
 #define PSAMP_selectorAlgorithm_count   1
 
+#define PSAMP_SOFTFLOWD_TEMPLATE_ID       3072
+#define PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS 4
+
 
 int send_psamp (const u_char * pkt, int caplen, struct timeval tv,
                 struct NETFLOW_TARGET *target, uint64_t total_packets);
