@@ -81,7 +81,10 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 
   hdr = (struct NF1_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
-    if (j >= NF1_MAXFLOWS - 1) {
+    /* Records this flow adds: IPv4 only, one per direction with data. */
+    int need = (flows[i]->af == AF_INET) ?
+      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    if (j + need > NF1_MAXFLOWS) {
       if (verbose_flag)
         logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += hdr->flows;
@@ -104,13 +107,12 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
       offset = sizeof (*hdr);
     }
 
-    flw = (struct NF1_FLOW *) (packet + offset);
-    flw->if_index_in = flw->if_index_out = htons (ifidx);
-
     /* NetFlow v.1 doesn't do IPv6 */
     if (flows[i]->af != AF_INET)
       continue;
     if (flows[i]->octets[0] > 0) {
+      flw = (struct NF1_FLOW *) (packet + offset);
+      flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[0].v4.s_addr;
       flw->dest_ip = flows[i]->addr[1].v4.s_addr;
       flw->src_port = flows[i]->port[0];
@@ -129,9 +131,9 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
       hdr->flows++;
     }
 
-    flw = (struct NF1_FLOW *) (packet + offset);
-    flw->if_index_in = flw->if_index_out = htons (ifidx);
     if (flows[i]->octets[1] > 0) {
+      flw = (struct NF1_FLOW *) (packet + offset);
+      flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[1].v4.s_addr;
       flw->dest_ip = flows[i]->addr[0].v4.s_addr;
       flw->src_port = flows[i]->port[1];
