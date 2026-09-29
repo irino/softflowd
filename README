@@ -58,6 +58,22 @@ fine on the systems that I develop and test on (OpenBSD and Linux).
 There is peliminary support for Solaris 9 (i.e. it compiled), but no
 testing on this platform has been performed.
 
+Benchmarking and Compatibility Testing
+---------------------------------------
+
+tools/benchmark_export.sh compares the NetFlow/IPFIX export build
+variants (see --enable-unified-export-type in ./configure --help)
+across one or more pcap files and NetFlow/IPFIX versions, using
+hyperfine for timing. Optional flags add callgrind instruction counts
+(-C) and softflowd's own -g cpu-clock counters (-g) to the comparison.
+Run tools/benchmark_export.sh -h for details.
+
+run_compat_suite.py is a regression test suite that replays sample
+pcap files through two softflowd builds (e.g. a stable release and a
+development build) and diffs their NetFlow/IPFIX output as captured
+by nfdump/nfcapd, to catch unintended changes in exported flow data.
+Run ./run_compat_suite.py --help for details.
+
 Licensing
 ---------
 
