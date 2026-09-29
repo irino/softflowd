@@ -27,6 +27,7 @@
 #include "treetype.h"
 #include "softflowd.h"
 #include "netflow9.h"
+#include "ipfix.h"
 
 /* Netflow v.9 */
 struct NF9_FLOWSET_HEADER_COMMON {
@@ -47,35 +48,6 @@ struct NF9_DATA_FLOWSET_HEADER {
   struct NF9_FLOWSET_HEADER_COMMON c;
 } __packed;
 #define NF9_MIN_RECORD_FLOWSET_ID	256
-
-/* Flowset record types the we care about */
-#define NF9_IN_BYTES			1
-#define NF9_IN_PACKETS			2
-/* ... */
-#define NF9_PROTOCOL			4
-#define NF9_TOS				5
-/* ... */
-#define NF9_TCP_FLAGS			6
-#define NF9_L4_SRC_PORT			7
-#define NF9_IPV4_SRC_ADDR		8
-/* ... */
-#define NF9_IF_INDEX_IN			10
-#define NF9_L4_DST_PORT			11
-#define NF9_IPV4_DST_ADDR		12
-/* ... */
-#define NF9_IF_INDEX_OUT		14
-/* ... */
-#define NF9_LAST_SWITCHED		21
-#define NF9_FIRST_SWITCHED		22
-/* ... */
-#define NF9_IPV6_SRC_ADDR		27
-#define NF9_IPV6_DST_ADDR		28
-/* ... */
-#define NF9_ICMP_TYPE		        32
-/* ... */
-#define NF9_SRC_VLAN                    58
-/* ... */
-#define NF9_IP_PROTOCOL_VERSION		60
 
 /* Stuff pertaining to the templates that softflowd uses */
 #define NF9_SOFTFLOWD_TEMPLATE_NRECORDS	16
@@ -150,74 +122,75 @@ nf9_init_template (void) {
   v4_template.h.c.length = htons (sizeof (v4_template));
   v4_template.h.template_id = htons (NF9_SOFTFLOWD_V4_TEMPLATE_ID);
   v4_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
-  v4_template.r[0].type = htons (NF9_IPV4_SRC_ADDR);
+  v4_template.r[0].type = htons (IPFIX_sourceIPv4Address);
   v4_template.r[0].length = htons (4);
-  v4_template.r[1].type = htons (NF9_IPV4_DST_ADDR);
+  v4_template.r[1].type = htons (IPFIX_destinationIPv4Address);
   v4_template.r[1].length = htons (4);
-  v4_template.r[2].type = htons (NF9_LAST_SWITCHED);
+  v4_template.r[2].type = htons (IPFIX_flowEndSysUpTime);
   v4_template.r[2].length = htons (4);
-  v4_template.r[3].type = htons (NF9_FIRST_SWITCHED);
+  v4_template.r[3].type = htons (IPFIX_flowStartSysUpTime);
   v4_template.r[3].length = htons (4);
-  v4_template.r[4].type = htons (NF9_IN_BYTES);
+  v4_template.r[4].type = htons (IPFIX_octetDeltaCount);
   v4_template.r[4].length = htons (4);
-  v4_template.r[5].type = htons (NF9_IN_PACKETS);
+  v4_template.r[5].type = htons (IPFIX_packetDeltaCount);
   v4_template.r[5].length = htons (4);
-  v4_template.r[6].type = htons (NF9_IF_INDEX_IN);
+  v4_template.r[6].type = htons (IPFIX_ingressInterface);
   v4_template.r[6].length = htons (4);
-  v4_template.r[7].type = htons (NF9_IF_INDEX_OUT);
+  v4_template.r[7].type = htons (IPFIX_egressInterface);
   v4_template.r[7].length = htons (4);
-  v4_template.r[8].type = htons (NF9_L4_SRC_PORT);
+  v4_template.r[8].type = htons (IPFIX_sourceTransportPort);
   v4_template.r[8].length = htons (2);
-  v4_template.r[9].type = htons (NF9_L4_DST_PORT);
+  v4_template.r[9].type = htons (IPFIX_destinationTransportPort);
   v4_template.r[9].length = htons (2);
-  v4_template.r[10].type = htons (NF9_PROTOCOL);
+  v4_template.r[10].type = htons (IPFIX_protocolIdentifier);
   v4_template.r[10].length = htons (1);
-  v4_template.r[11].type = htons (NF9_TCP_FLAGS);
+  v4_template.r[11].type = htons (IPFIX_tcpControlBits);
   v4_template.r[11].length = htons (1);
-  v4_template.r[12].type = htons (NF9_IP_PROTOCOL_VERSION);
+  v4_template.r[12].type = htons (IPFIX_ipVersion);
   v4_template.r[12].length = htons (1);
-  v4_template.r[13].type = htons (NF9_TOS);
+  v4_template.r[13].type = htons (IPFIX_ipClassOfService);
   v4_template.r[13].length = htons (1);
-  v4_template.r[14].type = htons (NF9_ICMP_TYPE);
+  v4_template.r[14].type = htons (IPFIX_icmpTypeCodeIPv4);
   v4_template.r[14].length = htons (2);
-  v4_template.r[15].type = htons (NF9_SRC_VLAN);
+  v4_template.r[15].type = htons (IPFIX_vlanId);
   v4_template.r[15].length = htons (2);
   memset (&v6_template, 0, sizeof (v6_template));
   v6_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
   v6_template.h.template_id = htons (NF9_SOFTFLOWD_V6_TEMPLATE_ID);
   v6_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
-  v6_template.r[0].type = htons (NF9_IPV6_SRC_ADDR);
+  v6_template.r[0].type = htons (IPFIX_sourceIPv6Address);
   v6_template.r[0].length = htons (16);
-  v6_template.r[1].type = htons (NF9_IPV6_DST_ADDR);
+  v6_template.r[1].type = htons (IPFIX_destinationIPv6Address);
   v6_template.r[1].length = htons (16);
-  v6_template.r[2].type = htons (NF9_LAST_SWITCHED);
+  v6_template.r[2].type = htons (IPFIX_flowEndSysUpTime);
   v6_template.r[2].length = htons (4);
-  v6_template.r[3].type = htons (NF9_FIRST_SWITCHED);
+  v6_template.r[3].type = htons (IPFIX_flowStartSysUpTime);
   v6_template.r[3].length = htons (4);
-  v6_template.r[4].type = htons (NF9_IN_BYTES);
+  v6_template.r[4].type = htons (IPFIX_octetDeltaCount);
   v6_template.r[4].length = htons (4);
-  v6_template.r[5].type = htons (NF9_IN_PACKETS);
+  v6_template.r[5].type = htons (IPFIX_packetDeltaCount);
   v6_template.r[5].length = htons (4);
-  v6_template.r[6].type = htons (NF9_IF_INDEX_IN);
+  v6_template.r[6].type = htons (IPFIX_ingressInterface);
   v6_template.r[6].length = htons (4);
-  v6_template.r[7].type = htons (NF9_IF_INDEX_OUT);
+  v6_template.r[7].type = htons (IPFIX_egressInterface);
   v6_template.r[7].length = htons (4);
-  v6_template.r[8].type = htons (NF9_L4_SRC_PORT);
+  v6_template.r[8].type = htons (IPFIX_sourceTransportPort);
   v6_template.r[8].length = htons (2);
-  v6_template.r[9].type = htons (NF9_L4_DST_PORT);
+  v6_template.r[9].type = htons (IPFIX_destinationTransportPort);
   v6_template.r[9].length = htons (2);
-  v6_template.r[10].type = htons (NF9_PROTOCOL);
+  v6_template.r[10].type = htons (IPFIX_protocolIdentifier);
   v6_template.r[10].length = htons (1);
-  v6_template.r[11].type = htons (NF9_TCP_FLAGS);
+  v6_template.r[11].type = htons (IPFIX_tcpControlBits);
   v6_template.r[11].length = htons (1);
-  v6_template.r[12].type = htons (NF9_IP_PROTOCOL_VERSION);
+  v6_template.r[12].type = htons (IPFIX_ipVersion);
   v6_template.r[12].length = htons (1);
-  v6_template.r[13].type = htons (NF9_TOS);
+  v6_template.r[13].type = htons (IPFIX_ipClassOfService);
   v6_template.r[13].length = htons (1);
-  v6_template.r[14].type = htons (NF9_ICMP_TYPE);
+  /* legacy: IE 32 is kept for ICMPv6 too (byte-compatible with older releases) */
+  v6_template.r[14].type = htons (IPFIX_icmpTypeCodeIPv4);
   v6_template.r[14].length = htons (2);
-  v6_template.r[15].type = htons (NF9_SRC_VLAN);
+  v6_template.r[15].type = htons (IPFIX_vlanId);
   v6_template.r[15].length = htons (2);
 }
 
@@ -231,10 +204,10 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_template.h.option_length = htons (sizeof (option_template.r));
   option_template.s[0].type = htons (NF9_OPTION_SCOPE_INTERFACE);
   option_template.s[0].length = htons (sizeof (option_data.scope_ifidx));
-  option_template.r[0].type = htons (NFLOW9_SAMPLING_INTERVAL);
+  option_template.r[0].type = htons (IPFIX_samplingInterval);
   option_template.r[0].length =
     htons (sizeof (option_data.sampling_interval));
-  option_template.r[1].type = htons (NFLOW9_SAMPLING_ALGORITHM);
+  option_template.r[1].type = htons (IPFIX_samplingAlgorithm);
   option_template.r[1].length =
     htons (sizeof (option_data.sampling_algorithm));
 

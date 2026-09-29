@@ -342,8 +342,8 @@ const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {
 };
 
 const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
-  DEF_FIELD_ENC (NFLOW9_SAMPLING_INTERVAL, 4, enc_samplingInterval),
-  DEF_FIELD_ENC (NFLOW9_SAMPLING_ALGORITHM, 1, enc_samplingAlgorithm),
+  DEF_FIELD_ENC (IPFIX_samplingInterval, 4, enc_samplingInterval),
+  DEF_FIELD_ENC (IPFIX_samplingAlgorithm, 1, enc_samplingAlgorithm),
 #ifdef ENABLE_IFNAME
   DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
 #else

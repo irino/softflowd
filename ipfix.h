@@ -65,10 +65,11 @@
 /* ... */
 /* Deprecated NetFlow v9 SamplingInterval (superseded by ID 305) */
 #define IPFIX_samplingInterval          34
+#define IPFIX_samplingAlgorithm         35
 /* ... */
 #define IPFIX_engineType                38
 #define IPFIX_engineId                  39
-#define IPFIX_exportedMessageTotalCount 41　/* v9 packet sequence */
+#define IPFIX_exportedMessageTotalCount 41 /* v9 packet sequence */
 #define IPFIX_exportedFlowRecordTotalCount 42 /* v5/IPFIX record sequence */
 /* ... */
 #define IPFIX_sourceMacAddress          56
