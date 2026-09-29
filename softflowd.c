@@ -88,6 +88,20 @@ static unsigned long export_calls = 0;
 #ifdef ENABLE_PTHREAD
 pthread_mutex_t read_mutex;
 pthread_cond_t read_cond;
+static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;
+static int export_threads_outstanding = 0;
+
+/* Detached export threads (-M) outlive the check_expired() call that
+ * spawns them; wait for them all to finish before the process tears
+ * down, or their still-running stacks race the process exit. */
+static void
+wait_for_export_threads (void) {
+  pthread_mutex_lock (&export_threads_mutex);
+  while (export_threads_outstanding > 0)
+    pthread_cond_wait (&export_threads_cond, &export_threads_mutex);
+  pthread_mutex_unlock (&export_threads_mutex);
+}
 int use_thread;
 u_char packet_data[1500];
 struct pcap_pkthdr packet_header;
@@ -186,6 +200,42 @@ get_interface_mac (const char *ifname, u_int8_t mac[6]) {
 
 /* Netflow send functions */
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
+
+#ifdef ENABLE_PTHREAD
+/* Context for threaded export (-M): unlike netflow_send_func_t, this
+ * wrapper's signature actually matches what pthread_create() invokes
+ * (void *(*)(void *)), and it owns a deep copy of both the flows and
+ * the SENDPARAMETER referencing them, so the sending thread never
+ * touches memory the main thread may concurrently reuse via
+ * flow_put(). owned_flows duplicates the pointers already in
+ * sp.flows: every netflow_send_func_t frees sp.flows itself (just the
+ * array, not what it points to) when use_thread is set, so the
+ * individual flow copies are tracked and freed separately here,
+ * after that call returns. */
+struct THREADED_SENDPARAMETER {
+  struct SENDPARAMETER sp;
+  netflow_send_func_t *func;
+  struct FLOW **owned_flows;
+  int num_flows;
+};
+
+static void *
+threaded_send (void *arg) {
+  struct THREADED_SENDPARAMETER *tsp = (struct THREADED_SENDPARAMETER *) arg;
+  int i;
+
+  tsp->func (tsp->sp);
+  for (i = 0; i < tsp->num_flows; i++)
+    free (tsp->owned_flows[i]);
+  free (tsp->owned_flows);
+  free (tsp);
+  pthread_mutex_lock (&export_threads_mutex);
+  if (--export_threads_outstanding == 0)
+    pthread_cond_signal (&export_threads_cond);
+  pthread_mutex_unlock (&export_threads_mutex);
+  return NULL;
+}
+#endif /* ENABLE_PTHREAD */
 
 struct NETFLOW_SENDER {
   int version;
@@ -1007,10 +1057,31 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
 #ifdef ENABLE_PTHREAD
       if (use_thread) {
 	pthread_t write_thread = 0;
-	sp.flows = calloc (num_expired, sizeof (struct FLOW));
-	memcpy (sp.flows, expired_flows, sizeof (struct FLOW) * num_expired);
-	if (pthread_create (&write_thread, NULL, (void *) func, (void *) &sp)
-	    < 0) {
+	struct THREADED_SENDPARAMETER *tsp = malloc (sizeof (*tsp));
+
+	tsp->sp = sp;
+	/* sp.flows is freed by func() itself (see threaded_send's
+	 * comment above); owned_flows is this wrapper's own copy of
+	 * the same pointers, used only to free the flow copies below
+	 * once func() has returned. */
+	tsp->sp.flows = calloc (num_expired, sizeof (*tsp->sp.flows));
+	tsp->owned_flows = calloc (num_expired, sizeof (*tsp->owned_flows));
+	for (i = 0; i < num_expired; i++) {
+	  /* Deep copy: expired_flows[i] is about to be handed back to
+	   * flow_put() below and may be reused for a new flow before
+	   * this thread gets to read it. struct FLOW holds no pointers
+	   * of its own (its "expiry" back-link was already cleared
+	   * above), so a plain struct copy is a complete copy. */
+	  tsp->owned_flows[i] = malloc (sizeof (*tsp->owned_flows[i]));
+	  *tsp->owned_flows[i] = *expired_flows[i];
+	  tsp->sp.flows[i] = tsp->owned_flows[i];
+	}
+	tsp->num_flows = num_expired;
+	tsp->func = func;
+	pthread_mutex_lock (&export_threads_mutex);
+	export_threads_outstanding++;
+	pthread_mutex_unlock (&export_threads_mutex);
+	if (pthread_create (&write_thread, NULL, threaded_send, tsp) < 0) {
 	  perror ("pthread_create error");
 	  exit (1);
 	}
@@ -2725,6 +2796,7 @@ main (int argc, char **argv) {
 
 #ifdef ENABLE_PTHREAD
   if (use_thread) {
+    wait_for_export_threads ();
     pthread_cond_signal (&read_cond);
     pthread_join (read_thread, NULL);
   }
