@@ -12,7 +12,7 @@ endif
 if ENABLE_NTOPNG
   NTOPNG_SOURCES = ntopng.c
 endif
-softflowd_SOURCES = freelist.h log.h softflowd.h netflow5.h netflow9.h ipfix.h psamp.h\
+softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h psamp.h\
 	freelist.c softflowd.c log.c $(NETFLOW5_SOURCE) ipfix.c psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = $(LEGACY_SOURCES) $(NTOPNG_SOURCES)

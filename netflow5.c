@@ -26,7 +26,7 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
-#include "netflow5.h"
+#include "netflow.h"
 
 /*
  * This is the Cisco Netflow(tm) version 5 packet format

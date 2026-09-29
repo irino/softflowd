@@ -1,5 +1,6 @@
 /*
  * Copyright 2002 Damien Miller <djm@mindrot.org> All rights reserved.
+ * Copyright 2019 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,7 +11,7 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS    OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
  * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
  * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
@@ -22,8 +23,10 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _NETFLOW5_H
-#define _NETFLOW5_H
+#ifndef _NETFLOW_H
+#define _NETFLOW_H
+
+#include "softflowd.h"
 
 /* Cisco NetFlow v5 header format (shared with ipfix.c unified exporter).
  * NetFlow v1 shares the first 16 bytes (NF1_HEADER_SIZE).
@@ -38,4 +41,24 @@ struct NF5_HEADER {
 
 #define NF1_HEADER_SIZE 16
 
-#endif /* _NETFLOW5_H */
+#define NFLOW9_TEMPLATE_SET_ID          0
+#define NFLOW9_OPTION_TEMPLATE_SET_ID   1
+
+#define NFLOW9_OPTION_SCOPE_INTERFACE           2
+#define NFLOW9_SAMPLING_ALGORITHM_DETERMINISTIC 1
+
+struct NFLOW9_HEADER {
+  u_int16_t version, flows;
+  u_int32_t uptime_ms;
+  u_int32_t export_time;        // in seconds
+  u_int32_t sequence, od_id;
+} __packed;
+
+#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+/* Prototypes for functions to send NetFlow packets, from netflow*.c */
+int send_netflow_v9 (struct SENDPARAMETER sp);
+/* Force a resend of the flow template */
+void netflow9_resend_template (void);
+#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+
+#endif /* _NETFLOW_H */

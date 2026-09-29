@@ -49,7 +49,7 @@
 #include "treetype.h"
 #include "freelist.h"
 #include "log.h"
-#include "netflow9.h"
+#include "netflow.h"
 #include "ipfix.h"
 #include "psamp.h"
 #include <pcap.h>

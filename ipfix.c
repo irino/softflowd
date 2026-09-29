@@ -27,8 +27,7 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
-#include "netflow5.h"
-#include "netflow9.h"
+#include "netflow.h"
 #include "ipfix.h"
 #include "psamp.h"
 
