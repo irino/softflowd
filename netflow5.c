@@ -84,7 +84,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NF5_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
+  u_int8_t packet[NF5_MAXPACKET_SIZE];  /* Maximum allowed packet size (v1: 24, v5: 30 flows) */
   struct NF5_HEADER *hdr = NULL;
   struct NF5_FLOW *flw = NULL;
   int i, j, offset, num_packets;
