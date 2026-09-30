@@ -66,23 +66,26 @@
 #endif
 
 /* Global variables */
-static int verbose_flag = 0;	/* Debugging flag */
-static u_int16_t if_index = 0;	/* "manual" interface index */
-static int track_level;
-static int snaplen = 0;
-static int gauge_clock = 0;		/* -g: report cpu clocks */
-static clock_t export_clocks = 0;	/* cpu clocks spent in the export function */
-static unsigned long export_calls = 0;
+static int verbose_flag = 0;	/**< Debugging flag */
+static u_int16_t if_index = 0;	/**< "manual" interface index */
+static int track_level;		/**< Flow tracking level (TRACK_*) */
+static int snaplen = 0;		/**< Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
+static int gauge_clock = 0;		/**< -g: report cpu clocks */
+static clock_t export_clocks = 0;	/**< cpu clocks spent in the export function */
+static unsigned long export_calls = 0;	/**< Number of calls to the export function */
 #ifdef ENABLE_PTHREAD
-pthread_mutex_t read_mutex;
-pthread_cond_t read_cond;
-static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;
-static int export_threads_outstanding = 0;
+pthread_mutex_t read_mutex;	/**< Protects packet_header/packet_data handed to the processing thread */
+pthread_cond_t read_cond;	/**< Signalled when a new packet is available */
+static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;	/**< Protects export_threads_outstanding */
+static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;	/**< Signalled when the last export thread ends */
+static int export_threads_outstanding = 0;	/**< Number of running export threads (-M) */
 
-/* Detached export threads (-M) outlive the check_expired() call that
- * spawns them; wait for them all to finish before the process tears
- * down, or their still-running stacks race the process exit. */
+/**
+ * @brief Block until every detached export thread (-M) has finished.
+ *
+ * Detached export threads outlive the check_expired() call that spawns them, so this
+ * must run before the process tears down.
+ */
 static void
 wait_for_export_threads (void) {
   pthread_mutex_lock (&export_threads_mutex);
@@ -90,13 +93,14 @@ wait_for_export_threads (void) {
     pthread_cond_wait (&export_threads_cond, &export_threads_mutex);
   pthread_mutex_unlock (&export_threads_mutex);
 }
-int use_thread;
-u_char packet_data[1500];
-struct pcap_pkthdr packet_header;
-struct FLOW *send_expired_flows;
+int use_thread;			/**< Non-zero when threaded export (-M) is enabled */
+u_char packet_data[1500];	/**< Copy of the latest captured packet (threaded capture) */
+struct pcap_pkthdr packet_header;	/**< libpcap header of packet_data */
+struct FLOW *send_expired_flows;	/**< Expired flows handed to the export thread */
 #endif /* ENABLE_PTHREAD */
 
 /* Signal handler flags */
+/** Set by the signal handler to the received signal number to request a graceful shutdown. */
 static volatile sig_atomic_t graceful_shutdown_request = 0;
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
@@ -129,8 +133,13 @@ static const struct DATALINK lt[] = {
   {-1, -1, -1, -1, -1, 0x00000000, 0xffff, 0xffff},
 };
 
-/* Auto-detect the MAC address of the given interface.
- * Returns 0 on success, -1 on failure (e.g. tunnel or "any" interface). */
+/**
+ * @brief Auto-detect the MAC address of an interface.
+ *
+ * @param ifname Interface name.
+ * @param mac    Receives the 6-octet address.
+ * @return 0 on success, -1 on failure (e.g. a tunnel or the "any" interface).
+ */
 static int
 get_interface_mac (const char *ifname, u_int8_t mac[6]) {
 #ifdef LINUX
@@ -207,6 +216,12 @@ struct THREADED_SENDPARAMETER {
   int num_flows;
 };
 
+/**
+ * @brief Thread entry point: run one export function, then free its flow copies (-M).
+ *
+ * @param arg struct THREADED_SENDPARAMETER, which is freed here.
+ * @return NULL.
+ */
 static void *
 threaded_send (void *arg) {
   struct THREADED_SENDPARAMETER *tsp = (struct THREADED_SENDPARAMETER *) arg;
@@ -254,6 +269,12 @@ static const struct NETFLOW_SENDER nf[] = {
 #endif
 };
 
+/**
+ * @brief Find the export function set for an export version.
+ *
+ * @param version Export version (1, 5, 9, NF_VERSION_IPFIX, or SOFTFLOWD_NF_VERSION_NTOPNG).
+ * @return Matching entry of the nf[] table, or NULL if the version is unknown.
+ */
 static const struct NETFLOW_SENDER *
 lookup_netflow_sender (int version) {
   int i, r;
@@ -265,12 +286,21 @@ lookup_netflow_sender (int version) {
   return NULL;
 }
 
-/* Signal handlers */
+/**
+ * @brief Signal handler that requests a graceful shutdown.
+ *
+ * @param signum Signal number; stored in graceful_shutdown_request.
+ */
 static void
 sighand_graceful_shutdown (int signum) {
   graceful_shutdown_request = signum;
 }
 
+/**
+ * @brief Signal handler for unexpected signals: log and exit immediately.
+ *
+ * @param signum Signal number.
+ */
 static void
 sighand_other (int signum) {
   /* XXX: this may not be completely safe */
@@ -278,8 +308,14 @@ sighand_other (int signum) {
   _exit (0);
 }
 
-/*
- * This is the flow comparison function.
+/**
+ * @brief Comparison function of the flow tree.
+ *
+ * Flows are compared on their identity fields, which depend on the tracking level.
+ *
+ * @param a First flow.
+ * @param b Second flow.
+ * @return Negative, zero or positive, as for memcmp().
  */
 static int
 flow_compare (struct FLOW *a, struct FLOW *b) {
@@ -343,8 +379,14 @@ flow_compare (struct FLOW *a, struct FLOW *b) {
 FLOW_PROTOTYPE (FLOWS, FLOW, trp, flow_compare);
 FLOW_GENERATE (FLOWS, FLOW, trp, flow_compare);
 
-/*
- * This is the expiry comparison function.
+/**
+ * @brief Comparison function of the expiry tree.
+ *
+ * Ordered by expiry time; ties are broken by flow sequence number so entries are unique.
+ *
+ * @param a First expiry event.
+ * @param b Second expiry event.
+ * @return -1, 0 or 1.
  */
 static int
 expiry_compare (struct EXPIRY *a, struct EXPIRY *b) {
@@ -362,21 +404,45 @@ expiry_compare (struct EXPIRY *a, struct EXPIRY *b) {
 EXPIRY_PROTOTYPE (EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE (EXPIRIES, EXPIRY, trp, expiry_compare);
 
+/**
+ * @brief Allocate a flow record from the flow freelist.
+ *
+ * @param ft Flow tracking state.
+ * @return New flow record, or NULL if out of memory.
+ */
 static struct FLOW *
 flow_get (struct FLOWTRACK *ft) {
   return freelist_get (&ft->flow_freelist);
 }
 
+/**
+ * @brief Return a flow record to the flow freelist.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow record to release.
+ */
 static void
 flow_put (struct FLOWTRACK *ft, struct FLOW *flow) {
   return freelist_put (&ft->flow_freelist, flow);
 }
 
+/**
+ * @brief Allocate an expiry event from the expiry freelist.
+ *
+ * @param ft Flow tracking state.
+ * @return New expiry event, or NULL if out of memory.
+ */
 static struct EXPIRY *
 expiry_get (struct FLOWTRACK *ft) {
   return freelist_get (&ft->expiry_freelist);
 }
 
+/**
+ * @brief Return an expiry event to the expiry freelist.
+ *
+ * @param ft     Flow tracking state.
+ * @param expiry Expiry event to release.
+ */
 static void
 expiry_put (struct FLOWTRACK *ft, struct EXPIRY *expiry) {
   return freelist_put (&ft->expiry_freelist, expiry);
@@ -400,7 +466,12 @@ dump_packet (const u_int8_t *p, int len) {
 }
 #endif
 
-/* Format a time in an ISOish format */
+/**
+ * @brief Format a time in an ISO-like format.
+ *
+ * @param t Time to format.
+ * @return Pointer to a string valid until the next call.
+ */
 static const char *
 format_time (time_t t) {
   struct tm *tm;
@@ -413,7 +484,12 @@ format_time (time_t t) {
 
 }
 
-/* Format a flow in a verbose and ugly way */
+/**
+ * @brief Format a flow in a verbose form for logging.
+ *
+ * @param flow Flow to format.
+ * @return Pointer to a string valid until the next call.
+ */
 static const char *
 format_flow (struct FLOW *flow) {
   char addr1[64], addr2[64], start_time[32], fin_time[32];
@@ -446,7 +522,12 @@ format_flow (struct FLOW *flow) {
   return (buf);
 }
 
-/* Format a flow in a brief way */
+/**
+ * @brief Format a flow in a brief form for logging.
+ *
+ * @param flow Flow to format.
+ * @return Pointer to a string valid until the next call.
+ */
 static const char *
 format_flow_brief (struct FLOW *flow) {
   char addr1[64], addr2[64];
@@ -467,7 +548,17 @@ format_flow_brief (struct FLOW *flow) {
   return (buf);
 }
 
-/* Fill in transport-layer (tcp/udp) portions of flow record */
+/**
+ * @brief Fill in the transport-layer (TCP/UDP/ICMP) parts of a flow record.
+ *
+ * ICMP type and code are encoded into the destination port, like Cisco routers do.
+ *
+ * @param flow     Flow record to fill.
+ * @param pkt      Start of the transport header.
+ * @param caplen   Bytes available at pkt.
+ * @param protocol IP protocol number.
+ * @param ndx      Endpoint index (0 or 1) of the packet source.
+ */
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 		      const size_t caplen, int protocol, int ndx) {
@@ -514,8 +605,16 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 }
 
 /**
- * @fn ipv4_to_flowrec converts a IPv4 packet to a partial flow record (used for comparison)
- * @return return header size as posive value, return negative value when error occured
+ * @brief Convert an IPv4 packet to a partial flow record (used for comparison).
+ *
+ * @param flow     Flow record to fill.
+ * @param pkt      Start of the IP header.
+ * @param caplen   Bytes available at pkt.
+ * @param isfrag   Set to 1 if the packet is a fragment.
+ * @param isfirst  Set to 1 if it is the first fragment or not fragmented.
+ * @param ndx      Set to the endpoint index (0 or 1) of the packet source in canonical order.
+ * @param track_lv Tracking level (TRACK_*).
+ * @return IP header size in bytes, or a negative value on error (runt packet or wrong IP version).
  */
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
@@ -538,8 +637,16 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 }
 
 /**
- * @fn ipv6_to_flowrec converts a IPv6 packet to a partial flow record (used for comparison)
- * @return return header size as posive value, return negative value when error occured
+ * @brief Convert an IPv6 packet to a partial flow record (used for comparison).
+ *
+ * @param flow     Flow record to fill.
+ * @param pkt      Start of the IPv6 header.
+ * @param caplen   Bytes available at pkt.
+ * @param isfrag   Set to 1 if the packet is a fragment.
+ * @param isfirst  Set to 1 if it is the first fragment or not fragmented.
+ * @param ndx      Set to the endpoint index (0 or 1) of the packet source in canonical order.
+ * @param track_lv Tracking level (TRACK_*).
+ * @return Size of the IPv6 and extension headers in bytes, or a negative value on error.
  */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
@@ -598,6 +705,13 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
   return size;
 }
 
+/**
+ * @brief Record the source and destination MAC addresses of an Ethernet frame in a flow.
+ *
+ * @param flow  Flow record to fill.
+ * @param ether Ethernet header; nothing is done if NULL.
+ * @param ndx   Endpoint index of the frame source; nothing is done if negative.
+ */
 static void
 ether_to_flowrec (struct FLOW *flow, const struct ether_header *ether,
 		  int ndx) {
@@ -608,6 +722,16 @@ ether_to_flowrec (struct FLOW *flow, const struct ether_header *ether,
   return;
 }
 
+/**
+ * @brief Recompute when a flow expires and reinsert its expiry event.
+ *
+ * Chooses the timeout from the flow state: over 2 GiB of traffic or over the maximum lifetime
+ * expires at once; TCP RST/FIN and TCP, UDP, ICMP and general timeouts follow. Also sets
+ * flowEndReason and never lets a flow outlive the maximum lifetime.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow whose expiry is updated.
+ */
 static void
 flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
   EXPIRY_REMOVE (EXPIRIES, &ft->expiries, flow->expiry);
@@ -696,13 +820,20 @@ out:
 }
 
 
-/*
- * Main per-packet processing function. Take a packet (provided by
- * libpcap) and attempt to find a matching flow. If no such flow exists,
- * then create one.
+/**
+ * @brief Main per-packet processing function.
  *
- * Also marks flows for fast expiry, based on flow or packet attributes
- * (the actual expiry is performed elsewhere)
+ * Takes a packet provided by libpcap and finds a matching flow, creating one if none exists.
+ * Also marks flows for fast expiry, based on flow or packet attributes; the actual expiry is performed elsewhere.
+ *
+ * @param cb_ctxt       Callback context (flow tracking state, target, link type).
+ * @param phdr          libpcap packet header.
+ * @param frame         Start of the frame.
+ * @param datalink_size Bytes of link-layer header to skip.
+ * @param af            Address family of the IP packet.
+ * @param vlanid        VLAN id of the frame, or 0.
+ * @param num_label     Number of MPLS labels found.
+ * @return PP_OK, PP_BAD_PACKET or PP_MALLOC_FAIL.
  */
 static int
 process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
@@ -796,8 +927,12 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
   return (PP_OK);
 }
 
-/*
- * Subtract two timevals. Returns (t1 - t2) in milliseconds.
+/**
+ * @brief Subtract two timevals.
+ *
+ * @param t1 Minuend.
+ * @param t2 Subtrahend.
+ * @return t1 - t2 in milliseconds.
  */
 u_int32_t
 timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
@@ -812,6 +947,18 @@ timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
   return ((u_int32_t) res.tv_sec * 1000 + (u_int32_t) res.tv_usec / 1000);
 }
 
+/**
+ * @brief Send a packet to the destinations of a target.
+ *
+ * Pending socket errors (e.g. from ICMP) are cleared before each send.
+ *
+ * @param num_destinations Number of entries in destinations.
+ * @param destinations     Destination sockets.
+ * @param is_loadbalance   Non-zero to send to one destination per call (round robin) instead of all.
+ * @param packet           Packet to send.
+ * @param size             Length of packet in bytes.
+ * @return -1 if a send failed, 1 in load-balance mode, otherwise the number of destinations.
+ */
 int
 send_multi_destinations (int num_destinations,
 			 struct DESTINATION *destinations,
@@ -834,6 +981,13 @@ send_multi_destinations (int num_destinations,
   return is_loadbalance ? 1 : i;
 }
 
+/**
+ * @brief Update a running minimum, mean and maximum with a new sample.
+ *
+ * @param s   Statistic to update.
+ * @param new New sample.
+ * @param n   Number of samples including this one; 1.0 resets the statistic.
+ */
 static void
 update_statistic (struct STATISTIC *s, double new, double n) {
   if (n == 1.0) {
@@ -847,7 +1001,12 @@ update_statistic (struct STATISTIC *s, double new, double n) {
   s->mean = s->mean + ((new - s->mean) / n);
 }
 
-/* Update global statistics */
+/**
+ * @brief Update the global statistics with a flow that is being expired.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow being expired.
+ */
 static void
 update_statistics (struct FLOWTRACK *ft, struct FLOW *flow) {
   double tmp;
@@ -878,6 +1037,12 @@ update_statistics (struct FLOWTRACK *ft, struct FLOW *flow) {
   n++;
 }
 
+/**
+ * @brief Count an expired flow under the counter matching its expiry reason.
+ *
+ * @param ft Flow tracking state.
+ * @param e  Expiry event of the flow.
+ */
 static void
 update_expiry_stats (struct FLOWTRACK *ft, struct EXPIRY *e) {
   switch (e->reason) {
@@ -914,7 +1079,12 @@ update_expiry_stats (struct FLOWTRACK *ft, struct EXPIRY *e) {
   }
 }
 
-/* How long before the next expiry event in millisecond */
+/**
+ * @brief Time until the next expiry event.
+ *
+ * @param ft Flow tracking state.
+ * @return Milliseconds until the next expiry event.
+ */
 static int
 next_expire (struct FLOWTRACK *ft) {
   struct EXPIRY *expiry;
@@ -950,9 +1120,13 @@ next_expire (struct FLOWTRACK *ft) {
   return (ret);
 }
 
-/*
- * Scan the tree of expiry events and process expired flows. If zap_all
- * is set, then forcibly expire all flows.
+/**
+ * @brief Scan the tree of expiry events and process expired flows.
+ *
+ * @param ft     Flow tracking state.
+ * @param target Where to export expired flows.
+ * @param ex     CE_EXPIRE_NORMAL, CE_EXPIRE_ALL (expire every flow) or CE_EXPIRE_FORCED (only forced ones).
+ * @return Number of flows expired, or -1 on export error.
  */
 static int
 check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
@@ -1108,8 +1282,11 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
   return (r == -1 ? -1 : num_expired);
 }
 
-/*
- * Force expiry of num_to_expire flows (e.g. when flow table overfull)
+/**
+ * @brief Force expiry of flows, e.g. when the flow table is overfull.
+ *
+ * @param ft            Flow tracking state.
+ * @param num_to_expire Number of flows to expire.
  */
 static void
 force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
@@ -1168,7 +1345,12 @@ force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
   /* XXX - this is overcomplicated, perhaps use a separate queue */
 }
 
-/* Delete all flows that we know about without processing */
+/**
+ * @brief Delete all known flows without exporting them.
+ *
+ * @param ft Flow tracking state.
+ * @return Number of flows deleted.
+ */
 static int
 delete_all_flows (struct FLOWTRACK *ft) {
   struct FLOW *flow, *nflow;
@@ -1190,10 +1372,15 @@ delete_all_flows (struct FLOWTRACK *ft) {
   return (i);
 }
 
-/*
- * Log our current status.
- * Includes summary counters and (in verbose mode) the list of current flows
- * and the tree of expiry events.
+/**
+ * @brief Log the current status.
+ *
+ * Includes summary counters and, in verbose mode, the list of current flows and the tree of expiry events.
+ *
+ * @param ft   Flow tracking state.
+ * @param out  Output stream.
+ * @param pcap Capture handle for libpcap counters; may be NULL when reading a file.
+ * @return 0 on success.
  */
 static int
 statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
@@ -1279,6 +1466,12 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
   return (0);
 }
 
+/**
+ * @brief Write every active flow and its expiry event to a stream.
+ *
+ * @param ft  Flow tracking state.
+ * @param out Output stream.
+ */
 static void
 dump_flows (struct FLOWTRACK *ft, FILE *out) {
   struct EXPIRY *expiry;
@@ -1303,13 +1496,18 @@ dump_flows (struct FLOWTRACK *ft, FILE *out) {
   }
 }
 
-/*
- * Figure out how many bytes to skip from front of packet to get past
- * datalink headers. If pkt is specified, also check whether determine
- * whether or not it is one that we are interested in (IPv4 or IPv6 for now)
+/**
+ * @brief Work out how many bytes of link-layer header to skip.
  *
- * Returns number of bytes to skip or -1 to indicate that entire
- * packet should be skipped
+ * If pkt is given, also checks whether it is a packet we are interested in (IPv4 or IPv6).
+ *
+ * @param linktype  libpcap data link type.
+ * @param pkt       Packet to inspect, or NULL to only check that the link type is supported.
+ * @param caplen    Bytes available at pkt.
+ * @param af        Receives the address family (IPv4 or IPv6) of the payload.
+ * @param vlanid    Receives the VLAN id, if any.
+ * @param num_label Receives the number of MPLS labels, if any.
+ * @return Number of bytes to skip, or -1 if the packet should be skipped entirely.
  */
 static int
 datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
@@ -1392,9 +1590,14 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
   return (dl->skiplen + vlan_size);
 }
 
-/*
- * Per-packet callback function from libpcap. Pass the packet (if it is IP)
- * sans datalink headers to process_packet.
+/**
+ * @brief Per-packet callback function from libpcap.
+ *
+ * Passes the packet (if it is IP), sans datalink headers, to process_packet().
+ *
+ * @param user_data struct CB_CTXT for this capture.
+ * @param phdr      libpcap packet header.
+ * @param pkt       Captured packet.
  */
 void
 flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
@@ -1441,6 +1644,13 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
 }
 
 #ifdef ENABLE_PTHREAD
+/**
+ * @brief libpcap callback for threaded capture: copy the packet for process_packet_loop() and wake it.
+ *
+ * @param user_data Unused.
+ * @param phdr      libpcap packet header.
+ * @param pkt       Captured packet.
+ */
 static void
 pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
 	     const u_char *pkt) {
@@ -1451,6 +1661,12 @@ pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
   pthread_cond_signal (&read_cond);
 }
 
+/**
+ * @brief Thread entry point: process packets handed over by pcap_memcpy() until shutdown.
+ *
+ * @param arg struct CB_CTXT passed to flow_cb().
+ * @return arg.
+ */
 static void *
 process_packet_loop (void *arg) {
   while (!graceful_shutdown_request) {
@@ -1465,6 +1681,12 @@ process_packet_loop (void *arg) {
 }
 #endif /* ENABLE_PTHREAD */
 
+/**
+ * @brief Write the configured timeouts to a stream.
+ *
+ * @param ft  Flow tracking state.
+ * @param out Output stream.
+ */
 static void
 print_timeouts (struct FLOWTRACK *ft, FILE *out) {
   fprintf (out, "           TCP timeout: %ds\n", ft->param.tcp_timeout);
@@ -1477,6 +1699,20 @@ print_timeouts (struct FLOWTRACK *ft, FILE *out) {
   fprintf (out, "       Expiry interval: %ds\n", ft->param.expiry_interval);
 }
 
+/**
+ * @brief Accept one connection on the control socket and run its command.
+ *
+ * Commands: help, shutdown, exit, expire-all, send-template, delete-all, statistics, debug+, debug-,
+ * stop-gather, start-gather, dump-flows and timeouts.
+ *
+ * @param lsock                Listening control socket.
+ * @param target               Export target (for "send-template").
+ * @param ft                   Flow tracking state.
+ * @param pcap                 Capture handle (for "statistics").
+ * @param exit_request         Set to 1 by the "exit" command.
+ * @param stop_collection_flag Set by "stop-gather" and "start-gather".
+ * @return 0 if the command was handled, 1 if softflowd should stop ("shutdown" and "exit"), -1 on error or for an unknown command.
+ */
 static int
 accept_control (int lsock, struct NETFLOW_TARGET *target,
 		struct FLOWTRACK *ft, pcap_t *pcap, int *exit_request,
@@ -1609,6 +1845,12 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
   return (ret);
 }
 
+/**
+ * @brief Create a UDP socket bound to a local port on all IPv4 addresses.
+ *
+ * @param portnumber Port to bind, in host order.
+ * @return The socket, or a negative value on error.
+ */
 static int
 recvsock (uint16_t portnumber) {
   struct sockaddr_in addr;
@@ -1628,6 +1870,12 @@ recvsock (uint16_t portnumber) {
 }
 
 #ifdef LINUX
+/**
+ * @brief Bind a socket to a network interface (SO_BINDTODEVICE, Linux only).
+ *
+ * @param sock   Socket to bind.
+ * @param ifname Interface name.
+ */
 static void
 bind_device (int sock, char *ifname) {
   struct ifreq ifr;
@@ -1640,6 +1888,16 @@ bind_device (int sock, char *ifname) {
 }
 #endif /* LINUX */
 
+/**
+ * @brief Create a socket connected to an export destination.
+ *
+ * @param addr         Destination address.
+ * @param len          Length of addr.
+ * @param hoplimit     Multicast TTL / hop limit, or -1 for the default (1 for multicast addresses).
+ * @param protocol     IPPROTO_UDP or another IP protocol for a stream socket.
+ * @param exporterAddr Optional local exporter addresses to bind to (-e); may be NULL.
+ * @return The connected socket. Exits the process on error.
+ */
 static int
 connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
 	  int protocol, struct addrinfo *exporterAddr) {
@@ -1702,6 +1960,12 @@ connsock (struct sockaddr_storage *addr, socklen_t len, int hoplimit,
   return (s);
 }
 
+/**
+ * @brief Create the listening UNIX-domain socket for the control interface.
+ *
+ * @param path Socket path; an existing file at that path is removed first.
+ * @return The listening socket. Exits the process on error.
+ */
 static int
 unix_listener (const char *path) {
   struct sockaddr_un addr;
@@ -1742,6 +2006,20 @@ unix_listener (const char *path) {
   return (s);
 }
 
+/**
+ * @brief Open a live capture or a capture file and set up filtering.
+ *
+ * Exits the process on error.
+ *
+ * @param pcap                 Receives the libpcap handle.
+ * @param linktype             Receives the data link type.
+ * @param dev                  Interface to capture on, or NULL.
+ * @param capfile              Capture file to read when dev is NULL.
+ * @param bpf_prog             BPF filter expression, or NULL.
+ * @param need_v6              Non-zero if IPv6 is needed, which selects the larger default snap length.
+ * @param promisc              Non-zero for promiscuous mode.
+ * @param buffer_size_override Capture buffer size in bytes, or 0 for the default.
+ */
 static void
 setup_packet_capture (struct pcap **pcap, int *linktype,
 		      char *dev, char *capfile, char *bpf_prog, int need_v6,
@@ -1837,6 +2115,11 @@ setup_packet_capture (struct pcap **pcap, int *linktype,
 #endif
 }
 
+/**
+ * @brief Initialise the flow tracking state with the default limits and timeouts.
+ *
+ * @param ft Flow tracking state.
+ */
 static void
 init_flowtrack (struct FLOWTRACK *ft) {
   /* Set up flow-tracking structure */
@@ -1862,6 +2145,13 @@ init_flowtrack (struct FLOWTRACK *ft) {
   ft->param.expiry_interval = DEFAULT_EXPIRY_INTERVAL;
 }
 
+/**
+ * @brief Join command line arguments into one space-separated string.
+ *
+ * @param argc Number of arguments.
+ * @param argv Arguments to join.
+ * @return Newly allocated string (used for the BPF filter). Exits on out-of-memory.
+ */
 static char *
 argv_join (int argc, char **argv) {
   int i;
@@ -1889,7 +2179,9 @@ argv_join (int argc, char **argv) {
   return (ret);
 }
 
-/* Display commandline usage information */
+/**
+ * @brief Display commandline usage information.
+ */
 static void
 usage (void) {
   fprintf (stderr,
@@ -1958,6 +2250,14 @@ usage (void) {
 	   DEFAULT_EXPIRY_INTERVAL);
 }
 
+/**
+ * @brief Parse a "-t name=time" argument and set that timeout.
+ *
+ * Exits with a usage message on a malformed argument.
+ *
+ * @param ft      Flow tracking state.
+ * @param to_spec Argument of the form name=time; name is tcp, tcp.rst, tcp.fin, udp, icmp, general, maxlife or expint.
+ */
 static void
 set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
   char *name, *value;
@@ -2010,6 +2310,15 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
   free (name);
 }
 
+/**
+ * @brief Resolve one "host:port" (or "[v6addr]:port") argument.
+ *
+ * Exits with a message on error.
+ *
+ * @param s    Argument to parse.
+ * @param addr Receives the resolved address.
+ * @param len  On entry the size of addr, on return the address length.
+ */
 static void
 parse_hostport (const char *s, struct sockaddr *addr, socklen_t *len) {
   char *orig, *host, *port;
@@ -2053,6 +2362,14 @@ parse_hostport (const char *s, struct sockaddr *addr, socklen_t *len) {
   *len = res->ai_addrlen;
 }
 
+/**
+ * @brief Resolve a comma-separated list of host:port destinations.
+ *
+ * @param s        Comma-separated list.
+ * @param dest     Destination array to fill.
+ * @param max_dest Size of dest.
+ * @return Number of destinations parsed.
+ */
 static int
 parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
   int i = 0;
@@ -2068,8 +2385,8 @@ parse_hostports (const char *s, struct DESTINATION *dest, int max_dest) {
   return i;
 }
 
-/*
- * Drop privileges and chroot, will exit on failure
+/**
+ * @brief Drop privileges and chroot; exits on failure.
  */
 static void
 drop_privs (void) {
@@ -2124,8 +2441,13 @@ drop_privs (void) {
   }
 }
 
-/* Parse MAC address string (aa:bb:cc:dd:ee:ff or aa-bb-cc-dd-ee-ff)
- * into a 6-byte array. Returns 0 on success, -1 on error. */
+/**
+ * @brief Parse a MAC address string into a 6-octet array.
+ *
+ * @param str Address as aa:bb:cc:dd:ee:ff or aa-bb-cc-dd-ee-ff.
+ * @param mac Receives the address.
+ * @return 0 on success, -1 on error.
+ */
 static int
 parse_mac_address (const char *str, u_int8_t mac[6]) {
   unsigned int b[6];
@@ -2145,6 +2467,13 @@ parse_mac_address (const char *str, u_int8_t mac[6]) {
   return (0);
 }
 
+/**
+ * @brief softflowd entry point: parse options, set up capture and export, and run the main loop.
+ *
+ * @param argc Argument count.
+ * @param argv Arguments.
+ * @return 0 on success, 1 if the main loop ended with an error.
+ */
 int
 main (int argc, char **argv) {
   clock_t boottime = clock ();

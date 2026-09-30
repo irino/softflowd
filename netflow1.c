@@ -34,20 +34,33 @@
  * Based on:
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
+/** NetFlow v1 packet header (16 octets, see NF1_HEADER_SIZE). */
 struct NF1_HEADER {
-  u_int16_t version, flows;
-  u_int32_t uptime_ms, time_sec, time_nanosec;
+  u_int16_t version;            /**< Export version (1) */
+  u_int16_t flows;              /**< Number of flow records in the packet */
+  u_int32_t uptime_ms;          /**< Milliseconds since boot */
+  u_int32_t time_sec;           /**< Export time, seconds */
+  u_int32_t time_nanosec;       /**< Export time, nanoseconds */
 };
+/** NetFlow v1 flow record (48 octets). */
 struct NF1_FLOW {
-  u_int32_t src_ip, dest_ip, nexthop_ip;
-  u_int16_t if_index_in, if_index_out;
-  u_int32_t flow_packets, flow_octets;
-  u_int32_t flow_start, flow_finish;
-  u_int16_t src_port, dest_port;
-  u_int16_t pad1;
-  u_int8_t protocol, tos, tcp_flags;
-  u_int8_t pad2, pad3, pad4;
-  u_int32_t reserved1;
+  u_int32_t src_ip;             /**< Source IPv4 address */
+  u_int32_t dest_ip;            /**< Destination IPv4 address */
+  u_int32_t nexthop_ip;         /**< Next hop (always 0) */
+  u_int16_t if_index_in;        /**< Input interface index */
+  u_int16_t if_index_out;       /**< Output interface index */
+  u_int32_t flow_packets;       /**< Packets in the flow */
+  u_int32_t flow_octets;        /**< Octets in the flow */
+  u_int32_t flow_start;         /**< sysUpTime at flow start */
+  u_int32_t flow_finish;        /**< sysUpTime at flow end */
+  u_int16_t src_port;           /**< Source port */
+  u_int16_t dest_port;          /**< Destination port */
+  u_int16_t pad1;               /**< Padding */
+  u_int8_t protocol;            /**< IP protocol number */
+  u_int8_t tos;                 /**< IP type of service */
+  u_int8_t tcp_flags;           /**< Cumulative TCP flags */
+  u_int8_t pad2, pad3, pad4;    /**< Padding */
+  u_int32_t reserved1;          /**< Reserved */
 #if 0
   u_int8_t reserved2;           /* XXX: no longer used */
 #endif
@@ -55,9 +68,13 @@ struct NF1_FLOW {
 #define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
 				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
 
-/*
- * Given an array of expired flows, send netflow v1 report packets
- * Returns number of packets sent or -1 on error
+/**
+ * @brief Send expired flows as NetFlow v1 packets (independent exporter, export type "none").
+ *
+ * IPv6 flows are skipped, as NetFlow v1 cannot carry them. Each direction with traffic becomes one record.
+ *
+ * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
  */
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {

@@ -31,6 +31,7 @@
 #define PSAMP_DATALINKFRAME_SIZE IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - \
   sizeof(struct IPFIX_HEADER) - sizeof(struct IPFIX_SET_HEADER) - 8 - 8 -2
 
+/** Fields of the PSAMP data record: sequence id, observation time, exported octets and the frame section. */
 const struct IPFIX_FIELD_SPECIFIER field_psamp[] = {
   {PSAMP_selectionSequenceId, 8},
   {PSAMP_observationTimeMicroseconds, 8},
@@ -42,9 +43,16 @@ struct PSAMP_SOFTFLOWD_TEMPLATE {
   struct IPFIX_TEMPLATE_SET_HEADER h;
   struct IPFIX_FIELD_SPECIFIER r[PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
+/** The PSAMP template. */
 struct PSAMP_SOFTFLOWD_TEMPLATE template;
+/** Template state: -1 = not built and sent yet, 0 = already sent. */
 static int psamp_pkts_until_template = -1;
 
+/**
+ * @brief Build the PSAMP template set carried in IPFIX.
+ *
+ * @param template_p Template to fill.
+ */
 static void
 psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
   u_int index = 0;
@@ -57,6 +65,18 @@ psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
                      PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS);
 }
 
+/**
+ * @brief Export one captured packet as a PSAMP record over IPFIX.
+ *
+ * The template is sent before the first data record; the data record is always a fixed-size packet.
+ *
+ * @param pkt           Captured packet (link layer onwards).
+ * @param caplen        Captured length of pkt.
+ * @param tv            Capture time.
+ * @param target        Destinations to send to.
+ * @param total_packets Running packet count, used as sequence number.
+ * @return 1 on success, -1 on send error.
+ */
 int
 send_psamp (const u_char * pkt, int caplen, struct timeval tv,
             struct NETFLOW_TARGET *target, uint64_t total_packets) {
@@ -116,7 +136,15 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   return 1;
 }
 
-// This function only process softflowd orignate psamp data record.
+/**
+ * @brief Receive one PSAMP packet from a socket and feed it to flow_cb() as if it had been captured.
+ *
+ * Only PSAMP data records originated by softflowd itself are processed.
+ *
+ * @param rsock   UDP socket to read from.
+ * @param cb_ctxt Context passed on to flow_cb().
+ * @return 1 if a record was processed, 0 if the set is not a softflowd PSAMP data record, -1 on error.
+ */
 int
 recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   char buf[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];

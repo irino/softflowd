@@ -24,12 +24,22 @@
 
 #include "common.h"
 
+/**
+ * @brief Print the command line usage of softflowctl to stderr.
+ */
 static void
 usage(void)
 {
 	fprintf(stderr, "Usage: [-c ctlsock] softflowctl [command]\n");
 }
 
+/**
+ * @brief Send one command to a running softflowd through its control socket and print the reply.
+ *
+ * @param argc Argument count.
+ * @param argv Arguments: an optional "-c ctlsock" followed by the command (e.g. "statistics").
+ * @return 0 on success, non-zero on error.
+ */
 int
 main(int argc, char **argv)
 {

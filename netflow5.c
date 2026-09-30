@@ -44,6 +44,14 @@ struct NF1_FLOW_PROTO_TOS_TCPF {
 #define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NF5_FLOW) - \
                                   sizeof(struct NF1_FLOW_PROTO_TOS_TCPF))
 
+/**
+ * @brief Fill the v1-only tail of a NetFlow v1 flow record.
+ *
+ * @param pkt   Start of the tail inside the record; struct NF1_FLOW_PROTO_TOS_TCPF is zeroed first.
+ * @param proto IP protocol number.
+ * @param tos   IP type of service.
+ * @param tcpf  Cumulative TCP flags.
+ */
 static void
 fill_netflow_v1_proto_tos_tcp (u_int8_t * pkt, u_int8_t proto, u_int8_t tos,
                                u_int8_t tcpf) {
@@ -55,9 +63,14 @@ fill_netflow_v1_proto_tos_tcp (u_int8_t * pkt, u_int8_t proto, u_int8_t tos,
   flw->tcp_flags = tcpf;
 }
 
-/*
- * Given an array of expired flows, send netflow v5 report packets
- * Returns number of packets sent or -1 on error
+/**
+ * @brief Send expired flows as NetFlow v5 or v1 export packets.
+ *
+ * IPv6 flows are skipped, as neither version can carry them. Each direction with traffic becomes one record.
+ *
+ * @param sp      Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
+ * @param version Export version: 5 or 1.
+ * @return Number of packets sent, or -1 on error.
  */
 static int
 send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
@@ -198,12 +211,24 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   return (num_packets);
 }
 
+/**
+ * @brief Send expired flows as NetFlow v5 packets.
+ *
+ * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_netflow_v5 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 5);
 }
 
 #if ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_NONE
+/**
+ * @brief Send expired flows as NetFlow v1 packets.
+ *
+ * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 1);

@@ -31,7 +31,15 @@
 #include "ipfix.h"
 #include "psamp.h"
 
-/*Shared with psamp.c */
+/**
+ * @brief Fill field specifiers of a template from a field table (also used by psamp.c).
+ *
+ * @param dst          Template field specifier array to fill.
+ * @param index        Position in dst to start at; advanced by field_number.
+ * @param src          Field table (host byte order).
+ * @param field_number Number of fields to copy.
+ * @return Sum of the lengths of the copied fields.
+ */
 int
 ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
                    u_int *index,
@@ -47,6 +55,12 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
   return length;
 }
 
+/**
+ * @brief Convert a Unix time to a 64-bit NTP timestamp.
+ *
+ * @param tv  Unix time.
+ * @param ntp Receives the NTP seconds and fraction; nothing is done if NULL.
+ */
 void
 conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp) {
   if (ntp == NULL)
@@ -56,6 +70,12 @@ conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp) {
     (uint32_t) ((double) (tv.tv_usec + 1) * (double) (1LL << 32) * 1.0e-6);
 }
 
+/**
+ * @brief Convert a 64-bit NTP timestamp to a Unix time.
+ *
+ * @param ntp NTP timestamp.
+ * @param tv  Receives the Unix time; nothing is done if NULL.
+ */
 void
 conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
   if (tv == NULL)
@@ -68,6 +88,16 @@ conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
 /* IPFIX flowDirection (IANA IE 61, RFC 7011): Use MAC match (Src=Egress, Dst=Ingress)
  * if configured with ethernet tracking; otherwise fall back to array index i. */
 
+/**
+ * @brief Value of the IPFIX flowDirection element (IANA IE 61, RFC 7011).
+ *
+ * Without a direction MAC and ethernet tracking the endpoint index i is returned instead.
+ *
+ * @param flow  Flow.
+ * @param i     Endpoint index (0 or 1) of the record being encoded.
+ * @param param Tracking parameters holding the direction MAC.
+ * @return IPFIX_FLOWDIRECTION_EGRESS if the source MAC of endpoint i matches the direction MAC, IPFIX_FLOWDIRECTION_INGRESS if its destination MAC does.
+ */
 static u_int8_t
 ipfix_flow_direction (const struct FLOW *flow, int i,
                       const struct FLOWTRACKPARAMETERS *param) {
@@ -84,6 +114,12 @@ ipfix_flow_direction (const struct FLOW *flow, int i,
  * used to select from their TMPLMAX template arrays. */
 enum { TMPLV4, TMPLICMPV4, TMPLV6, TMPLICMPV6, TMPLMAX };
 
+/**
+ * @brief Select which of the TMPLMAX templates a flow uses (IPv4, ICMPv4, IPv6 or ICMPv6).
+ *
+ * @param flow Flow.
+ * @return TMPLV4, TMPLICMPV4, TMPLV6 or TMPLICMPV6.
+ */
 static u_int
 ipfix_flow_to_template_index (const struct FLOW *flow) {
   if (flow->af == AF_INET)
@@ -364,15 +400,22 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
  * Active only under --enable-unified-export-type=full (psamp.c remains separate). */
 
-/* Context for resolving field values: flow, endpoint index, and send parameters. */
+/** Context for resolving field values: flow, endpoint index, and send parameters. */
 struct IPFIX_CTX {
-  const struct SENDPARAMETER *sp;
-  const struct FLOW *flow;
-  u_int i;                      /* which endpoint (0/1) is "source" here */
+  const struct SENDPARAMETER *sp;       /**< Send parameters (tracking parameters, interface index) */
+  const struct FLOW *flow;              /**< Flow being encoded */
+  u_int i;                              /**< Which endpoint (0/1) is "source" here */
 };
 
-/* Stores host-order 'val' (low 'len' octets) as big-endian at dst.
- * Fast-paths 8/4/2-byte widths via htobe/htonl/htons, falling back to a byte loop. */
+/**
+ * @brief Store a host-order value as big-endian octets.
+ *
+ * Uses htobe64/htonl/htons for 8, 4 and 2 octets and falls back to a byte loop.
+ *
+ * @param dst Destination.
+ * @param val Value; only its low len octets are stored.
+ * @param len Number of octets to store.
+ */
 static inline void
 hton (u_char *dst, u_int64_t val, u_int len) {
   switch (len) {
@@ -406,10 +449,16 @@ hton (u_char *dst, u_int64_t val, u_int len) {
   }
 }
 
-/* Compile-time resolved IE encoder stored directly in field tables.
- * Eliminates runtime lookup/init costs since field lists are static. */
-/* Uses compile-time constant 'width' to let the compiler optimize hton()'s
- * switch block down to a single branch on the hot path. */
+/**
+ * @brief Define a static encoder that stores an integer value in network byte order.
+ *
+ * The encoder is stored directly in the field tables, which removes any run-time lookup.
+ * The compile-time constant width lets the compiler reduce hton()'s switch to a single branch.
+ *
+ * @param name     Name of the encoder function to define.
+ * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
+ * @param width    Number of octets to store.
+ */
 #define IPFIX_ENC_HTON(name, val_expr, width) \
 static void \
 name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
@@ -418,8 +467,16 @@ name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
   hton (dst, (val_expr), (width)); \
 }
 
-/* No length check: field tables statically match each encoder to its exact 'n'
- * (length >= n is always true), allowing unconditional memcpy on the hot path. */
+/**
+ * @brief Define a static encoder that copies n octets from memory unchanged.
+ *
+ * There is no length check: the field tables match each encoder to its exact n,
+ * so length >= n always holds and memcpy() can run unconditionally.
+ *
+ * @param name     Name of the encoder function to define.
+ * @param src_expr Expression for the source address; may use "flow", "i" and "ctx".
+ * @param n        Number of octets to copy.
+ */
 #define IPFIX_ENC_COPY(name, src_expr, n) \
 static void \
 name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
@@ -428,6 +485,12 @@ name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
   memcpy (dst, (src_expr), (n)); \
 }
 
+/**
+ * @brief Define a static encoder that stores a single octet.
+ *
+ * @param name     Name of the encoder function to define.
+ * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
+ */
 #define IPFIX_ENC_BYTE(name, val_expr) \
 static void \
 name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
@@ -436,8 +499,15 @@ name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
   *dst = (u_char) (val_expr); \
 }
 
-/* No-op encoder for NF1/NF5 zero/padding fields. Calling this dummy function
- * directly is faster than testing for a NULL sentinel on the hot path. */
+/**
+ * @brief No-op encoder for NetFlow v1/v5 zero and padding fields (the buffer is already zeroed).
+ *
+ * Calling this dummy directly is faster than testing for a NULL sentinel on the hot path.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_zero (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) {
   (void) dst;
@@ -482,7 +552,15 @@ IPFIX_ENC_HTON (enc_flowEndMilliSeconds,
                         (u_int64_t) flow->flow_last.tv_usec / 1000, 8)
 IPFIX_ENC_BYTE (enc_flowEndReason, flow->flowEndReason)
 
-/* Encodes NTP 64-bit timestamps for IPFIX micro/nano (identical encoding). */
+/**
+ * @brief Encode the flow start time as a 64-bit NTP timestamp (flowStartMicroseconds / flowStartNanoseconds).
+ *
+ * The micro and nano forms use the same encoding.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_flowStartMicroSeconds (u_char *dst, u_int16_t length,
                            const struct IPFIX_CTX *ctx) {
@@ -491,6 +569,13 @@ enc_flowStartMicroSeconds (u_char *dst, u_int16_t length,
   conv_unix_to_ntp (ctx->flow->flow_start, &ntptime);
   hton (dst, (u_int64_t) ntptime.second << 32 | ntptime.fraction, 8);
 }
+/**
+ * @brief Encode the flow end time as a 64-bit NTP timestamp (flowEndMicroseconds / flowEndNanoseconds).
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
                          const struct IPFIX_CTX *ctx) {
@@ -503,6 +588,13 @@ enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
 IPFIX_ENC_HTON (enc_vlanId, ctx->flow->vlanid[ctx->i], 2)
 IPFIX_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
 #ifdef ENABLE_IFNAME
+/**
+ * @brief Encode the interface name (the capture interface, or the file name with -r), truncated to the field length.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_interfaceName (u_char *dst, u_int16_t length,
                    const struct IPFIX_CTX *ctx) {
@@ -536,6 +628,13 @@ IPFIX_ENC_HTON (enc_selectorAlgorithm, PSAMP_selectorAlgorithm_count,
 IPFIX_ENC_BYTE (enc_samplingAlgorithm,
                         IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC)
 
+/**
+ * @brief Encode the exporter address (-e) matching the field length: 4 octets for IPv4, 16 for IPv6.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_exporterAddress (u_char *dst, u_int16_t length,
                      const struct IPFIX_CTX *ctx) {
@@ -551,6 +650,13 @@ enc_exporterAddress (u_char *dst, u_int16_t length,
   }
 }
 
+/**
+ * @brief Encode the exporter address (-e) for the originalExporterIPv4/6Address elements.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_originalExporterAddress (u_char *dst, u_int16_t length,
                              const struct IPFIX_CTX *ctx) {
@@ -566,6 +672,13 @@ enc_originalExporterAddress (u_char *dst, u_int16_t length,
   }
 }
 
+/**
+ * @brief Encode the IP version (4 or 6) of the flow.
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_ipVersion (u_char *dst, u_int16_t length,
                const struct IPFIX_CTX *ctx) {
@@ -573,6 +686,13 @@ enc_ipVersion (u_char *dst, u_int16_t length,
   *dst = (ctx->flow->af == AF_INET) ? 4 : 6;
 }
 
+/**
+ * @brief Encode the flowDirection element using ipfix_flow_direction().
+ *
+ * @param dst    Where to write the encoded value.
+ * @param length Length of the field in octets.
+ * @param ctx    Flow, endpoint index and send parameters.
+ */
 static void
 enc_flowDirection (u_char *dst, u_int16_t length,
                    const struct IPFIX_CTX *ctx) {
@@ -652,8 +772,18 @@ union IPFIX_PACKET_HEADER {
   struct IPFIX_HEADER ipfix;
 };
 
-/* Emits every field of a data-record group by calling each entry's
- * own compile-time-resolved encoder directly -- no lookup. */
+/**
+ * @brief Emit every field of a data record group by calling the encoder of each entry.
+ *
+ * The encoders are resolved at compile time, so no lookup is needed at run time.
+ *
+ * @param fields  Field table with one encoder per entry.
+ * @param nfields Number of entries.
+ * @param packet  Packet buffer.
+ * @param offset  Offset in packet to write at.
+ * @param ctx     Flow, endpoint index and send parameters.
+ * @return Offset after the last emitted field.
+ */
 static u_int
 ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
                               *fields, u_int nfields, u_char *packet,
@@ -669,8 +799,16 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
 /* Unconditional loop is faster than per-field NULL checks, which added 0.8%-2.7%
  * instruction overhead in Callgrind measurements due to branch costs. */
 
-/* Builds fixed packet header via union pointer cast, leaving count/length/sequence
- * fields as 0 to be patched in place once the packet is complete. */
+/**
+ * @brief Write the packet header for the given export version at the start of the packet.
+ *
+ * Count, length and sequence fields are left 0 and patched in place once the packet is complete.
+ *
+ * @param packet  Packet buffer.
+ * @param version Export version: 1, 5, 9 or 10.
+ * @param param   Tracking parameters (export time, boot time).
+ * @return Size of the header in bytes.
+ */
 static u_int
 ipfix_build_header (u_char *packet, u_int16_t version,
                             const struct FLOWTRACKPARAMETERS *param) {
@@ -738,8 +876,15 @@ ipfix_send_packet (struct NETFLOW_TARGET *target, u_char *packet,
 /* NetFlow v1 / v5: fixed (non-templated) export.                      */
 /* ------------------------------------------------------------------ */
 
-/* Shared engine for NF1/NF5 fixed formats using 48-octet data records,
- * leveraging the same field-list logic as the v9/IPFIX templated exporter. */
+/**
+ * @brief Send flows as NetFlow v1 or v5 packets with 48-octet data records.
+ *
+ * Uses the same field-list logic as the v9/IPFIX exporter. IPv6 flows are skipped.
+ *
+ * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param version Export version: 1 or 5.
+ * @return Number of packets sent, or -1 on error.
+ */
 static int
 send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   struct FLOW **flows = sp.flows;
@@ -824,11 +969,23 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   return (num_packets);
 }
 
+/**
+ * @brief Send expired flows as NetFlow v1 packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {
   return send_ipfix_fixed (sp, 1);
 }
 
+/**
+ * @brief Send expired flows as NetFlow v5 packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_netflow_v5 (struct SENDPARAMETER sp) {
   return send_ipfix_fixed (sp, 5);
@@ -838,36 +995,48 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
 /* NetFlow v9 / IPFIX: templated export.                                */
 /* ------------------------------------------------------------------ */
 
+/** A NetFlow v9 / IPFIX template together with the encoders used to fill its data records. */
 struct IPFIX_TEMPLATE {
-  struct IPFIX_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER r[IPFIX_MAXFIELDS];
-  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_MAXBIFIELDS];
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_MAXFIELDS];     /* per-record encoders */
-  u_int hr_count;
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hbi[IPFIX_MAXBIFIELDS];
-  u_int hbi_count;
-  u_int16_t data_len, bi_count;
+  struct IPFIX_TEMPLATE_SET_HEADER h;   /**< Template set header, in network byte order */
+  struct IPFIX_FIELD_SPECIFIER r[IPFIX_MAXFIELDS];      /**< Field specifiers, in network byte order */
+  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_MAXBIFIELDS];     /**< Reverse-direction (enterprise) field specifiers */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_MAXFIELDS];     /**< Per-record encoders */
+  u_int hr_count;                       /**< Number of entries in hr[] */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER hbi[IPFIX_MAXBIFIELDS];  /**< Encoders of the reverse-direction fields */
+  u_int hbi_count;                      /**< Number of entries in hbi[] */
+  u_int16_t data_len;                   /**< Size of one data record in octets */
+  u_int16_t bi_count;                   /**< Number of reverse-direction fields in the template */
 };
 
+/** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
 static struct IPFIX_TEMPLATE templates[TMPLMAX];
+/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
+ * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
 static int ipfix_pkts_until_template = -1;
 
 /* Emits NFv9/IPFIX Options Templates and Data Records using ipfix_emit_group_enc().
  * Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to avoid duplicate padded declarations. */
 struct IPFIX_OPTION_TEMPLATE {
-  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;
+  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;  /**< Options template as sent on the wire */
   /* Host-order copies for the Data Record -- see IPFIX_TEMPLATE.hr[]. */
   struct IPFIX_FIELD_SPECIFIER_ENCODER
-    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
-  u_int hs_count;
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
-  u_int hr_count;
-  u_int16_t total_len;          /* bytes of tmpl.h+s+r actually in use */
+    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];  /**< Encoders of the scope fields */
+  u_int hs_count;                       /**< Number of entries in hs[] */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];    /**< Encoders of the option fields */
+  u_int hr_count;                       /**< Number of entries in hr[] */
+  u_int16_t total_len;                  /**< Bytes of tmpl.h+s+r actually in use */
 };
 
+/** The options template and data record, built once by ipfix_init_option(). */
 static struct IPFIX_OPTION_TEMPLATE option_template;
+/** Non-zero once option_template has been built. */
 static int option_initialized = 0;
 
+/**
+ * @brief Build the options template for the given version into option_template.
+ *
+ * @param version Export version: 9 or 10.
+ */
 static void
 ipfix_init_option (u_int16_t version) {
   const struct IPFIX_FIELD_SPECIFIER_ENCODER *scope_src, *opt_src;
@@ -926,8 +1095,16 @@ ipfix_init_option (u_int16_t version) {
   option_initialized = 1;
 }
 
-/* Appends Options Template Set and Data Record at '*offset', advancing it.
- * Data Records are output via ipfix_emit_group_enc() like standard records. */
+/**
+ * @brief Append the options template set and its data record to a packet.
+ *
+ * The data record is emitted through ipfix_emit_group_enc() like a standard record.
+ *
+ * @param packet  Packet buffer.
+ * @param offset  Offset to write at; advanced past the appended data.
+ * @param version Export version: 9 or 10.
+ * @param sp      Send parameters; the option values are taken from sp->param.
+ */
 static void
 ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
                            const struct SENDPARAMETER *sp) {
@@ -968,6 +1145,18 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
   *offset += doff;
 }
 
+/**
+ * @brief Add fields to a template and remember their encoders.
+ *
+ * At most IPFIX_MAXFIELDS (or IPFIX_MAXBIFIELDS) fields are held.
+ *
+ * @param tmpl         Template to extend.
+ * @param index        Position to start at; advanced by the number of fields added.
+ * @param src          Field table with encoders.
+ * @param field_number Number of fields to add.
+ * @param bi_flag      IPFIX_BIFLAG_ON to add reverse-direction (enterprise) fields.
+ * @return Sum of the lengths of the added fields.
+ */
 static u_int
 ipfix_init_template_fields (struct IPFIX_TEMPLATE *tmpl,
                            u_int *index,
@@ -996,6 +1185,15 @@ ipfix_init_template_fields (struct IPFIX_TEMPLATE *tmpl,
   return length;
 }
 
+/**
+ * @brief Add the flow start/end time fields chosen by the time format option (-A).
+ *
+ * @param param   Tracking parameters (time_format).
+ * @param tmpl    Template to extend.
+ * @param index   Position to start at; advanced.
+ * @param version Export version: only IPFIX (10) supports absolute time formats.
+ * @return Sum of the lengths of the added fields.
+ */
 static u_int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
                                   struct IPFIX_TEMPLATE *tmpl,
@@ -1013,6 +1211,17 @@ ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
   return ipfix_init_template_fields (tmpl, index, field_timesysup_enc, 2, IPFIX_BIFLAG_OFF);
 }
 
+/**
+ * @brief Build one complete template.
+ *
+ * @param param       Tracking parameters.
+ * @param tmpl        Template to build.
+ * @param template_id Template id.
+ * @param v6_flag     Non-zero for IPv6.
+ * @param icmp_flag   Non-zero for the ICMP variant.
+ * @param bi_flag     IPFIX_BIFLAG_ON for biflow (reverse fields).
+ * @param version     Export version.
+ */
 static void
 ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
                                    struct IPFIX_TEMPLATE *tmpl,
@@ -1093,6 +1302,13 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
     length + param->max_num_label * IPFIX_mplsLabelStackSection_SIZE;
 }
 
+/**
+ * @brief Build the IPv4, ICMPv4, IPv6 and ICMPv6 templates into templates.
+ *
+ * @param param   Tracking parameters.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow.
+ * @param version Export version: 9 or 10.
+ */
 static void
 ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
                               u_int8_t bi_flag, u_int16_t version) {
@@ -1128,7 +1344,12 @@ ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
   }
 }
 
-/* flow_to_template_index() uses ipfix_flow_to_template_index(). */
+/**
+ * @brief Tell whether a flow is ICMP (ICMPv4 for IPv4, ICMPv6 for IPv6).
+ *
+ * @param flow Flow.
+ * @return 1 if the flow is ICMP, 0 otherwise.
+ */
 static int
 ipfix_valuate_icmp (const struct FLOW *flow) {
   if (flow->af == AF_INET)
@@ -1138,6 +1359,15 @@ ipfix_valuate_icmp (const struct FLOW *flow) {
   return 0;
 }
 
+/**
+ * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
+ *
+ * @param packet        Packet buffer.
+ * @param offset        Offset to write at; advanced.
+ * @param tmpl          Template to copy.
+ * @param bi_flag       Non-zero to append the reverse-direction fields.
+ * @param max_num_label Number of MPLS label fields to append.
+ */
 static void
 ipfix_memcpy_template (u_char *packet, u_int *offset,
                                struct IPFIX_TEMPLATE *tmpl,
@@ -1162,8 +1392,20 @@ ipfix_memcpy_template (u_char *packet, u_int *offset,
   }
 }
 
-/* Encodes standard or biflow data records using the template's field list;
- * templated counterpart to send_ipfix_fixed()'s record loop. */
+/**
+ * @brief Encode the data records of one flow (standard or biflow) using the template field list.
+ *
+ * Templated counterpart of the record loop in send_ipfix_fixed().
+ *
+ * @param flow     Flow to encode.
+ * @param packet   Output buffer.
+ * @param len      Space available in packet.
+ * @param sp       Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param len_used Receives the number of bytes written.
+ * @param bi_flag  Non-zero to emit one biflow record instead of one per direction.
+ * @param version  Export version.
+ * @return Number of records written, or -1 if the buffer is too small.
+ */
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                                u_int len, const struct SENDPARAMETER *sp,
@@ -1203,14 +1445,26 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   return (nflows);
 }
 
+/**
+ * @brief Request that the templates be sent again with the next export packet.
+ */
 void
 ipfix_resend_template (void) {
   if (ipfix_pkts_until_template > 0)
     ipfix_pkts_until_template = 0;
 }
 
-/* Packet-framing loop for NFv9/IPFIX templates, mirroring send_ipfix_common()
- * but emitting records via field lists in ipfix_flow_to_flowset(). */
+/**
+ * @brief Send flows as NetFlow v9 or IPFIX packets using templates.
+ *
+ * Packet-framing loop: templates and the options record are sent first and then every
+ * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; records come from ipfix_flow_to_flowset().
+ *
+ * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
+ * @param version Export version: 9 or 10.
+ * @return Number of packets sent, or -1 on error.
+ */
 static int
 send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
                               u_int16_t version) {
@@ -1348,16 +1602,34 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
   return (num_packets);
 }
 
+/**
+ * @brief Send expired flows as NetFlow v9 packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_nflow9 (struct SENDPARAMETER sp) {
   return send_ipfix_templated (sp, 0, 9);
 }
 
+/**
+ * @brief Send expired flows as IPFIX packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_ipfix (struct SENDPARAMETER sp) {
   return send_ipfix_templated (sp, 0, 10);
 }
 
+/**
+ * @brief Send expired flows as IPFIX biflow packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
   return send_ipfix_templated (sp, 1, 10);
@@ -1499,13 +1771,28 @@ void memcpy_template (u_char * packet, u_int * offset,
                       u_int8_t bi_flag, u_int8_t max_num_label);
 
 // variables
+/** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
 static struct IPFIX_SOFTFLOWD_TEMPLATE templates_partial[TMPLMAX];
+/** IPFIX options template. */
 static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template_partial;
+/** IPFIX options data record. */
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
+/** NetFlow v9 options data record. */
 static struct NFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
 
+/** Packets until templates_partial are sent again: -1 = not built yet, 0 or less = send with the next packet,
+ * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
 static int ipfix_pkts_until_template_partial = -1;
 
+/**
+ * @brief Add reverse-direction (enterprise) fields to a template.
+ *
+ * @param template     Template to extend.
+ * @param index        Position to start at; advanced.
+ * @param fields       Field table (host byte order).
+ * @param field_number Number of fields to add.
+ * @return Sum of the lengths of the added fields.
+ */
 static int
 ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
                      u_int *index,
@@ -1522,6 +1809,14 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
   return length;
 }
 
+/**
+ * @brief Add the flow start/end time fields chosen by the time format option (-A).
+ *
+ * @param param    Tracking parameters (time_format).
+ * @param template Template to extend.
+ * @param index    Position to start at; advanced.
+ * @return Sum of the lengths of the added fields.
+ */
 static int
 ipfix_init_template_time_partial (struct FLOWTRACKPARAMETERS *param,
                           struct IPFIX_SOFTFLOWD_TEMPLATE *template,
@@ -1551,6 +1846,17 @@ ipfix_init_template_time_partial (struct FLOWTRACKPARAMETERS *param,
   return length;
 }
 
+/**
+ * @brief Build one complete IPFIX/NetFlow v9 template.
+ *
+ * @param param       Tracking parameters.
+ * @param template    Template to build.
+ * @param template_id Template id.
+ * @param v6_flag     Non-zero for IPv6.
+ * @param icmp_flag   Non-zero for the ICMP variant.
+ * @param bi_flag     IPFIX_BIFLAG_ON for biflow.
+ * @param version     Export version.
+ */
 static void
 ipfix_init_template_unity_partial (struct FLOWTRACKPARAMETERS *param,
                            struct IPFIX_SOFTFLOWD_TEMPLATE *template,
@@ -1637,6 +1943,13 @@ ipfix_init_template_unity_partial (struct FLOWTRACKPARAMETERS *param,
     length + param->max_num_label * IPFIX_mplsLabelStackSection_SIZE;
 }
 
+/**
+ * @brief Build the IPv4, ICMPv4, IPv6 and ICMPv6 templates_partial into templates_partial[].
+ *
+ * @param param   Tracking parameters.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow.
+ * @param version Export version: 9 or 10.
+ */
 static void
 ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
                      u_int8_t bi_flag, u_int16_t version) {
@@ -1672,6 +1985,12 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
   }
 }
 
+/**
+ * @brief Build the NetFlow v9 options template and data record (nf9opt_data).
+ *
+ * @param ifidx  Interface index used as the option scope.
+ * @param option Optional information; the sampling interval is taken from here.
+ */
 static void
 nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
@@ -1707,6 +2026,12 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
            sizeof (nf9opt_data.interfaceName));
 }
 
+/**
+ * @brief Build the IPFIX options template and data record.
+ *
+ * @param system_boot_time Boot time reported in the data record.
+ * @param option           Optional information (sampling, process id, interface name, exporter address).
+ */
 static void
 ipfix_init_option_partial (struct timeval *system_boot_time, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
@@ -1762,6 +2087,15 @@ ipfix_init_option_partial (struct timeval *system_boot_time, struct OPTION *opti
   }
 }
 
+/**
+ * @brief Fill the time part of a data record according to the time format option.
+ *
+ * @param dt               Record time fields to fill; -1 is returned if NULL.
+ * @param flow             Flow whose start and end are stored.
+ * @param system_boot_time Base for the relative (sysUpTime) form.
+ * @param param            Tracking parameters (time_format).
+ * @return Length of the time fields in octets (16 for the 64-bit forms, otherwise 8), or -1 on error.
+ */
 static int
 copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
                 const struct FLOW *flow,
@@ -1807,6 +2141,19 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
 }
 
 
+/**
+ * @brief Encode the data records of one flow (standard or biflow).
+ *
+ * @param flow             Flow to encode.
+ * @param packet           Output buffer.
+ * @param len              Space available in packet.
+ * @param ifidx            Interface index for the records.
+ * @param system_boot_time Base for relative times.
+ * @param len_used         Receives the number of bytes written.
+ * @param param            Tracking parameters.
+ * @param bi_flag          Non-zero to emit one biflow record instead of one per direction.
+ * @return Number of records written, or -1 on error.
+ */
 static int
 ipfix_flow_to_flowset_partial (const struct FLOW *flow, u_char *packet,
                        u_int len, u_int16_t ifidx,
@@ -1923,6 +2270,12 @@ ipfix_flow_to_flowset_partial (const struct FLOW *flow, u_char *packet,
   return (nflows);
 }
 
+/**
+ * @brief Tell whether a flow is ICMP (ICMPv4 for IPv4, ICMPv6 for IPv6).
+ *
+ * @param flow Flow.
+ * @return 1 if the flow is ICMP, 0 if not, -1 for a NULL flow or an unknown address family.
+ */
 static int
 valuate_icmp (struct FLOW *flow) {
   if (flow == NULL)
@@ -1942,12 +2295,24 @@ valuate_icmp (struct FLOW *flow) {
   return -1;
 }
 
+/**
+ * @brief Request that the templates_partial be sent again with the next export packet.
+ */
 void
 ipfix_resend_template (void) {
   if (ipfix_pkts_until_template_partial > 0)
     ipfix_pkts_until_template_partial = 0;
 }
 
+/**
+ * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
+ *
+ * @param packet        Packet buffer.
+ * @param offset        Offset to write at; advanced.
+ * @param template      Template to copy.
+ * @param bi_flag       Non-zero to append the reverse-direction fields.
+ * @param max_num_label Number of MPLS label fields to append.
+ */
 void
 memcpy_template (u_char *packet, u_int *offset,
                  struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag,
@@ -1973,9 +2338,18 @@ memcpy_template (u_char *packet, u_int *offset,
   }
 }
 
-/*
- * Given an array of expired flows, send ipfix report packets
- * Returns number of packets sent or -1 on error
+/**
+ * @brief Send flows as NetFlow v9 or IPFIX packets.
+ *
+ * @param flows        Flows to export.
+ * @param num_flows    Number of flows.
+ * @param target       Destinations.
+ * @param ifidx        Interface index.
+ * @param param        Tracking parameters.
+ * @param verbose_flag Non-zero for debug logging.
+ * @param bi_flag      IPFIX_BIFLAG_ON for biflow export.
+ * @param version      Export version: 9 or 10.
+ * @return Number of packets sent, or -1 on error.
  */
 static int
 send_ipfix_common (struct FLOW **flows, int num_flows,
@@ -2163,18 +2537,36 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   return (num_packets);
 }
 
+/**
+ * @brief Send expired flows as NetFlow v9 packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_nflow9_partial (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
                             sp.param, sp.verbose_flag, 0, 9);
 }
 
+/**
+ * @brief Send expired flows as IPFIX packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_ipfix_partial (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
                             sp.param, sp.verbose_flag, 0, 10);
 }
 
+/**
+ * @brief Send expired flows as IPFIX biflow packets.
+ *
+ * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_ipfix_bi_partial (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,

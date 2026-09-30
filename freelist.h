@@ -31,28 +31,28 @@
 #define FREELIST_ALLOC_ALIGN	16
 #define FREELIST_INITIAL_ALLOC	16
 
-/* Simple freelist of fixed-sized allocations */
+/** Simple freelist of fixed-sized allocations */
 struct freelist {
-	size_t allocsz;
-	size_t nalloc;
-	size_t navail;
-	void **free_entries;
+	size_t allocsz;		/**< Size of each allocation (rounded up to FREELIST_ALLOC_ALIGN) */
+	size_t nalloc;		/**< Total number of entries allocated so far */
+	size_t navail;		/**< Number of entries currently available */
+	void **free_entries;	/**< Stack of available entries */
 };
 
-/*
+/**
  * Initialise a freelist.
  * allocsz is the size of the individual allocations
  */
 void freelist_init(struct freelist *freelist, size_t allocsz);
 
-/*
+/**
  * Get an entry from a freelist.
  * Will allocate new entries if necessary
  * Returns pointer to allocated memory or NULL on failure.
  */
 void *freelist_get(struct freelist *freelist);
 
-/*
+/**
  * Returns an entry to the freelist.
  * p must be a pointer to an allocation from the freelist.
  */

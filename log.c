@@ -26,8 +26,15 @@
 #include "log.h"
 #include <stdarg.h>
 
+/** Non-zero if messages go to stderr instead of syslog; set by loginit(). */
 static int logstderr = 0;
 
+/**
+ * @brief Select where log messages go.
+ *
+ * @param ident     Currently unused (the syslog identity is always PROGNAME).
+ * @param to_stderr Non-zero to log to stderr, zero to log to syslog (LOG_DAEMON, with PID).
+ */
 void
 loginit(const char *ident, int to_stderr)
 {
@@ -37,6 +44,12 @@ loginit(const char *ident, int to_stderr)
 		openlog(PROGNAME, LOG_PID|LOG_NDELAY, LOG_DAEMON);
 }
 
+/**
+ * @brief Log a printf-style message to stderr or syslog, depending on loginit().
+ *
+ * @param level syslog priority (LOG_ERR, LOG_DEBUG, ...); ignored when logging to stderr.
+ * @param fmt   printf-style format string, followed by its arguments.
+ */
 void
 logit(int level, const char *fmt,...)
 {

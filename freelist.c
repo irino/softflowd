@@ -37,6 +37,12 @@
 # define FLOGIT(a)
 #endif
 
+/**
+ * @brief Initialise a freelist of fixed-size allocations.
+ *
+ * @param fl      Freelist to initialise.
+ * @param allocsz Size in bytes of each allocation; rounded up to FREELIST_ALLOC_ALIGN.
+ */
 void
 freelist_init(struct freelist *fl, size_t allocsz)
 {
@@ -47,6 +53,15 @@ freelist_init(struct freelist *fl, size_t allocsz)
 	fl->free_entries = NULL;
 }
 
+/**
+ * @brief Grow the freelist by allocating another batch of entries.
+ *
+ * The first batch holds FREELIST_INITIAL_ALLOC entries; every later call doubles the total,
+ * capped at FREELIST_MAX_ALLOC. On failure the previous size is kept.
+ *
+ * @param fl Freelist to grow.
+ * @return 0 on success, -1 on failure (size limit reached, overflow, or out of memory).
+ */
 static int
 freelist_grow(struct freelist *fl)
 {
@@ -108,6 +123,14 @@ freelist_grow(struct freelist *fl)
 	return 0;
 }
 
+/**
+ * @brief Take one entry from the freelist, growing it if it is empty.
+ *
+ * An inconsistent internal state is logged and aborts the process with SIGSEGV.
+ *
+ * @param fl Freelist to take an entry from.
+ * @return Pointer to an allocation of the size given to freelist_init(), or NULL on failure.
+ */
 void *
 freelist_get(struct freelist *fl)
 {
@@ -136,6 +159,14 @@ freelist_get(struct freelist *fl)
 	return r;
 }
 
+/**
+ * @brief Return an entry to the freelist.
+ *
+ * An inconsistent internal state is logged and aborts the process with SIGSEGV.
+ *
+ * @param fl Freelist the entry came from.
+ * @param p  Pointer previously obtained from freelist_get() on the same freelist.
+ */
 void
 freelist_put(struct freelist *fl, void *p)
 {

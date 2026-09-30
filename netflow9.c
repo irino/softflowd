@@ -92,12 +92,20 @@ struct NF9_SOFTFLOWD_OPTION_DATA {
 /* Local data: templates and counters */
 
 
+/** IPv4 data template. */
 static struct NF9_SOFTFLOWD_TEMPLATE v4_template;
+/** IPv6 data template. */
 static struct NF9_SOFTFLOWD_TEMPLATE v6_template;
+/** Options template. */
 static struct NF9_SOFTFLOWD_OPTION_TEMPLATE option_template;
+/** Options data record. */
 static struct NF9_SOFTFLOWD_OPTION_DATA option_data;
+/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet. */
 static int nf9_pkts_until_template = -1;
 
+/**
+ * @brief Build the IPv4 and IPv6 NetFlow v9 template flowsets (v4_template, v6_template).
+ */
 static void
 nf9_init_template (void) {
   memset (&v4_template, 0, sizeof (v4_template));
@@ -177,6 +185,12 @@ nf9_init_template (void) {
   v6_template.r[15].length = htons (2);
 }
 
+/**
+ * @brief Build the NetFlow v9 options template and options data record.
+ *
+ * @param ifidx  Interface index used as the option scope.
+ * @param option Optional information; the sampling interval is taken from here.
+ */
 static void
 nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   memset (&option_template, 0, sizeof (option_template));
@@ -202,6 +216,17 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_data.sampling_algorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
 }
 
+/**
+ * @brief Encode the records of one flow (one per direction that has traffic) into a data flowset.
+ *
+ * @param flow             Flow to encode.
+ * @param packet           Output buffer.
+ * @param len              Space available in packet.
+ * @param ifidx            Interface index to put into the records.
+ * @param system_boot_time Base for start/end times.
+ * @param len_used         Receives the number of bytes written.
+ * @return Number of records written, or -1 if the buffer is too small or the address family is unsupported.
+ */
 static int
 nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
                     u_int16_t ifidx, const struct timeval *system_boot_time,
@@ -286,6 +311,12 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Returns number of packets sent or -1 on error
  */
 #if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+/**
+ * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, export type "none").
+ *
+ * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
+ * @return Number of packets sent, or -1 on error.
+ */
 int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOW **flows = sp.flows;
@@ -433,6 +464,9 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 }
 #endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
 
+/**
+ * @brief Request that the templates be sent again with the next export packet.
+ */
 void
 netflow9_resend_template (void) {
   if (nf9_pkts_until_template > 0)
