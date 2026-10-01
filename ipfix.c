@@ -1726,12 +1726,12 @@ union IPFIX_SOFTFLOWD_DATA_TIME {
   struct {
     u_int32_t start;
     u_int32_t end;
-  } u32;
+  } __packed u32;
   struct {
     u_int64_t start;
     u_int64_t end;
-  } u64;
-};
+  } __packed u64;
+} __packed;
 
 struct IPFIX_SOFTFLOWD_DATA_V4ADDR {
   u_int32_t sourceIPv4Address, destinationIPv4Address;

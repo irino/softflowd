@@ -565,9 +565,9 @@ format_flow_brief (struct FLOW *flow) {
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 		      const size_t caplen, int protocol, int ndx) {
-  const struct tcphdr *tcp = (const struct tcphdr *) pkt;
-  const struct udphdr *udp = (const struct udphdr *) pkt;
-  const struct icmp *icmp = (const struct icmp *) pkt;
+  struct tcphdr tcp;
+  struct udphdr udp;
+  struct icmp icmp;
 
   /*
    * XXX to keep flow in proper canonical format, it may be necessary to
@@ -579,29 +579,32 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
   switch (protocol) {
   case IPPROTO_TCP:
     /* Check for runt packet */
-    if (caplen < sizeof (*tcp))
+    if (caplen < sizeof (tcp))
       return;
-    flow->port[ndx] = tcp->th_sport;
-    flow->port[ndx ^ 1] = tcp->th_dport;
-    flow->tcp_flags[ndx] |= tcp->th_flags;
+    memcpy (&tcp, pkt, sizeof (tcp));
+    flow->port[ndx] = tcp.th_sport;
+    flow->port[ndx ^ 1] = tcp.th_dport;
+    flow->tcp_flags[ndx] |= tcp.th_flags;
     break;
   case IPPROTO_UDP:
     /* Check for runt packet */
-    if (caplen < sizeof (*udp))
+    if (caplen < sizeof (udp))
       return;
-    flow->port[ndx] = udp->uh_sport;
-    flow->port[ndx ^ 1] = udp->uh_dport;
+    memcpy (&udp, pkt, sizeof (udp));
+    flow->port[ndx] = udp.uh_sport;
+    flow->port[ndx ^ 1] = udp.uh_dport;
     break;
   case IPPROTO_ICMP:
   case IPPROTO_ICMPV6:
-    if (caplen < sizeof (*icmp))
+    if (caplen < sizeof (icmp))
       return;
+    memcpy (&icmp, pkt, sizeof (icmp));
     /*
      * Encode ICMP type * 256 + code into dest port like
      * Cisco routers
      */
     flow->port[ndx] = 0;
-    flow->port[ndx ^ 1] = htons (icmp->icmp_type * 256 + icmp->icmp_code);
+    flow->port[ndx ^ 1] = htons (icmp.icmp_type * 256 + icmp.icmp_code);
     break;
   }
   return;
@@ -622,10 +625,13 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
-  const struct ip *ip = (const struct ip *) pkt;
-  if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
-      || ndx == NULL || caplen < 20 || caplen < ip->ip_hl * 4
-      || ip->ip_v != 4)
+  struct ip iph;
+  const struct ip *ip = &iph;
+  if (flow == NULL || pkt == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL || caplen < sizeof (iph))
+    return (-1);		/* Runt packet */
+  memcpy (&iph, pkt, sizeof (iph));
+  if (caplen < ip->ip_hl * 4 || ip->ip_v != 4)
     return (-1);		/* Runt packet or Unsupported IP version */
 
   /* Prepare to store flow in canonical format */
@@ -654,14 +660,17 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
-  const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
+  struct ip6_hdr ip6h;
+  const struct ip6_hdr *ip6 = &ip6h;
   const struct ip6_ext *eh6;
-  const struct ip6_frag *fh6;
+  struct ip6_frag fh6;
   int nxt, size, remain;
-  if (flow == NULL || ip6 == NULL || isfrag == NULL || isfirst == NULL
-      || ndx == NULL || caplen < sizeof (*ip6)
-      || (ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
-    return (-1);		/* Runt packet or Unsupported IP version */
+  if (flow == NULL || pkt == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL || caplen < sizeof (ip6h))
+    return (-1);		/* Runt packet */
+  memcpy (&ip6h, pkt, sizeof (ip6h));
+  if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
+    return (-1);		/* Unsupported IP version */
 
   *ndx =
     memcmp (&ip6->ip6_src, &ip6->ip6_dst, sizeof (ip6->ip6_src)) > 0 ? 1 : 0;
@@ -690,13 +699,13 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     }
     else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
-      fh6 = (const struct ip6_frag *) eh6;
-      if (remain < sizeof (*fh6))
+      if (remain < sizeof (fh6))
 	return (size);		/* Runt */
-      if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
+      memcpy (&fh6, eh6, sizeof (fh6));
+      if ((fh6.ip6f_offlg & IP6F_OFF_MASK) != 0)
 	*isfirst = 0;
-      nxt = fh6->ip6f_nxt;
-      size += sizeof (*fh6);
+      nxt = fh6.ip6f_nxt;
+      size += sizeof (fh6);
     }
     else
       break;
@@ -880,7 +889,9 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
 
   tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
-    tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
+    memcpy (&tmp.mplsLabels[i],
+	    frame + datalink_size + i * sizeof (tmp.mplsLabels[i]),
+	    sizeof (tmp.mplsLabels[i]));
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1575,8 +1586,8 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
     do {
-      shim =
-	*((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
+      memcpy (&shim, pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim),
+	      sizeof (shim));
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
