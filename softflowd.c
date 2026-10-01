@@ -79,6 +79,9 @@ pthread_cond_t read_cond;	/**< Signalled when a new packet is available */
 static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;	/**< Protects export_threads_outstanding */
 static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;	/**< Signalled when the last export thread ends */
 static int export_threads_outstanding = 0;	/**< Number of running export threads (-M) */
+static pthread_cond_t slot_cond = PTHREAD_COND_INITIALIZER;	/**< Signalled when the processing thread has finished the handed-over packet */
+static int packet_ready = 0;	/**< Non-zero while packet_data holds a packet that is not processed yet (protected by read_mutex) */
+static int reader_stop = 0;	/**< Set under read_mutex to make process_packet_loop() return */
 
 /**
  * @brief Block until every detached export thread (-M) has finished.
@@ -1644,8 +1647,21 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
 }
 
 #ifdef ENABLE_PTHREAD
+/** Serialise main thread access to the flow tracking state with the packet processing thread. */
+#define FLOWTRACK_LOCK() do { if (use_thread) pthread_mutex_lock (&read_mutex); } while (0)
+/** Counterpart of FLOWTRACK_LOCK(). */
+#define FLOWTRACK_UNLOCK() do { if (use_thread) pthread_mutex_unlock (&read_mutex); } while (0)
+#else /* ENABLE_PTHREAD */
+#define FLOWTRACK_LOCK() do { } while (0)
+#define FLOWTRACK_UNLOCK() do { } while (0)
+#endif /* ENABLE_PTHREAD */
+
+#ifdef ENABLE_PTHREAD
 /**
  * @brief libpcap callback for threaded capture: copy the packet for process_packet_loop() and wake it.
+ *
+ * Blocks while the previous packet is still being processed, so no packet is overwritten.
+ * The copy is limited to the size of packet_data.
  *
  * @param user_data Unused.
  * @param phdr      libpcap packet header.
@@ -1654,30 +1670,53 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr, const u_char *pkt) {
 static void
 pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
 	     const u_char *pkt) {
+  struct pcap_pkthdr hdr = *phdr;
+
+  /* Never copy more than the buffer holds; flow_cb() trusts caplen. */
+  if (hdr.caplen > sizeof (packet_data))
+    hdr.caplen = sizeof (packet_data);
   pthread_mutex_lock (&read_mutex);
-  memcpy (&packet_header, phdr, sizeof (struct pcap_pkthdr));
-  memcpy (&packet_data, pkt, sizeof (packet_data));
-  pthread_mutex_unlock (&read_mutex);
+  /* One packet at a time: wait until the previous one has been processed. */
+  while (packet_ready)
+    pthread_cond_wait (&slot_cond, &read_mutex);
+  memcpy (&packet_header, &hdr, sizeof (struct pcap_pkthdr));
+  memcpy (&packet_data, pkt, hdr.caplen);
+  packet_ready = 1;
   pthread_cond_signal (&read_cond);
+  pthread_mutex_unlock (&read_mutex);
 }
 
 /**
- * @brief Thread entry point: process packets handed over by pcap_memcpy() until shutdown.
+ * @brief Thread entry point: process packets handed over by pcap_memcpy() until reader_stop is set.
  *
  * @param arg struct CB_CTXT passed to flow_cb().
  * @return arg.
  */
 static void *
 process_packet_loop (void *arg) {
-  while (!graceful_shutdown_request) {
-    pthread_mutex_lock (&read_mutex);
-    pthread_cond_wait (&read_cond, &read_mutex);
-    if (graceful_shutdown_request)
+  pthread_mutex_lock (&read_mutex);
+  for (;;) {
+    while (!packet_ready && !reader_stop)
+      pthread_cond_wait (&read_cond, &read_mutex);
+    if (!packet_ready)
       break;
     flow_cb ((u_char *) arg, &packet_header, (u_char *) & packet_data);
-    pthread_mutex_unlock (&read_mutex);
+    packet_ready = 0;
+    pthread_cond_signal (&slot_cond);
   }
+  pthread_mutex_unlock (&read_mutex);
   return (arg);
+}
+
+/**
+ * @brief Block until the processing thread has finished the packet handed over last.
+ */
+static void
+wait_for_packet_loop_idle (void) {
+  pthread_mutex_lock (&read_mutex);
+  while (packet_ready)
+    pthread_cond_wait (&slot_cond, &read_mutex);
+  pthread_mutex_unlock (&read_mutex);
 }
 #endif /* ENABLE_PTHREAD */
 
@@ -2492,7 +2531,7 @@ main (int argc, char **argv) {
   int pcap_override_buffer_size = 0;
   int protocol = IPPROTO_UDP;
   int version = 0;
-  int rsock = 0, recvport = IPFIX_PORT, recvloop = 0;
+  int rsock = 0, recvport = IPFIX_PORT, recvloop = 0, timeout_ms = 0;
   int user_ifindex_flag = 0;
 #ifdef LINUX
   struct ifreq ifr;
@@ -2997,7 +3036,10 @@ main (int argc, char **argv) {
 	pl[1].events = POLLIN | POLLERR | POLLHUP;
       }
 
-      r = poll (pl, (ctlsock == -1) ? 1 : 2, next_expire (&flowtrack));
+      FLOWTRACK_LOCK ();
+      timeout_ms = next_expire (&flowtrack);
+      FLOWTRACK_UNLOCK ();
+      r = poll (pl, (ctlsock == -1) ? 1 : 2, timeout_ms);
       if (r == -1 && errno != EINTR) {
 	logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
 	break;
@@ -3006,8 +3048,11 @@ main (int argc, char **argv) {
 
     /* Accept connection on control socket if present */
     if (ctlsock != -1 && pl[1].revents != 0) {
-      if (accept_control (ctlsock, &target, &flowtrack, pcap,
-			  &exit_request, &stop_collection_flag) != 0)
+      FLOWTRACK_LOCK ();
+      r = accept_control (ctlsock, &target, &flowtrack, pcap,
+			  &exit_request, &stop_collection_flag);
+      FLOWTRACK_UNLOCK ();
+      if (r != 0)
 	break;
     }
 
@@ -3065,6 +3110,7 @@ main (int argc, char **argv) {
      * or whenever we have exceeded the maximum number of active
      * flows
      */
+    FLOWTRACK_LOCK ();
     if (flowtrack.param.num_flows > flowtrack.param.max_flows ||
 	next_expire (&flowtrack) == 0) {
     expiry_check:
@@ -3088,7 +3134,14 @@ main (int argc, char **argv) {
 	goto expiry_check;
       }
     }
+    FLOWTRACK_UNLOCK ();
   }
+
+#ifdef ENABLE_PTHREAD
+  /* Let the processing thread finish the packet that was handed over last. */
+  if (use_thread)
+    wait_for_packet_loop_idle ();
+#endif /* ENABLE_PTHREAD */
 
   /* Flags set by signal handlers or control socket */
   if (graceful_shutdown_request) {
@@ -3100,13 +3153,21 @@ main (int argc, char **argv) {
   else
     logit (LOG_ERR, "Exiting immediately on internal error");
 
+#ifdef ENABLE_PTHREAD
+  /* The export threads update the counters that statistics() prints. */
+  if (use_thread)
+    wait_for_export_threads ();
+#endif /* ENABLE_PTHREAD */
+
   if (capfile != NULL && dontfork_flag)
     statistics (&flowtrack, stdout, pcap);
 
 #ifdef ENABLE_PTHREAD
   if (use_thread) {
-    wait_for_export_threads ();
+    pthread_mutex_lock (&read_mutex);
+    reader_stop = 1;
     pthread_cond_signal (&read_cond);
+    pthread_mutex_unlock (&read_mutex);
     pthread_join (read_thread, NULL);
   }
 #endif /* ENABLE_PTHREAD */
