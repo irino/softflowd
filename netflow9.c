@@ -346,7 +346,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   }
 
   last_valid = num_packets = 0;
-  for (j = 0; j < num_flows;) {
+  for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
     nf9 = (struct NFLOW9_HEADER *) packet;
 
@@ -379,8 +379,8 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 
     dh = NULL;
     last_af = 0;
-    for (i = 0; i + j < num_flows; i++) {
-      if (dh == NULL || flows[i + j]->af != last_af) {
+    for (i = 0; i + j < (u_int) num_flows; i++) {
+      if (dh == NULL || (u_int) flows[i + j]->af != last_af) {
         if (dh != NULL) {
           if (offset % 4 != 0) {
             /* Pad to multiple of 4 */

@@ -45,7 +45,8 @@ ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
                    u_int *index,
                    const struct IPFIX_FIELD_SPECIFIER *src,
                    u_int field_number) {
-  int i, length = 0;
+  int length = 0;
+  u_int i;
   for (i = 0; i < field_number; i++) {
     dst[*index + i].ie = htons (src[i].ie);
     dst[*index + i].length = htons (src[i].length);
@@ -1530,7 +1531,7 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
     records = 0;
     for (i = 0; i + j < (u_int) num_flows; i++) {
       icmp_flag = ipfix_valuate_icmp (flows[i + j]);
-      if (dh == NULL || flows[i + j]->af != last_af ||
+      if (dh == NULL || (u_int) flows[i + j]->af != last_af ||
           icmp_flag != last_icmp_flag) {
         if (dh != NULL) {
           if (offset % 4 != 0) {
@@ -1798,7 +1799,8 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
                      u_int *index,
                      const struct IPFIX_FIELD_SPECIFIER *fields,
                      u_int field_number) {
-  int i, length = 0;
+  int length = 0;
+  u_int i;
   for (i = 0; i < field_number; i++) {
     template->v[*index + i].ie = htons (fields[i].ie | 0x8000);
     template->v[*index + i].length = htons (fields[i].length);
@@ -2184,7 +2186,7 @@ ipfix_flow_to_flowset_partial (const struct FLOW *flow, u_char *packet,
   if (len < freclen * frecnum)
     return (-1);
 
-  for (i = 0; i < frecnum; i++) {
+  for (i = 0; i < (int) frecnum; i++) {
     if (bi_flag == 0 && flow->octets[i] == 0)
       continue;
     nflows++;
@@ -2390,7 +2392,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   }
 
   last_valid = num_packets = 0;
-  for (j = 0; j < num_flows;) {
+  for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
     if (version == 10) {
       ipfix = (struct IPFIX_HEADER *) packet;
@@ -2450,9 +2452,9 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     last_af = 0;
     last_icmp_flag = -1;
     records = 0;
-    for (i = 0; i + j < num_flows; i++) {
+    for (i = 0; i + j < (u_int) num_flows; i++) {
       icmp_flag = valuate_icmp (flows[i + j]);
-      if (dh == NULL || flows[i + j]->af != last_af ||
+      if (dh == NULL || (u_int) flows[i + j]->af != last_af ||
           icmp_flag != last_icmp_flag) {
         if (dh != NULL) {
           if (offset % 4 != 0) {

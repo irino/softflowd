@@ -280,7 +280,8 @@ static const struct NETFLOW_SENDER nf[] = {
  */
 static const struct NETFLOW_SENDER *
 lookup_netflow_sender (int version) {
-  int i, r;
+  size_t i;
+  int r;
   for (i = 0, r = version; i < sizeof (nf) / sizeof (struct NETFLOW_SENDER);
        i++) {
     if (nf[i].version == r)
@@ -323,7 +324,8 @@ sighand_other (int signum) {
 static int
 flow_compare (struct FLOW *a, struct FLOW *b) {
   /* Be careful to avoid signed vs unsigned issues here */
-  int r, i;
+  int r;
+  u_int32_t i;
   if (track_level == TRACK_FULL_VLAN || track_level == TRACK_FULL_VLAN_ETHER) {
     if (a->vlanid[0] != b->vlanid[0])
       return (a->vlanid[0] > b->vlanid[0] ? 1 : -1);
@@ -689,7 +691,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     eh6 = (const struct ip6_ext *) (pkt + size);
     if (nxt == IPPROTO_HOPOPTS ||
 	nxt == IPPROTO_ROUTING || nxt == IPPROTO_DSTOPTS) {
-      if (remain < sizeof (*eh6))
+      if (remain < (int) sizeof (*eh6))
 	return (size);		/* Runt */
       int eh6size = (eh6->ip6e_len + 1) << 3;
       if (remain < eh6size)
@@ -699,7 +701,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     }
     else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
-      if (remain < sizeof (fh6))
+      if (remain < (int) sizeof (fh6))
 	return (size);		/* Runt */
       memcpy (&fh6, eh6, sizeof (fh6));
       if ((fh6.ip6f_offlg & IP6F_OFF_MASK) != 0)
@@ -983,7 +985,7 @@ send_multi_destinations (int num_destinations,
   socklen_t errsz;
   static u_int64_t sent = 0;
   for (i = 0; i < num_destinations; i++) {
-    if (!is_loadbalance || (is_loadbalance && (sent % num_destinations == i))) {
+    if (!is_loadbalance || (is_loadbalance && ((int) (sent % num_destinations) == i))) {
       dest = &destinations[i];
       errsz = sizeof (err);
       getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err, &errsz);	// Clear ICMP errors
@@ -1305,7 +1307,7 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
 static void
 force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
   struct EXPIRY *expiry, **expiryv;
-  int i;
+  u_int32_t i;
 
   /* XXX move all overflow processing here (maybe) */
   if (verbose_flag)
@@ -1539,7 +1541,7 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
   }
   if (dl->dlt == -1 || pkt == NULL)
     return (dl->dlt);
-  if (caplen <= dl->skiplen)
+  if (caplen <= (u_int32_t) dl->skiplen)
     return (-1);
 
   /* Suck out the frametype */
@@ -1683,6 +1685,7 @@ pcap_memcpy (u_char *user_data, const struct pcap_pkthdr *phdr,
 	     const u_char *pkt) {
   struct pcap_pkthdr hdr = *phdr;
 
+  (void) user_data;
   /* Never copy more than the buffer holds; flow_cb() trusts caplen. */
   if (hdr.caplen > sizeof (packet_data))
     hdr.caplen = sizeof (packet_data);
@@ -2542,11 +2545,12 @@ main (int argc, char **argv) {
   int pcap_override_buffer_size = 0;
   int protocol = IPPROTO_UDP;
   int version = 0;
-  int rsock = 0, recvport = IPFIX_PORT, recvloop = 0, timeout_ms = 0;
+  int rsock = 0, recvport = IPFIX_PORT, timeout_ms = 0;
+  u_int recvloop = 0;
   int user_ifindex_flag = 0;
 #ifdef LINUX
   struct ifreq ifr;
-  char *send_ifname;
+  char *send_ifname = NULL;
 #endif /* LINUX */
 #ifdef ENABLE_PTHREAD
   use_thread = 0;
@@ -2675,11 +2679,9 @@ main (int argc, char **argv) {
       }
       break;
     case 'm':
-      if ((flowtrack.param.max_flows = atoi (optarg)) < 0) {
-	fprintf (stderr, "Invalid maximum flows\n\n");
-	usage ();
-	exit (1);
-      }
+      /* max_flows is unsigned, so a negative argument has always wrapped
+       * to a large limit instead of being rejected; keep that behaviour. */
+      flowtrack.param.max_flows = atoi (optarg);
       break;
     case 'n':
       /* Will exit on failure */
@@ -2785,9 +2787,10 @@ main (int argc, char **argv) {
       break;
 #endif /* LINUX */
     case 'x':
+      /* max_num_label is u_int8_t: the value is stored first and then range
+       * checked, exactly as before (negative arguments wrap and are rejected). */
       flowtrack.param.max_num_label = atoi (optarg);
-      if (flowtrack.param.max_num_label < 0
-	  || flowtrack.param.max_num_label > 10) {
+      if (flowtrack.param.max_num_label > 10) {
 	fprintf (stderr, "Invalid number of MPLS label\n\n");
 	usage ();
 	exit (1);

@@ -38,6 +38,7 @@ static int logstderr = 0;
 void
 loginit(const char *ident, int to_stderr)
 {
+	(void) ident;
 	if (to_stderr)
 		logstderr = 1;
 	else

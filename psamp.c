@@ -28,8 +28,8 @@
 #include "psamp.h"
 #include <pcap.h>
 
-#define PSAMP_DATALINKFRAME_SIZE IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - \
-  sizeof(struct IPFIX_HEADER) - sizeof(struct IPFIX_SET_HEADER) - 8 - 8 -2
+#define PSAMP_DATALINKFRAME_SIZE (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - \
+  sizeof(struct IPFIX_HEADER) - sizeof(struct IPFIX_SET_HEADER) - 8 - 8 -2)
 
 /** Fields of the PSAMP data record: sequence id, observation time, exported octets and the frame section. */
 const struct IPFIX_FIELD_SPECIFIER field_psamp[] = {
@@ -88,7 +88,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   u_int16_t exportedOctets;
   int offset = sizeof (struct IPFIX_HEADER);
   int copysize =
-    caplen < PSAMP_DATALINKFRAME_SIZE ? caplen : PSAMP_DATALINKFRAME_SIZE;
+    caplen < (int) PSAMP_DATALINKFRAME_SIZE ? caplen : (int) PSAMP_DATALINKFRAME_SIZE;
 
   ipfix->version = htons (NF_VERSION_IPFIX);    // PSAMP uses IPFIX
   ipfix->export_time = htonl (tv.tv_sec);
@@ -159,7 +159,7 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   if (recvsize < 0) {
     perror ("recv");
     return -1;
-  } else if (recvsize <
+  } else if ((size_t) recvsize <
              (sizeof (struct IPFIX_HEADER) +
               sizeof (struct IPFIX_SET_HEADER) + sizeof (uint64_t) +
               sizeof (struct ntp_time_t) + sizeof (uint16_t))) {
