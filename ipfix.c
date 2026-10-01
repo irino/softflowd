@@ -644,7 +644,7 @@ enc_exporterAddress (u_char *dst, u_int16_t length,
       memcpy (dst, &((struct sockaddr_in *) rp->ai_addr)->sin_addr, 4);
       return;
     } else if (length == 16 && rp->ai_family == AF_INET6) {
-      memcpy (dst, rp->ai_addr, 16);
+      memcpy (dst, &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr, 16);
       return;
     }
   }
@@ -663,7 +663,7 @@ enc_originalExporterAddress (u_char *dst, u_int16_t length,
   struct addrinfo *rp;
   for (rp = ctx->sp->param->option.exporterAddr; rp != NULL; rp = rp->ai_next) {
     if (length == 4 && rp->ai_family == AF_INET) {
-      memcpy (dst, rp->ai_addr, 4);
+      memcpy (dst, &((struct sockaddr_in *) rp->ai_addr)->sin_addr, 4);
       return;
     } else if (length == 16 && rp->ai_family == AF_INET6) {
       memcpy (dst, &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr, 16);
@@ -2074,10 +2074,12 @@ ipfix_init_option_partial (struct timeval *system_boot_time, struct OPTION *opti
         memcpy (&option_data.exporterIPv4Address,
                 &((struct sockaddr_in *) rp->ai_addr)->sin_addr,
                 sizeof (option_data.exporterIPv4Address));
-        memcpy (&option_data.originalExporterIPv4Address, rp->ai_addr,
+        memcpy (&option_data.originalExporterIPv4Address,
+                &((struct sockaddr_in *) rp->ai_addr)->sin_addr,
                 sizeof (option_data.originalExporterIPv4Address));
       } else if (rp->ai_family == AF_INET6) {
-        memcpy (&option_data.exporterIPv6Address, rp->ai_addr,
+        memcpy (&option_data.exporterIPv6Address,
+                &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr,
                 sizeof (option_data.exporterIPv6Address));
         memcpy (&option_data.originalExporterIPv6Address,
                 &((struct sockaddr_in6 *) rp->ai_addr)->sin6_addr,
