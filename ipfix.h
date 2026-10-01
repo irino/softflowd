@@ -145,8 +145,8 @@
 #define IPFIX_mplsLabelStackSection_SIZE 3
 
 /* Upper limits of the field arrays in the templated exporter */
-#define IPFIX_UNIFIED_MAXFIELDS          32
-#define IPFIX_UNIFIED_MAXBIFIELDS        8
+#define IPFIX_MAXFIELDS          32
+#define IPFIX_MAXBIFIELDS        8
 
 
 struct IPFIX_HEADER {
