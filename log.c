@@ -32,17 +32,16 @@ static int logstderr = 0;
 /**
  * @brief Select where log messages go.
  *
- * @param ident     Currently unused (the syslog identity is always PROGNAME).
+ * @param ident     Syslog identity. openlog(3) keeps the pointer, so the string must stay valid.
  * @param to_stderr Non-zero to log to stderr, zero to log to syslog (LOG_DAEMON, with PID).
  */
 void
 loginit(const char *ident, int to_stderr)
 {
-	(void) ident;
 	if (to_stderr)
 		logstderr = 1;
 	else
-		openlog(PROGNAME, LOG_PID|LOG_NDELAY, LOG_DAEMON);
+		openlog(ident, LOG_PID|LOG_NDELAY, LOG_DAEMON);
 }
 
 /**
