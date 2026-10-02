@@ -329,7 +329,7 @@ struct CB_CTXT {
 u_int32_t timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
 int send_multi_destinations (int num_destinations,
                              struct DESTINATION *destinations,
-                             u_int8_t is_loadbalnce, u_int8_t * packet,
+                             u_int8_t is_loadbalance, u_int8_t * packet,
                              int size);
 void flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
               const u_char * pkt);
