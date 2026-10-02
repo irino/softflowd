@@ -2679,9 +2679,16 @@ main (int argc, char **argv) {
       }
       break;
     case 'm':
-      /* max_flows is unsigned, so a negative argument has always wrapped
-       * to a large limit instead of being rejected; keep that behaviour. */
-      flowtrack.param.max_flows = atoi (optarg);
+      {
+	/* Range check on an int: max_flows is unsigned and would wrap. */
+	int max_flows = atoi (optarg);
+	if (max_flows < 1) {
+	  fprintf (stderr, "Invalid maximum flows\n\n");
+	  usage ();
+	  exit (1);
+	}
+	flowtrack.param.max_flows = max_flows;
+      }
       break;
     case 'n':
       /* Will exit on failure */
