@@ -2279,7 +2279,7 @@ usage (void) {
 #ifdef LINUX
 	   "  -S send_interface_name  Specify send interface name\n"
 #endif /* LINUX */
-	   "  -x                      Specify number of MPLS labels\n"
+	   "  -x                      Specify number of MPLS labels (1 to 10)\n"
 	   "  -I                      Specify seconds for reinitialize boot time\n"
 	   "  -g                      Gauge cpu clock (total and export) for benchmark\n"
 	   "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
@@ -2787,13 +2787,15 @@ main (int argc, char **argv) {
       break;
 #endif /* LINUX */
     case 'x':
-      /* max_num_label is u_int8_t: the value is stored first and then range
-       * checked, exactly as before (negative arguments wrap and are rejected). */
-      flowtrack.param.max_num_label = atoi (optarg);
-      if (flowtrack.param.max_num_label > 10) {
-	fprintf (stderr, "Invalid number of MPLS label\n\n");
-	usage ();
-	exit (1);
+      {
+	/* Range check on an int: max_num_label is u_int8_t and would wrap. */
+	int num_label = atoi (optarg);
+	if (num_label < 1 || num_label > 10) {
+	  fprintf (stderr, "Invalid number of MPLS label (1 to 10)\n\n");
+	  usage ();
+	  exit (1);
+	}
+	flowtrack.param.max_num_label = num_label;
       }
       break;
     case 'I':
