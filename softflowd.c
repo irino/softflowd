@@ -2243,7 +2243,7 @@ usage (void) {
 	   "  -i [idx:]interface      Specify interface to listen on\n"
 	   "  -r pcap_file            Specify packet capture file to read\n"
 	   "  -t timeout=time         Specify named timeout\n"
-	   "  -m max_flows            Specify maximum number of flows to track (default %d)\n"
+	   "  -m max_flows            Specify maximum number of flows to track (1 or more, default %d)\n"
 	   "  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
 	   "  -p pidfile              Record pid in specified file\n"
 	   "                          (default: %s)\n"
