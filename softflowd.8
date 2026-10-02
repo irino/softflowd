@@ -175,6 +175,7 @@ Default is
 .Pa /var/run/softflowd.ctl
 .It Fl m Ar max_flows
 Specify the maximum number of flows to concurrently track.
+The value must be 1 or more.
 If this limit is exceeded, the flows which have least recently seen traffic
 are forcibly expired.
 In practice, the actual maximum may briefly exceed this limit by a
@@ -182,6 +183,8 @@ small amount as  expiry processing happens less frequently than traffic
 collection.
 The default is 8192 flows, which corresponds to slightly less
 than 800k of working data.
+This value is also the maximum number of packets processed in one pass
+of the main loop.
 .It Fl t Ar timeout_name=time
 Set the timeout names
 .Ar timeout_name
@@ -223,7 +226,11 @@ Adjusting time for reading pcap file (-a work with -r)
 .It Fl l
 Load balancing mode for multiple destinations which are specified with -n
 .It Fl x Ar number_of_mpls_labels
-specify number of mpls labels for export 
+Specify the number of MPLS labels to export with each flow record.
+The value must be between 1 and 10.
+MPLS label export is available for NetFlow v9 and IPFIX
+and is not used for NetFlow v1 and v5.
+By default no MPLS labels are exported.
 .It Fl h
 Display command-line usage information.
 .It Fl L Ar hoplimit
