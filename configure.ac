@@ -82,7 +82,7 @@ AC_ARG_ENABLE(legacy,
               [legacy=$enableval],[legacy=])
 AC_ARG_ENABLE(export-merge,
               AS_HELP_STRING([--enable-export-merge=all|format|none],
-                             [how much of the NetFlow v1/v5/v9/IPFIX export code is merged: all (default; everything in ipfix.c), format (template formats v9/IPFIX in ipfix.c, fixed formats v1/v5 in netflow5.c), or none (separate ipfix.c, netflow9.c, netflow5.c and netflow1.c)]),
+                             [how much of the NetFlow v1/v5/v9/IPFIX export code is merged: all (default; everything in ipfix.c), format (template formats v9/IPFIX in ipfix.c, fixed formats v1/v5 in compat/netflow5.c), or none (separate ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
               [export_merge=$enableval],[export_merge=])
 if test -n "$export_merge" ; then
   case "$export_merge" in
@@ -229,9 +229,9 @@ dnl --enable-export-merge or --enable-legacy (default: all).
 AC_DEFINE([EXPORT_MERGE_ALL], [1],
           [sentinel value: NetFlow v1/v5/v9/IPFIX export all merged in ipfix.c (default)])
 AC_DEFINE([EXPORT_MERGE_FORMAT], [2],
-          [sentinel value: template formats (v9/IPFIX) merged in ipfix.c, fixed formats (v1/v5) merged in netflow5.c])
+          [sentinel value: template formats (v9/IPFIX) merged in ipfix.c, fixed formats (v1/v5) merged in compat/netflow5.c])
 AC_DEFINE([EXPORT_MERGE_NONE], [3],
-          [sentinel value: separate ipfix.c, netflow9.c, netflow5.c and netflow1.c])
+          [sentinel value: separate ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c])
 case "$resolved_export_merge" in
   all)    AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_ALL],
                     [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
@@ -239,7 +239,7 @@ case "$resolved_export_merge" in
                     [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
   none)   AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_NONE],
                     [which export source layout to build: one of the EXPORT_MERGE_* sentinels above])
-          LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
+          LEGACY='compat/netflow9.$(OBJEXT) compat/netflow1.$(OBJEXT)'
           AC_SUBST([LEGACY]) ;;
 esac
 AM_CONDITIONAL([EXPORT_MERGE_IS_NONE], [test "x$resolved_export_merge" = xnone])

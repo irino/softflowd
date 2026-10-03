@@ -2,12 +2,12 @@ sbin_PROGRAMS = softflowd softflowctl
 COMMON = common.h convtime.h treetype.h compat/sys-tree.h\
   convtime.c compat/strlcpy.c compat/strlcat.c compat/closefrom.c daemon.c
 if EXPORT_MERGE_IS_NONE
-  LEGACY_SOURCES = netflow9.c netflow1.c
+  LEGACY_SOURCES = compat/netflow9.c compat/netflow1.c
 endif
 if EXPORT_MERGE_IS_ALL
   NETFLOW5_SOURCE =
 else
-  NETFLOW5_SOURCE = netflow5.c
+  NETFLOW5_SOURCE = compat/netflow5.c
 endif
 if ENABLE_NTOPNG
   NTOPNG_SOURCES = ntopng.c
