@@ -107,14 +107,14 @@ AC_ARG_ENABLE(ntopng,
 AC_ARG_ENABLE(ifname,
               AS_HELP_STRING([--enable-ifname],[enable flow reporting iface name in normal data of v9 and IPFIX (default NO)]),
               [ifname=yes],[ifname=no])
-AC_ARG_ENABLE(flow-spray,
-              AS_HELP_STRING([--enable-flow-spray],[enable spray as flow tree type(default is RB)]),
-              AC_DEFINE([FLOW_SPRAY], 1, [enable spray as flow tree type]),
+AC_ARG_ENABLE(flow-splay,
+              AS_HELP_STRING([--enable-flow-splay],[enable splay as flow tree type (default is RB)]),
+              AC_DEFINE([FLOW_SPLAY], 1, [enable splay as flow tree type]),
 	      AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type]))
-AC_ARG_ENABLE(expiry-spray,
-              AS_HELP_STRING([--enable-expiry-spray],[enable spray as expiry tree type (default is RB)]),
-              AC_DEFINE([EXPIRY_SPRAY], 1, [enable spray as flow tree type]),
-	      AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as flow tree type]))
+AC_ARG_ENABLE(expiry-splay,
+              AS_HELP_STRING([--enable-expiry-splay],[enable splay as expiry tree type (default is RB)]),
+              AC_DEFINE([EXPIRY_SPLAY], 1, [enable splay as expiry tree type]),
+	      AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as expiry tree type]))
 
 AC_ARG_WITH(cflags,
 	[  --with-cflags           Specify additional compiler flags],
