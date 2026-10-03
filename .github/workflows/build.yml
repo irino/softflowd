@@ -14,6 +14,13 @@ jobs:
           - debian:12
           - debian:13
         export_merge: [all, format, none]
+        # "without": libbsd is not installed, so configure falls back to the
+        # files in compat/ where the C library lacks a function.
+        libbsd: [without]
+        include:
+          - {image: "ubuntu:22.04", export_merge: all, libbsd: with}
+          - {image: "ubuntu:24.04", export_merge: all, libbsd: with}
+          - {image: "debian:12", export_merge: all, libbsd: with}
     container:
       image: ${{ matrix.image }}
     steps:
@@ -30,10 +37,15 @@ jobs:
           apt-get install -y --no-install-recommends \
             build-essential libpcap-dev autoconf automake libtool pkg-config
 
+      - name: Install libbsd
+        if: matrix.libbsd == 'with'
+        run: apt-get install -y --no-install-recommends libbsd-dev
+
       - name: Build with warnings
         run: |
           autoreconf -if
-          ./configure --enable-gcc-warnings --enable-export-merge=${{ matrix.export_merge }}
+          ./configure --enable-gcc-warnings --enable-export-merge=${{ matrix.export_merge }} \
+            ${{ matrix.libbsd == 'with' && '--with-libbsd' || '' }}
           make
 
   # Builds compile every --enable-export-merge variant above, but
@@ -50,6 +62,7 @@ jobs:
       fail-fast: false
       matrix:
         export_merge: [all, format, none]
+        libbsd: [without, with]
     env:
       # Pre-existing, unrelated issues must not fail this job: alignment
       # warnings from casting raw packet bytes to struct ip/icmp/etc. in
@@ -69,6 +82,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential libpcap-dev autoconf automake libtool pkg-config python3
+          if [ "${{ matrix.libbsd }}" = with ]; then
+            sudo apt-get install -y --no-install-recommends libbsd-dev
+          fi
 
       - name: Generate smoke-test pcap
         run: python3 tools/gen_ci_smoke_pcap.py ci_smoke.pcap
@@ -77,6 +93,7 @@ jobs:
         run: |
           autoreconf -if
           ./configure --enable-export-merge=${{ matrix.export_merge }} \
+            --${{ matrix.libbsd }}-libbsd \
             CFLAGS="-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
           make
 
@@ -84,7 +101,7 @@ jobs:
         run: |
           set -e
           for v in 1 5 9 10; do
-            echo "== NetFlow/IPFIX version $v (export-merge=${{ matrix.export_merge }}) =="
+            echo "== NetFlow/IPFIX version $v (export-merge=${{ matrix.export_merge }}, ${{ matrix.libbsd }} libbsd) =="
             ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v "$v"
           done
           echo "== bidirectional IPFIX (-b, version 10) =="
