@@ -1635,7 +1635,7 @@ send_ipfix_bi (struct SENDPARAMETER sp) {
 /* EXPORT_MERGE != ALL (format or none): Shares IPFIX
  * field tables above, but retains distinct per-version send functions. */
 
-/* Stuff pertaining to the templates_partial that softflowd uses */
+/* Stuff pertaining to the templates that softflowd uses */
 #define IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS          \
     sizeof(field_v4) / sizeof(struct IPFIX_FIELD_SPECIFIER)
 #define IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS        \
@@ -1759,7 +1759,7 @@ struct NFLOW9_SOFTFLOWD_OPTION_DATA {
   char interfaceName[IFNAMSIZ];
 } __packed;
 
-/* Local data: templates_partial and counters */
+/* Local data: templates and counters */
 
 // prototype
 void memcpy_template (u_char * packet, u_int * offset,
@@ -1768,17 +1768,17 @@ void memcpy_template (u_char * packet, u_int * offset,
 
 // variables
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
-static struct IPFIX_SOFTFLOWD_TEMPLATE templates_partial[TMPLMAX];
+static struct IPFIX_SOFTFLOWD_TEMPLATE templates[TMPLMAX];
 /** IPFIX options template. */
-static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template_partial;
+static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template;
 /** IPFIX options data record. */
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 /** NetFlow v9 options data record. */
 static struct NFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
 
-/** Packets until templates_partial are sent again: -1 = not built yet, 0 or less = send with the next packet,
+/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
  * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
-static int ipfix_pkts_until_template_partial = -1;
+static int ipfix_pkts_until_template = -1;
 
 /**
  * @brief Add reverse-direction (enterprise) fields to a template.
@@ -1815,7 +1815,7 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
  * @return Sum of the lengths of the added fields.
  */
 static int
-ipfix_init_template_time_partial (struct FLOWTRACKPARAMETERS *param,
+ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
                           struct IPFIX_SOFTFLOWD_TEMPLATE *template,
                           u_int *index) {
   int length = 0;
@@ -1855,7 +1855,7 @@ ipfix_init_template_time_partial (struct FLOWTRACKPARAMETERS *param,
  * @param version     Export version.
  */
 static void
-ipfix_init_template_unity_partial (struct FLOWTRACKPARAMETERS *param,
+ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
                            struct IPFIX_SOFTFLOWD_TEMPLATE *template,
                            u_int template_id, u_int8_t v6_flag,
                            u_int8_t icmp_flag, u_int8_t bi_flag,
@@ -1875,7 +1875,7 @@ ipfix_init_template_unity_partial (struct FLOWTRACKPARAMETERS *param,
                                  field_v4,
                                  IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
   }
-  length += ipfix_init_template_time_partial (param, template, &index);
+  length += ipfix_init_template_time (param, template, &index);
   length += ipfix_init_fields (template->r, &index,
                                field_common,
                                IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS);
@@ -1941,7 +1941,7 @@ ipfix_init_template_unity_partial (struct FLOWTRACKPARAMETERS *param,
 }
 
 /**
- * @brief Build the IPv4, ICMPv4, IPv6 and ICMPv6 templates_partial into templates_partial[].
+ * @brief Build the IPv4, ICMPv4, IPv6 and ICMPv6 templates into templates[].
  *
  * @param param   Tracking parameters.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow.
@@ -1976,7 +1976,7 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
       template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
       break;
     }
-    ipfix_init_template_unity_partial (param, &templates_partial[i],
+    ipfix_init_template_unity (param, &templates[i],
                                template_id, v6_flag,
                                icmp_flag, bi_flag, version);
   }
@@ -1998,18 +1998,18 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
     sizeof (struct IPFIX_FIELD_SPECIFIER);
 
-  memset (&option_template_partial, 0, sizeof (option_template_partial));
-  option_template_partial.h.c.set_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
-  option_template_partial.h.c.length =
-    htons (sizeof (option_template_partial.h) + scope_len + opt_len);
-  option_template_partial.h.u.n.template_id =
+  memset (&option_template, 0, sizeof (option_template));
+  option_template.h.c.set_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
+  option_template.h.c.length =
+    htons (sizeof (option_template.h) + scope_len + opt_len);
+  option_template.h.u.n.template_id =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
-  option_template_partial.h.u.n.scope_length = htons (scope_len);
-  option_template_partial.h.u.n.option_length = htons (opt_len);
-  ipfix_init_fields (option_template_partial.s, &scope_index,
+  option_template.h.u.n.scope_length = htons (scope_len);
+  option_template.h.u.n.option_length = htons (opt_len);
+  ipfix_init_fields (option_template.s, &scope_index,
                      field_nf9scope,
                      NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
-  ipfix_init_fields (option_template_partial.r, &option_index,
+  ipfix_init_fields (option_template.r, &option_index,
                      field_nf9option,
                      NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
   memset (&nf9opt_data, 0, sizeof (nf9opt_data));
@@ -2030,23 +2030,23 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
  * @param option           Optional information (sampling, process id, interface name, exporter address).
  */
 static void
-ipfix_init_option_partial (struct timeval *system_boot_time, struct OPTION *option) {
+ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
-  memset (&option_template_partial, 0, sizeof (option_template_partial));
-  option_template_partial.h.c.set_id = htons (IPFIX_OPTION_TEMPLATE_SET_ID);
-  option_template_partial.h.c.length = htons (sizeof (option_template_partial));
-  option_template_partial.h.u.i.r.template_id =
+  memset (&option_template, 0, sizeof (option_template));
+  option_template.h.c.set_id = htons (IPFIX_OPTION_TEMPLATE_SET_ID);
+  option_template.h.c.length = htons (sizeof (option_template));
+  option_template.h.u.i.r.template_id =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
-  option_template_partial.h.u.i.r.count =
+  option_template.h.u.i.r.count =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS +
            IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
-  option_template_partial.h.u.i.scope_count =
+  option_template.h.u.i.scope_count =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
 
-  ipfix_init_fields (option_template_partial.s, &scope_index,
+  ipfix_init_fields (option_template.s, &scope_index,
                      field_scope,
                      IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
-  ipfix_init_fields (option_template_partial.r, &option_index, field_option,
+  ipfix_init_fields (option_template.r, &option_index, field_option,
                      IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
 
   memset (&option_data, 0, sizeof (option_data));
@@ -2154,7 +2154,7 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
  * @return Number of records written, or -1 on error.
  */
 static int
-ipfix_flow_to_flowset_partial (const struct FLOW *flow, u_char *packet,
+ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int len, u_int16_t ifidx,
                        const struct timeval *system_boot_time,
                        u_int *len_used,
@@ -2177,7 +2177,7 @@ ipfix_flow_to_flowset_partial (const struct FLOW *flow, u_char *packet,
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
   int i = 0, k = 0;
-  freclen = templates_partial[tmplindex].data_len;
+  freclen = templates[tmplindex].data_len;
   if (len < freclen * frecnum)
     return (-1);
 
@@ -2295,12 +2295,12 @@ valuate_icmp (struct FLOW *flow) {
 }
 
 /**
- * @brief Request that the templates_partial be sent again with the next export packet.
+ * @brief Request that the templates be sent again with the next export packet.
  */
 void
 ipfix_resend_template (void) {
-  if (ipfix_pkts_until_template_partial > 0)
-    ipfix_pkts_until_template_partial = 0;
+  if (ipfix_pkts_until_template > 0)
+    ipfix_pkts_until_template = 0;
 }
 
 /**
@@ -2374,12 +2374,12 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     return (-1);
   SET_EXPORT_NOW (now, param);
 
-  if (ipfix_pkts_until_template_partial == -1) {
+  if (ipfix_pkts_until_template == -1) {
     ipfix_init_template (param, bi_flag, version);
-    ipfix_pkts_until_template_partial = 0;
+    ipfix_pkts_until_template = 0;
     if (option != NULL) {
       if (version == 10) {
-        ipfix_init_option_partial (system_boot_time, option);
+        ipfix_init_option (system_boot_time, option);
       } else {
         nflow9_init_option (ifidx, option);
       }
@@ -2407,14 +2407,14 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
     }
 
     /* Refresh template headers if we need to */
-    if (ipfix_pkts_until_template_partial <= 0) {
+    if (ipfix_pkts_until_template <= 0) {
       for (i = 0; i < TMPLMAX; i++) {
-        memcpy_template (packet, &offset, &templates_partial[i], bi_flag,
+        memcpy_template (packet, &offset, &templates[i], bi_flag,
                          param->max_num_label);
       }
       if (option != NULL) {
-        u_int16_t opt_tmpl_len = ntohs (option_template_partial.h.c.length);
-        memcpy (packet + offset, &option_template_partial, opt_tmpl_len);
+        u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
+        memcpy (packet + offset, &option_template, opt_tmpl_len);
         offset += opt_tmpl_len;
         if (version == 10) {
           memcpy (packet + offset, &option_data, sizeof (option_data));
@@ -2425,7 +2425,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
         }
       }
 
-      ipfix_pkts_until_template_partial = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
+      ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
       if (target->is_loadbalance && target->num_destinations > 1) {
         if (version == 10) {
           ipfix->length = htons (offset);
@@ -2467,14 +2467,14 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
         }
         dh = (struct IPFIX_SET_HEADER *) (packet + offset);
         tmplindex = ipfix_flow_to_template_index (flows[i + j]);
-        dh->set_id = templates_partial[tmplindex].h.r.template_id;
+        dh->set_id = templates[tmplindex].h.r.template_id;
         last_af = flows[i + j]->af;
         last_icmp_flag = icmp_flag;
         last_valid = offset;
         dh->length = sizeof (*dh);      /* Filled as we go */
         offset += sizeof (*dh);
       }
-      r = ipfix_flow_to_flowset_partial (flows[i + j],
+      r = ipfix_flow_to_flowset (flows[i + j],
                                  packet + offset,
                                  sizeof (packet) - offset,
                                  ifidx, system_boot_time,
@@ -2520,7 +2520,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
          target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
-    ipfix_pkts_until_template_partial--;
+    ipfix_pkts_until_template--;
 
     j += i;
   }
