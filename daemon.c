@@ -1,5 +1,4 @@
-/* OPENBSD ORIGINAL: lib/libc/gen/daemon.c */
-
+/*	$OpenBSD: daemon.c,v 1.9 2026/03/10 00:06:39 deraadt Exp $ */
 /*-
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
@@ -33,9 +32,10 @@
 
 #ifndef HAVE_DAEMON
 
-#if defined(LIBC_SCCS) && !defined(lint)
-static char rcsid[] = "$OpenBSD: daemon.c,v 1.5 2003/07/15 17:32:41 deraadt Exp $";
-#endif /* LIBC_SCCS and not lint */
+#include <fcntl.h>
+#include <paths.h>
+#include <unistd.h>
+#include <stdlib.h>
 
 int
 daemon(int nochdir, int noclose)
@@ -46,18 +46,8 @@ daemon(int nochdir, int noclose)
 	case -1:
 		return (-1);
 	case 0:
-#ifdef HAVE_CYGWIN
-		register_9x_service();
-#endif
 		break;
 	default:
-#ifdef HAVE_CYGWIN
-		/*
-		 * This sleep avoids a race condition which kills the
-		 * child process if parent is started by a NT/W2K service.
-		 */
-		sleep(1);
-#endif
 		_exit(0);
 	}
 
@@ -67,15 +57,14 @@ daemon(int nochdir, int noclose)
 	if (!nochdir)
 		(void)chdir("/");
 
-	if (!noclose && (fd = open(_PATH_DEVNULL, O_RDWR, 0)) != -1) {
+	if (!noclose && (fd = open(_PATH_DEVNULL, O_RDWR)) != -1) {
 		(void)dup2(fd, STDIN_FILENO);
 		(void)dup2(fd, STDOUT_FILENO);
 		(void)dup2(fd, STDERR_FILENO);
 		if (fd > 2)
-			(void)close (fd);
+			(void)close(fd);
 	}
 	return (0);
 }
 
 #endif /* !HAVE_DAEMON */
-
