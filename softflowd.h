@@ -338,9 +338,14 @@ int send_multi_destinations (int num_destinations,
 void flow_cb (u_char * user_data, const struct pcap_pkthdr *phdr,
               const u_char * pkt);
 
-/* Prototypes for functions to send NetFlow packets, from netflow*.c */
+/* Prototypes for functions to send NetFlow/IPFIX packets. Each is defined
+ * exactly once in a build: in ipfix.c or in compat/netflow*.c, depending
+ * on --enable-export-merge (see the Source Layout section of README). */
 int send_netflow_v1 (struct SENDPARAMETER sp);
 int send_netflow_v5 (struct SENDPARAMETER sp);
+int send_netflow_v9 (struct SENDPARAMETER sp);
+int send_ipfix (struct SENDPARAMETER sp);
+int send_ipfix_bi (struct SENDPARAMETER sp);
 #ifdef ENABLE_NTOPNG
 /* Protypes for ntopng.c */
 int connect_ntopng (const char *host, const char *port, struct ZMQ *zmq);

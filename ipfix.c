@@ -1605,7 +1605,7 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
  * @return Number of packets sent, or -1 on error.
  */
 int
-send_nflow9 (struct SENDPARAMETER sp) {
+send_netflow_v9 (struct SENDPARAMETER sp) {
   return send_ipfix_templated (sp, 0, 9);
 }
 
@@ -1632,7 +1632,7 @@ send_ipfix_bi (struct SENDPARAMETER sp) {
 }
 
 #else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
-/* EXPORT_MERGE != FULL (partial or none): Shares IPFIX
+/* EXPORT_MERGE != ALL (format or none): Shares IPFIX
  * field tables above, but retains distinct per-version send functions. */
 
 /* Stuff pertaining to the templates_partial that softflowd uses */
@@ -2534,6 +2534,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
   return (num_packets);
 }
 
+#if EXPORT_MERGE == EXPORT_MERGE_FORMAT
 /**
  * @brief Send expired flows as NetFlow v9 packets.
  *
@@ -2541,10 +2542,11 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
  * @return Number of packets sent, or -1 on error.
  */
 int
-send_nflow9_partial (struct SENDPARAMETER sp) {
+send_netflow_v9 (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
                             sp.param, sp.verbose_flag, 0, 9);
 }
+#endif /* EXPORT_MERGE == EXPORT_MERGE_FORMAT */
 
 /**
  * @brief Send expired flows as IPFIX packets.
@@ -2553,7 +2555,7 @@ send_nflow9_partial (struct SENDPARAMETER sp) {
  * @return Number of packets sent, or -1 on error.
  */
 int
-send_ipfix_partial (struct SENDPARAMETER sp) {
+send_ipfix (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
                             sp.param, sp.verbose_flag, 0, 10);
 }
@@ -2565,7 +2567,7 @@ send_ipfix_partial (struct SENDPARAMETER sp) {
  * @return Number of packets sent, or -1 on error.
  */
 int
-send_ipfix_bi_partial (struct SENDPARAMETER sp) {
+send_ipfix_bi (struct SENDPARAMETER sp) {
   return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
                             sp.param, sp.verbose_flag, 1, 10);
 }

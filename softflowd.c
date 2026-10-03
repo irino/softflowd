@@ -250,22 +250,13 @@ struct NETFLOW_SENDER {
 };
 
 /* Known NetFlow export functions (nf[0] is default).
- * When --enable-export-merge=all is enabled, all versions
- * (v1/v5/v9/IPFIX) route through the unified engine in ipfix.c. */
+ * Which source file defines the send_* functions depends on
+ * --enable-export-merge (see softflowd.h). */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
-  {9, send_nflow9, NULL, 1},
-  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
-#else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
-#if EXPORT_MERGE == EXPORT_MERGE_NONE
   {9, send_netflow_v9, NULL, 1},
-#else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT */
-  {9, send_nflow9_partial, NULL, 1},
-#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
-  {NF_VERSION_IPFIX, send_ipfix_partial, send_ipfix_bi_partial, 1},
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
 #endif

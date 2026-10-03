@@ -78,9 +78,7 @@ struct NFLOW9_HEADER {
 } __packed;
 
 #if EXPORT_MERGE == EXPORT_MERGE_NONE
-/* Prototypes for functions to send NetFlow packets, from netflow*.c */
-int send_netflow_v9 (struct SENDPARAMETER sp);
-/* Force a resend of the flow template */
+/* Force a resend of the flow template, from netflow9.c */
 void netflow9_resend_template (void);
 #endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
 
