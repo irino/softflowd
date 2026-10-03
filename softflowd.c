@@ -43,7 +43,6 @@
  */
 
 #include "common.h"
-#include "compat/sys-tree.h"
 #include "convtime.h"
 #include "softflowd.h"
 #include "treetype.h"

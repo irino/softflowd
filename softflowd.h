@@ -25,7 +25,11 @@
 #ifndef _SOFTFLOWD_H
 #define _SOFTFLOWD_H
 #include "common.h"
+#ifdef HAVE_BSD_SYS_TREE_H
+#include <bsd/sys/tree.h>
+#else
 #include "compat/sys-tree.h"
+#endif
 #include "freelist.h"
 #include "treetype.h"
 #include <pcap.h>

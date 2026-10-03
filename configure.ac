@@ -189,6 +189,19 @@ AC_CHECK_MEMBER(struct ip6_ext.ip6e_nxt,
 		#include <netinet/ip6.h>
 	])
 
+AC_ARG_WITH([libbsd],
+	[AS_HELP_STRING([--with-libbsd],
+		[use libbsd for strlcpy(), strlcat(), closefrom() and sys/tree.h when the system does not provide them, instead of the copies in compat/ (default: use it if found)])],
+	[],[with_libbsd=check])
+if test "x$with_libbsd" != "xno" ; then
+  AC_SEARCH_LIBS(strlcpy, bsd)
+  AC_SEARCH_LIBS(strlcat, bsd)
+  AC_SEARCH_LIBS(closefrom, bsd)
+  AC_CHECK_HEADERS([bsd/string.h bsd/unistd.h bsd/sys/tree.h])
+  if test "x$with_libbsd" = "xyes" && test "x$ac_cv_header_bsd_sys_tree_h" != "xyes" ; then
+    AC_MSG_ERROR([--with-libbsd was given, but libbsd was not found])
+  fi
+fi
 AC_SEARCH_LIBS(daemon, bsd)
 AC_SEARCH_LIBS(gethostbyname, nsl)
 AC_SEARCH_LIBS(socket, socket)
