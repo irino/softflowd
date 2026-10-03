@@ -231,11 +231,4 @@ extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
       gettimeofday (&(now), NULL);                                    \
   } while (0)
 
-/* sys-tree.h (third-party) defaults RB_AUGMENT() to nothing, which leaves an empty
- * "if" body in the generated tree code and triggers -Wempty-body.
- * Defined here because every file that includes sys-tree.h includes common.h first. */
-#ifndef RB_AUGMENT
-#define RB_AUGMENT(x) do { } while (0)
-#endif
-
 #endif /* _SFD_COMMON_H */
