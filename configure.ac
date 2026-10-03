@@ -28,9 +28,15 @@ WFLAGS="$WFLAGS -Wuninitialized -Wcast-align -Wcast-qual"
 WFLAGS="$WFLAGS -Wformat=2 -Wformat-nonliteral -Wwrite-strings"
 
 # Process flag arguments early, so they are available for tests later
-AC_ARG_ENABLE(cpp,
-              AS_HELP_STRING([--enable-cpp],[build the C++ reimplementation (softflowd+/softflowctl+) under cpp/ (default NO)]),
-              [cpp=yes],[cpp=no])
+AC_ARG_ENABLE(direct-copies,
+              AS_HELP_STRING([--enable-direct-copies],
+                             [use direct pointer casting for packet fields (legacy implementation, default NO)]),
+              [direct_copies=$enableval],
+              [direct_copies=no])
+
+if test "x$direct_copies" = "xyes"; then
+  AC_DEFINE([ENABLE_DIRECT_COPIES], [1], [Define to 1 to use direct copies (legacy implementation) for packet fields])
+fi
 AC_ARG_ENABLE(rust,
               AS_HELP_STRING([--enable-rust],[build the Rust reimplementation (rsoftflowd/rsoftctl) under rust/ (default NO)]),
               [rust=yes],[rust=no])

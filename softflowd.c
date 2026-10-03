@@ -567,9 +567,15 @@ format_flow_brief (struct FLOW *flow) {
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 		      const size_t caplen, int protocol, int ndx) {
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   struct tcphdr tcp;
   struct udphdr udp;
   struct icmp icmp;
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  const struct tcphdr *tcp = (const struct tcphdr *) pkt;
+  const struct udphdr *udp = (const struct udphdr *) pkt;
+  const struct icmp *icmp = (const struct icmp *) pkt;
+#endif
 
   /*
    * XXX to keep flow in proper canonical format, it may be necessary to
@@ -581,32 +587,56 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
   switch (protocol) {
   case IPPROTO_TCP:
     /* Check for runt packet */
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
     if (caplen < sizeof (tcp))
       return;
     memcpy (&tcp, pkt, sizeof (tcp));
     flow->port[ndx] = tcp.th_sport;
     flow->port[ndx ^ 1] = tcp.th_dport;
     flow->tcp_flags[ndx] |= tcp.th_flags;
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+    if (caplen < sizeof (*tcp))
+      return;
+    flow->port[ndx] = tcp->th_sport;
+    flow->port[ndx ^ 1] = tcp->th_dport;
+    flow->tcp_flags[ndx] |= tcp->th_flags;
+#endif
     break;
   case IPPROTO_UDP:
     /* Check for runt packet */
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
     if (caplen < sizeof (udp))
       return;
     memcpy (&udp, pkt, sizeof (udp));
     flow->port[ndx] = udp.uh_sport;
     flow->port[ndx ^ 1] = udp.uh_dport;
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+    if (caplen < sizeof (*udp))
+      return;
+    flow->port[ndx] = udp->uh_sport;
+    flow->port[ndx ^ 1] = udp->uh_dport;
+#endif
     break;
   case IPPROTO_ICMP:
   case IPPROTO_ICMPV6:
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
     if (caplen < sizeof (icmp))
       return;
     memcpy (&icmp, pkt, sizeof (icmp));
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+    if (caplen < sizeof (*icmp))
+      return;
+#endif
     /*
      * Encode ICMP type * 256 + code into dest port like
      * Cisco routers
      */
     flow->port[ndx] = 0;
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
     flow->port[ndx ^ 1] = htons (icmp.icmp_type * 256 + icmp.icmp_code);
+#else
+    flow->port[ndx ^ 1] = htons (icmp->icmp_type * 256 + icmp->icmp_code);
+#endif
     break;
   }
   return;
@@ -627,6 +657,7 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   struct ip iph;
   const struct ip *ip = &iph;
   if (flow == NULL || pkt == NULL || isfrag == NULL || isfirst == NULL
@@ -635,6 +666,13 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
   memcpy (&iph, pkt, sizeof (iph));
   if (caplen < ip->ip_hl * 4 || ip->ip_v != 4)
     return (-1);		/* Runt packet or Unsupported IP version */
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  const struct ip *ip = (const struct ip *) pkt;
+  if (flow == NULL || ip == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL || caplen < 20 || caplen < ip->ip_hl * 4
+      || ip->ip_v != 4)
+    return (-1);		/* Runt packet or Unsupported IP version */
+#endif
 
   /* Prepare to store flow in canonical format */
   *ndx = memcmp (&ip->ip_src, &ip->ip_dst, sizeof (ip->ip_src)) > 0 ? 1 : 0;
@@ -662,17 +700,30 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 		 int *isfrag, int *isfirst, int *ndx, int track_lv) {
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   struct ip6_hdr ip6h;
   const struct ip6_hdr *ip6 = &ip6h;
   const struct ip6_ext *eh6;
   struct ip6_frag fh6;
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
+  const struct ip6_ext *eh6;
+  const struct ip6_frag *fh6;
+#endif
   int nxt, size, remain;
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   if (flow == NULL || pkt == NULL || isfrag == NULL || isfirst == NULL
       || ndx == NULL || caplen < sizeof (ip6h))
     return (-1);		/* Runt packet */
   memcpy (&ip6h, pkt, sizeof (ip6h));
   if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
     return (-1);		/* Unsupported IP version */
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  if (flow == NULL || ip6 == NULL || isfrag == NULL || isfirst == NULL
+      || ndx == NULL || caplen < sizeof (*ip6)
+      || (ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION)
+    return (-1);		/* Runt packet or Unsupported IP version */
+#endif
 
   *ndx =
     memcmp (&ip6->ip6_src, &ip6->ip6_dst, sizeof (ip6->ip6_src)) > 0 ? 1 : 0;
@@ -701,6 +752,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
     }
     else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
       if (remain < (int) sizeof (fh6))
 	return (size);		/* Runt */
       memcpy (&fh6, eh6, sizeof (fh6));
@@ -708,6 +760,15 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt, size_t caplen,
 	*isfirst = 0;
       nxt = fh6.ip6f_nxt;
       size += sizeof (fh6);
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+      fh6 = (const struct ip6_frag *) eh6;
+      if (remain < sizeof (*fh6))
+	return (size);		/* Runt */
+      if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
+	*isfirst = 0;
+      nxt = fh6->ip6f_nxt;
+      size += sizeof (*fh6);
+#endif
     }
     else
       break;
@@ -891,9 +952,13 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
 
   tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
     memcpy (&tmp.mplsLabels[i],
 	    frame + datalink_size + i * sizeof (tmp.mplsLabels[i]),
 	    sizeof (tmp.mplsLabels[i]));
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+    tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
+#endif
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1588,8 +1653,13 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen, int *af,
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
     do {
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
       memcpy (&shim, pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim),
 	      sizeof (shim));
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+      shim =
+	*((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
+#endif
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;

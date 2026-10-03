@@ -83,9 +83,15 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) packet;
   struct IPFIX_SET_HEADER *dh;
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   u_int64_t sequenceId;
   struct ntp_time_t ntptime;
   u_int16_t exportedOctets;
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  u_int64_t *sequenceId;
+  struct ntp_time_t *ntptime;
+  u_int16_t *exportedOctets;
+#endif
   int offset = sizeof (struct IPFIX_HEADER);
   int copysize =
     caplen < (int) PSAMP_DATALINKFRAME_SIZE ? caplen : (int) PSAMP_DATALINKFRAME_SIZE;
@@ -112,6 +118,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
     htons (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - sizeof (struct IPFIX_HEADER));
   offset += sizeof (struct IPFIX_SET_HEADER);
 
+#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   /* The fields are not naturally aligned in the packet buffer: use memcpy. */
   sequenceId = htobe64 (total_packets);
   memcpy (&packet[offset], &sequenceId, sizeof (sequenceId));
@@ -126,6 +133,21 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   exportedOctets = htons (copysize);
   memcpy (&packet[offset], &exportedOctets, sizeof (exportedOctets));
   offset += sizeof (exportedOctets);
+#else　/* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+  sequenceId = (u_int64_t *) & packet[offset];
+  *sequenceId = htobe64 (total_packets);
+  offset += sizeof (u_int64_t);
+
+  ntptime = (struct ntp_time_t *) &packet[offset];
+  conv_unix_to_ntp (tv, ntptime);
+  ntptime->second = htonl (ntptime->second);
+  ntptime->fraction = htonl (ntptime->fraction);
+  offset += sizeof (struct ntp_time_t);
+
+  exportedOctets = (u_int16_t *) & packet[offset];
+  *exportedOctets = htons (copysize);
+  offset += sizeof (u_int16_t);
+#endif
 
   memset (&packet[offset], 0, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - offset);
   memcpy (&packet[offset], pkt, copysize);
