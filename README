@@ -58,6 +58,37 @@ fine on the systems that I develop and test on (OpenBSD and Linux).
 There is peliminary support for Solaris 9 (i.e. it compiled), but no
 testing on this platform has been performed.
 
+Source Layout
+-------------
+
+The sources in the top-level directory are always built. compat/ holds
+the sources that the default build does not need; they are kept for
+backward compatibility and for systems that lack the functions they
+provide.
+
+compat/netflow1.c, compat/netflow5.c, compat/netflow9.c
+  Separate NetFlow v1, v5 and v9 exporters. By default (./configure
+  --enable-export-merge=all) ipfix.c exports NetFlow v1, v5 and v9 as
+  well as IPFIX and none of these files are built. With
+  --enable-export-merge=format, netflow5.c exports the fixed formats
+  (v1 and v5) while ipfix.c exports the template formats (v9 and
+  IPFIX). With --enable-export-merge=none (or --enable-legacy) all three
+  are built and ipfix.c exports IPFIX only.
+
+compat/bsd/strlcpy.c, compat/bsd/strlcat.c, compat/bsd/closefrom.c
+  Copies of the OpenBSD functions that libbsd also provides. Each is
+  compiled only when neither the C library nor libbsd has the function.
+
+compat/bsd/sys-tree.h
+  The OpenBSD tree macros (RB_* and SPLAY_*). It is used only when
+  <bsd/sys/tree.h> from libbsd is not available.
+
+./configure looks for libbsd by default. Use --without-libbsd to always
+use the copies in compat/bsd/, or --with-libbsd to fail if libbsd is
+not found. daemon.c in the top-level directory is not provided by libbsd;
+it is compiled only when the C library lacks daemon(3). See LICENSE for
+the copyright of the files that come from OpenBSD.
+
 Benchmarking and Compatibility Testing
 ---------------------------------------
 
