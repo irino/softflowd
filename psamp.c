@@ -108,7 +108,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
     ipfix->length = htons (offset + sizeof (template));
     if (send_multi_destinations
         (target->num_destinations, target->destinations, 0, packet,
-         offset + sizeof (template)) < 0)
+         offset + sizeof (template), 0) < 0)
       return (-1);
   }
 
@@ -154,7 +154,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   ipfix->length = htons (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
   if (send_multi_destinations (target->num_destinations, target->destinations,
                                target->is_loadbalance,
-                               packet, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE) < 0)
+                               packet, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, 0) < 0)
     return (-1);
   return 1;
 }

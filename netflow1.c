@@ -101,13 +101,11 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
     int need = (flows[i]->af == AF_INET) ?
       (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
     if (j + need > NF1_MAXFLOWS) {
-      if (verbose_flag)
-        logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
       if (send_multi_destinations
           (sp.target->num_destinations, sp.target->destinations,
-           sp.target->is_loadbalance, packet, offset) < 0)
+           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -171,13 +169,11 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 
   /* Send any leftovers */
   if (j != 0) {
-    if (verbose_flag)
-      logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
     if (send_multi_destinations
         (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset) < 0)
+         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
   }

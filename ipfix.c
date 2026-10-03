@@ -861,19 +861,6 @@ ipfix_build_header (u_char *packet, u_int16_t version,
 }
 
 /* ------------------------------------------------------------------ */
-/* Shared packet flush / multi-destination send helper for unified exporters. */
-static inline int
-ipfix_send_packet (struct NETFLOW_TARGET *target, u_char *packet,
-                           u_int offset, int verbose_flag) {
-  if (verbose_flag)
-    logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
-  if (send_multi_destinations
-      (target->num_destinations, target->destinations,
-       target->is_loadbalance, packet, offset) < 0)
-    return (-1);
-  return (0);
-}
-
 /* NetFlow v1 / v5: fixed (non-templated) export.                      */
 /* ------------------------------------------------------------------ */
 
@@ -917,7 +904,9 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
     if (j + need > maxflows) {
       param->records_sent += flowcount;
       ((union IPFIX_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
-      if (ipfix_send_packet (sp.target, packet, offset, verbose_flag) < 0)
+      if (send_multi_destinations
+          (sp.target->num_destinations, sp.target->destinations,
+           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -956,7 +945,9 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   if (j != 0) {
     param->records_sent += flowcount;
     ((union IPFIX_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
-    if (ipfix_send_packet (sp.target, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations
+        (sp.target->num_destinations, sp.target->destinations,
+         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     *flows_exported += j;
     num_packets++;
@@ -1519,7 +1510,9 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
           h->nf9.flows = htons (1);
           h->nf9.sequence = htonl (sequence++);
         }
-        if (ipfix_send_packet (target, packet, offset, 0) < 0)
+        if (send_multi_destinations
+            (target->num_destinations, target->destinations,
+             target->is_loadbalance, packet, offset, 0) < 0)
           return (-1);
         offset = ipfix_build_header (packet, version, param);
       }
@@ -1586,7 +1579,9 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
       h->nf9.sequence = htonl (sequence++);
     }
 
-    if (ipfix_send_packet (target, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations
+        (target->num_destinations, target->destinations,
+         target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
     ipfix_pkts_until_template--;
@@ -2442,7 +2437,7 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
         }
         if (send_multi_destinations
             (target->num_destinations, target->destinations, 0, packet,
-             offset) < 0)
+             offset, verbose_flag) < 0)
           return (-1);
         offset = version == 10 ? sizeof (*ipfix) : sizeof (*nf9);       // resest offset
       }
@@ -2520,11 +2515,9 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
       nf9->sequence = htonl (sequence++);
     }
 
-    if (verbose_flag)
-      logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     if (send_multi_destinations
         (target->num_destinations, target->destinations,
-         target->is_loadbalance, packet, offset) < 0)
+         target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
     ipfix_pkts_until_template_partial--;

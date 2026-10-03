@@ -1038,17 +1038,20 @@ timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
  * @param is_loadbalance   Non-zero to send to one destination per call (round robin) instead of all.
  * @param packet           Packet to send.
  * @param size             Length of packet in bytes.
+ * @param verbose          Non-zero to log the packet length at debug level.
  * @return -1 if a send failed, 1 in load-balance mode, otherwise the number of destinations.
  */
 int
 send_multi_destinations (int num_destinations,
 			 struct DESTINATION *destinations,
 			 u_int8_t is_loadbalance, u_int8_t *packet,
-			 int size) {
+			 int size, int verbose) {
   struct DESTINATION *dest;
   int i, err;
   socklen_t errsz;
   static u_int64_t sent = 0;
+  if (verbose)
+    logit (LOG_DEBUG, "Sending flow packet len = %d", size);
   for (i = 0; i < num_destinations; i++) {
     if (!is_loadbalance || (is_loadbalance && ((int) (sent % num_destinations) == i))) {
       dest = &destinations[i];

@@ -442,11 +442,9 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
                            ((*packets_sent + num_packets +
                              1) & 0x00000000ffffffff));
 
-    if (verbose_flag)
-      logit (LOG_DEBUG, "Sending flow packet len = %d", offset);
     if (send_multi_destinations
         (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset) < 0)
+         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
     nf9_pkts_until_template--;
