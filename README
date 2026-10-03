@@ -78,12 +78,13 @@ Licensing
 ---------
 
 Softflowd is licensed under a two-term BSD license (see the source
-files for details). The code in sys-tree.h is Copyright Niels Provos
-<provos@citi.umich.edu> and comes straight from OpenBSD CVS, convtime.c
-comes is Copyright Kevin Steves and comes from OpenSSH (misc.c). Both
-of these files are licensed under two-term BSD licenses too. strlcpy.c,
-strlcat.c and closefrom.c also come from OpenBSD CVS and are Copyright
-Todd C. Miller. Please refer to the LICENSE file for full details.
+files for details). The code in compat/sys-tree.h is Copyright Niels
+Provos <provos@citi.umich.edu> and comes straight from OpenBSD CVS,
+convtime.c comes is Copyright Kevin Steves and comes from OpenSSH
+(misc.c). Both of these files are licensed under two-term BSD licenses
+too. compat/strlcpy.c, compat/strlcat.c and compat/closefrom.c also come
+from OpenBSD CVS and are Copyright Todd C. Miller. Please refer to the
+LICENSE file for full details.
 
 Reporting Bugs
 --------------

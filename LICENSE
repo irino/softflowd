@@ -24,7 +24,7 @@ Original code is licensed under the following BSD-style license:
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-closefrom.c:
+compat/closefrom.c:
 
 /*
  * Copyright (c) 2004 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -99,7 +99,7 @@ daemon.c:
  * SUCH DAMAGE.
  */
 
-strlcat.c, strlcpy.c:
+compat/strlcat.c, compat/strlcpy.c:
 
 /*
  * Copyright (c) 1998 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -117,7 +117,7 @@ strlcat.c, strlcpy.c:
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-sys-tree.h:
+compat/sys-tree.h:
 
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>

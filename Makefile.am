@@ -1,6 +1,6 @@
 sbin_PROGRAMS = softflowd softflowctl
-COMMON = common.h convtime.h treetype.h sys-tree.h\
-  convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
+COMMON = common.h convtime.h treetype.h compat/sys-tree.h\
+  convtime.c compat/strlcpy.c compat/strlcat.c compat/closefrom.c daemon.c
 if EXPORT_MERGE_IS_NONE
   LEGACY_SOURCES = netflow9.c netflow1.c
 endif
