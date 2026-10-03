@@ -766,7 +766,7 @@ static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
 
 /* Writes packet headers directly per packet using existing structs (NF5/NF9/IPFIX),
  * using the top-level union 'version' member shared across all formats. */
-union IPFIX_PACKET_HEADER {
+union FLOW_PACKET_HEADER {
   u_int16_t version;
   struct NF5_HEADER nf5;        /* NF1: only the first NF1_HEADER_SIZE octets */
   struct NFLOW9_HEADER nf9;
@@ -811,9 +811,9 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
  * @return Size of the header in bytes.
  */
 static u_int
-ipfix_build_header (u_char *packet, u_int16_t version,
+flow_build_header (u_char *packet, u_int16_t version,
                             const struct FLOWTRACKPARAMETERS *param) {
-  union IPFIX_PACKET_HEADER *h = (union IPFIX_PACKET_HEADER *) packet;
+  union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
   struct timeval now;
   u_int32_t systemInitTimeMilliseconds;
 
@@ -826,7 +826,7 @@ ipfix_build_header (u_char *packet, u_int16_t version,
   case 1:
   case 5:
     /* NF1's header is exactly NF5's first NF1_HEADER_SIZE octets (see
-     * union IPFIX_PACKET_HEADER's comment), so this much is shared. */
+     * union FLOW_PACKET_HEADER's comment), so this much is shared. */
     h->nf5.flows = 0;
     h->nf5.uptime_ms = htonl (systemInitTimeMilliseconds);
     h->nf5.time_sec = htonl ((u_int32_t) now.tv_sec);
@@ -874,7 +874,7 @@ ipfix_build_header (u_char *packet, u_int16_t version,
  * @return Number of packets sent, or -1 on error.
  */
 static int
-send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
+send_flow_fixed (struct SENDPARAMETER sp, u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   struct FLOWTRACKPARAMETERS *param = sp.param;
@@ -903,7 +903,7 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
       (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
     if (j + need > maxflows) {
       param->records_sent += flowcount;
-      ((union IPFIX_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
+      ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
       if (send_multi_destinations
           (sp.target->num_destinations, sp.target->destinations,
            sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -915,9 +915,9 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
     }
     if (j == 0) {
       memset (packet, 0, sizeof (packet));
-      offset = ipfix_build_header (packet, version, param);
+      offset = flow_build_header (packet, version, param);
       if (version == 5)
-        ((union IPFIX_PACKET_HEADER *) packet)->nf5.flow_sequence =
+        ((union FLOW_PACKET_HEADER *) packet)->nf5.flow_sequence =
           htonl ((u_int32_t) * flows_exported);
     }
 
@@ -944,7 +944,7 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
 
   if (j != 0) {
     param->records_sent += flowcount;
-    ((union IPFIX_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
+    ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
     if (send_multi_destinations
         (sp.target->num_destinations, sp.target->destinations,
          sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -969,7 +969,7 @@ send_ipfix_fixed (struct SENDPARAMETER sp, u_int16_t version) {
  */
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {
-  return send_ipfix_fixed (sp, 1);
+  return send_flow_fixed (sp, 1);
 }
 
 /**
@@ -980,7 +980,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
  */
 int
 send_netflow_v5 (struct SENDPARAMETER sp) {
-  return send_ipfix_fixed (sp, 5);
+  return send_flow_fixed (sp, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1466,7 +1466,7 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
   struct IPFIX_SET_HEADER *dh;
-  union IPFIX_PACKET_HEADER *h;
+  union FLOW_PACKET_HEADER *h;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
   int8_t icmp_flag, last_icmp_flag;
@@ -1490,8 +1490,8 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
   last_valid = num_packets = 0;
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
-    offset = ipfix_build_header (packet, version, param);
-    h = (union IPFIX_PACKET_HEADER *) packet;
+    offset = flow_build_header (packet, version, param);
+    h = (union FLOW_PACKET_HEADER *) packet;
 
     if (ipfix_pkts_until_template <= 0) {
       for (i = 0; i < TMPLMAX; i++)
@@ -1514,7 +1514,7 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
             (target->num_destinations, target->destinations,
              target->is_loadbalance, packet, offset, 0) < 0)
           return (-1);
-        offset = ipfix_build_header (packet, version, param);
+        offset = flow_build_header (packet, version, param);
       }
     }
 
