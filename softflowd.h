@@ -28,7 +28,7 @@
 #ifdef HAVE_BSD_SYS_TREE_H
 #include <bsd/sys/tree.h>
 #else
-#include "compat/sys-tree.h"
+#include "compat/bsd/sys-tree.h"
 #endif
 #include "freelist.h"
 #include "treetype.h"
