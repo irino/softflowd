@@ -133,7 +133,7 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   exportedOctets = htons (copysize);
   memcpy (&packet[offset], &exportedOctets, sizeof (exportedOctets));
   offset += sizeof (exportedOctets);
-#else　/* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
   sequenceId = (u_int64_t *) & packet[offset];
   *sequenceId = htobe64 (total_packets);
   offset += sizeof (u_int64_t);
