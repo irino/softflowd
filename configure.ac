@@ -109,12 +109,20 @@ AC_ARG_ENABLE(ifname,
               [ifname=yes],[ifname=no])
 AC_ARG_ENABLE(flow-splay,
               AS_HELP_STRING([--enable-flow-splay],[enable splay as flow tree type (default is RB)]),
-              AC_DEFINE([FLOW_SPLAY], 1, [enable splay as flow tree type]),
-	      AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type]))
+              [flow_splay=$enableval],[flow_splay=no])
+if test "x$flow_splay" = "xyes" ; then
+  AC_DEFINE([FLOW_SPLAY], 1, [enable splay as flow tree type])
+else
+  AC_DEFINE([FLOW_RB], 1, [enable RB(red-black) as flow tree type])
+fi
 AC_ARG_ENABLE(expiry-splay,
               AS_HELP_STRING([--enable-expiry-splay],[enable splay as expiry tree type (default is RB)]),
-              AC_DEFINE([EXPIRY_SPLAY], 1, [enable splay as expiry tree type]),
-	      AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as expiry tree type]))
+              [expiry_splay=$enableval],[expiry_splay=no])
+if test "x$expiry_splay" = "xyes" ; then
+  AC_DEFINE([EXPIRY_SPLAY], 1, [enable splay as expiry tree type])
+else
+  AC_DEFINE([EXPIRY_RB], 1, [enable RB(red-black) as expiry tree type])
+fi
 
 AC_ARG_WITH(cflags,
 	[  --with-cflags           Specify additional compiler flags],
