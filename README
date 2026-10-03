@@ -62,7 +62,7 @@ Benchmarking and Compatibility Testing
 ---------------------------------------
 
 tools/benchmark_export.sh compares the NetFlow/IPFIX export build
-variants (see --enable-unified-export-type in ./configure --help)
+variants (see --enable-export-merge in ./configure --help)
 across one or more pcap files and NetFlow/IPFIX versions, using
 hyperfine for timing. Optional flags add callgrind instruction counts
 (-C) and softflowd's own -g cpu-clock counters (-g) to the comparison.

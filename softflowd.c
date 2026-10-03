@@ -251,22 +251,22 @@ struct NETFLOW_SENDER {
 };
 
 /* Known NetFlow export functions (nf[0] is default).
- * When --enable-unified-export-type=full is enabled, all versions
+ * When --enable-export-merge=all is enabled, all versions
  * (v1/v5/v9/IPFIX) route through the unified engine in ipfix.c. */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL
+#if EXPORT_MERGE == EXPORT_MERGE_ALL
   {9, send_nflow9, NULL, 1},
   {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
-#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_FULL */
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
   {9, send_netflow_v9, NULL, 1},
-#else /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL */
+#else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT */
   {9, send_nflow9_partial, NULL, 1},
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
   {NF_VERSION_IPFIX, send_ipfix_partial, send_ipfix_bi_partial, 1},
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_FULL */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
 #endif
@@ -1892,22 +1892,22 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     ret = 1;
   }
   else if (strcmp (buf, "expire-all") == 0) {
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
     netflow9_resend_template ();
-#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#else /* EXPORT_MERGE != EXPORT_MERGE_NONE */
     ipfix_resend_template ();
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
 	     (unsigned int) getpid (), check_expired (ft, target,
 						      CE_EXPIRE_ALL));
     ret = 0;
   }
   else if (strcmp (buf, "send-template") == 0) {
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
     netflow9_resend_template ();
-#else /* ENABLE_UNIFIED_EXPORT_TYPE != ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#else /* EXPORT_MERGE != EXPORT_MERGE_NONE */
     ipfix_resend_template ();
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
 	     "next flow export\n", (unsigned int) getpid ());
     ret = 0;

@@ -78,45 +78,25 @@ AC_ARG_ENABLE(gcc-warnings,
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
 AC_ARG_ENABLE(legacy,
-              AS_HELP_STRING([--enable-legacy],[(deprecated; use --enable-unified-export-type=none) enable legacy NetFlow implementation (default NO)]),
+              AS_HELP_STRING([--enable-legacy],[same as --enable-export-merge=none (kept for compatibility with softflowd 1.1.1 and earlier)]),
               [legacy=$enableval],[legacy=])
-AC_ARG_ENABLE(unified-export,
-              AS_HELP_STRING([--enable-unified-export],[(deprecated; use --enable-unified-export-type=full) enable single switch/if-else based NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default NO)]),
-              [unified_export=$enableval],[unified_export=])
-AC_ARG_ENABLE(unified-export-type,
-              AS_HELP_STRING([--enable-unified-export-type=full|partial|none],
-                             [choose the NetFlow v1/v5/v9/IPFIX exporter architecture in ipfix.c: full (default; single switch/if-else based unified exporter for all versions), partial (per-version exporters that share unified field tables), or none (fully separate legacy NetFlow v9 exporter in netflow9.c)]),
-              [unified_export_type=$enableval],[unified_export_type=])
-if test -n "$unified_export_type" ; then
-  dnl New-style option was given: it decides, and wins over the
-  dnl deprecated flags below if both happen to be present.
-  case "$unified_export_type" in
-    full|partial|none) ;;
-    *) AC_MSG_ERROR([--enable-unified-export-type must be one of: full, partial, none (got: $unified_export_type)]) ;;
+AC_ARG_ENABLE(export-merge,
+              AS_HELP_STRING([--enable-export-merge=all|format|none],
+                             [how much of the NetFlow v1/v5/v9/IPFIX export code is merged: all (default; everything in ipfix.c), format (template formats v9/IPFIX in ipfix.c, fixed formats v1/v5 in netflow5.c), or none (separate ipfix.c, netflow9.c, netflow5.c and netflow1.c)]),
+              [export_merge=$enableval],[export_merge=])
+if test -n "$export_merge" ; then
+  case "$export_merge" in
+    all|format|none) ;;
+    *) AC_MSG_ERROR([--enable-export-merge must be one of: all, format, none (got: $export_merge)]) ;;
   esac
-  if test -n "$legacy" -o -n "$unified_export" ; then
-    AC_MSG_WARN([--enable-unified-export-type=$unified_export_type overrides the deprecated --enable-legacy/--enable-unified-export options])
+  if test "x$legacy" = "xyes" ; then
+    AC_MSG_WARN([--enable-export-merge=$export_merge overrides --enable-legacy])
   fi
-  resolved_export_type=$unified_export_type
+  resolved_export_merge=$export_merge
+elif test "x$legacy" = "xyes" ; then
+  resolved_export_merge=none
 else
-  dnl Only the deprecated flags (or neither) were given: keep their
-  dnl old, independent-boolean behavior exactly as before, including
-  dnl the (functionally redundant but previously allowed) case of
-  dnl both being enabled together. Neither flag given resolves to
-  dnl the current default architecture (full) below, same as an
-  dnl explicit --enable-unified-export-type=full would.
-  test -z "$legacy" && legacy=no
-  test -z "$unified_export" && unified_export=no
-  if test "x$legacy" = "xyes" -o "x$unified_export" = "xyes" ; then
-    AC_MSG_WARN([--enable-legacy/--enable-unified-export are deprecated; use --enable-unified-export-type=full|partial|none instead])
-  fi
-  if test "x$unified_export" = "xyes" ; then
-    resolved_export_type=full
-  elif test "x$legacy" = "xyes" ; then
-    resolved_export_type=none
-  else
-    resolved_export_type=full
-  fi
+  resolved_export_merge=all
 fi
 AC_ARG_ENABLE(pthread,
               AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
@@ -223,28 +203,26 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
-dnl resolved_export_type was already determined above, directly from
-dnl --enable-unified-export-type if given, or from the deprecated
-dnl --enable-legacy/--enable-unified-export flags (defaulting to full)
-dnl otherwise.
-AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_FULL], [1],
-          [sentinel value: single switch/if-else based unified NetFlow v1/v5/v9/IPFIX exporter in ipfix.c (default)])
-AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL], [2],
-          [sentinel value: per-version NetFlow v1/v5/v9/IPFIX exporters in ipfix.c sharing unified field tables])
-AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE_NONE], [3],
-          [sentinel value: fully separate legacy NetFlow v9 exporter in netflow9.c])
-case "$resolved_export_type" in
-  full)    AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_FULL],
-                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above]) ;;
-  none)    AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_NONE],
-                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above])
-           LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
-           AC_SUBST([LEGACY]) ;;
-  partial) AC_DEFINE([ENABLE_UNIFIED_EXPORT_TYPE], [ENABLE_UNIFIED_EXPORT_TYPE_PARTIAL],
-                      [which NetFlow v1/v5/v9/IPFIX exporter architecture ipfix.c etc. build: one of the ENABLE_UNIFIED_EXPORT_TYPE_* sentinels above]) ;;
+dnl resolved_export_merge was already determined above from
+dnl --enable-export-merge or --enable-legacy (default: all).
+AC_DEFINE([EXPORT_MERGE_ALL], [1],
+          [sentinel value: NetFlow v1/v5/v9/IPFIX export all merged in ipfix.c (default)])
+AC_DEFINE([EXPORT_MERGE_FORMAT], [2],
+          [sentinel value: template formats (v9/IPFIX) merged in ipfix.c, fixed formats (v1/v5) merged in netflow5.c])
+AC_DEFINE([EXPORT_MERGE_NONE], [3],
+          [sentinel value: separate ipfix.c, netflow9.c, netflow5.c and netflow1.c])
+case "$resolved_export_merge" in
+  all)    AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_ALL],
+                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
+  format) AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_FORMAT],
+                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
+  none)   AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_NONE],
+                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above])
+          LEGACY='netflow9.$(OBJEXT) netflow1.$(OBJEXT)'
+          AC_SUBST([LEGACY]) ;;
 esac
-AM_CONDITIONAL([UNIFIED_EXPORT_TYPE_NONE], [test "x$resolved_export_type" = xnone])
-AM_CONDITIONAL([UNIFIED_EXPORT_TYPE_FULL], [test "x$resolved_export_type" = xfull])
+AM_CONDITIONAL([EXPORT_MERGE_IS_NONE], [test "x$resolved_export_merge" = xnone])
+AM_CONDITIONAL([EXPORT_MERGE_IS_ALL], [test "x$resolved_export_merge" = xall])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])

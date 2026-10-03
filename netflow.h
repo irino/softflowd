@@ -64,7 +64,7 @@ struct NF5_FLOW {
 #define NFLOW9_TEMPLATE_SET_ID          0
 #define NFLOW9_OPTION_TEMPLATE_SET_ID   1
 
-/* Legacy (--enable-unified-export-type=none) NetFlow v9 exporter limits */
+/* Legacy (--enable-export-merge=none) NetFlow v9 exporter limits */
 #define NF9_SOFTFLOWD_MAX_PACKET_SIZE                   512
 #define NF9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
 #define NF9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
@@ -77,11 +77,11 @@ struct NFLOW9_HEADER {
   u_int32_t sequence, od_id;
 } __packed;
 
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
 /* Prototypes for functions to send NetFlow packets, from netflow*.c */
 int send_netflow_v9 (struct SENDPARAMETER sp);
 /* Force a resend of the flow template */
 void netflow9_resend_template (void);
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
 
 #endif /* _NETFLOW_H */

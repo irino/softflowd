@@ -255,8 +255,8 @@ def build_c_dev(output_dir: str) -> Tuple[str, str, str, str, str, str]:
     shutil.copy2(os.path.join(PROJECT_ROOT, "softflowctl"), c_legacy_softflowctl)
 
     # 3. Unified C Dev
-    print("  -> Configuring and building C development unified (--enable-unified-export)...")
-    run_command(["./configure", "--enable-unified-export"], cwd=PROJECT_ROOT)
+    print("  -> Configuring and building C development unified (--enable-export-merge=all)...")
+    run_command(["./configure", "--enable-export-merge=all"], cwd=PROJECT_ROOT)
     run_command(["make", "clean"], cwd=PROJECT_ROOT)
     res = run_command(["make", "-j"], cwd=PROJECT_ROOT)
     if res.returncode != 0:

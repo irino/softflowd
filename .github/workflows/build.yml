@@ -13,7 +13,7 @@ jobs:
           - ubuntu:26.04
           - debian:12
           - debian:13
-        export_type: [full, partial, none]
+        export_merge: [all, format, none]
     container:
       image: ${{ matrix.image }}
     steps:
@@ -33,10 +33,10 @@ jobs:
       - name: Build with warnings
         run: |
           autoreconf -if
-          ./configure --enable-gcc-warnings --enable-unified-export-type=${{ matrix.export_type }}
+          ./configure --enable-gcc-warnings --enable-export-merge=${{ matrix.export_merge }}
           make
 
-  # Builds compile every --enable-unified-export-type variant above, but
+  # Builds compile every --enable-export-merge variant above, but
   # never actually run the resulting binary -- which is exactly how a
   # NULL-pointer dereference in the unified exporter's per-flow record
   # path went unnoticed (it happened to not crash at -O2 on the one
@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        export_type: [full, partial, none]
+        export_merge: [all, format, none]
     env:
       # Pre-existing, unrelated issues must not fail this job: alignment
       # warnings from casting raw packet bytes to struct ip/icmp/etc. in
@@ -76,7 +76,7 @@ jobs:
       - name: Build with AddressSanitizer/UndefinedBehaviorSanitizer
         run: |
           autoreconf -if
-          ./configure --enable-unified-export-type=${{ matrix.export_type }} \
+          ./configure --enable-export-merge=${{ matrix.export_merge }} \
             CFLAGS="-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
           make
 
@@ -84,7 +84,7 @@ jobs:
         run: |
           set -e
           for v in 1 5 9 10; do
-            echo "== NetFlow/IPFIX version $v (export-type=${{ matrix.export_type }}) =="
+            echo "== NetFlow/IPFIX version $v (export-merge=${{ matrix.export_merge }}) =="
             ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v "$v"
           done
           echo "== bidirectional IPFIX (-b, version 10) =="

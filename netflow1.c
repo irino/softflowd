@@ -28,7 +28,7 @@
 #include "softflowd.h"
 #include "netflow.h"
 
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
 /*
  * This is the Cisco Netflow(tm) version 1 packet format
  * Based on:
@@ -186,4 +186,4 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */

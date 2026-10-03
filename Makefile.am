@@ -1,10 +1,10 @@
 sbin_PROGRAMS = softflowd softflowctl
 COMMON = common.h convtime.h treetype.h sys-tree.h\
   convtime.c strlcpy.c strlcat.c closefrom.c daemon.c
-if UNIFIED_EXPORT_TYPE_NONE
+if EXPORT_MERGE_IS_NONE
   LEGACY_SOURCES = netflow9.c netflow1.c
 endif
-if UNIFIED_EXPORT_TYPE_FULL
+if EXPORT_MERGE_IS_ALL
   NETFLOW5_SOURCE =
 else
   NETFLOW5_SOURCE = netflow5.c

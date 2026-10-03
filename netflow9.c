@@ -310,7 +310,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Given an array of expired flows, send netflow v9 report packets
  * Returns number of packets sent or -1 on error
  */
-#if ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE
+#if EXPORT_MERGE == EXPORT_MERGE_NONE
 /**
  * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, export type "none").
  *
@@ -460,7 +460,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* ENABLE_UNIFIED_EXPORT_TYPE == ENABLE_UNIFIED_EXPORT_TYPE_NONE */
+#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
 
 /**
  * @brief Request that the templates be sent again with the next export packet.
