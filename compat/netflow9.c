@@ -36,39 +36,39 @@
 #define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
 
 /* Netflow v.9 */
-struct NF9_FLOWSET_HEADER_COMMON {
+struct NETFLOW9_FLOWSET_HEADER_COMMON {
   u_int16_t flowset_id, length;
 } __packed;
-struct NF9_TEMPLATE_FLOWSET_HEADER {
-  struct NF9_FLOWSET_HEADER_COMMON c;
+struct NETFLOW9_TEMPLATE_FLOWSET_HEADER {
+  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
   u_int16_t template_id, count;
 } __packed;
-struct NF9_OPTION_TEMPLATE_FLOWSET_HEADER {
-  struct NF9_FLOWSET_HEADER_COMMON c;
+struct NETFLOW9_OPTION_TEMPLATE_FLOWSET_HEADER {
+  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
   u_int16_t template_id, scope_length, option_length;
 } __packed;
-struct NF9_TEMPLATE_FLOWSET_RECORD {
+struct NETFLOW9_TEMPLATE_FLOWSET_RECORD {
   u_int16_t type, length;
 } __packed;
-struct NF9_DATA_FLOWSET_HEADER {
-  struct NF9_FLOWSET_HEADER_COMMON c;
+struct NETFLOW9_DATA_FLOWSET_HEADER {
+  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
 } __packed;
 /* Stuff pertaining to the templates that softflowd uses */
-struct NF9_SOFTFLOWD_TEMPLATE {
-  struct NF9_TEMPLATE_FLOWSET_HEADER h;
-  struct NF9_TEMPLATE_FLOWSET_RECORD r[NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS];
+struct NETFLOW9_SOFTFLOWD_TEMPLATE {
+  struct NETFLOW9_TEMPLATE_FLOWSET_HEADER h;
+  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD r[NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
 
-struct NF9_SOFTFLOWD_OPTION_TEMPLATE {
-  struct NF9_OPTION_TEMPLATE_FLOWSET_HEADER h;
-  struct NF9_TEMPLATE_FLOWSET_RECORD
+struct NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE {
+  struct NETFLOW9_OPTION_TEMPLATE_FLOWSET_HEADER h;
+  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD
     s[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
-  struct NF9_TEMPLATE_FLOWSET_RECORD
+  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD
     r[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
 /* softflowd data flowset types */
-struct NF9_SOFTFLOWD_DATA_COMMON {
+struct NETFLOW9_SOFTFLOWD_DATA_COMMON {
   u_int32_t last_switched, first_switched;
   u_int32_t bytes, packets;
   u_int32_t if_index_in, if_index_out;
@@ -77,18 +77,18 @@ struct NF9_SOFTFLOWD_DATA_COMMON {
   u_int16_t icmp_type, vlanid;
 } __packed;
 
-struct NF9_SOFTFLOWD_DATA_V4 {
+struct NETFLOW9_SOFTFLOWD_DATA_V4 {
   u_int32_t src_addr, dst_addr;
-  struct NF9_SOFTFLOWD_DATA_COMMON c;
+  struct NETFLOW9_SOFTFLOWD_DATA_COMMON c;
 } __packed;
 
-struct NF9_SOFTFLOWD_DATA_V6 {
+struct NETFLOW9_SOFTFLOWD_DATA_V6 {
   u_int8_t src_addr[16], dst_addr[16];
-  struct NF9_SOFTFLOWD_DATA_COMMON c;
+  struct NETFLOW9_SOFTFLOWD_DATA_COMMON c;
 } __packed;
 
-struct NF9_SOFTFLOWD_OPTION_DATA {
-  struct NF9_FLOWSET_HEADER_COMMON c;
+struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
+  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
   u_int32_t scope_ifidx;
   u_int32_t sampling_interval;
   u_int8_t sampling_algorithm;
@@ -99,13 +99,13 @@ struct NF9_SOFTFLOWD_OPTION_DATA {
 
 
 /** IPv4 data template. */
-static struct NF9_SOFTFLOWD_TEMPLATE v4_template;
+static struct NETFLOW9_SOFTFLOWD_TEMPLATE v4_template;
 /** IPv6 data template. */
-static struct NF9_SOFTFLOWD_TEMPLATE v6_template;
+static struct NETFLOW9_SOFTFLOWD_TEMPLATE v6_template;
 /** Options template. */
-static struct NF9_SOFTFLOWD_OPTION_TEMPLATE option_template;
+static struct NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE option_template;
 /** Options data record. */
-static struct NF9_SOFTFLOWD_OPTION_DATA option_data;
+static struct NETFLOW9_SOFTFLOWD_OPTION_DATA option_data;
 /** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet. */
 static int nf9_pkts_until_template = -1;
 
@@ -238,17 +238,17 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
                     u_int16_t ifidx, const struct timeval *system_boot_time,
                     u_int * len_used) {
   union {
-    struct NF9_SOFTFLOWD_DATA_V4 d4;
-    struct NF9_SOFTFLOWD_DATA_V6 d6;
+    struct NETFLOW9_SOFTFLOWD_DATA_V4 d4;
+    struct NETFLOW9_SOFTFLOWD_DATA_V6 d6;
   } d[2];
-  struct NF9_SOFTFLOWD_DATA_COMMON *dc[2];
+  struct NETFLOW9_SOFTFLOWD_DATA_COMMON *dc[2];
   u_int freclen, ret_len, nflows;
 
   memset (d, 0, sizeof (d));
   *len_used = nflows = ret_len = 0;
   switch (flow->af) {
   case AF_INET:
-    freclen = sizeof (struct NF9_SOFTFLOWD_DATA_V4);
+    freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V4);
     memcpy (&d[0].d4.src_addr, &flow->addr[0].v4, 4);
     memcpy (&d[0].d4.dst_addr, &flow->addr[1].v4, 4);
     memcpy (&d[1].d4.src_addr, &flow->addr[1].v4, 4);
@@ -258,7 +258,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
     dc[0]->ipproto = dc[1]->ipproto = 4;
     break;
   case AF_INET6:
-    freclen = sizeof (struct NF9_SOFTFLOWD_DATA_V6);
+    freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V6);
     memcpy (&d[0].d6.src_addr, &flow->addr[0].v6, 16);
     memcpy (&d[0].d6.dst_addr, &flow->addr[1].v6, 16);
     memcpy (&d[1].d6.src_addr, &flow->addr[1].v6, 16);
@@ -331,7 +331,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
   struct NETFLOW9_HEADER *nf9;
-  struct NF9_DATA_FLOWSET_HEADER *dh;
+  struct NETFLOW9_DATA_FLOWSET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
   int r;
@@ -401,7 +401,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
           dh = NULL;
           break;
         }
-        dh = (struct NF9_DATA_FLOWSET_HEADER *)
+        dh = (struct NETFLOW9_DATA_FLOWSET_HEADER *)
           (packet + offset);
         dh->c.flowset_id =
           (flows[i + j]->af == AF_INET) ?

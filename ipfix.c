@@ -376,7 +376,7 @@ const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
 #endif
 };
 
-/* Shared template sized for IPFIX (reused by NF9).
+/* Shared template sized for IPFIX (reused by NetFlow v9).
  * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)
  * to avoid over-counting and potential array bounds issues. */
 #define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS   \
@@ -384,9 +384,9 @@ const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
 #define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS        \
     (sizeof(field_option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 
-#define NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS  \
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS  \
     (sizeof(field_nf9scope) / sizeof(IPFIX_FIELD_TABLE_TYPE))
-#define NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS       \
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS       \
     (sizeof(field_nf9option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
 
 struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
@@ -533,8 +533,8 @@ IPFIX_ENC_COPY (enc_postDestinationMacAddress, &flow->ethermac[i ^ 1],
                         6)
 /* Split into 16-bit and 32-bit encoders so each passes a literal width to hton()
  * for compile-time switch optimization instead of using runtime length. */
-IPFIX_ENC_HTON (enc_ifidx16, ctx->sp->ifidx, 2)   /* NF1/NF5 ingress/egressInterface */
-IPFIX_ENC_HTON (enc_ifidx32, ctx->sp->ifidx, 4)   /* NF9/IPFIX ingress/egressInterface */
+IPFIX_ENC_HTON (enc_ifidx16, ctx->sp->ifidx, 2)   /* NetFlow v1/v5 ingress/egressInterface */
+IPFIX_ENC_HTON (enc_ifidx32, ctx->sp->ifidx, 4)   /* NetFlow v9/IPFIX ingress/egressInterface */
 IPFIX_ENC_HTON (enc_flowStartSysUpTime,
                         timeval_sub_ms (&flow->flow_start,
                                       &ctx->sp->param->system_boot_time), 4)
@@ -1718,7 +1718,7 @@ struct IPFIX_SOFTFLOWD_OPTION_DATA {
   struct in6_addr originalExporterIPv6Address;
 } __packed;
 
-struct NFLOW9_SOFTFLOWD_OPTION_DATA {
+struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
   struct IPFIX_SET_HEADER c;
   u_int32_t scope_ifidx;
   u_int32_t samplingInterval;
@@ -1741,7 +1741,7 @@ static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template;
 /** IPFIX options data record. */
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 /** NetFlow v9 options data record. */
-static struct NFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
+static struct NETFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
 
 /** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
  * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
@@ -1959,10 +1959,10 @@ static void
 nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
   u_int16_t scope_len =
-    NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS *
+    NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS *
     sizeof (struct IPFIX_FIELD_SPECIFIER);
   u_int16_t opt_len =
-    NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
+    NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
     sizeof (struct IPFIX_FIELD_SPECIFIER);
 
   memset (&option_template, 0, sizeof (option_template));
@@ -1975,10 +1975,10 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_template.h.u.n.option_length = htons (opt_len);
   ipfix_init_fields (option_template.s, &scope_index,
                      field_nf9scope,
-                     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
+                     NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
   ipfix_init_fields (option_template.r, &option_index,
                      field_nf9option,
-                     NFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
+                     NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
   memset (&nf9opt_data, 0, sizeof (nf9opt_data));
   nf9opt_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   nf9opt_data.c.length = htons (sizeof (nf9opt_data));

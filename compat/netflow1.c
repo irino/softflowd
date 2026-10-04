@@ -35,7 +35,7 @@
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
 /** NetFlow v1 packet header (16 octets, see NETFLOW1_HEADER_SIZE). */
-struct NF1_HEADER {
+struct NETFLOW1_HEADER {
   u_int16_t version;            /**< Export version (1) */
   u_int16_t flows;              /**< Number of flow records in the packet */
   u_int32_t sysUpTime;          /**< Milliseconds since boot */
@@ -43,7 +43,7 @@ struct NF1_HEADER {
   u_int32_t export_time_nanoseconds;    /**< Export time, nanoseconds */
 };
 /** NetFlow v1 flow record (48 octets). */
-struct NF1_FLOW {
+struct NETFLOW1_FLOW {
   u_int32_t src_ip;             /**< Source IPv4 address */
   u_int32_t dest_ip;            /**< Destination IPv4 address */
   u_int32_t nexthop_ip;         /**< Next hop (always 0) */
@@ -65,8 +65,8 @@ struct NF1_FLOW {
   u_int8_t reserved2;           /* XXX: no longer used */
 #endif
 };
-#define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
-				 (NETFLOW1_MAXFLOWS * sizeof(struct NF1_FLOW)))
+#define NETFLOW1_MAXPACKET_SIZE	(sizeof(struct NETFLOW1_HEADER) + \
+				 (NETFLOW1_MAXFLOWS * sizeof(struct NETFLOW1_FLOW)))
 
 /**
  * @brief Send expired flows as NetFlow v1 packets (independent exporter, export type "none").
@@ -85,9 +85,9 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NF1_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
-  struct NF1_HEADER *hdr = NULL;
-  struct NF1_FLOW *flw = NULL;
+  u_int8_t packet[NETFLOW1_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
+  struct NETFLOW1_HEADER *hdr = NULL;
+  struct NETFLOW1_FLOW *flw = NULL;
   int i, j, offset, num_packets;
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
@@ -95,7 +95,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   SET_EXPORT_NOW (now, param);
   uptime_ms = timeval_sub_ms (&now, system_boot_time);
 
-  hdr = (struct NF1_HEADER *) packet;
+  hdr = (struct NETFLOW1_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
     /* Records this flow adds: IPv4 only, one per direction with data. */
     int need = (flows[i]->af == AF_INET) ?
@@ -125,7 +125,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
     if (flows[i]->af != AF_INET)
       continue;
     if (flows[i]->octets[0] > 0) {
-      flw = (struct NF1_FLOW *) (packet + offset);
+      flw = (struct NETFLOW1_FLOW *) (packet + offset);
       flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[0].v4.s_addr;
       flw->dest_ip = flows[i]->addr[1].v4.s_addr;
@@ -146,7 +146,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
     }
 
     if (flows[i]->octets[1] > 0) {
-      flw = (struct NF1_FLOW *) (packet + offset);
+      flw = (struct NETFLOW1_FLOW *) (packet + offset);
       flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[1].v4.s_addr;
       flw->dest_ip = flows[i]->addr[0].v4.s_addr;

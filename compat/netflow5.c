@@ -34,20 +34,20 @@
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html#wp1007472
  */
-struct NF1_FLOW_PROTO_TOS_TCPF {
+struct NETFLOW1_FLOW_PROTO_TOS_TCPF {
   u_int16_t pad1;
   u_int8_t protocol, tos, tcp_flags;
   u_int8_t pad2, pad3, pad4;
   u_int32_t reserved1;
 };
 
-#define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NETFLOW5_FLOW) - \
-                                  sizeof(struct NF1_FLOW_PROTO_TOS_TCPF))
+#define NETFLOW1_FLOW_COMMON_SIZE (sizeof(struct NETFLOW5_FLOW) - \
+                                  sizeof(struct NETFLOW1_FLOW_PROTO_TOS_TCPF))
 
 /**
  * @brief Fill the v1-only tail of a NetFlow v1 flow record.
  *
- * @param pkt   Start of the tail inside the record; struct NF1_FLOW_PROTO_TOS_TCPF is zeroed first.
+ * @param pkt   Start of the tail inside the record; struct NETFLOW1_FLOW_PROTO_TOS_TCPF is zeroed first.
  * @param proto IP protocol number.
  * @param tos   IP type of service.
  * @param tcpf  Cumulative TCP flags.
@@ -55,9 +55,9 @@ struct NF1_FLOW_PROTO_TOS_TCPF {
 static void
 fill_netflow_v1_proto_tos_tcp (u_int8_t * pkt, u_int8_t proto, u_int8_t tos,
                                u_int8_t tcpf) {
-  struct NF1_FLOW_PROTO_TOS_TCPF *flw =
-    (struct NF1_FLOW_PROTO_TOS_TCPF *) pkt;
-  memset (pkt, 0, sizeof (struct NF1_FLOW_PROTO_TOS_TCPF));
+  struct NETFLOW1_FLOW_PROTO_TOS_TCPF *flw =
+    (struct NETFLOW1_FLOW_PROTO_TOS_TCPF *) pkt;
+  memset (pkt, 0, sizeof (struct NETFLOW1_FLOW_PROTO_TOS_TCPF));
   flw->protocol = proto;
   flw->tos = tos;
   flw->tcp_flags = tcpf;
@@ -150,7 +150,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       flw->tos = flows[i]->tos[0];
       if (version == 1) {
         fill_netflow_v1_proto_tos_tcp (packet + offset +
-                                       NF5_NF1_FLOW_COMMON_SIZE,
+                                       NETFLOW1_FLOW_COMMON_SIZE,
                                        flows[i]->protocol, flows[i]->tos[0],
                                        flows[i]->tcp_flags[0]);
       }
@@ -177,7 +177,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       flw->tos = flows[i]->tos[1];
       if (version == 1) {
         fill_netflow_v1_proto_tos_tcp (packet + offset +
-                                       NF5_NF1_FLOW_COMMON_SIZE,
+                                       NETFLOW1_FLOW_COMMON_SIZE,
                                        flows[i]->protocol, flows[i]->tos[1],
                                        flows[i]->tcp_flags[1]);
       }
