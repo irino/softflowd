@@ -874,7 +874,7 @@ flow_build_header (u_char *packet, u_int16_t version,
  * @return Number of packets sent, or -1 on error.
  */
 static int
-send_flow_fixed (struct SENDPARAMETER sp, u_int16_t version) {
+send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   struct FLOWTRACKPARAMETERS *param = sp.param;
@@ -969,7 +969,7 @@ send_flow_fixed (struct SENDPARAMETER sp, u_int16_t version) {
  */
 int
 send_netflow_v1 (struct SENDPARAMETER sp) {
-  return send_flow_fixed (sp, 1);
+  return send_fixed_flow (sp, 1);
 }
 
 /**
@@ -980,7 +980,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
  */
 int
 send_netflow_v5 (struct SENDPARAMETER sp) {
-  return send_flow_fixed (sp, 5);
+  return send_fixed_flow (sp, 5);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1387,7 +1387,7 @@ ipfix_memcpy_template (u_char *packet, u_int *offset,
 /**
  * @brief Encode the data records of one flow (standard or biflow) using the template field list.
  *
- * Templated counterpart of the record loop in send_ipfix_fixed().
+ * Dynamic counterpart of the record loop in send_fixed_flow().
  *
  * @param flow     Flow to encode.
  * @param packet   Output buffer.
