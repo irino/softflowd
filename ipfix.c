@@ -797,8 +797,6 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
   }
   return offset;
 }
-/* Unconditional loop is faster than per-field NULL checks, which added 0.8%-2.7%
- * instruction overhead in Callgrind measurements due to branch costs. */
 
 /**
  * @brief Write the packet header for the given export version at the start of the packet.
@@ -811,7 +809,7 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
  * @return Size of the header in bytes.
  */
 static u_int
-flow_build_header (u_char *packet, u_int16_t version,
+build_flow_header (u_char *packet, u_int16_t version,
                             const struct FLOWTRACKPARAMETERS *param) {
   union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
   struct timeval now;
@@ -915,7 +913,7 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
     }
     if (j == 0) {
       memset (packet, 0, sizeof (packet));
-      offset = flow_build_header (packet, version, param);
+      offset = build_flow_header (packet, version, param);
       if (version == 5)
         ((union FLOW_PACKET_HEADER *) packet)->nf5.sequence_number =
           htonl ((u_int32_t) * flows_exported);
@@ -1492,7 +1490,7 @@ send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
   last_valid = num_packets = 0;
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
-    offset = flow_build_header (packet, version, param);
+    offset = build_flow_header (packet, version, param);
     h = (union FLOW_PACKET_HEADER *) packet;
 
     if (ipfix_pkts_until_template <= 0) {
@@ -1516,7 +1514,7 @@ send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
             (target->num_destinations, target->destinations,
              target->is_loadbalance, packet, offset, 0) < 0)
           return (-1);
-        offset = flow_build_header (packet, version, param);
+        offset = build_flow_header (packet, version, param);
       }
     }
 
