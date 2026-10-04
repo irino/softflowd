@@ -396,8 +396,9 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
   struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
-/* Writes packet headers directly per packet using existing structs (NETFLOW5/NETFLOW9/IPFIX),
- * using the top-level union 'version' member shared across all formats. */
+/* Overlay of the packet headers (NETFLOW5/NETFLOW9/IPFIX) used to patch the count, length and
+ * sequence number in place once a packet is complete, and by the ENABLE_DIRECT_COPIES variant of
+ * build_flow_header(). The top-level 'version' member is shared across all formats. */
 union FLOW_PACKET_HEADER {
   u_int16_t version;
   struct NETFLOW5_HEADER nf5;   /* NetFlow v1: only the first NETFLOW1_HEADER_SIZE octets */
@@ -417,15 +418,54 @@ union FLOW_PACKET_HEADER {
  */
 static u_int
 build_flow_header (u_char *packet, u_int16_t version,
-                            const struct FLOWTRACKPARAMETERS *param) {
-  union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
+                   const struct FLOWTRACKPARAMETERS *param) {
   struct timeval now;
   u_int32_t sysUpTime;
+#ifdef ENABLE_DIRECT_COPIES     /* legacy direct pointer casting */
+  union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
+#endif
 
   SET_EXPORT_NOW (now, param);
 
   sysUpTime = timeval_sub_ms (&now, &param->system_boot_time);
 
+#ifndef ENABLE_DIRECT_COPIES /* default: build the header in a struct and copy it with memcpy */
+  switch (version) {
+  case 1:
+  case 5:{
+      /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of the v5 one,
+       * so v1 copies only that much. The members that are not set are 0. */
+      struct NETFLOW5_HEADER hdr = {
+        .version = htons (version),
+        .sysUpTime = htonl (sysUpTime),
+        .export_time = htonl ((u_int32_t) now.tv_sec),
+        .export_time_nanoseconds = htonl ((u_int32_t) now.tv_usec * 1000),
+        .sampling_interval = param->option.sample > 0 ?
+          htons ((0x01 << 14) | (param->option.sample & 0x3FFF)) : 0,
+      };
+      u_int len = (version == 1) ? NETFLOW1_HEADER_SIZE : sizeof (hdr);
+      memcpy (packet, &hdr, len);
+      return len;
+    }
+  case 9:{
+      struct NETFLOW9_HEADER hdr = {
+        .version = htons (version),
+        .sysUpTime = htonl (sysUpTime),
+        .export_time = htonl ((u_int32_t) now.tv_sec),
+      };
+      memcpy (packet, &hdr, sizeof (hdr));
+      return sizeof (hdr);
+    }
+  default:{                    /* 10 = IPFIX */
+      struct IPFIX_HEADER hdr = {
+        .version = htons (version),
+        .export_time = htonl ((u_int32_t) now.tv_sec),
+      };
+      memcpy (packet, &hdr, sizeof (hdr));
+      return sizeof (hdr);
+    }
+  }
+#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
   h->version = htons (version);
   switch (version) {
   case 1:
@@ -463,6 +503,7 @@ build_flow_header (u_char *packet, u_int16_t version,
     h->ipfix.observation_domain_id = 0;
     return sizeof (h->ipfix);
   }
+#endif /* ENABLE_DIRECT_COPIES */
 }
 
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
