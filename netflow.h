@@ -66,12 +66,6 @@ struct NETFLOW5_FLOW {
 #define NETFLOW9_TEMPLATE_SET_ID          0
 #define NETFLOW9_OPTION_TEMPLATE_SET_ID   1
 
-/* Legacy (--enable-export-merge=none) NetFlow v9 exporter limits */
-#define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE                   512
-#define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
-
 struct NETFLOW9_HEADER {
   u_int16_t version, flows;
   u_int32_t sysUpTime;          // in milliseconds

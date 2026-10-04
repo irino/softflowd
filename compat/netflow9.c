@@ -29,6 +29,12 @@
 #include "netflow.h"
 #include "ipfix.h"
 
+/* Legacy (--enable-export-merge=none) NetFlow v9 exporter limits */
+#define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE                   512
+#define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
+
 /* Netflow v.9 */
 struct NF9_FLOWSET_HEADER_COMMON {
   u_int16_t flowset_id, length;
