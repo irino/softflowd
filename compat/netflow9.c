@@ -352,9 +352,9 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 
     nf9->version = htons (9);
     nf9->flows = 0;             /* Filled as we go, htons at end */
-    nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
+    nf9->sysUpTime = htonl (timeval_sub_ms (&now, system_boot_time));
     nf9->export_time = htonl ((u_int32_t) now.tv_sec);
-    nf9->od_id = 0;
+    nf9->observation_domain_id = 0;
     offset = sizeof (*nf9);
 
     /* Refresh template headers if we need to */
@@ -438,7 +438,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     }
     param->records_sent += nf9->flows;
     nf9->flows = htons (nf9->flows);
-    nf9->sequence = htonl ((u_int32_t)
+    nf9->sequence_number = htonl ((u_int32_t)
                            ((*packets_sent + num_packets +
                              1) & 0x00000000ffffffff));
 

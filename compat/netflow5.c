@@ -116,10 +116,10 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       memset (&packet, '\0', sizeof (packet));
       hdr->version = htons (version);
       hdr->flows = 0;           /* Filled in as we go */
-      hdr->uptime_ms = htonl (uptime_ms);
-      hdr->time_sec = htonl (now.tv_sec);
-      hdr->time_nanosec = htonl (now.tv_usec * 1000);
-      hdr->flow_sequence = htonl (*flows_exported);
+      hdr->sysUpTime = htonl (uptime_ms);
+      hdr->export_time = htonl (now.tv_sec);
+      hdr->export_time_nanoseconds = htonl (now.tv_usec * 1000);
+      hdr->sequence_number = htonl (*flows_exported);
       if (option->sample > 0) {
         hdr->sampling_interval =
           htons ((0x01 << 14) | (option->sample & 0x3FFF));

@@ -815,11 +815,11 @@ flow_build_header (u_char *packet, u_int16_t version,
                             const struct FLOWTRACKPARAMETERS *param) {
   union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
   struct timeval now;
-  u_int32_t systemInitTimeMilliseconds;
+  u_int32_t sysUpTime;
 
   SET_EXPORT_NOW (now, param);
 
-  systemInitTimeMilliseconds = timeval_sub_ms (&now, &param->system_boot_time);
+  sysUpTime = timeval_sub_ms (&now, &param->system_boot_time);
 
   h->version = htons (version);
   switch (version) {
@@ -828,13 +828,13 @@ flow_build_header (u_char *packet, u_int16_t version,
     /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of the v5 one (see
      * union FLOW_PACKET_HEADER's comment), so this much is shared. */
     h->nf5.flows = 0;
-    h->nf5.uptime_ms = htonl (systemInitTimeMilliseconds);
-    h->nf5.time_sec = htonl ((u_int32_t) now.tv_sec);
-    h->nf5.time_nanosec =
+    h->nf5.sysUpTime = htonl (sysUpTime);
+    h->nf5.export_time = htonl ((u_int32_t) now.tv_sec);
+    h->nf5.export_time_nanoseconds =
       htonl ((u_int32_t) now.tv_usec * 1000);
     if (version == 1)
       return NETFLOW1_HEADER_SIZE;
-    h->nf5.flow_sequence = 0;
+    h->nf5.sequence_number = 0;
     h->nf5.engine_type = 0;
     h->nf5.engine_id = 0;
     if (param->option.sample > 0) {
@@ -846,16 +846,16 @@ flow_build_header (u_char *packet, u_int16_t version,
     return sizeof (h->nf5);
   case 9:
     h->nf9.flows = 0;
-    h->nf9.uptime_ms = htonl (systemInitTimeMilliseconds);
+    h->nf9.sysUpTime = htonl (sysUpTime);
     h->nf9.export_time = htonl ((u_int32_t) now.tv_sec);
-    h->nf9.sequence = 0;
-    h->nf9.od_id = 0;
+    h->nf9.sequence_number = 0;
+    h->nf9.observation_domain_id = 0;
     return sizeof (h->nf9);
   default:                     /* 10 = IPFIX */
     h->ipfix.length = 0;
     h->ipfix.export_time = htonl ((u_int32_t) now.tv_sec);
-    h->ipfix.sequence = 0;
-    h->ipfix.od_id = 0;
+    h->ipfix.sequence_number = 0;
+    h->ipfix.observation_domain_id = 0;
     return sizeof (h->ipfix);
   }
 }
@@ -917,7 +917,7 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
       memset (packet, 0, sizeof (packet));
       offset = flow_build_header (packet, version, param);
       if (version == 5)
-        ((union FLOW_PACKET_HEADER *) packet)->nf5.flow_sequence =
+        ((union FLOW_PACKET_HEADER *) packet)->nf5.sequence_number =
           htonl ((u_int32_t) * flows_exported);
     }
 
@@ -1506,11 +1506,11 @@ send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
            * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
           if (version == 10) {
           h->ipfix.length = htons (offset);
-          h->ipfix.sequence =
+          h->ipfix.sequence_number =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
         } else {
           h->nf9.flows = htons (1);
-          h->nf9.sequence = htonl (sequence++);
+          h->nf9.sequence_number = htonl (sequence++);
         }
         if (send_multi_destinations
             (target->num_destinations, target->destinations,
@@ -1574,11 +1574,11 @@ send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
     *records_sent += records;
     if (version == 10) {
       h->ipfix.length = htons (offset);
-      h->ipfix.sequence =
+      h->ipfix.sequence_number =
         htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
     } else {
       h->nf9.flows = htons (records);
-      h->nf9.sequence = htonl (sequence++);
+      h->nf9.sequence_number = htonl (sequence++);
     }
 
     if (send_multi_destinations
@@ -2365,15 +2365,15 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
       ipfix->version = htons (version);
       ipfix->length = 0;        /* Filled as we go, htons at end */
       ipfix->export_time = htonl ((u_int32_t) now.tv_sec);
-      ipfix->od_id = 0;
+      ipfix->observation_domain_id = 0;
       offset = sizeof (*ipfix);
     } else if (version == 9) {
       nf9 = (struct NETFLOW9_HEADER *) packet;
       nf9->version = htons (version);
       nf9->flows = 0;           /* Filled as we go, htons at end */
-      nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
+      nf9->sysUpTime = htonl (timeval_sub_ms (&now, system_boot_time));
       nf9->export_time = htonl ((u_int32_t) now.tv_sec);
-      nf9->od_id = 0;
+      nf9->observation_domain_id = 0;
       offset = sizeof (*nf9);
     }
 
@@ -2400,11 +2400,11 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
       if (target->is_loadbalance && target->num_destinations > 1) {
         if (version == 10) {
           ipfix->length = htons (offset);
-          ipfix->sequence =
+          ipfix->sequence_number =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
         } else if (version == 9) {
           nf9->flows = htons (++records);
-          nf9->sequence = htonl (sequence++);
+          nf9->sequence_number = htonl (sequence++);
         }
         if (send_multi_destinations
             (target->num_destinations, target->destinations, 0, packet,
@@ -2479,11 +2479,11 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
     *records_sent += records;
     if (version == 10) {
       ipfix->length = htons (offset);
-      ipfix->sequence =
+      ipfix->sequence_number =
         htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
     } else if (version == 9) {
       nf9->flows = htons (records);
-      nf9->sequence = htonl (sequence++);
+      nf9->sequence_number = htonl (sequence++);
     }
 
     if (send_multi_destinations

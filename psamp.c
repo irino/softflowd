@@ -98,8 +98,8 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
 
   ipfix->version = htons (NF_VERSION_IPFIX);    // PSAMP uses IPFIX
   ipfix->export_time = htonl (tv.tv_sec);
-  ipfix->sequence = htonl ((u_int32_t) (total_packets & 0x00000000ffffffff));
-  ipfix->od_id = 0;
+  ipfix->sequence_number = htonl ((u_int32_t) (total_packets & 0x00000000ffffffff));
+  ipfix->observation_domain_id = 0;
 
   if (psamp_pkts_until_template == -1) {
     psamp_init_template (&template);

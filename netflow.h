@@ -33,11 +33,13 @@
  * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */
 struct NETFLOW5_HEADER {
   u_int16_t version, flows;     // same as netflow v1
-  u_int32_t uptime_ms, time_sec, time_nanosec;  // same as netflow v1
-  u_int32_t flow_sequence;
+  u_int32_t sysUpTime;          // in milliseconds, same as netflow v1
+  u_int32_t export_time;        // in seconds, same as netflow v1
+  u_int32_t export_time_nanoseconds;    // same as netflow v1
+  u_int32_t sequence_number;
   u_int8_t engine_type, engine_id;
   u_int16_t sampling_interval;
-};
+} __packed;
 
 #define NETFLOW1_HEADER_SIZE 16
 
@@ -72,9 +74,9 @@ struct NETFLOW5_FLOW {
 
 struct NETFLOW9_HEADER {
   u_int16_t version, flows;
-  u_int32_t uptime_ms;
+  u_int32_t sysUpTime;          // in milliseconds
   u_int32_t export_time;        // in seconds
-  u_int32_t sequence, od_id;
+  u_int32_t sequence_number, observation_domain_id;
 } __packed;
 
 #if EXPORT_MERGE == EXPORT_MERGE_NONE

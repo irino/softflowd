@@ -38,9 +38,9 @@
 struct NF1_HEADER {
   u_int16_t version;            /**< Export version (1) */
   u_int16_t flows;              /**< Number of flow records in the packet */
-  u_int32_t uptime_ms;          /**< Milliseconds since boot */
-  u_int32_t time_sec;           /**< Export time, seconds */
-  u_int32_t time_nanosec;       /**< Export time, nanoseconds */
+  u_int32_t sysUpTime;          /**< Milliseconds since boot */
+  u_int32_t export_time;        /**< Export time, seconds */
+  u_int32_t export_time_nanoseconds;    /**< Export time, nanoseconds */
 };
 /** NetFlow v1 flow record (48 octets). */
 struct NF1_FLOW {
@@ -115,9 +115,9 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
       memset (&packet, '\0', sizeof (packet));
       hdr->version = htons (1);
       hdr->flows = 0;           /* Filled in as we go */
-      hdr->uptime_ms = htonl (uptime_ms);
-      hdr->time_sec = htonl (now.tv_sec);
-      hdr->time_nanosec = htonl (now.tv_usec * 1000);
+      hdr->sysUpTime = htonl (uptime_ms);
+      hdr->export_time = htonl (now.tv_sec);
+      hdr->export_time_nanoseconds = htonl (now.tv_usec * 1000);
       offset = sizeof (*hdr);
     }
 

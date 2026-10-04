@@ -152,7 +152,7 @@
 struct IPFIX_HEADER {
   u_int16_t version, length;
   u_int32_t export_time;        /* in seconds */
-  u_int32_t sequence, od_id;
+  u_int32_t sequence_number, observation_domain_id;
 } __packed;
 struct IPFIX_SET_HEADER {
   u_int16_t set_id, length;
