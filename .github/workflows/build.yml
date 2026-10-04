@@ -50,7 +50,7 @@ jobs:
 
   # Builds compile every --enable-export-merge variant above, but
   # never actually run the resulting binary -- which is exactly how a
-  # NULL-pointer dereference in the unified exporter's per-flow record
+  # NULL-pointer dereference in the EXPORT_MERGE_ALL exporter's per-flow record
   # path went unnoticed (it happened to not crash at -O2 on the one
   # version tried by hand, purely by luck of stack layout). This job
   # replays a small generated pcap through every NetFlow/IPFIX version,

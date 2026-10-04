@@ -312,7 +312,7 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  */
 #if EXPORT_MERGE == EXPORT_MERGE_NONE
 /**
- * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, export type "none").
+ * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, --enable-export-merge=none).
  *
  * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
  * @return Number of packets sent, or -1 on error.

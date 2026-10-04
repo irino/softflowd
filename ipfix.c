@@ -135,7 +135,7 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
  * EXPORT_MERGE_ALL to avoid duplication. */
 /* DEF_FIELD_ENC(ie, len, fn): Single macro to define field tables for both
  * with and without EXPORT_MERGE_ALL without duplicating IE
- * lists. Forward-declares encoder types so the unified expansion can compile. */
+ * lists. Forward-declares encoder types so the EXPORT_MERGE_ALL expansion can compile. */
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
 struct IPFIX_CTX;
 typedef void (*ipfix_encoder_t) (u_char * dst, u_int16_t length,
@@ -397,7 +397,7 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
 } __packed;
 
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
-/* Unified NetFlow v1/v5/v9/IPFIX exporter (EXPORT_MERGE_ALL):
+/* Merged NetFlow v1/v5/v9/IPFIX exporter (EXPORT_MERGE_ALL):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
  * Active only under --enable-export-merge=all (psamp.c remains separate). */
 
@@ -737,7 +737,7 @@ static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
   {{IPFIX_paddingOctets, 2}, enc_zero},
 };
 
-/* Aliases shared DEF_FIELD_ENC tables to '_enc' names, allowing unified code
+/* Aliases shared DEF_FIELD_ENC tables to '_enc' names, allowing the merged code
  * to reference field specifiers without renaming call sites. */
 #define field_v4_enc field_v4
 #define field_v6_enc field_v6
