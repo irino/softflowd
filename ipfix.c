@@ -1447,8 +1447,10 @@ ipfix_resend_template (void) {
 }
 
 /**
- * @brief Send flows as NetFlow v9 or IPFIX packets using templates.
+ * @brief Send flows as NetFlow v9 or IPFIX packets, building the data records dynamically.
  *
+ * The data records follow the template field lists (see ipfix_flow_to_flowset()), so
+ * they change with the templates. Used by --enable-export-merge=all.
  * Packet-framing loop: templates and the options record are sent first and then every
  * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; records come from ipfix_flow_to_flowset().
  *
@@ -1458,8 +1460,8 @@ ipfix_resend_template (void) {
  * @return Number of packets sent, or -1 on error.
  */
 static int
-send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
-                              u_int16_t version) {
+send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
+                    u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   struct NETFLOW_TARGET *target = sp.target;
@@ -1600,7 +1602,7 @@ send_ipfix_templated (struct SENDPARAMETER sp, u_int8_t bi_flag,
 
 #else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
 /* EXPORT_MERGE != ALL (format or none): Shares IPFIX
- * field tables above, but retains a separate templated send path. */
+ * field tables above, but encodes the data records with the static send path. */
 
 /* Stuff pertaining to the templates that softflowd uses */
 #define IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS          \
@@ -2305,23 +2307,25 @@ memcpy_template (u_char *packet, u_int *offset,
 }
 
 /**
- * @brief Send flows as NetFlow v9 or IPFIX packets.
+ * @brief Send flows as NetFlow v9 or IPFIX packets, encoding the data records statically.
  *
- * @param flows        Flows to export.
- * @param num_flows    Number of flows.
- * @param target       Destinations.
- * @param ifidx        Interface index.
- * @param param        Tracking parameters.
- * @param verbose_flag Non-zero for debug logging.
- * @param bi_flag      IPFIX_BIFLAG_ON for biflow export.
- * @param version      Export version: 9 or 10.
+ * The data records have a fixed layout that matches the templates built in this file.
+ * Used by --enable-export-merge=format and none.
+ *
+ * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
+ * @param version Export version: 9 or 10.
  * @return Number of packets sent, or -1 on error.
  */
 static int
-send_ipfix_common (struct FLOW **flows, int num_flows,
-                   struct NETFLOW_TARGET *target,
-                   u_int16_t ifidx, struct FLOWTRACKPARAMETERS *param,
-                   int verbose_flag, u_int8_t bi_flag, u_int16_t version) {
+send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
+                   u_int16_t version) {
+  struct FLOW **flows = sp.flows;
+  int num_flows = sp.num_flows;
+  struct NETFLOW_TARGET *target = sp.target;
+  u_int16_t ifidx = sp.ifidx;
+  struct FLOWTRACKPARAMETERS *param = sp.param;
+  int verbose_flag = sp.verbose_flag;
   struct IPFIX_HEADER *ipfix;
   struct NFLOW9_HEADER *nf9;
   struct IPFIX_SET_HEADER *dh;
@@ -2515,10 +2519,9 @@ send_ipfix_common (struct FLOW **flows, int num_flows,
 int
 send_netflow_v9 (struct SENDPARAMETER sp) {
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_templated (sp, 0, 9);
+  return send_ipfix_dynamic (sp, 0, 9);
 #else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT */
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
-                            sp.param, sp.verbose_flag, 0, 9);
+  return send_ipfix_static (sp, 0, 9);
 #endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
 }
 #endif /* EXPORT_MERGE != EXPORT_MERGE_NONE */
@@ -2532,10 +2535,9 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 int
 send_ipfix (struct SENDPARAMETER sp) {
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_templated (sp, 0, 10);
+  return send_ipfix_dynamic (sp, 0, 10);
 #else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT or EXPORT_MERGE_NONE */
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
-                            sp.param, sp.verbose_flag, 0, 10);
+  return send_ipfix_static (sp, 0, 10);
 #endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
 }
 
@@ -2548,9 +2550,8 @@ send_ipfix (struct SENDPARAMETER sp) {
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_templated (sp, 1, 10);
+  return send_ipfix_dynamic (sp, 1, 10);
 #else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT or EXPORT_MERGE_NONE */
-  return send_ipfix_common (sp.flows, sp.num_flows, sp.target, sp.ifidx,
-                            sp.param, sp.verbose_flag, 1, 10);
+  return send_ipfix_static (sp, 1, 10);
 #endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
 }
