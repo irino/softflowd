@@ -34,14 +34,6 @@
  * Based on:
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
-/** NetFlow v1 packet header (16 octets, see NETFLOW1_HEADER_SIZE). */
-struct NETFLOW1_HEADER {
-  u_int16_t version;            /**< Export version (1) */
-  u_int16_t flows;              /**< Number of flow records in the packet */
-  u_int32_t sysUpTime;          /**< Milliseconds since boot */
-  u_int32_t export_time;        /**< Export time, seconds */
-  u_int32_t export_time_nanoseconds;    /**< Export time, nanoseconds */
-};
 /** NetFlow v1 flow record (48 octets). */
 struct NETFLOW1_FLOW {
   u_int32_t src_ip;             /**< Source IPv4 address */

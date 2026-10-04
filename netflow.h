@@ -28,6 +28,15 @@
 
 #include "softflowd.h"
 
+/* Cisco NetFlow v1 header format (16 octets), the first NETFLOW1_HEADER_SIZE octets of the v5 one.
+ * Shared by compat/netflow1.c and the ipfix.c exporter. */
+struct NETFLOW1_HEADER {
+  u_int16_t version, flows;
+  u_int32_t sysUpTime;          // in milliseconds
+  u_int32_t export_time;        // in seconds
+  u_int32_t export_time_nanoseconds;
+} __packed;
+
 /* Cisco NetFlow v5 header format (shared with the ipfix.c exporter, EXPORT_MERGE_ALL).
  * NetFlow v1 shares the first 16 bytes (NETFLOW1_HEADER_SIZE).
  * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */

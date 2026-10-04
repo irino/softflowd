@@ -35,35 +35,17 @@
 #define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
 #define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
 
-/* Netflow v.9 */
-struct NETFLOW9_FLOWSET_HEADER_COMMON {
-  u_int16_t flowset_id, length;
-} __packed;
-struct NETFLOW9_TEMPLATE_FLOWSET_HEADER {
-  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
-  u_int16_t template_id, count;
-} __packed;
-struct NETFLOW9_OPTION_TEMPLATE_FLOWSET_HEADER {
-  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
-  u_int16_t template_id, scope_length, option_length;
-} __packed;
-struct NETFLOW9_TEMPLATE_FLOWSET_RECORD {
-  u_int16_t type, length;
-} __packed;
-struct NETFLOW9_DATA_FLOWSET_HEADER {
-  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
-} __packed;
-/* Stuff pertaining to the templates that softflowd uses */
+/* NetFlow v9: stuff pertaining to the templates that softflowd uses */
 struct NETFLOW9_SOFTFLOWD_TEMPLATE {
-  struct NETFLOW9_TEMPLATE_FLOWSET_HEADER h;
-  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD r[NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS];
+  struct IPFIX_TEMPLATE_SET_HEADER h;
+  struct IPFIX_FIELD_SPECIFIER r[NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
 
 struct NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE {
-  struct NETFLOW9_OPTION_TEMPLATE_FLOWSET_HEADER h;
-  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD
+  struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
+  struct IPFIX_FIELD_SPECIFIER
     s[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
-  struct NETFLOW9_TEMPLATE_FLOWSET_RECORD
+  struct IPFIX_FIELD_SPECIFIER
     r[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
@@ -88,7 +70,7 @@ struct NETFLOW9_SOFTFLOWD_DATA_V6 {
 } __packed;
 
 struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
-  struct NETFLOW9_FLOWSET_HEADER_COMMON c;
+  struct IPFIX_SET_HEADER c;
   u_int32_t scope_ifidx;
   u_int32_t sampling_interval;
   u_int8_t sampling_algorithm;
@@ -115,79 +97,79 @@ static int nf9_pkts_until_template = -1;
 static void
 nf9_init_template (void) {
   memset (&v4_template, 0, sizeof (v4_template));
-  v4_template.h.c.flowset_id = htons (NETFLOW9_TEMPLATE_SET_ID);
+  v4_template.h.c.set_id = htons (NETFLOW9_TEMPLATE_SET_ID);
   v4_template.h.c.length = htons (sizeof (v4_template));
-  v4_template.h.template_id = htons (IPFIX_SOFTFLOWD_V4_TEMPLATE_ID);
-  v4_template.h.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
-  v4_template.r[0].type = htons (IPFIX_sourceIPv4Address);
+  v4_template.h.r.template_id = htons (IPFIX_SOFTFLOWD_V4_TEMPLATE_ID);
+  v4_template.h.r.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
+  v4_template.r[0].ie = htons (IPFIX_sourceIPv4Address);
   v4_template.r[0].length = htons (4);
-  v4_template.r[1].type = htons (IPFIX_destinationIPv4Address);
+  v4_template.r[1].ie = htons (IPFIX_destinationIPv4Address);
   v4_template.r[1].length = htons (4);
-  v4_template.r[2].type = htons (IPFIX_flowEndSysUpTime);
+  v4_template.r[2].ie = htons (IPFIX_flowEndSysUpTime);
   v4_template.r[2].length = htons (4);
-  v4_template.r[3].type = htons (IPFIX_flowStartSysUpTime);
+  v4_template.r[3].ie = htons (IPFIX_flowStartSysUpTime);
   v4_template.r[3].length = htons (4);
-  v4_template.r[4].type = htons (IPFIX_octetDeltaCount);
+  v4_template.r[4].ie = htons (IPFIX_octetDeltaCount);
   v4_template.r[4].length = htons (4);
-  v4_template.r[5].type = htons (IPFIX_packetDeltaCount);
+  v4_template.r[5].ie = htons (IPFIX_packetDeltaCount);
   v4_template.r[5].length = htons (4);
-  v4_template.r[6].type = htons (IPFIX_ingressInterface);
+  v4_template.r[6].ie = htons (IPFIX_ingressInterface);
   v4_template.r[6].length = htons (4);
-  v4_template.r[7].type = htons (IPFIX_egressInterface);
+  v4_template.r[7].ie = htons (IPFIX_egressInterface);
   v4_template.r[7].length = htons (4);
-  v4_template.r[8].type = htons (IPFIX_sourceTransportPort);
+  v4_template.r[8].ie = htons (IPFIX_sourceTransportPort);
   v4_template.r[8].length = htons (2);
-  v4_template.r[9].type = htons (IPFIX_destinationTransportPort);
+  v4_template.r[9].ie = htons (IPFIX_destinationTransportPort);
   v4_template.r[9].length = htons (2);
-  v4_template.r[10].type = htons (IPFIX_protocolIdentifier);
+  v4_template.r[10].ie = htons (IPFIX_protocolIdentifier);
   v4_template.r[10].length = htons (1);
-  v4_template.r[11].type = htons (IPFIX_tcpControlBits);
+  v4_template.r[11].ie = htons (IPFIX_tcpControlBits);
   v4_template.r[11].length = htons (1);
-  v4_template.r[12].type = htons (IPFIX_ipVersion);
+  v4_template.r[12].ie = htons (IPFIX_ipVersion);
   v4_template.r[12].length = htons (1);
-  v4_template.r[13].type = htons (IPFIX_ipClassOfService);
+  v4_template.r[13].ie = htons (IPFIX_ipClassOfService);
   v4_template.r[13].length = htons (1);
-  v4_template.r[14].type = htons (IPFIX_icmpTypeCodeIPv4);
+  v4_template.r[14].ie = htons (IPFIX_icmpTypeCodeIPv4);
   v4_template.r[14].length = htons (2);
-  v4_template.r[15].type = htons (IPFIX_vlanId);
+  v4_template.r[15].ie = htons (IPFIX_vlanId);
   v4_template.r[15].length = htons (2);
   memset (&v6_template, 0, sizeof (v6_template));
-  v6_template.h.c.flowset_id = htons (NETFLOW9_TEMPLATE_SET_ID);
+  v6_template.h.c.set_id = htons (NETFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
-  v6_template.h.template_id = htons (IPFIX_SOFTFLOWD_V6_TEMPLATE_ID);
-  v6_template.h.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
-  v6_template.r[0].type = htons (IPFIX_sourceIPv6Address);
+  v6_template.h.r.template_id = htons (IPFIX_SOFTFLOWD_V6_TEMPLATE_ID);
+  v6_template.h.r.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
+  v6_template.r[0].ie = htons (IPFIX_sourceIPv6Address);
   v6_template.r[0].length = htons (16);
-  v6_template.r[1].type = htons (IPFIX_destinationIPv6Address);
+  v6_template.r[1].ie = htons (IPFIX_destinationIPv6Address);
   v6_template.r[1].length = htons (16);
-  v6_template.r[2].type = htons (IPFIX_flowEndSysUpTime);
+  v6_template.r[2].ie = htons (IPFIX_flowEndSysUpTime);
   v6_template.r[2].length = htons (4);
-  v6_template.r[3].type = htons (IPFIX_flowStartSysUpTime);
+  v6_template.r[3].ie = htons (IPFIX_flowStartSysUpTime);
   v6_template.r[3].length = htons (4);
-  v6_template.r[4].type = htons (IPFIX_octetDeltaCount);
+  v6_template.r[4].ie = htons (IPFIX_octetDeltaCount);
   v6_template.r[4].length = htons (4);
-  v6_template.r[5].type = htons (IPFIX_packetDeltaCount);
+  v6_template.r[5].ie = htons (IPFIX_packetDeltaCount);
   v6_template.r[5].length = htons (4);
-  v6_template.r[6].type = htons (IPFIX_ingressInterface);
+  v6_template.r[6].ie = htons (IPFIX_ingressInterface);
   v6_template.r[6].length = htons (4);
-  v6_template.r[7].type = htons (IPFIX_egressInterface);
+  v6_template.r[7].ie = htons (IPFIX_egressInterface);
   v6_template.r[7].length = htons (4);
-  v6_template.r[8].type = htons (IPFIX_sourceTransportPort);
+  v6_template.r[8].ie = htons (IPFIX_sourceTransportPort);
   v6_template.r[8].length = htons (2);
-  v6_template.r[9].type = htons (IPFIX_destinationTransportPort);
+  v6_template.r[9].ie = htons (IPFIX_destinationTransportPort);
   v6_template.r[9].length = htons (2);
-  v6_template.r[10].type = htons (IPFIX_protocolIdentifier);
+  v6_template.r[10].ie = htons (IPFIX_protocolIdentifier);
   v6_template.r[10].length = htons (1);
-  v6_template.r[11].type = htons (IPFIX_tcpControlBits);
+  v6_template.r[11].ie = htons (IPFIX_tcpControlBits);
   v6_template.r[11].length = htons (1);
-  v6_template.r[12].type = htons (IPFIX_ipVersion);
+  v6_template.r[12].ie = htons (IPFIX_ipVersion);
   v6_template.r[12].length = htons (1);
-  v6_template.r[13].type = htons (IPFIX_ipClassOfService);
+  v6_template.r[13].ie = htons (IPFIX_ipClassOfService);
   v6_template.r[13].length = htons (1);
   /* legacy: IE 32 is kept for ICMPv6 too (byte-compatible with older releases) */
-  v6_template.r[14].type = htons (IPFIX_icmpTypeCodeIPv4);
+  v6_template.r[14].ie = htons (IPFIX_icmpTypeCodeIPv4);
   v6_template.r[14].length = htons (2);
-  v6_template.r[15].type = htons (IPFIX_vlanId);
+  v6_template.r[15].ie = htons (IPFIX_vlanId);
   v6_template.r[15].length = htons (2);
 }
 
@@ -200,22 +182,22 @@ nf9_init_template (void) {
 static void
 nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   memset (&option_template, 0, sizeof (option_template));
-  option_template.h.c.flowset_id = htons (NETFLOW9_OPTION_TEMPLATE_SET_ID);
+  option_template.h.c.set_id = htons (NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
-  option_template.h.template_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
-  option_template.h.scope_length = htons (sizeof (option_template.s));
-  option_template.h.option_length = htons (sizeof (option_template.r));
-  option_template.s[0].type = htons (IPFIX_OPTION_SCOPE_INTERFACE);
+  option_template.h.u.n.template_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_template.h.u.n.scope_length = htons (sizeof (option_template.s));
+  option_template.h.u.n.option_length = htons (sizeof (option_template.r));
+  option_template.s[0].ie = htons (IPFIX_OPTION_SCOPE_INTERFACE);
   option_template.s[0].length = htons (sizeof (option_data.scope_ifidx));
-  option_template.r[0].type = htons (IPFIX_samplingInterval);
+  option_template.r[0].ie = htons (IPFIX_samplingInterval);
   option_template.r[0].length =
     htons (sizeof (option_data.sampling_interval));
-  option_template.r[1].type = htons (IPFIX_samplingAlgorithm);
+  option_template.r[1].ie = htons (IPFIX_samplingAlgorithm);
   option_template.r[1].length =
     htons (sizeof (option_data.sampling_algorithm));
 
   memset (&option_data, 0, sizeof (option_data));
-  option_data.c.flowset_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_ifidx = htonl (ifidx);
   option_data.sampling_interval = htonl (option->sample);
@@ -331,7 +313,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
   struct NETFLOW9_HEADER *nf9;
-  struct NETFLOW9_DATA_FLOWSET_HEADER *dh;
+  struct IPFIX_SET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
   int r;
@@ -390,25 +372,25 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
         if (dh != NULL) {
           if (offset % 4 != 0) {
             /* Pad to multiple of 4 */
-            dh->c.length += 4 - (offset % 4);
+            dh->length += 4 - (offset % 4);
             offset += 4 - (offset % 4);
           }
           /* Finalise last header */
-          dh->c.length = htons (dh->c.length);
+          dh->length = htons (dh->length);
         }
         if (offset + sizeof (*dh) > sizeof (packet)) {
           /* Mark header is finished */
           dh = NULL;
           break;
         }
-        dh = (struct NETFLOW9_DATA_FLOWSET_HEADER *)
+        dh = (struct IPFIX_SET_HEADER *)
           (packet + offset);
-        dh->c.flowset_id =
+        dh->set_id =
           (flows[i + j]->af == AF_INET) ?
-          v4_template.h.template_id : v6_template.h.template_id;
+          v4_template.h.r.template_id : v6_template.h.r.template_id;
         last_af = flows[i + j]->af;
         last_valid = offset;
-        dh->c.length = sizeof (*dh);    /* Filled as we go */
+        dh->length = sizeof (*dh);    /* Filled as we go */
         offset += sizeof (*dh);
       }
 
@@ -422,25 +404,25 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
         break;
       }
       offset += inc;
-      dh->c.length += inc;
+      dh->length += inc;
       nf9->flows += r;
       last_valid = 0;           /* Don't clobber this header now */
       if (verbose_flag) {
         logit (LOG_DEBUG, "Flow %d/%d: "
                "r %d offset %d type %04x len %d(0x%04x) "
                "flows %d", r, i, j, offset,
-               dh->c.flowset_id, dh->c.length, dh->c.length, nf9->flows);
+               dh->set_id, dh->length, dh->length, nf9->flows);
       }
     }
     /* Don't finish header if it has already been done */
     if (dh != NULL) {
       if (offset % 4 != 0) {
         /* Pad to multiple of 4 */
-        dh->c.length += 4 - (offset % 4);
+        dh->length += 4 - (offset % 4);
         offset += 4 - (offset % 4);
       }
       /* Finalise last header */
-      dh->c.length = htons (dh->c.length);
+      dh->length = htons (dh->length);
     }
     param->records_sent += nf9->flows;
     nf9->flows = htons (nf9->flows);
