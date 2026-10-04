@@ -29,9 +29,9 @@
 #include "softflowd.h"
 
 /* Cisco NetFlow v5 header format (shared with the ipfix.c exporter, EXPORT_MERGE_ALL).
- * NetFlow v1 shares the first 16 bytes (NF1_HEADER_SIZE).
+ * NetFlow v1 shares the first 16 bytes (NETFLOW1_HEADER_SIZE).
  * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */
-struct NF5_HEADER {
+struct NETFLOW5_HEADER {
   u_int16_t version, flows;     // same as netflow v1
   u_int32_t uptime_ms, time_sec, time_nanosec;  // same as netflow v1
   u_int32_t flow_sequence;
@@ -39,10 +39,10 @@ struct NF5_HEADER {
   u_int16_t sampling_interval;
 };
 
-#define NF1_HEADER_SIZE 16
+#define NETFLOW1_HEADER_SIZE 16
 
 /* Cisco NetFlow v5 flow record (48 octets); NetFlow v1 records are the same size. */
-struct NF5_FLOW {
+struct NETFLOW5_FLOW {
   u_int32_t src_ip, dest_ip, nexthop_ip;        // same as netflow v1
   u_int16_t if_index_in, if_index_out;  // same as netflow v1
   u_int32_t flow_packets, flow_octets;  // same as netflow v1
@@ -56,21 +56,21 @@ struct NF5_FLOW {
 };
 
 /* Maximum number of flows per packet */
-#define NF1_MAXFLOWS            24
-#define NF5_MAXFLOWS            30
-#define NF5_MAXPACKET_SIZE      (sizeof(struct NF5_HEADER) + \
-                                 (NF5_MAXFLOWS * sizeof(struct NF5_FLOW)))
+#define NETFLOW1_MAXFLOWS            24
+#define NETFLOW5_MAXFLOWS            30
+#define NETFLOW5_MAXPACKET_SIZE      (sizeof(struct NETFLOW5_HEADER) + \
+                                 (NETFLOW5_MAXFLOWS * sizeof(struct NETFLOW5_FLOW)))
 
-#define NFLOW9_TEMPLATE_SET_ID          0
-#define NFLOW9_OPTION_TEMPLATE_SET_ID   1
+#define NETFLOW9_TEMPLATE_SET_ID          0
+#define NETFLOW9_OPTION_TEMPLATE_SET_ID   1
 
 /* Legacy (--enable-export-merge=none) NetFlow v9 exporter limits */
-#define NF9_SOFTFLOWD_MAX_PACKET_SIZE                   512
-#define NF9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
-#define NF9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
-#define NF9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
+#define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE                   512
+#define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
 
-struct NFLOW9_HEADER {
+struct NETFLOW9_HEADER {
   u_int16_t version, flows;
   u_int32_t uptime_ms;
   u_int32_t export_time;        // in seconds

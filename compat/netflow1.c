@@ -34,7 +34,7 @@
  * Based on:
  * http://www.cisco.com/en/US/products/sw/netmgtsw/ps1964/products_implementation_design_guide09186a00800d6a11.html 
  */
-/** NetFlow v1 packet header (16 octets, see NF1_HEADER_SIZE). */
+/** NetFlow v1 packet header (16 octets, see NETFLOW1_HEADER_SIZE). */
 struct NF1_HEADER {
   u_int16_t version;            /**< Export version (1) */
   u_int16_t flows;              /**< Number of flow records in the packet */
@@ -66,7 +66,7 @@ struct NF1_FLOW {
 #endif
 };
 #define NF1_MAXPACKET_SIZE	(sizeof(struct NF1_HEADER) + \
-				 (NF1_MAXFLOWS * sizeof(struct NF1_FLOW)))
+				 (NETFLOW1_MAXFLOWS * sizeof(struct NF1_FLOW)))
 
 /**
  * @brief Send expired flows as NetFlow v1 packets (independent exporter, export type "none").
@@ -100,7 +100,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
     /* Records this flow adds: IPv4 only, one per direction with data. */
     int need = (flows[i]->af == AF_INET) ?
       (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
-    if (j + need > NF1_MAXFLOWS) {
+    if (j + need > NETFLOW1_MAXFLOWS) {
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
       if (send_multi_destinations

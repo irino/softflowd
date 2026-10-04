@@ -41,7 +41,7 @@ struct NF1_FLOW_PROTO_TOS_TCPF {
   u_int32_t reserved1;
 };
 
-#define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NF5_FLOW) - \
+#define NF5_NF1_FLOW_COMMON_SIZE (sizeof(struct NETFLOW5_FLOW) - \
                                   sizeof(struct NF1_FLOW_PROTO_TOS_TCPF))
 
 /**
@@ -81,14 +81,14 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NF5_MAXPACKET_SIZE];  /* Maximum allowed packet size (v1: 24, v5: 30 flows) */
-  struct NF5_HEADER *hdr = NULL;
-  struct NF5_FLOW *flw = NULL;
+  u_int8_t packet[NETFLOW5_MAXPACKET_SIZE];  /* Maximum allowed packet size (v1: 24, v5: 30 flows) */
+  struct NETFLOW5_HEADER *hdr = NULL;
+  struct NETFLOW5_FLOW *flw = NULL;
   int i, j, offset, num_packets;
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   struct OPTION *option = &param->option;
-  int maxflows = (version == 1) ? NF1_MAXFLOWS : NF5_MAXFLOWS;
+  int maxflows = (version == 1) ? NETFLOW1_MAXFLOWS : NETFLOW5_MAXFLOWS;
   int need;
 
   if (version != 5 && version != 1)
@@ -96,7 +96,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
 
   SET_EXPORT_NOW (now, param);
   uptime_ms = timeval_sub_ms (&now, system_boot_time);
-  hdr = (struct NF5_HEADER *) packet;
+  hdr = (struct NETFLOW5_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
     /* Records this flow adds: IPv4 only, one per direction with data. */
     need = (flows[i]->af == AF_INET) ?
@@ -127,13 +127,13 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       /* Other fields are left zero */
       offset = sizeof (*hdr);
       if (version == 1)
-        offset = NF1_HEADER_SIZE;
+        offset = NETFLOW1_HEADER_SIZE;
     }
     /* NetFlow v.5 doesn't do IPv6 */
     if (flows[i]->af != AF_INET)
       continue;
     if (flows[i]->octets[0] > 0) {
-      flw = (struct NF5_FLOW *) (packet + offset);
+      flw = (struct NETFLOW5_FLOW *) (packet + offset);
       flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[0].v4.s_addr;
       flw->dest_ip = flows[i]->addr[1].v4.s_addr;
@@ -160,7 +160,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
     }
 
     if (flows[i]->octets[1] > 0) {
-      flw = (struct NF5_FLOW *) (packet + offset);
+      flw = (struct NETFLOW5_FLOW *) (packet + offset);
       flw->if_index_in = flw->if_index_out = htons (ifidx);
       flw->src_ip = flows[i]->addr[1].v4.s_addr;
       flw->dest_ip = flows[i]->addr[0].v4.s_addr;

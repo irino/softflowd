@@ -50,15 +50,15 @@ struct NF9_DATA_FLOWSET_HEADER {
 /* Stuff pertaining to the templates that softflowd uses */
 struct NF9_SOFTFLOWD_TEMPLATE {
   struct NF9_TEMPLATE_FLOWSET_HEADER h;
-  struct NF9_TEMPLATE_FLOWSET_RECORD r[NF9_SOFTFLOWD_TEMPLATE_NRECORDS];
+  struct NF9_TEMPLATE_FLOWSET_RECORD r[NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
 
 struct NF9_SOFTFLOWD_OPTION_TEMPLATE {
   struct NF9_OPTION_TEMPLATE_FLOWSET_HEADER h;
   struct NF9_TEMPLATE_FLOWSET_RECORD
-    s[NF9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
+    s[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
   struct NF9_TEMPLATE_FLOWSET_RECORD
-    r[NF9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
+    r[NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
 /* softflowd data flowset types */
@@ -109,10 +109,10 @@ static int nf9_pkts_until_template = -1;
 static void
 nf9_init_template (void) {
   memset (&v4_template, 0, sizeof (v4_template));
-  v4_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
+  v4_template.h.c.flowset_id = htons (NETFLOW9_TEMPLATE_SET_ID);
   v4_template.h.c.length = htons (sizeof (v4_template));
   v4_template.h.template_id = htons (IPFIX_SOFTFLOWD_V4_TEMPLATE_ID);
-  v4_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
+  v4_template.h.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
   v4_template.r[0].type = htons (IPFIX_sourceIPv4Address);
   v4_template.r[0].length = htons (4);
   v4_template.r[1].type = htons (IPFIX_destinationIPv4Address);
@@ -146,10 +146,10 @@ nf9_init_template (void) {
   v4_template.r[15].type = htons (IPFIX_vlanId);
   v4_template.r[15].length = htons (2);
   memset (&v6_template, 0, sizeof (v6_template));
-  v6_template.h.c.flowset_id = htons (NFLOW9_TEMPLATE_SET_ID);
+  v6_template.h.c.flowset_id = htons (NETFLOW9_TEMPLATE_SET_ID);
   v6_template.h.c.length = htons (sizeof (v6_template));
   v6_template.h.template_id = htons (IPFIX_SOFTFLOWD_V6_TEMPLATE_ID);
-  v6_template.h.count = htons (NF9_SOFTFLOWD_TEMPLATE_NRECORDS);
+  v6_template.h.count = htons (NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS);
   v6_template.r[0].type = htons (IPFIX_sourceIPv6Address);
   v6_template.r[0].length = htons (16);
   v6_template.r[1].type = htons (IPFIX_destinationIPv6Address);
@@ -194,7 +194,7 @@ nf9_init_template (void) {
 static void
 nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   memset (&option_template, 0, sizeof (option_template));
-  option_template.h.c.flowset_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
+  option_template.h.c.flowset_id = htons (NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length = htons (sizeof (option_template));
   option_template.h.template_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.scope_length = htons (sizeof (option_template.s));
@@ -324,12 +324,12 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   u_int16_t ifidx = sp.ifidx;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
-  struct NFLOW9_HEADER *nf9;
+  struct NETFLOW9_HEADER *nf9;
   struct NF9_DATA_FLOWSET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid;
   int r;
-  u_char packet[NF9_SOFTFLOWD_MAX_PACKET_SIZE];
+  u_char packet[NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE];
   struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   u_int64_t *packets_sent = &param->packets_sent;
@@ -348,7 +348,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   last_valid = num_packets = 0;
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
-    nf9 = (struct NFLOW9_HEADER *) packet;
+    nf9 = (struct NETFLOW9_HEADER *) packet;
 
     nf9->version = htons (9);
     nf9->flows = 0;             /* Filled as we go, htons at end */

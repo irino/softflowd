@@ -764,12 +764,12 @@ static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
 #define IPFIX_NFIELDS(a) (sizeof (a) / sizeof (struct IPFIX_FIELD_SPECIFIER))
 #define IPFIX_NFIELDS_ENC(a) (sizeof (a) / sizeof (struct IPFIX_FIELD_SPECIFIER_ENCODER))
 
-/* Writes packet headers directly per packet using existing structs (NF5/NF9/IPFIX),
+/* Writes packet headers directly per packet using existing structs (NETFLOW5/NETFLOW9/IPFIX),
  * using the top-level union 'version' member shared across all formats. */
 union FLOW_PACKET_HEADER {
   u_int16_t version;
-  struct NF5_HEADER nf5;        /* NF1: only the first NF1_HEADER_SIZE octets */
-  struct NFLOW9_HEADER nf9;
+  struct NETFLOW5_HEADER nf5;   /* NetFlow v1: only the first NETFLOW1_HEADER_SIZE octets */
+  struct NETFLOW9_HEADER nf9;
   struct IPFIX_HEADER ipfix;
 };
 
@@ -825,7 +825,7 @@ flow_build_header (u_char *packet, u_int16_t version,
   switch (version) {
   case 1:
   case 5:
-    /* NF1's header is exactly NF5's first NF1_HEADER_SIZE octets (see
+    /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of the v5 one (see
      * union FLOW_PACKET_HEADER's comment), so this much is shared. */
     h->nf5.flows = 0;
     h->nf5.uptime_ms = htonl (systemInitTimeMilliseconds);
@@ -833,7 +833,7 @@ flow_build_header (u_char *packet, u_int16_t version,
     h->nf5.time_nanosec =
       htonl ((u_int32_t) now.tv_usec * 1000);
     if (version == 1)
-      return NF1_HEADER_SIZE;
+      return NETFLOW1_HEADER_SIZE;
     h->nf5.flow_sequence = 0;
     h->nf5.engine_type = 0;
     h->nf5.engine_id = 0;
@@ -879,14 +879,14 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   int num_flows = sp.num_flows;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
-  u_char packet[NF5_MAXPACKET_SIZE];
+  u_char packet[NETFLOW5_MAXPACKET_SIZE];
   const struct IPFIX_FIELD_SPECIFIER_ENCODER *tail_fields =
     (version == 1) ? field_netflowv1_tail_enc : field_netflowv5_tail_enc;
   u_int tail_nfields =
     (version == 1) ? IPFIX_NFIELDS_ENC (field_netflowv1_tail_enc) :
     IPFIX_NFIELDS_ENC (field_netflowv5_tail_enc);
   u_int maxflows =
-    (version == 1) ? NF1_MAXFLOWS : NF5_MAXFLOWS;
+    (version == 1) ? NETFLOW1_MAXFLOWS : NETFLOW5_MAXFLOWS;
   u_int offset, j, i, k, num_packets, flowcount, need;
   u_int64_t *flows_exported = &param->flows_exported;
   struct IPFIX_CTX ctx = { .sp = &sp, .flow = NULL, .i = 0 };
@@ -1067,7 +1067,7 @@ ipfix_init_option (u_int16_t version) {
 
   option_template.tmpl.h.c.set_id =
     htons (version == 10 ? IPFIX_OPTION_TEMPLATE_SET_ID :
-           NFLOW9_OPTION_TEMPLATE_SET_ID);
+           NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.tmpl.h.c.length =
     htons (sizeof (option_template.tmpl.h) + scope_speclen +
            opt_speclen);
@@ -1223,7 +1223,7 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
   u_int index = 0, bi_index = 0, length = 0;
   memset (tmpl, 0, sizeof (*tmpl));
   tmpl->h.c.set_id = htons (version == 10 ?
-                            IPFIX_TEMPLATE_SET_ID : NFLOW9_TEMPLATE_SET_ID);
+                            IPFIX_TEMPLATE_SET_ID : NETFLOW9_TEMPLATE_SET_ID);
   tmpl->h.r.template_id = htons (template_id);
 
   if (v6_flag)
@@ -1833,7 +1833,7 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
   memset (template, 0, sizeof (*template));
   template->h.c.set_id = htons (version == 10 ?
                                 IPFIX_TEMPLATE_SET_ID :
-                                NFLOW9_TEMPLATE_SET_ID);
+                                NETFLOW9_TEMPLATE_SET_ID);
   template->h.r.template_id = htons (template_id);
   if (v6_flag) {
     length += ipfix_init_fields (template->r, &index,
@@ -1968,7 +1968,7 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
     sizeof (struct IPFIX_FIELD_SPECIFIER);
 
   memset (&option_template, 0, sizeof (option_template));
-  option_template.h.c.set_id = htons (NFLOW9_OPTION_TEMPLATE_SET_ID);
+  option_template.h.c.set_id = htons (NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length =
     htons (sizeof (option_template.h) + scope_len + opt_len);
   option_template.h.u.n.template_id =
@@ -2327,7 +2327,7 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
   struct IPFIX_HEADER *ipfix;
-  struct NFLOW9_HEADER *nf9;
+  struct NETFLOW9_HEADER *nf9;
   struct IPFIX_SET_HEADER *dh;
   struct timeval now;
   u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
@@ -2368,7 +2368,7 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
       ipfix->od_id = 0;
       offset = sizeof (*ipfix);
     } else if (version == 9) {
-      nf9 = (struct NFLOW9_HEADER *) packet;
+      nf9 = (struct NETFLOW9_HEADER *) packet;
       nf9->version = htons (version);
       nf9->flows = 0;           /* Filled as we go, htons at end */
       nf9->uptime_ms = htonl (timeval_sub_ms (&now, system_boot_time));
