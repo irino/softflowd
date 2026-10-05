@@ -51,29 +51,30 @@ struct NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE {
 
 /* softflowd data flowset types */
 struct NETFLOW9_SOFTFLOWD_DATA_COMMON {
-  u_int32_t last_switched, first_switched;
-  u_int32_t bytes, packets;
-  u_int32_t if_index_in, if_index_out;
-  u_int16_t src_port, dst_port;
-  u_int8_t protocol, tcp_flags, ipproto, tos;
-  u_int16_t icmp_type, vlanid;
+  u_int32_t flowEndSysUpTime, flowStartSysUpTime;
+  u_int32_t octetDeltaCount, packetDeltaCount;
+  u_int32_t ingressInterface, egressInterface;
+  u_int16_t sourceTransportPort, destinationTransportPort;
+  u_int8_t protocolIdentifier, tcpControlBits, ipVersion, ipClassOfService;
+  /* icmpTypeCodeIPv4 (IE 32) is used for IPv6 flows too, as in older releases */
+  u_int16_t icmpTypeCodeIPv4, vlanId;
 } __packed;
 
 struct NETFLOW9_SOFTFLOWD_DATA_V4 {
-  u_int32_t src_addr, dst_addr;
+  u_int32_t sourceIPv4Address, destinationIPv4Address;
   struct NETFLOW9_SOFTFLOWD_DATA_COMMON c;
 } __packed;
 
 struct NETFLOW9_SOFTFLOWD_DATA_V6 {
-  u_int8_t src_addr[16], dst_addr[16];
+  u_int8_t sourceIPv6Address[16], destinationIPv6Address[16];
   struct NETFLOW9_SOFTFLOWD_DATA_COMMON c;
 } __packed;
 
 struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
   struct IPFIX_SET_HEADER c;
   u_int32_t scope_ifidx;
-  u_int32_t sampling_interval;
-  u_int8_t sampling_algorithm;
+  u_int32_t samplingInterval;
+  u_int8_t samplingAlgorithm;
   u_int8_t padding[3];
 } __packed;
 
@@ -191,17 +192,17 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
   option_template.s[0].length = htons (sizeof (option_data.scope_ifidx));
   option_template.r[0].ie = htons (IPFIX_samplingInterval);
   option_template.r[0].length =
-    htons (sizeof (option_data.sampling_interval));
+    htons (sizeof (option_data.samplingInterval));
   option_template.r[1].ie = htons (IPFIX_samplingAlgorithm);
   option_template.r[1].length =
-    htons (sizeof (option_data.sampling_algorithm));
+    htons (sizeof (option_data.samplingAlgorithm));
 
   memset (&option_data, 0, sizeof (option_data));
   option_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_data.c.length = htons (sizeof (option_data));
   option_data.scope_ifidx = htonl (ifidx);
-  option_data.sampling_interval = htonl (option->sample);
-  option_data.sampling_algorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
+  option_data.samplingInterval = htonl (option->sample);
+  option_data.samplingAlgorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
 }
 
 /**
@@ -231,50 +232,50 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
   switch (flow->af) {
   case AF_INET:
     freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V4);
-    memcpy (&d[0].d4.src_addr, &flow->addr[0].v4, 4);
-    memcpy (&d[0].d4.dst_addr, &flow->addr[1].v4, 4);
-    memcpy (&d[1].d4.src_addr, &flow->addr[1].v4, 4);
-    memcpy (&d[1].d4.dst_addr, &flow->addr[0].v4, 4);
+    memcpy (&d[0].d4.sourceIPv4Address, &flow->addr[0].v4, 4);
+    memcpy (&d[0].d4.destinationIPv4Address, &flow->addr[1].v4, 4);
+    memcpy (&d[1].d4.sourceIPv4Address, &flow->addr[1].v4, 4);
+    memcpy (&d[1].d4.destinationIPv4Address, &flow->addr[0].v4, 4);
     dc[0] = &d[0].d4.c;
     dc[1] = &d[1].d4.c;
-    dc[0]->ipproto = dc[1]->ipproto = 4;
+    dc[0]->ipVersion = dc[1]->ipVersion = 4;
     break;
   case AF_INET6:
     freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V6);
-    memcpy (&d[0].d6.src_addr, &flow->addr[0].v6, 16);
-    memcpy (&d[0].d6.dst_addr, &flow->addr[1].v6, 16);
-    memcpy (&d[1].d6.src_addr, &flow->addr[1].v6, 16);
-    memcpy (&d[1].d6.dst_addr, &flow->addr[0].v6, 16);
+    memcpy (&d[0].d6.sourceIPv6Address, &flow->addr[0].v6, 16);
+    memcpy (&d[0].d6.destinationIPv6Address, &flow->addr[1].v6, 16);
+    memcpy (&d[1].d6.sourceIPv6Address, &flow->addr[1].v6, 16);
+    memcpy (&d[1].d6.destinationIPv6Address, &flow->addr[0].v6, 16);
     dc[0] = &d[0].d6.c;
     dc[1] = &d[1].d6.c;
-    dc[0]->ipproto = dc[1]->ipproto = 6;
+    dc[0]->ipVersion = dc[1]->ipVersion = 6;
     break;
   default:
     return (-1);
   }
 
-  dc[0]->first_switched = dc[1]->first_switched =
+  dc[0]->flowStartSysUpTime = dc[1]->flowStartSysUpTime =
     htonl (timeval_sub_ms (&flow->flow_start, system_boot_time));
-  dc[0]->last_switched = dc[1]->last_switched =
+  dc[0]->flowEndSysUpTime = dc[1]->flowEndSysUpTime =
     htonl (timeval_sub_ms (&flow->flow_last, system_boot_time));
-  dc[0]->bytes = htonl (flow->octets[0]);
-  dc[1]->bytes = htonl (flow->octets[1]);
-  dc[0]->packets = htonl (flow->packets[0]);
-  dc[1]->packets = htonl (flow->packets[1]);
-  dc[0]->if_index_in = dc[0]->if_index_out = htonl (ifidx);
-  dc[1]->if_index_in = dc[1]->if_index_out = htonl (ifidx);
-  dc[0]->src_port = dc[1]->dst_port = flow->port[0];
-  dc[1]->src_port = dc[0]->dst_port = flow->port[1];
-  dc[0]->protocol = dc[1]->protocol = flow->protocol;
-  dc[0]->tcp_flags = flow->tcp_flags[0];
-  dc[1]->tcp_flags = flow->tcp_flags[1];
-  dc[0]->tos = flow->tos[0];
-  dc[1]->tos = flow->tos[1];
+  dc[0]->octetDeltaCount = htonl (flow->octets[0]);
+  dc[1]->octetDeltaCount = htonl (flow->octets[1]);
+  dc[0]->packetDeltaCount = htonl (flow->packets[0]);
+  dc[1]->packetDeltaCount = htonl (flow->packets[1]);
+  dc[0]->ingressInterface = dc[0]->egressInterface = htonl (ifidx);
+  dc[1]->ingressInterface = dc[1]->egressInterface = htonl (ifidx);
+  dc[0]->sourceTransportPort = dc[1]->destinationTransportPort = flow->port[0];
+  dc[1]->sourceTransportPort = dc[0]->destinationTransportPort = flow->port[1];
+  dc[0]->protocolIdentifier = dc[1]->protocolIdentifier = flow->protocol;
+  dc[0]->tcpControlBits = flow->tcp_flags[0];
+  dc[1]->tcpControlBits = flow->tcp_flags[1];
+  dc[0]->ipClassOfService = flow->tos[0];
+  dc[1]->ipClassOfService = flow->tos[1];
   if (flow->protocol == IPPROTO_ICMP || flow->protocol == IPPROTO_ICMPV6) {
-    dc[0]->icmp_type = dc[0]->dst_port;
-    dc[1]->icmp_type = dc[1]->dst_port;
+    dc[0]->icmpTypeCodeIPv4 = dc[0]->destinationTransportPort;
+    dc[1]->icmpTypeCodeIPv4 = dc[1]->destinationTransportPort;
   }
-  dc[0]->vlanid = dc[1]->vlanid = htons (flow->vlanid[0]);
+  dc[0]->vlanId = dc[1]->vlanId = htons (flow->vlanid[0]);
   if (flow->octets[0] > 0) {
     if (ret_len + freclen > len)
       return (-1);

@@ -54,15 +54,15 @@ struct NETFLOW5_HEADER {
 
 /* Cisco NetFlow v5 flow record (48 octets); NetFlow v1 records are the same size. */
 struct NETFLOW5_FLOW {
-  u_int32_t src_ip, dest_ip, nexthop_ip;        // same as netflow v1
-  u_int16_t if_index_in, if_index_out;  // same as netflow v1
-  u_int32_t flow_packets, flow_octets;  // same as netflow v1
-  u_int32_t flow_start, flow_finish;    // same as netflow v1
-  u_int16_t src_port, dest_port;        // same as netflow v1
+  u_int32_t sourceIPv4Address, destinationIPv4Address, ipNextHopIPv4Address;    // same as netflow v1
+  u_int16_t ingressInterface, egressInterface;  // same as netflow v1
+  u_int32_t packetDeltaCount, octetDeltaCount;  // same as netflow v1
+  u_int32_t flowStartSysUpTime, flowEndSysUpTime;       // same as netflow v1
+  u_int16_t sourceTransportPort, destinationTransportPort;      // same as netflow v1
   u_int8_t pad1;
-  u_int8_t tcp_flags, protocol, tos;
-  u_int16_t src_as, dest_as;
-  u_int8_t src_mask, dst_mask;
+  u_int8_t tcpControlBits, protocolIdentifier, ipClassOfService;
+  u_int16_t bgpSourceAsNumber, bgpDestinationAsNumber;
+  u_int8_t sourceIPv4PrefixLength, destinationIPv4PrefixLength;
   u_int16_t pad2;
 };
 

@@ -36,21 +36,21 @@
  */
 /** NetFlow v1 flow record (48 octets). */
 struct NETFLOW1_FLOW {
-  u_int32_t src_ip;             /**< Source IPv4 address */
-  u_int32_t dest_ip;            /**< Destination IPv4 address */
-  u_int32_t nexthop_ip;         /**< Next hop (always 0) */
-  u_int16_t if_index_in;        /**< Input interface index */
-  u_int16_t if_index_out;       /**< Output interface index */
-  u_int32_t flow_packets;       /**< Packets in the flow */
-  u_int32_t flow_octets;        /**< Octets in the flow */
-  u_int32_t flow_start;         /**< sysUpTime at flow start */
-  u_int32_t flow_finish;        /**< sysUpTime at flow end */
-  u_int16_t src_port;           /**< Source port */
-  u_int16_t dest_port;          /**< Destination port */
+  u_int32_t sourceIPv4Address;  /**< Source IPv4 address */
+  u_int32_t destinationIPv4Address;     /**< Destination IPv4 address */
+  u_int32_t ipNextHopIPv4Address;       /**< Next hop (always 0) */
+  u_int16_t ingressInterface;   /**< Input interface index */
+  u_int16_t egressInterface;    /**< Output interface index */
+  u_int32_t packetDeltaCount;   /**< Packets in the flow */
+  u_int32_t octetDeltaCount;    /**< Octets in the flow */
+  u_int32_t flowStartSysUpTime; /**< sysUpTime at flow start */
+  u_int32_t flowEndSysUpTime;   /**< sysUpTime at flow end */
+  u_int16_t sourceTransportPort;        /**< Source port */
+  u_int16_t destinationTransportPort;   /**< Destination port */
   u_int16_t pad1;               /**< Padding */
-  u_int8_t protocol;            /**< IP protocol number */
-  u_int8_t tos;                 /**< IP type of service */
-  u_int8_t tcp_flags;           /**< Cumulative TCP flags */
+  u_int8_t protocolIdentifier;  /**< IP protocol number */
+  u_int8_t ipClassOfService;    /**< IP type of service */
+  u_int8_t tcpControlBits;      /**< Cumulative TCP flags */
   u_int8_t pad2, pad3, pad4;    /**< Padding */
   u_int32_t reserved1;          /**< Reserved */
 #if 0
@@ -118,20 +118,20 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
       continue;
     if (flows[i]->octets[0] > 0) {
       flw = (struct NETFLOW1_FLOW *) (packet + offset);
-      flw->if_index_in = flw->if_index_out = htons (ifidx);
-      flw->src_ip = flows[i]->addr[0].v4.s_addr;
-      flw->dest_ip = flows[i]->addr[1].v4.s_addr;
-      flw->src_port = flows[i]->port[0];
-      flw->dest_port = flows[i]->port[1];
-      flw->flow_packets = htonl (flows[i]->packets[0]);
-      flw->flow_octets = htonl (flows[i]->octets[0]);
-      flw->flow_start =
+      flw->ingressInterface = flw->egressInterface = htons (ifidx);
+      flw->sourceIPv4Address = flows[i]->addr[0].v4.s_addr;
+      flw->destinationIPv4Address = flows[i]->addr[1].v4.s_addr;
+      flw->sourceTransportPort = flows[i]->port[0];
+      flw->destinationTransportPort = flows[i]->port[1];
+      flw->packetDeltaCount = htonl (flows[i]->packets[0]);
+      flw->octetDeltaCount = htonl (flows[i]->octets[0]);
+      flw->flowStartSysUpTime =
         htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
-      flw->flow_finish =
+      flw->flowEndSysUpTime =
         htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
-      flw->protocol = flows[i]->protocol;
-      flw->tcp_flags = flows[i]->tcp_flags[0];
-      flw->tos = flows[i]->tos[0];
+      flw->protocolIdentifier = flows[i]->protocol;
+      flw->tcpControlBits = flows[i]->tcp_flags[0];
+      flw->ipClassOfService = flows[i]->tos[0];
       offset += sizeof (*flw);
       j++;
       hdr->flows++;
@@ -139,20 +139,20 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 
     if (flows[i]->octets[1] > 0) {
       flw = (struct NETFLOW1_FLOW *) (packet + offset);
-      flw->if_index_in = flw->if_index_out = htons (ifidx);
-      flw->src_ip = flows[i]->addr[1].v4.s_addr;
-      flw->dest_ip = flows[i]->addr[0].v4.s_addr;
-      flw->src_port = flows[i]->port[1];
-      flw->dest_port = flows[i]->port[0];
-      flw->flow_packets = htonl (flows[i]->packets[1]);
-      flw->flow_octets = htonl (flows[i]->octets[1]);
-      flw->flow_start =
+      flw->ingressInterface = flw->egressInterface = htons (ifidx);
+      flw->sourceIPv4Address = flows[i]->addr[1].v4.s_addr;
+      flw->destinationIPv4Address = flows[i]->addr[0].v4.s_addr;
+      flw->sourceTransportPort = flows[i]->port[1];
+      flw->destinationTransportPort = flows[i]->port[0];
+      flw->packetDeltaCount = htonl (flows[i]->packets[1]);
+      flw->octetDeltaCount = htonl (flows[i]->octets[1]);
+      flw->flowStartSysUpTime =
         htonl (timeval_sub_ms (&flows[i]->flow_start, system_boot_time));
-      flw->flow_finish =
+      flw->flowEndSysUpTime =
         htonl (timeval_sub_ms (&flows[i]->flow_last, system_boot_time));
-      flw->protocol = flows[i]->protocol;
-      flw->tcp_flags = flows[i]->tcp_flags[1];
-      flw->tos = flows[i]->tos[1];
+      flw->protocolIdentifier = flows[i]->protocol;
+      flw->tcpControlBits = flows[i]->tcp_flags[1];
+      flw->ipClassOfService = flows[i]->tos[1];
       offset += sizeof (*flw);
       j++;
       hdr->flows++;
