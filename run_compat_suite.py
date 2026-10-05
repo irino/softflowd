@@ -7,7 +7,8 @@ and current development source code (C development versions).
 
 Features:
 - Automatically compiles all necessary binaries (C stable, C dev, plus optional C++ and Rust).
-- Compares NetFlow/IPFIX exported flow records (v1, v5, v9, IPFIX) via nfcapd & nfdump.
+- Compares NetFlow/IPFIX exported flow records (v1, v5, v9, IPFIX) via nfcapd & nfdump,
+  or via the built-in Python collector (tools/flowcollect.py) when nfdump is not installed.
 - Compares softflowctl control socket queries/statistics and shutdown commands.
 - Configurable stable commit/tag and flexible skip options.
 
@@ -53,6 +54,9 @@ Options:
                               columns (ra/eng/exid/tr); masked out by default since
                               they reflect nfcapd's own receive time/state, not the
                               exporter's output
+    --collector MODE          : Flow collector: auto (nfdump if nfcapd and nfdump are installed,
+                              otherwise python), nfdump, or python (default: auto)
+    --pcap-dir DIR            : Use http.cap and v6-http.cap from DIR instead of downloading them
     --gauge-clock             : Also run each daemon once per test case with its own
                               -g flag and print the "cpu clocks" (total) and
                               "cpu clocks (export)" (time inside the export call)
@@ -79,6 +83,12 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # Global test work directory for artifacts
 SUITE_TMP_DIR = tempfile.mkdtemp(prefix="softflowd_suite_")
 atexit.register(shutil.rmtree, SUITE_TMP_DIR)
+
+# Flow collector backend ("nfdump" or "python"); resolved in main().
+COLLECTOR_BACKEND = "nfdump"
+
+# Optional directory holding http.cap / v6-http.cap (set by --pcap-dir).
+PCAP_DIR: Optional[str] = None
 
 # Sample PCAP URLs for testing
 HTTP_PCAP_URL = "https://wiki.wireshark.org/uploads/27707187aeb30df68e70c8fb9d614981/http.cap"
@@ -144,6 +154,10 @@ def check_required_tool(cmd: str, apt_pkg: str, url: str) -> str:
 
 def ensure_sample_pcap(name: str, url: str) -> str:
     """Download or return cached sample PCAP file."""
+    if PCAP_DIR is not None:
+        local = os.path.join(PCAP_DIR, name)
+        if os.path.exists(local):
+            return local
     path = os.path.join(SUITE_TMP_DIR, name)
     if not os.path.exists(path):
         print(f"Downloading test sample PCAP: {name} ...")
@@ -492,6 +506,37 @@ def run_nfdump_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
             nfcapd_proc.kill()
 
 
+def run_python_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
+    """Run daemon against PCAP and decode the exported datagrams in Python.
+
+    Returns CSV text with nfdump's column names (see tools/flowcollect.py).
+    """
+    sys.path.insert(0, os.path.join(PROJECT_ROOT, "tools"))
+    import flowcollect
+
+    sink = flowcollect.UdpSink("127.0.0.1", 0)
+    try:
+        cmd = [
+            daemon_bin,
+            "-d",
+            "-r", pcap_path,
+            "-a",
+            "-n", f"127.0.0.1:{sink.port}",
+            "-v", str(version),
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    finally:
+        sink.close()
+    return flowcollect.datagrams_to_csv(sink.datagrams)
+
+
+def run_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
+    """Collect exported flows with the selected collector backend."""
+    if COLLECTOR_BACKEND == "python":
+        return run_python_capture(pcap_path, daemon_bin, version)
+    return run_nfdump_capture(pcap_path, daemon_bin, version)
+
+
 def run_gauge_capture(pcap_path: str, daemon_bin: str, version: int) -> Optional[Tuple[int, Optional[int], Optional[int]]]:
     """Run daemon once with -g and parse the "cpu clocks" lines it prints on exit.
 
@@ -604,7 +649,7 @@ def test_differential_output(
     gauge_clock: bool = False
 ) -> bool:
     """Compare nfdump output across NetFlow v1, v5, v9 and IPFIX."""
-    print("  [Step 3] Verifying Differential Packet Export (nfdump output)...")
+    print(f"  [Step 3] Verifying Differential Packet Export ({COLLECTOR_BACKEND} collector)...")
 
     http_pcap = ensure_sample_pcap("http.cap", HTTP_PCAP_URL)
     v6_pcap = ensure_sample_pcap("v6-http.cap", V6_HTTP_PCAP_URL)
@@ -637,10 +682,10 @@ def test_differential_output(
         # when comparing against that old reference.
         norm_icmp = auto_ignore_icmp_reclass and ("stable-softflowd" in pair_name)
 
-        csv_stable = run_nfdump_capture(pcap_path, stable_daemon, version)
+        csv_stable = run_capture(pcap_path, stable_daemon, version)
         norm_stable = normalize_nfdump_csv(csv_stable, should_ignore_ts, include_collector_metadata, norm_icmp)
 
-        csv_dev = run_nfdump_capture(pcap_path, dev_daemon, version)
+        csv_dev = run_capture(pcap_path, dev_daemon, version)
         norm_dev = normalize_nfdump_csv(csv_dev, should_ignore_ts, include_collector_metadata, norm_icmp)
 
         display_name = name
@@ -828,6 +873,18 @@ def main():
              "off by default"
     )
     parser.add_argument(
+        "--collector",
+        choices=["auto", "nfdump", "python"],
+        default="auto",
+        help="Flow collector: nfdump needs nfcapd and nfdump; python uses tools/flowcollect.py. "
+             "auto picks nfdump when both tools are installed, otherwise python (default: auto)"
+    )
+    parser.add_argument(
+        "--pcap-dir",
+        default=None,
+        help="Directory containing http.cap and v6-http.cap; used instead of downloading them"
+    )
+    parser.add_argument(
         "--gauge-clock",
         dest="gauge_clock",
         action="store_true",
@@ -837,9 +894,20 @@ def main():
     )
     args = parser.parse_args()
 
-    # Verify required environment tools
-    check_required_tool("nfdump", "nfdump", "https://github.com/phaag/nfdump")
-    check_required_tool("nfcapd", "nfdump", "https://github.com/phaag/nfdump")
+    # Select the flow collector backend
+    global COLLECTOR_BACKEND, PCAP_DIR
+    PCAP_DIR = args.pcap_dir
+    have_nfdump = bool(shutil.which("nfdump") and shutil.which("nfcapd"))
+    if args.collector == "auto":
+        COLLECTOR_BACKEND = "nfdump" if have_nfdump else "python"
+        if not have_nfdump:
+            print_yellow("nfdump/nfcapd not found: using the built-in Python collector "
+                         "(tools/flowcollect.py)")
+    else:
+        COLLECTOR_BACKEND = args.collector
+    if COLLECTOR_BACKEND == "nfdump":
+        check_required_tool("nfdump", "nfdump", "https://github.com/phaag/nfdump")
+        check_required_tool("nfcapd", "nfdump", "https://github.com/phaag/nfdump")
 
     build_dir = args.build_dir or os.path.join(SUITE_TMP_DIR, "bin")
     os.makedirs(build_dir, exist_ok=True)
