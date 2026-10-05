@@ -40,8 +40,10 @@ flowd is a NetFlow collector that is maintained in parallel with
 softflowd and includes a few handy features, such as the ability
 to filter flows it receives as well as Perl and Python APIs to its
 storage format. NB. You don't have to use flowd: any NetFlow compatible 
-collector should work with softflowd. An example Perl collector is included 
-for testing purposes as collector.pl, but it doesn't yet support NetFlow v.9
+collector should work with softflowd. An example Python collector for
+testing purposes is included as tools/flowcollect.py; it decodes NetFlow
+v1, v5, v9 and IPFIX. The old Perl collector, collector.pl, is deprecated:
+it only supports NetFlow v1 and v5.
 
 Installing
 ----------
