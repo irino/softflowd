@@ -506,6 +506,34 @@ build_flow_header (u_char *packet, u_int16_t version,
 #endif /* ENABLE_DIRECT_COPIES */
 }
 
+/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
+ * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
+static int ipfix_pkts_until_template = -1;
+
+/**
+ * @brief Request that the templates be sent again with the next export packet.
+ */
+void
+ipfix_resend_template (void) {
+  if (ipfix_pkts_until_template > 0)
+    ipfix_pkts_until_template = 0;
+}
+
+/**
+ * @brief Tell whether a flow is ICMP (ICMPv4 for IPv4, ICMPv6 for IPv6).
+ *
+ * @param flow Flow.
+ * @return 1 if the flow is ICMP, 0 otherwise.
+ */
+static int
+valuate_icmp (const struct FLOW *flow) {
+  if (flow->af == AF_INET)
+    return flow->protocol == IPPROTO_ICMP;
+  if (flow->af == AF_INET6)
+    return flow->protocol == IPPROTO_ICMPV6;
+  return 0;
+}
+
 #if EXPORT_MERGE == EXPORT_MERGE_ALL
 /* Merged NetFlow v1/v5/v9/IPFIX exporter (EXPORT_MERGE_ALL):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
@@ -1041,9 +1069,6 @@ struct IPFIX_TEMPLATE {
 
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
 static struct IPFIX_TEMPLATE templates[TMPLMAX];
-/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
- * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
-static int ipfix_pkts_until_template = -1;
 
 /* Emits NFv9/IPFIX Options Templates and Data Records using ipfix_emit_group_enc().
  * Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to avoid duplicate padded declarations. */
@@ -1376,21 +1401,6 @@ ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
 }
 
 /**
- * @brief Tell whether a flow is ICMP (ICMPv4 for IPv4, ICMPv6 for IPv6).
- *
- * @param flow Flow.
- * @return 1 if the flow is ICMP, 0 otherwise.
- */
-static int
-ipfix_valuate_icmp (const struct FLOW *flow) {
-  if (flow->af == AF_INET)
-    return flow->protocol == IPPROTO_ICMP;
-  if (flow->af == AF_INET6)
-    return flow->protocol == IPPROTO_ICMPV6;
-  return 0;
-}
-
-/**
  * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
  *
  * @param packet        Packet buffer.
@@ -1477,166 +1487,37 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
 }
 
 /**
- * @brief Request that the templates be sent again with the next export packet.
+ * @brief Build the templates and the option record on the first export.
+ *
+ * @param sp      Send parameters; the tracking parameters are taken from sp->param.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
+ * @param version Export version: 9 or 10.
  */
-void
-ipfix_resend_template (void) {
-  if (ipfix_pkts_until_template > 0)
-    ipfix_pkts_until_template = 0;
+static void
+ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
+                     u_int16_t version) {
+  ipfix_init_templates (sp->param, bi_flag, version);
+  ipfix_init_option (version);
 }
 
 /**
- * @brief Send flows as NetFlow v9 or IPFIX packets, building the data records dynamically.
+ * @brief Append the templates and the option record to a packet.
  *
- * The data records follow the template field lists (see ipfix_flow_to_flowset()), so
- * they change with the templates. Used by --enable-export-merge=all.
- * Packet-framing loop: templates and the options record are sent first and then every
- * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; records come from ipfix_flow_to_flowset().
- *
- * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param packet  Packet buffer.
+ * @param offset  Offset in the packet to append at; updated.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
- * @return Number of packets sent, or -1 on error.
+ * @param sp      Send parameters; the option values are taken from sp->param.
  */
-static int
-send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
-                    u_int16_t version) {
-  struct FLOW **flows = sp.flows;
-  int num_flows = sp.num_flows;
-  struct NETFLOW_TARGET *target = sp.target;
-  struct FLOWTRACKPARAMETERS *param = sp.param;
-  int verbose_flag = sp.verbose_flag;
-  struct IPFIX_SET_HEADER *dh;
-  union FLOW_PACKET_HEADER *h;
-  struct timeval now;
-  u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
-  int8_t icmp_flag, last_icmp_flag;
-  int r;
-  u_int records = 0;
-  u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
-  u_int64_t *flows_exported = &param->flows_exported;
-  u_int64_t *records_sent = &param->records_sent;
-  static u_int sequence = 1;
+static void
+ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
+                     u_int16_t version, const struct SENDPARAMETER *sp) {
+  u_int i;
 
-  if (version != 9 && version != 10)
-    return (-1);
-  SET_EXPORT_NOW (now, param);
-
-  if (ipfix_pkts_until_template == -1) {
-    ipfix_init_templates (param, bi_flag, version);
-    ipfix_init_option (version);
-    ipfix_pkts_until_template = 0;
-  }
-
-  last_valid = num_packets = 0;
-  for (j = 0; j < (u_int) num_flows;) {
-    memset (packet, 0, sizeof (packet));
-    offset = build_flow_header (packet, version, param);
-    h = (union FLOW_PACKET_HEADER *) packet;
-
-    if (ipfix_pkts_until_template <= 0) {
-      for (i = 0; i < TMPLMAX; i++)
-        ipfix_memcpy_template (packet, &offset, &templates[i],
-                                       bi_flag, param->max_num_label);
-      ipfix_send_option (packet, &offset, version, &sp);
-      ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
-      if (target->is_loadbalance && target->num_destinations > 1) {
-          /* Template-only packet; NFv9 sets flows count to 1 (preserving
-           * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
-          if (version == 10) {
-          h->ipfix.length = htons (offset);
-          h->ipfix.sequence_number =
-            htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
-        } else {
-          h->nf9.flows = htons (1);
-          h->nf9.sequence_number = htonl (sequence++);
-        }
-        if (send_multi_destinations
-            (target->num_destinations, target->destinations, 0, packet,
-             offset, 0) < 0)
-          return (-1);
-        offset = build_flow_header (packet, version, param);
-      }
-    }
-
-    dh = NULL;
-    last_af = 0;
-    last_icmp_flag = -1;
-    records = 0;
-    for (i = 0; i + j < (u_int) num_flows; i++) {
-      icmp_flag = ipfix_valuate_icmp (flows[i + j]);
-      if (dh == NULL || (u_int) flows[i + j]->af != last_af ||
-          icmp_flag != last_icmp_flag) {
-        if (dh != NULL) {
-          if (offset % 4 != 0) {
-            dh->length += 4 - (offset % 4);
-            offset += 4 - (offset % 4);
-          }
-          dh->length = htons (dh->length);
-        }
-        if (offset + sizeof (*dh) > sizeof (packet)) {
-          dh = NULL;
-          break;
-        }
-        dh = (struct IPFIX_SET_HEADER *) (packet + offset);
-        tmplindex = ipfix_flow_to_template_index (flows[i + j]);
-        dh->set_id = templates[tmplindex].h.r.template_id;
-        last_af = flows[i + j]->af;
-        last_icmp_flag = icmp_flag;
-        last_valid = offset;
-        dh->length = sizeof (*dh);
-        offset += sizeof (*dh);
-      }
-      r = ipfix_flow_to_flowset (flows[i + j], packet + offset,
-                                         sizeof (packet) - offset, &sp,
-                                         &inc, bi_flag, version);
-      if (r <= 0) {
-        if (last_valid)
-          offset = last_valid;
-        break;
-      }
-      records += (u_int) r;
-      offset += inc;
-      dh->length += inc;
-      last_valid = 0;
-      if (verbose_flag)
-        logit (LOG_DEBUG, "Flow %d/%d: r %d offset %d ie %04x len %d(0x%04x)",
-               r, i, j, offset, dh->set_id, dh->length, dh->length);
-    }
-    if (dh != NULL) {
-      if (offset % 4 != 0) {
-        dh->length += 4 - (offset % 4);
-        offset += 4 - (offset % 4);
-      }
-      dh->length = htons (dh->length);
-    }
-    *records_sent += records;
-    if (version == 10) {
-      h->ipfix.length = htons (offset);
-      h->ipfix.sequence_number =
-        htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
-    } else {
-      h->nf9.flows = htons (records);
-      h->nf9.sequence_number = htonl (sequence++);
-    }
-
-    if (send_multi_destinations
-        (target->num_destinations, target->destinations,
-         target->is_loadbalance, packet, offset, verbose_flag) < 0)
-      return (-1);
-    num_packets++;
-    ipfix_pkts_until_template--;
-
-    j += i;
-  }
-
-  *flows_exported += j;
-  param->packets_sent += num_packets;
-#ifdef ENABLE_PTHREAD
-  if (use_thread)
-    free (flows);
-#endif /* ENABLE_PTHREAD */
-  return (num_packets);
+  for (i = 0; i < TMPLMAX; i++)
+    ipfix_memcpy_template (packet, offset, &templates[i], bi_flag,
+                           sp->param->max_num_label);
+  ipfix_send_option (packet, offset, version, sp);
 }
 
 #else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
@@ -1783,10 +1664,6 @@ static struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE option_template;
 static struct IPFIX_SOFTFLOWD_OPTION_DATA option_data;
 /** NetFlow v9 options data record. */
 static struct NETFLOW9_SOFTFLOWD_OPTION_DATA nf9opt_data;
-
-/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
- * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
-static int ipfix_pkts_until_template = -1;
 
 /**
  * @brief Add reverse-direction (enterprise) fields to a template.
@@ -2151,22 +2028,25 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
 /**
  * @brief Encode the data records of one flow (standard or biflow).
  *
- * @param flow             Flow to encode.
- * @param packet           Output buffer.
- * @param len              Space available in packet.
- * @param ifidx            Interface index for the records.
- * @param system_boot_time Base for relative times.
- * @param len_used         Receives the number of bytes written.
- * @param param            Tracking parameters.
- * @param bi_flag          Non-zero to emit one biflow record instead of one per direction.
+ * @param flow     Flow to encode.
+ * @param packet   Output buffer.
+ * @param len      Space available in packet.
+ * @param sp       Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param len_used Receives the number of bytes written.
+ * @param bi_flag  Non-zero to emit one biflow record instead of one per direction.
+ * @param version  Export version (not needed by this encoder).
  * @return Number of records written, or -1 on error.
  */
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
-                       u_int len, u_int16_t ifidx,
-                       const struct timeval *system_boot_time,
+                       u_int len, const struct SENDPARAMETER *sp,
                        u_int *len_used,
-                       struct FLOWTRACKPARAMETERS *param, u_int8_t bi_flag) {
+                       u_int8_t bi_flag, u_int16_t version) {
+  u_int16_t ifidx = sp->ifidx;
+  struct FLOWTRACKPARAMETERS *param = sp->param;
+  const struct timeval *system_boot_time = &param->system_boot_time;
+  (void) version;
+
   struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = { NULL, NULL };
   struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = { NULL, NULL };
   union IPFIX_SOFTFLOWD_DATA_TIME *dt[2] = { NULL, NULL };
@@ -2278,40 +2158,6 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
 }
 
 /**
- * @brief Tell whether a flow is ICMP (ICMPv4 for IPv4, ICMPv6 for IPv6).
- *
- * @param flow Flow.
- * @return 1 if the flow is ICMP, 0 if not, -1 for a NULL flow or an unknown address family.
- */
-static int
-valuate_icmp (struct FLOW *flow) {
-  if (flow == NULL)
-    return -1;
-  if (flow->af == AF_INET)
-    if (flow->protocol == IPPROTO_ICMP)
-      return 1;
-    else
-      return 0;
-  else if (flow->af == AF_INET6)
-    if (flow->protocol == IPPROTO_ICMPV6)
-      return 1;
-    else
-      return 0;
-  else
-    return -1;
-  return -1;
-}
-
-/**
- * @brief Request that the templates be sent again with the next export packet.
- */
-void
-ipfix_resend_template (void) {
-  if (ipfix_pkts_until_template > 0)
-    ipfix_pkts_until_template = 0;
-}
-
-/**
  * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
  *
  * @param packet        Packet buffer.
@@ -2346,10 +2192,63 @@ memcpy_template (u_char *packet, u_int *offset,
 }
 
 /**
- * @brief Send flows as NetFlow v9 or IPFIX packets, encoding the data records statically.
+ * @brief Build the templates and the option record on the first export.
  *
- * The data records have a fixed layout that matches the templates built in this file.
- * Used by --enable-export-merge=format and none.
+ * @param sp      Send parameters; the tracking parameters are taken from sp->param.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
+ * @param version Export version: 9 or 10.
+ */
+static void
+ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
+                     u_int16_t version) {
+  struct FLOWTRACKPARAMETERS *param = sp->param;
+
+  ipfix_init_template (param, bi_flag, version);
+  if (version == 10)
+    ipfix_init_option (&param->system_boot_time, &param->option);
+  else
+    nflow9_init_option (sp->ifidx, &param->option);
+}
+
+/**
+ * @brief Append the templates and the option record to a packet.
+ *
+ * @param packet  Packet buffer.
+ * @param offset  Offset in the packet to append at; updated.
+ * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
+ * @param version Export version: 9 or 10.
+ * @param sp      Send parameters; the maximum number of labels is taken from sp->param.
+ */
+static void
+ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
+                     u_int16_t version, const struct SENDPARAMETER *sp) {
+  u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
+  u_int i;
+
+  for (i = 0; i < TMPLMAX; i++)
+    memcpy_template (packet, offset, &templates[i], bi_flag,
+                     sp->param->max_num_label);
+  memcpy (packet + *offset, &option_template, opt_tmpl_len);
+  *offset += opt_tmpl_len;
+  if (version == 10) {
+    memcpy (packet + *offset, &option_data, sizeof (option_data));
+    *offset += sizeof (option_data);
+  } else if (version == 9) {
+    memcpy (packet + *offset, &nf9opt_data, sizeof (nf9opt_data));
+    *offset += sizeof (nf9opt_data);
+  }
+}
+
+#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+
+/**
+ * @brief Send flows as NetFlow v9 or IPFIX packets.
+ *
+ * Packet-framing loop shared by every --enable-export-merge value that exports NetFlow v9 or
+ * IPFIX from this file. Templates and the options record are sent first and then every
+ * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; the records come from ipfix_flow_to_flowset(),
+ * which builds them dynamically from the template field lists for --enable-export-merge=all
+ * and encodes them statically for format and none.
  *
  * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
@@ -2357,85 +2256,57 @@ memcpy_template (u_char *packet, u_int *offset,
  * @return Number of packets sent, or -1 on error.
  */
 static int
-send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
-                   u_int16_t version) {
+send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
+                  u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   struct NETFLOW_TARGET *target = sp.target;
-  u_int16_t ifidx = sp.ifidx;
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
-  struct IPFIX_HEADER *ipfix;
-  struct NETFLOW9_HEADER *nf9;
   struct IPFIX_SET_HEADER *dh;
+  union FLOW_PACKET_HEADER *h;
   u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
   int8_t icmp_flag, last_icmp_flag;
   int r;
   u_int records = 0;
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
-  struct timeval *system_boot_time = &param->system_boot_time;
   u_int64_t *flows_exported = &param->flows_exported;
   u_int64_t *records_sent = &param->records_sent;
-  struct OPTION *option = &param->option;
   static u_int sequence = 1;
 
   if (version != 9 && version != 10)
     return (-1);
 
   if (ipfix_pkts_until_template == -1) {
-    ipfix_init_template (param, bi_flag, version);
+    ipfix_init_exporter (&sp, bi_flag, version);
     ipfix_pkts_until_template = 0;
-    if (option != NULL) {
-      if (version == 10) {
-        ipfix_init_option (system_boot_time, option);
-      } else {
-        nflow9_init_option (ifidx, option);
-      }
-    }
   }
 
   last_valid = num_packets = 0;
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
-    /* The length or count and the sequence number are filled as we go */
     offset = build_flow_header (packet, version, param);
-    ipfix = (struct IPFIX_HEADER *) packet;
-    nf9 = (struct NETFLOW9_HEADER *) packet;
+    h = (union FLOW_PACKET_HEADER *) packet;
 
-    /* Refresh template headers if we need to */
     if (ipfix_pkts_until_template <= 0) {
-      for (i = 0; i < TMPLMAX; i++) {
-        memcpy_template (packet, &offset, &templates[i], bi_flag,
-                         param->max_num_label);
-      }
-      if (option != NULL) {
-        u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
-        memcpy (packet + offset, &option_template, opt_tmpl_len);
-        offset += opt_tmpl_len;
-        if (version == 10) {
-          memcpy (packet + offset, &option_data, sizeof (option_data));
-          offset += sizeof (option_data);
-        } else if (version == 9) {
-          memcpy (packet + offset, &nf9opt_data, sizeof (nf9opt_data));
-          offset += sizeof (nf9opt_data);
-        }
-      }
-
+      ipfix_put_templates (packet, &offset, bi_flag, version, &sp);
       ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
       if (target->is_loadbalance && target->num_destinations > 1) {
-        if (version == 10) {
-          ipfix->length = htons (offset);
-          ipfix->sequence_number =
+          /* Template-only packet; NFv9 sets flows count to 1 (preserving
+           * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
+          if (version == 10) {
+          h->ipfix.length = htons (offset);
+          h->ipfix.sequence_number =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
-        } else if (version == 9) {
-          nf9->flows = htons (++records);
-          nf9->sequence_number = htonl (sequence++);
+        } else {
+          h->nf9.flows = htons (1);
+          h->nf9.sequence_number = htonl (sequence++);
         }
         if (send_multi_destinations
             (target->num_destinations, target->destinations, 0, packet,
              offset, verbose_flag) < 0)
           return (-1);
-        offset = version == 10 ? sizeof (*ipfix) : sizeof (*nf9);       // resest offset
+        offset = build_flow_header (packet, version, param);
       }
     }
 
@@ -2449,15 +2320,12 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
           icmp_flag != last_icmp_flag) {
         if (dh != NULL) {
           if (offset % 4 != 0) {
-            /* Pad to multiple of 4 */
             dh->length += 4 - (offset % 4);
             offset += 4 - (offset % 4);
           }
-          /* Finalise last header */
           dh->length = htons (dh->length);
         }
         if (offset + sizeof (*dh) > sizeof (packet)) {
-          /* Mark header is finished */
           dh = NULL;
           break;
         }
@@ -2467,16 +2335,13 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
         last_af = flows[i + j]->af;
         last_icmp_flag = icmp_flag;
         last_valid = offset;
-        dh->length = sizeof (*dh);      /* Filled as we go */
+        dh->length = sizeof (*dh);
         offset += sizeof (*dh);
       }
-      r = ipfix_flow_to_flowset (flows[i + j],
-                                 packet + offset,
-                                 sizeof (packet) - offset,
-                                 ifidx, system_boot_time,
-                                 &inc, param, bi_flag);
+      r = ipfix_flow_to_flowset (flows[i + j], packet + offset,
+                                         sizeof (packet) - offset, &sp,
+                                         &inc, bi_flag, version);
       if (r <= 0) {
-        /* yank off data header, if we had to go back */
         if (last_valid)
           offset = last_valid;
         break;
@@ -2484,31 +2349,26 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
       records += (u_int) r;
       offset += inc;
       dh->length += inc;
-      last_valid = 0;           /* Don't clobber this header now */
-      if (verbose_flag) {
-        logit (LOG_DEBUG, "Flow %d/%d: "
-               "r %d offset %d ie %04x len %d(0x%04x)",
+      last_valid = 0;
+      if (verbose_flag)
+        logit (LOG_DEBUG, "Flow %d/%d: r %d offset %d ie %04x len %d(0x%04x)",
                r, i, j, offset, dh->set_id, dh->length, dh->length);
-      }
     }
-    /* Don't finish header if it has already been done */
     if (dh != NULL) {
       if (offset % 4 != 0) {
-        /* Pad to multiple of 4 */
         dh->length += 4 - (offset % 4);
         offset += 4 - (offset % 4);
       }
-      /* Finalise last header */
       dh->length = htons (dh->length);
     }
     *records_sent += records;
     if (version == 10) {
-      ipfix->length = htons (offset);
-      ipfix->sequence_number =
+      h->ipfix.length = htons (offset);
+      h->ipfix.sequence_number =
         htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
-    } else if (version == 9) {
-      nf9->flows = htons (records);
-      nf9->sequence_number = htonl (sequence++);
+    } else {
+      h->nf9.flows = htons (records);
+      h->nf9.sequence_number = htonl (sequence++);
     }
 
     if (send_multi_destinations
@@ -2529,9 +2389,6 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
-
 #if EXPORT_MERGE != EXPORT_MERGE_NONE
 /**
  * @brief Send expired flows as NetFlow v9 packets.
@@ -2543,11 +2400,7 @@ send_ipfix_static (struct SENDPARAMETER sp, u_int8_t bi_flag,
  */
 int
 send_netflow_v9 (struct SENDPARAMETER sp) {
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_dynamic (sp, 0, 9);
-#else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT */
-  return send_ipfix_static (sp, 0, 9);
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+  return send_ipfix_flows (sp, 0, 9);
 }
 #endif /* EXPORT_MERGE != EXPORT_MERGE_NONE */
 
@@ -2559,11 +2412,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
  */
 int
 send_ipfix (struct SENDPARAMETER sp) {
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_dynamic (sp, 0, 10);
-#else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT or EXPORT_MERGE_NONE */
-  return send_ipfix_static (sp, 0, 10);
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+  return send_ipfix_flows (sp, 0, 10);
 }
 
 /**
@@ -2574,9 +2423,5 @@ send_ipfix (struct SENDPARAMETER sp) {
  */
 int
 send_ipfix_bi (struct SENDPARAMETER sp) {
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
-  return send_ipfix_dynamic (sp, 1, 10);
-#else /* EXPORT_MERGE == EXPORT_MERGE_FORMAT or EXPORT_MERGE_NONE */
-  return send_ipfix_static (sp, 1, 10);
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+  return send_ipfix_flows (sp, 1, 10);
 }
