@@ -1552,8 +1552,8 @@ send_ipfix_dynamic (struct SENDPARAMETER sp, u_int8_t bi_flag,
           h->nf9.sequence_number = htonl (sequence++);
         }
         if (send_multi_destinations
-            (target->num_destinations, target->destinations,
-             target->is_loadbalance, packet, offset, 0) < 0)
+            (target->num_destinations, target->destinations, 0, packet,
+             offset, 0) < 0)
           return (-1);
         offset = build_flow_header (packet, version, param);
       }
