@@ -218,7 +218,7 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 5);
 }
 
-#if EXPORT_MERGE != EXPORT_MERGE_NONE
+#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC
 /**
  * @brief Send expired flows as NetFlow v1 packets.
  *
@@ -229,4 +229,4 @@ int
 send_netflow_v1 (struct SENDPARAMETER sp) {
   return send_netflow_v5_v1 (sp, 1);
 }
-#endif /* EXPORT_MERGE != EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC */

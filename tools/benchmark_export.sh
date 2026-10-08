@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # benchmark_export.sh -- compare softflowd's NetFlow/IPFIX export
-# implementations (none / format / all, see --enable-export-merge)
+# implementations (static-separate / static / dynamic, see --enable-compat-export)
 # across one or more pcap files and NetFlow/IPFIX versions.
 #
 # Usage:
@@ -11,8 +11,8 @@
 #   -v VERSIONS   comma-separated NetFlow/IPFIX versions to test
 #                 (default: 1,5,9,10)
 #   -b BUILDS     comma-separated build variants to compare:
-#                 none,format,all (default: format,all);
-#                 see --enable-export-merge in ./configure --help
+#                 static-separate,static,dynamic (default: static,dynamic);
+#                 see --enable-compat-export in ./configure --help
 #   -w WARMUP     hyperfine --warmup count (default: 3)
 #   -m MIN_RUNS   hyperfine --min-runs count (default: 10)
 #   -M MAX_RUNS   hyperfine --max-runs count (optional, unset = no cap)
@@ -70,7 +70,7 @@
 set -euo pipefail
 
 VERSIONS="1,5,9,10"
-BUILDS="format,all"
+BUILDS="static,dynamic"
 WARMUP=3
 MIN_RUNS=10
 MAX_RUNS=""
@@ -183,8 +183,9 @@ cleanup () { stop_sink; rm -rf "$WORKDIR"; }
 
 configure_flags_for () {
   case "$1" in
-    all|format|none) echo "--enable-export-merge=$1" ;;
-    *) echo "error: unknown build variant '$1' (expected none|format|all)" >&2
+    dynamic) echo "" ;;
+    static|static-separate) echo "--enable-compat-export=$1" ;;
+    *) echo "error: unknown build variant '$1' (expected static-separate|static|dynamic)" >&2
        exit 1 ;;
   esac
 }

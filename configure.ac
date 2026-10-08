@@ -78,25 +78,24 @@ AC_ARG_ENABLE(gcc-warnings,
 	[ if test "x$enableval" = "xyes" ; then CFLAGS="$CFLAGS $WFLAGS"; fi ]
 )
 AC_ARG_ENABLE(legacy,
-              AS_HELP_STRING([--enable-legacy],[same as --enable-export-merge=none (kept for compatibility with softflowd 1.1.1 and earlier)]),
+              AS_HELP_STRING([--enable-legacy],[same as --enable-compat-export=static-separate (kept for compatibility with softflowd 1.1.1 and earlier)]),
               [legacy=$enableval],[legacy=])
-AC_ARG_ENABLE(export-merge,
-              AS_HELP_STRING([--enable-export-merge=all|format|none],
-                             [how much of the NetFlow v1/v5/v9/IPFIX export code is merged: all (default; everything in ipfix.c), format (template formats v9/IPFIX in ipfix.c, fixed formats v1/v5 in compat/netflow5.c), or none (separate ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
-              [export_merge=$enableval],[export_merge=])
-if test -n "$export_merge" ; then
-  case "$export_merge" in
-    all|format|none) ;;
-    *) AC_MSG_ERROR([--enable-export-merge must be one of: all, format, none (got: $export_merge)]) ;;
-  esac
+AC_ARG_ENABLE(compat-export,
+              AS_HELP_STRING([--enable-compat-export=static|static-separate],
+                             [use the fixed-format NetFlow exporters instead of the default encoder-based exporter in ipfix.c: static (fixed templates and data records for v9/IPFIX in ipfix.c, v1/v5 in compat/netflow5.c) or static-separate (IPFIX in ipfix.c, v9, v5 and v1 in compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
+              [compat_export=$enableval],[compat_export=])
+case "$compat_export" in
+  ""|no) compat_export= ;;
+  static|static-separate) ;;
+  yes) AC_MSG_ERROR([--enable-compat-export requires a value: static or static-separate]) ;;
+  *)   AC_MSG_ERROR([--enable-compat-export must be static or static-separate (got: $compat_export)]) ;;
+esac
+if test -n "$compat_export" ; then
   if test "x$legacy" = "xyes" ; then
-    AC_MSG_WARN([--enable-export-merge=$export_merge overrides --enable-legacy])
+    AC_MSG_WARN([--enable-compat-export=$compat_export overrides --enable-legacy])
   fi
-  resolved_export_merge=$export_merge
 elif test "x$legacy" = "xyes" ; then
-  resolved_export_merge=none
-else
-  resolved_export_merge=all
+  compat_export=static-separate
 fi
 AC_ARG_ENABLE(pthread,
               AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
@@ -224,26 +223,26 @@ AC_CHECK_SIZEOF(int, 4)
 AC_CHECK_SIZEOF(long int, 4)
 AC_CHECK_SIZEOF(long long int, 8)
 
-dnl resolved_export_merge was already determined above from
-dnl --enable-export-merge or --enable-legacy (default: all).
-AC_DEFINE([EXPORT_MERGE_ALL], [1],
-          [sentinel value: NetFlow v1/v5/v9/IPFIX export all merged in ipfix.c (default)])
-AC_DEFINE([EXPORT_MERGE_FORMAT], [2],
-          [sentinel value: template formats (v9/IPFIX) merged in ipfix.c, fixed formats (v1/v5) merged in compat/netflow5.c])
-AC_DEFINE([EXPORT_MERGE_NONE], [3],
+dnl compat_export was already determined above from
+dnl --enable-compat-export or --enable-legacy (default: empty, which
+dnl selects the encoder-based exporter; COMPAT_EXPORT is then not defined).
+dnl The sentinels are always defined so that comparisons against an
+dnl undefined COMPAT_EXPORT (evaluated as 0) are false by default.
+AC_DEFINE([COMPAT_EXPORT_STATIC], [1],
+          [sentinel value: fixed v9/IPFIX templates and data records in ipfix.c, v1/v5 in compat/netflow5.c])
+AC_DEFINE([COMPAT_EXPORT_STATIC_SEPARATE], [2],
           [sentinel value: separate ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c])
-case "$resolved_export_merge" in
-  all)    AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_ALL],
-                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
-  format) AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_FORMAT],
-                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above]) ;;
-  none)   AC_DEFINE([EXPORT_MERGE], [EXPORT_MERGE_NONE],
-                    [which export source layout to build: one of the EXPORT_MERGE_* sentinels above])
-          LEGACY='compat/netflow9.$(OBJEXT) compat/netflow1.$(OBJEXT)'
-          AC_SUBST([LEGACY]) ;;
+case "$compat_export" in
+  static) AC_DEFINE([COMPAT_EXPORT], [COMPAT_EXPORT_STATIC],
+                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above (not defined by default)]) ;;
+  static-separate)
+          AC_DEFINE([COMPAT_EXPORT], [COMPAT_EXPORT_STATIC_SEPARATE],
+                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above (not defined by default)])
+          STATIC_SEPARATE_OBJECTS='compat/netflow9.$(OBJEXT) compat/netflow1.$(OBJEXT)'
+          AC_SUBST([STATIC_SEPARATE_OBJECTS]) ;;
 esac
-AM_CONDITIONAL([EXPORT_MERGE_IS_NONE], [test "x$resolved_export_merge" = xnone])
-AM_CONDITIONAL([EXPORT_MERGE_IS_ALL], [test "x$resolved_export_merge" = xall])
+AM_CONDITIONAL([COMPAT_EXPORT_IS_ENABLED], [test -n "$compat_export"])
+AM_CONDITIONAL([COMPAT_EXPORT_IS_STATIC_SEPARATE], [test "x$compat_export" = xstatic-separate])
 if test "x$pthread" = "xyes" ; then
   AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
   AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])

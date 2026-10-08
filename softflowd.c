@@ -251,7 +251,7 @@ struct NETFLOW_SENDER {
 
 /* Known NetFlow export functions (nf[0] is default).
  * Which source file defines the send_* functions depends on
- * --enable-export-merge (see softflowd.h). */
+ * --enable-compat-export (see softflowd.h). */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
@@ -1882,22 +1882,22 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
     ret = 1;
   }
   else if (strcmp (buf, "expire-all") == 0) {
-#if EXPORT_MERGE == EXPORT_MERGE_NONE
+#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
     netflow9_resend_template ();
-#else /* EXPORT_MERGE != EXPORT_MERGE_NONE */
+#else /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
     ipfix_resend_template ();
-#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
     fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n",
 	     (unsigned int) getpid (), check_expired (ft, target,
 						      CE_EXPIRE_ALL));
     ret = 0;
   }
   else if (strcmp (buf, "send-template") == 0) {
-#if EXPORT_MERGE == EXPORT_MERGE_NONE
+#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
     netflow9_resend_template ();
-#else /* EXPORT_MERGE != EXPORT_MERGE_NONE */
+#else /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
     ipfix_resend_template ();
-#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
     fprintf (ctlf, "softflowd[%u]: Template will be sent at "
 	     "next flow export\n", (unsigned int) getpid ());
     ret = 0;

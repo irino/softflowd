@@ -13,14 +13,14 @@ jobs:
           - ubuntu:26.04
           - debian:12
           - debian:13
-        export_merge: [all, format, none]
+        compat_export: [default, static, static-separate]
         # "without": libbsd is not installed, so configure falls back to the
         # files in compat/ where the C library lacks a function.
         libbsd: [without]
         include:
-          - {image: "ubuntu:22.04", export_merge: all, libbsd: with}
-          - {image: "ubuntu:24.04", export_merge: all, libbsd: with}
-          - {image: "debian:12", export_merge: all, libbsd: with}
+          - {image: "ubuntu:22.04", compat_export: default, libbsd: with}
+          - {image: "ubuntu:24.04", compat_export: default, libbsd: with}
+          - {image: "debian:12", compat_export: default, libbsd: with}
     container:
       image: ${{ matrix.image }}
     steps:
@@ -44,13 +44,13 @@ jobs:
       - name: Build with warnings
         run: |
           autoreconf -if
-          ./configure --enable-gcc-warnings --enable-export-merge=${{ matrix.export_merge }} \
+          ./configure --enable-gcc-warnings ${{ matrix.compat_export != 'default' && format('--enable-compat-export={0}', matrix.compat_export) || '' }} \
             ${{ matrix.libbsd == 'with' && '--with-libbsd' || '' }}
           make
 
-  # Builds compile every --enable-export-merge variant above, but
+  # Builds compile every --enable-compat-export variant above, but
   # never actually run the resulting binary -- which is exactly how a
-  # NULL-pointer dereference in the EXPORT_MERGE_ALL exporter's per-flow record
+  # NULL-pointer dereference in the default encoder-based exporter's per-flow record
   # path went unnoticed (it happened to not crash at -O2 on the one
   # version tried by hand, purely by luck of stack layout). This job
   # replays a small generated pcap through every NetFlow/IPFIX version,
@@ -61,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        export_merge: [all, format, none]
+        compat_export: [default, static, static-separate]
         libbsd: [without, with]
     env:
       # Pre-existing, unrelated issues must not fail this job: alignment
@@ -92,7 +92,7 @@ jobs:
       - name: Build with AddressSanitizer/UndefinedBehaviorSanitizer
         run: |
           autoreconf -if
-          ./configure --enable-export-merge=${{ matrix.export_merge }} \
+          ./configure ${{ matrix.compat_export != 'default' && format('--enable-compat-export={0}', matrix.compat_export) || '' }} \
             --${{ matrix.libbsd }}-libbsd \
             CFLAGS="-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
           make
@@ -101,7 +101,7 @@ jobs:
         run: |
           set -e
           for v in 1 5 9 10; do
-            echo "== NetFlow/IPFIX version $v (export-merge=${{ matrix.export_merge }}, ${{ matrix.libbsd }} libbsd) =="
+            echo "== NetFlow/IPFIX version $v (compat-export=${{ matrix.compat_export }}, ${{ matrix.libbsd }} libbsd) =="
             ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v "$v"
           done
           echo "== bidirectional IPFIX (-b, version 10) =="

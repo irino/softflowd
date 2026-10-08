@@ -132,11 +132,11 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
 
 
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
- * EXPORT_MERGE_ALL to avoid duplication. */
+ * COMPAT_EXPORT to avoid duplication. */
 /* DEF_FIELD_ENC(ie, len, fn): Single macro to define field tables for both
- * with and without EXPORT_MERGE_ALL without duplicating IE
- * lists. Forward-declares encoder types so the EXPORT_MERGE_ALL expansion can compile. */
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
+ * with and without COMPAT_EXPORT without duplicating IE
+ * lists. Forward-declares encoder types so the default (encoder-based) expansion can compile. */
+#ifndef COMPAT_EXPORT
 struct IPFIX_CTX;
 typedef void (*ipfix_encoder_t) (u_char * dst, u_int16_t length,
                                          const struct IPFIX_CTX *
@@ -145,7 +145,7 @@ struct IPFIX_FIELD_SPECIFIER_ENCODER {
   struct IPFIX_FIELD_SPECIFIER field;
   ipfix_encoder_t encoder;
 };
-/* Forward declarations for 'fn' in DEF_FIELD_ENC (for EXPORT_MERGE_ALL). */
+/* Forward declarations for 'fn' in DEF_FIELD_ENC (for the default encoder-based exporter). */
 static void enc_sourceIPv4Address (u_char *, u_int16_t,
                                    const struct IPFIX_CTX *);
 static void enc_destinationIPv4Address (u_char *, u_int16_t,
@@ -241,7 +241,7 @@ static void enc_samplingAlgorithm (u_char *, u_int16_t,
 #endif
 
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
- * EXPORT_MERGE_ALL to avoid duplication. */
+ * COMPAT_EXPORT to avoid duplication. */
 const IPFIX_FIELD_TABLE_TYPE field_v4[] = {
   DEF_FIELD_ENC (IPFIX_sourceIPv4Address, 4, enc_sourceIPv4Address),
   DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)
@@ -534,10 +534,10 @@ valuate_icmp (const struct FLOW *flow) {
   return 0;
 }
 
-#if EXPORT_MERGE == EXPORT_MERGE_ALL
-/* Merged NetFlow v1/v5/v9/IPFIX exporter (EXPORT_MERGE_ALL):
+#ifndef COMPAT_EXPORT
+/* Merged NetFlow v1/v5/v9/IPFIX exporter (default, encoder-based):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
- * Active only under --enable-export-merge=all (psamp.c remains separate). */
+ * Active unless --enable-compat-export or --enable-legacy is given (psamp.c remains separate). */
 
 /** Context for resolving field values: flow, endpoint index, and send parameters. */
 struct IPFIX_CTX {
@@ -1520,8 +1520,8 @@ ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
   ipfix_send_option (packet, offset, version, sp);
 }
 
-#else /* EXPORT_MERGE != EXPORT_MERGE_ALL */
-/* EXPORT_MERGE != ALL (format or none): Shares IPFIX
+#else /* COMPAT_EXPORT */
+/* COMPAT_EXPORT (static or static-separate): Shares IPFIX
  * field tables above, but encodes the data records with the static send path. */
 
 /* Stuff pertaining to the templates that softflowd uses */
@@ -2239,16 +2239,16 @@ ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
   }
 }
 
-#endif /* EXPORT_MERGE == EXPORT_MERGE_ALL */
+#endif /* COMPAT_EXPORT */
 
 /**
  * @brief Send flows as NetFlow v9 or IPFIX packets.
  *
- * Packet-framing loop shared by every --enable-export-merge value that exports NetFlow v9 or
+ * Packet-framing loop shared by every export layout that exports NetFlow v9 or
  * IPFIX from this file. Templates and the options record are sent first and then every
  * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; the records come from ipfix_flow_to_flowset(),
- * which builds them dynamically from the template field lists for --enable-export-merge=all
- * and encodes them statically for format and none.
+ * which builds them dynamically from the template field lists by default
+ * and encodes them statically for --enable-compat-export=static and static-separate.
  *
  * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
@@ -2389,11 +2389,11 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#if EXPORT_MERGE != EXPORT_MERGE_NONE
+#if COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE
 /**
  * @brief Send expired flows as NetFlow v9 packets.
  *
- * Not defined for --enable-export-merge=none, where compat/netflow9.c does this.
+ * Not defined for --enable-compat-export=static-separate, where compat/netflow9.c does this.
  *
  * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
@@ -2402,7 +2402,7 @@ int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   return send_ipfix_flows (sp, 0, 9);
 }
-#endif /* EXPORT_MERGE != EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
 
 /**
  * @brief Send expired flows as IPFIX packets.

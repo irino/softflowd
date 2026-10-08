@@ -64,7 +64,7 @@
 #define IPFIX_tcpControlBits            6
 #define IPFIX_sourceTransportPort       7
 #define IPFIX_sourceIPv4Address         8
-/* IEs 9, 15, 16, 17: Express NetFlow v1/v5 layouts for the EXPORT_MERGE_ALL engine (per IANA). */
+/* IEs 9, 15, 16, 17: Express NetFlow v1/v5 layouts for the default encoder-based engine (per IANA). */
 #define IPFIX_sourceIPv4PrefixLength    9
 #define IPFIX_ingressInterface          10
 #define IPFIX_destinationTransportPort  11

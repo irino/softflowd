@@ -37,7 +37,7 @@ struct NETFLOW1_HEADER {
   u_int32_t export_time_nanoseconds;
 } __packed;
 
-/* Cisco NetFlow v5 header format (shared with the ipfix.c exporter, EXPORT_MERGE_ALL).
+/* Cisco NetFlow v5 header format (shared with the default ipfix.c exporter).
  * NetFlow v1 shares the first 16 bytes (NETFLOW1_HEADER_SIZE).
  * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */
 struct NETFLOW5_HEADER {
@@ -82,9 +82,9 @@ struct NETFLOW9_HEADER {
   u_int32_t sequence_number, observation_domain_id;
 } __packed;
 
-#if EXPORT_MERGE == EXPORT_MERGE_NONE
+#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
 /* Force a resend of the flow template, from netflow9.c */
 void netflow9_resend_template (void);
-#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
 
 #endif /* _NETFLOW_H */

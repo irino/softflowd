@@ -29,7 +29,7 @@
 #include "netflow.h"
 #include "ipfix.h"
 
-/* Legacy (--enable-export-merge=none) NetFlow v9 exporter limits */
+/* Legacy (--enable-compat-export=static-separate) NetFlow v9 exporter limits */
 #define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE                   512
 #define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
 #define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
@@ -299,9 +299,9 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
  * Given an array of expired flows, send netflow v9 report packets
  * Returns number of packets sent or -1 on error
  */
-#if EXPORT_MERGE == EXPORT_MERGE_NONE
+#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
 /**
- * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, --enable-export-merge=none).
+ * @brief Send expired flows as NetFlow v9 export packets (legacy exporter, --enable-compat-export=static-separate).
  *
  * @param sp Send parameters: flows to export, target destinations, interface index, tracking parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
@@ -449,7 +449,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 #endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
-#endif /* EXPORT_MERGE == EXPORT_MERGE_NONE */
+#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
 
 /**
  * @brief Request that the templates be sent again with the next export packet.
