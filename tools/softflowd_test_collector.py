@@ -1030,9 +1030,19 @@ def test_control_socket_compatibility(
 def run_nfdump_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
     """Run daemon against PCAP and collect exported flows via nfcapd, decoded with nfdump."""
     out_dir = tempfile.mkdtemp(dir=SUITE_TMP_DIR)
-    port = 2055
-    nfcapd_proc = subprocess.Popen(["nfcapd", "-p", str(port), "-w", out_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # A free port, not the default 2055: some distributions (Debian, Ubuntu)
+    # start their own nfcapd on 2055 when the nfdump package is installed.
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.bind(("0.0.0.0", 0))
+        port = probe.getsockname()[1]
+    # Outside out_dir, which nfdump -R scans for capture files.
+    nfcapd_log = os.path.join(SUITE_TMP_DIR, f"nfcapd-{port}.log")
+    with open(nfcapd_log, "w") as log_file:
+        nfcapd_proc = subprocess.Popen(["nfcapd", "-p", str(port), "-w", out_dir], stdout=log_file, stderr=subprocess.STDOUT)
     time.sleep(1)
+    if nfcapd_proc.poll() is not None:
+        with open(nfcapd_log) as log_file:
+            sys.exit(f"error: nfcapd exited right after starting on UDP port {port}:\n{log_file.read()}")
 
     try:
         cmd = [
