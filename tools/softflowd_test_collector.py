@@ -74,6 +74,11 @@ Options:
     --collector MODE          : Flow collector: auto (nfdump if nfcapd and nfdump are installed,
                               otherwise python), nfdump, or python (default: auto)
     --pcap-dir DIR            : Use http.cap and v6-http.cap from DIR instead of downloading them
+    --cache-dir DIR           : Persistent cache for the stable binaries and the downloaded
+                              sample pcaps (default: ~/.cache/softflowd-test)
+    --no-cache                : Do not use the cache (build and download on every run)
+    --rebuild-stable          : Rebuild the stable binaries even if they are cached
+    --refresh-pcap            : Download the sample pcaps again even if they are cached
     --gauge-clock             : Also run each daemon once per test case with its own
                               -g flag and print the "cpu clocks" (total) and
                               "cpu clocks (export)" (time inside the export call)
@@ -699,6 +704,18 @@ COLLECTOR_BACKEND = "nfdump"
 # Optional directory holding http.cap / v6-http.cap (set by --pcap-dir).
 PCAP_DIR: Optional[str] = None
 
+# Persistent cache for the stable binaries and the sample pcaps (set by
+# --cache-dir; None disables it).  It lives outside SUITE_TMP_DIR, which is
+# removed at exit.
+CACHE_DIR: Optional[str] = None
+REBUILD_STABLE = False
+REFRESH_PCAP = False
+
+# Magic numbers of libpcap (both byte orders, micro/nanosecond) and pcapng.
+PCAP_MAGICS = (b"\xa1\xb2\xc3\xd4", b"\xd4\xc3\xb2\xa1",
+               b"\xa1\xb2\x3c\x4d", b"\x4d\x3c\xb2\xa1",
+               b"\x0a\x0d\x0d\x0a")
+
 # Sample PCAP URLs for testing
 HTTP_PCAP_URL = "https://wiki.wireshark.org/uploads/27707187aeb30df68e70c8fb9d614981/http.cap"
 V6_HTTP_PCAP_URL = "https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/v6-http.cap"
@@ -764,20 +781,47 @@ def check_required_tool(cmd: str, apt_pkg: str, url: str) -> str:
     sys.exit(1)
 
 
+def default_cache_dir() -> str:
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "softflowd-test")
+
+
+def is_pcap_file(path: str) -> bool:
+    """True if path is non-empty and starts with a pcap or pcapng magic number."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) in PCAP_MAGICS
+    except OSError:
+        return False
+
+
 def ensure_sample_pcap(name: str, url: str) -> str:
-    """Download or return cached sample PCAP file."""
+    """Return the sample PCAP: --pcap-dir, then the cache, otherwise download it."""
     if PCAP_DIR is not None:
         local = os.path.join(PCAP_DIR, name)
         if os.path.exists(local):
             return local
-    path = os.path.join(SUITE_TMP_DIR, name)
-    if not os.path.exists(path):
-        print(f"Downloading test sample PCAP: {name} ...")
-        try:
-            urllib.request.urlretrieve(url, path)
-        except Exception as e:
-            print_red(f"Failed to download PCAP file ({name}): {e}")
-            sys.exit(1)
+    pcap_dir = os.path.join(CACHE_DIR, "pcap") if CACHE_DIR else SUITE_TMP_DIR
+    path = os.path.join(pcap_dir, name)
+    if os.path.exists(path) and not (REFRESH_PCAP and CACHE_DIR):
+        if is_pcap_file(path):
+            return path
+        print_yellow(f"Cached sample PCAP {path} is not a pcap file; downloading it again")
+    print(f"Downloading test sample PCAP: {name} ...")
+    # Download to a temporary name so an interrupted or failed download never
+    # leaves a broken file behind.
+    part = f"{path}.part.{os.getpid()}"
+    try:
+        os.makedirs(pcap_dir, exist_ok=True)
+        urllib.request.urlretrieve(url, part)
+        if not is_pcap_file(part):
+            raise ValueError("the downloaded file is not a pcap file")
+        os.replace(part, path)
+    except Exception as e:
+        if os.path.exists(part):
+            os.remove(part)
+        print_red(f"Failed to download PCAP file ({name}): {e}")
+        sys.exit(1)
     return path
 
 
@@ -812,12 +856,39 @@ def build_c_variants(src_dir: str, output_dir: str, what: str, prefix: str,
     return paths
 
 
+STABLE_BINARIES = ("stable-softflowd", "stable-softflowctl",
+                   "stable-softflowd-legacy", "stable-softflowctl-legacy")
+
+
+def stable_cache_key(commit_hash: str) -> str:
+    """Resolve commit_hash to a full SHA so that a moved tag or branch does not
+    hit a stale cache entry; fall back to the name as given."""
+    res = subprocess.run(["git", "rev-parse", "--verify", f"{commit_hash}^{{commit}}"],
+                         cwd=PROJECT_ROOT, capture_output=True, text=True)
+    return res.stdout.strip() if res.returncode == 0 and res.stdout.strip() else commit_hash
+
+
 def build_c_stable(commit_hash: str, output_dir: str) -> Tuple[str, str, str, str]:
     """
     Check out C stable version into an isolated temp worktree and compile both
-    standard and legacy variants.
+    standard and legacy variants.  The binaries are cached in CACHE_DIR per
+    commit; a cached set is reused without building (or needing the commit).
     Returns: (stable-softflowd, stable-softflowctl, stable-softflowd-legacy, stable-softflowctl-legacy)
     """
+    cache_entry = None
+    if CACHE_DIR:
+        key = stable_cache_key(commit_hash)
+        cache_entry = os.path.join(CACHE_DIR, "stable", re.sub(r"[^A-Za-z0-9._-]", "_", key))
+        if not REBUILD_STABLE and all(os.access(os.path.join(cache_entry, n), os.X_OK)
+                                      for n in STABLE_BINARIES):
+            print_cyan(f"\n[Build] Using cached C stable binaries ({commit_hash}): {cache_entry}")
+            paths = []
+            for n in STABLE_BINARIES:
+                dest = os.path.join(output_dir, n)
+                shutil.copy2(os.path.join(cache_entry, n), dest)
+                paths.append(dest)
+            return tuple(paths)
+
     print_cyan(f"\n[Build] Compiling C stable version (Commit/Tag: {commit_hash})...")
     worktree_dir = os.path.join(SUITE_TMP_DIR, "c_stable_worktree")
 
@@ -825,8 +896,28 @@ def build_c_stable(commit_hash: str, output_dir: str) -> Tuple[str, str, str, st
     atexit.register(lambda: subprocess.run(["git", "worktree", "remove", "-f", worktree_dir], cwd=PROJECT_ROOT, stderr=subprocess.DEVNULL))
 
     # The stable tree predates --enable-compat-export: default and legacy only.
-    return tuple(build_c_variants(worktree_dir, output_dir, "stable", "stable-",
-                                  C_BUILD_VARIANTS[:2]))
+    paths = tuple(build_c_variants(worktree_dir, output_dir, "stable", "stable-",
+                                   C_BUILD_VARIANTS[:2]))
+    if cache_entry:
+        store_stable_cache(cache_entry, paths)
+    return paths
+
+
+def store_stable_cache(cache_entry: str, paths: Sequence[str]) -> None:
+    """Store the built binaries in the cache; a failure only costs a rebuild next time."""
+    tmp = f"{cache_entry}.tmp.{os.getpid()}"
+    try:
+        os.makedirs(tmp)
+        for path in paths:
+            shutil.copy2(path, os.path.join(tmp, os.path.basename(path)))
+        # Rename into place only when complete so the cache never holds a partial set.
+        if os.path.isdir(cache_entry):
+            shutil.rmtree(cache_entry)
+        os.rename(tmp, cache_entry)
+        print(f"  -> Cached stable binaries in {cache_entry}")
+    except OSError as e:
+        print_yellow(f"Warning: could not cache the stable binaries: {e}")
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def build_c_dev(output_dir: str) -> Tuple[str, ...]:
@@ -1606,6 +1697,7 @@ def run_single_comparison(
 
 def compat_main():
     global COLLECTOR_BACKEND, PCAP_DIR, SUITE_TMP_DIR, MEASURE
+    global CACHE_DIR, REBUILD_STABLE, REFRESH_PCAP
     parser = argparse.ArgumentParser(
         description="softflowd Comprehensive Backward Compatibility Test Suite",
         epilog="Other subcommands: bench (export benchmark) and collect (flow "
@@ -1723,6 +1815,28 @@ def compat_main():
         help="Directory containing http.cap and v6-http.cap; used instead of downloading them"
     )
     parser.add_argument(
+        "--cache-dir",
+        default=None,
+        metavar="DIR",
+        help="Persistent cache for the stable binaries and the downloaded sample pcaps "
+             "(default: ~/.cache/softflowd-test)"
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Do not use the cache: build the stable version and download the pcaps on every run"
+    )
+    parser.add_argument(
+        "--rebuild-stable",
+        action="store_true",
+        help="Rebuild the stable binaries even if they are cached"
+    )
+    parser.add_argument(
+        "--refresh-pcap",
+        action="store_true",
+        help="Download the sample pcaps again even if they are cached"
+    )
+    parser.add_argument(
         "--gauge-clock",
         dest="gauge_clock",
         action="store_true",
@@ -1806,6 +1920,12 @@ def compat_main():
 
     # Select the flow collector backend
     PCAP_DIR = args.pcap_dir
+    if args.no_cache and args.cache_dir:
+        parser.error("--no-cache and --cache-dir cannot be used together")
+    CACHE_DIR = None if args.no_cache else os.path.abspath(
+        os.path.expanduser(args.cache_dir or default_cache_dir()))
+    REBUILD_STABLE = args.rebuild_stable
+    REFRESH_PCAP = args.refresh_pcap
     have_nfdump = bool(shutil.which("nfdump") and shutil.which("nfcapd"))
     if args.collector == "auto":
         COLLECTOR_BACKEND = "nfdump" if have_nfdump else "python"
