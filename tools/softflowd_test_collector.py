@@ -4,14 +4,14 @@ softflowd_test_collector.py -- test, benchmark and collector tools for softflowd
 
 One self-contained script (standard library only) with three subcommands:
 
-  tools/softflowd_test_collector.py compat  [options]           backward compatibility
-  tools/softflowd_test_collector.py bench   [options] PCAP...   export benchmark
-  tools/softflowd_test_collector.py collect -p PORT [-b ADDR] [-6]  flow collector
+  tools/softflowd_test_collector.py collect [-p PORT] [-b ADDR] [-6]  flow collector (default)
+  tools/softflowd_test_collector.py compat  [options] [PCAP...]       backward compatibility
+  tools/softflowd_test_collector.py bench   [options] PCAP...         export benchmark
 
 Options after the subcommand belong to that subcommand; `-h` after a
-subcommand shows its help.  Without a subcommand the arguments go to compat,
-so the command lines of the former run_compat_suite.py keep working with
-this file's name.  tools/benchmark_export.sh is a thin wrapper of bench.
+subcommand shows its help.  Without a subcommand the arguments go to collect
+(the successor of collector.pl), so run the former run_compat_suite.py
+usage as `compat [options]`.
 
 ----------------------------------------------------------------------------
 compat
@@ -36,7 +36,13 @@ Default comparison matrix:
   5. softflowd vs rsoftflowd (skippable)
 
 Usage:
-    tools/softflowd_test_collector.py compat [OPTIONS]
+    tools/softflowd_test_collector.py compat [OPTIONS] [PCAP...]
+
+Positional PCAP files are tested in addition to the sample pcaps: each one is
+exported as NetFlow v1, v5, v9 and IPFIX by the stable and the development
+daemon, the flows are compared, and the daemons are measured on it.  A pcap
+that yields no flow records on either side (an IPv6-only pcap has none in v1 and
+v5) is reported as skipped, not as a failure.
 
 Options:
     --stable-commit HASH    : Git commit/tag for C stable version (default: 0260261)
@@ -81,16 +87,17 @@ Options:
     --rebuild-stable          : Rebuild the stable binaries even if they are cached
     --rebuild-dev             : Rebuild the development C binaries even if they are cached
     --refresh-pcap            : Download the sample pcaps again even if they are cached
-    --gauge-clock             : Also run each daemon once per test case with its own
-                              -g flag and print the "cpu clocks" (total) and
+    --gauge-clock             : Run each daemon once per test case with its own
+    --no-gauge-clock            -g flag and print the "cpu clocks" (total) and
                               "cpu clocks (export)" (time inside the export call)
-                              counters it reports on exit, for stable and dev
-    --benchmark [TOOL]        : Also time each daemon (stable and dev) for every test
-                              case.  TOOL is hyperfine, time (wall clock plus user and
+                              counters it reports on exit, for stable and dev.
+                              On by default; --no-gauge-clock turns it off
+    --benchmark [TOOL]        : Time each daemon (stable and dev) for every test
+    --no-benchmark              case.  TOOL is hyperfine, time (wall clock plus user and
                               system CPU time of the child, as time(1) reports them,
                               measured in-process) or auto (hyperfine if installed,
-                              otherwise time; default when TOOL is omitted).
-                              Combine with --gauge-clock to get both in one run
+                              otherwise time; the default).  On by default, so it
+                              needs no extra tool; --no-benchmark turns it off
     --bench-runs N            : Timed runs per daemon and test case (default: 20)
     --bench-warmup N          : Untimed warmup runs before them (default: 3)
     --bench-min-runs N        : hyperfine picks the run count itself but runs at least N
@@ -105,9 +112,9 @@ Options:
     --perf                    : Also run `perf stat` on each daemon; the output is appended to
                               BENCH_CSV.perf.log (--bench-csv is required)
     --bench-pcap FILE         : Extra pcap to measure with -g/--benchmark for NetFlow
-                              v1, v5, v9 and IPFIX; it is not compared for
-                              compatibility.  May be repeated.  The sample pcaps
-                              are tiny, so use this for numbers that mean something
+                              v1, v5, v9 and IPFIX; unlike a positional PCAP it is not
+                              compared for compatibility.  May be repeated.  The sample
+                              pcaps are tiny, so use this for numbers that mean something
     --bench-csv FILE          : Write the -g/--benchmark results of all pairs as CSV
     -h, --help              : Show this help message
 
@@ -146,7 +153,7 @@ For each (pcap, build variant, version) combination:
      the "cpu clocks" and "cpu clocks (export)" counters in OUTFILE.gauge.csv.
 
 ----------------------------------------------------------------------------
-collect
+collect (the default without a subcommand)
 ----------------------------------------------------------------------------
 Prints the NetFlow v1/v5/v9 and IPFIX flows received on a UDP port, one CSV
 row per flow with the column names of `nfdump -o csv` (ts, te, td, sa, da,
@@ -671,9 +678,12 @@ class UdpSink:
 def collect_main() -> int:
     ap = argparse.ArgumentParser(
         description="Print NetFlow v1/v5/v9 and IPFIX flows received on a "
-                    "UDP port (CSV, nfdump column names).")
-    ap.add_argument("-p", "--port", type=int, required=True,
-                    help="UDP port to listen on")
+                    "UDP port (CSV, nfdump column names).",
+        epilog="This is the default of softflowd_test_collector.py.  The other "
+               "subcommands are compat (backward compatibility test) and bench "
+               "(export benchmark); run them with -h for their options.")
+    ap.add_argument("-p", "--port", type=int, default=2055,
+                    help="UDP port to listen on (default: 2055)")
     ap.add_argument("-b", "--bind", default=None,
                     help="address to listen on (default: any)")
     ap.add_argument("-6", "--ipv6", action="store_true",
@@ -706,6 +716,9 @@ COLLECTOR_BACKEND = "nfdump"
 
 # Optional directory holding http.cap / v6-http.cap (set by --pcap-dir).
 PCAP_DIR: Optional[str] = None
+
+# Pcap files given on the command line; compared in addition to the samples.
+COMPAT_PCAPS: List[str] = []
 
 # Persistent cache for the stable binaries and the sample pcaps (set by
 # --cache-dir; None disables it).  It lives outside SUITE_TMP_DIR, which is
@@ -1704,6 +1717,11 @@ def test_differential_output(
             ("IPv6 HTTP (IPFIX)", v6_pcap, 10),
         ])
 
+    for extra in COMPAT_PCAPS:
+        for version, label in ((1, "NetFlow v1"), (5, "NetFlow v5"),
+                               (9, "NetFlow v9"), (10, "IPFIX")):
+            test_cases.append((f"{os.path.basename(extra)} ({label})", extra, version))
+
     all_matched = True
     for name, pcap_path, version in test_cases:
         # The known stable(<=1.1.1)-legacy NetFlow v9 export_time bug (see
@@ -1733,6 +1751,9 @@ def test_differential_output(
 
         if norm_stable == norm_dev and len(norm_stable) > 0:
             print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")
+        elif norm_stable == norm_dev and pcap_path in COMPAT_PCAPS:
+            # e.g. an IPv6-only pcap exported as NetFlow v1/v5, which carry no IPv6
+            print_yellow(f"    - {display_name}: SKIPPED (no flow records on either side)")
         else:
             print_red(f"    - {display_name}: FAILED (Records: stable={len(norm_stable)}, dev={len(norm_dev)})")
             show = max(len(norm_stable), len(norm_dev), 3)
@@ -1795,7 +1816,7 @@ def run_single_comparison(
 
 def compat_main():
     global COLLECTOR_BACKEND, PCAP_DIR, SUITE_TMP_DIR, MEASURE
-    global CACHE_DIR, REBUILD_STABLE, REBUILD_DEV, REFRESH_PCAP
+    global CACHE_DIR, REBUILD_STABLE, REBUILD_DEV, REFRESH_PCAP, COMPAT_PCAPS
     parser = argparse.ArgumentParser(
         description="softflowd Comprehensive Backward Compatibility Test Suite",
         epilog="Other subcommands: bench (export benchmark) and collect (flow "
@@ -1940,23 +1961,37 @@ def compat_main():
         help="Download the sample pcaps again even if they are cached"
     )
     parser.add_argument(
+        "pcaps",
+        nargs="*",
+        metavar="PCAP",
+        help="Pcap files to test in addition to the sample pcaps: compared as NetFlow v1, v5, "
+             "v9 and IPFIX, and measured"
+    )
+    parser.add_argument(
         "--gauge-clock",
         dest="gauge_clock",
-        action="store_true",
-        help="Also run each daemon once per test case with its own -g flag and print "
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run each daemon once per test case with its own -g flag and print "
              "the \"cpu clocks\" (total) and \"cpu clocks (export)\" counters it reports "
-             "on exit, for stable and dev (default: False)"
+             "on exit, for stable and dev (default: on; --no-gauge-clock turns it off)"
     )
     parser.add_argument(
         "--benchmark",
         nargs="?",
         const="auto",
-        default=None,
+        default="auto",
         choices=["auto", "hyperfine", "time"],
         metavar="TOOL",
-        help="Also time each daemon (stable and dev) for every test case with hyperfine, "
+        help="Time each daemon (stable and dev) for every test case with hyperfine, "
              "time (wall clock and user/system CPU time as time(1) reports them) or auto "
-             "(hyperfine if installed, otherwise time; the default when TOOL is omitted)"
+             "(hyperfine if installed, otherwise time; the default, also when TOOL is "
+             "omitted).  Needs no extra tool; --no-benchmark turns it off"
+    )
+    parser.add_argument(
+        "--no-benchmark",
+        action="store_true",
+        help="Do not time the daemons (see --benchmark)"
     )
     parser.add_argument("--bench-runs", type=int, default=20,
                         help="Timed runs per daemon and test case (default: 20)")
@@ -1983,6 +2018,11 @@ def compat_main():
     parser.add_argument("--bench-csv", default=None, metavar="FILE",
                         help="Write the -g/--benchmark results of all pairs as CSV")
     args = parser.parse_args()
+    if args.no_benchmark:
+        args.benchmark = None
+    for pcap in args.pcaps:
+        if not os.access(pcap, os.R_OK):
+            parser.error(f"cannot read pcap: {pcap}")
 
     if args.callgrind and not (shutil.which("valgrind") and shutil.which("callgrind_annotate")):
         print_yellow("warning: --callgrind needs valgrind and callgrind_annotate; skipping callgrind")
@@ -2023,6 +2063,7 @@ def compat_main():
 
     # Select the flow collector backend
     PCAP_DIR = args.pcap_dir
+    COMPAT_PCAPS = [os.path.abspath(p) for p in args.pcaps]
     if args.no_cache and args.cache_dir:
         parser.error("--no-cache and --cache-dir cannot be used together")
     CACHE_DIR = None if args.no_cache else os.path.abspath(
@@ -2515,7 +2556,7 @@ def main() -> int:
     if len(argv) >= 2 and argv[1] in SUBCOMMANDS:
         name, rest = argv[1], argv[2:]
     elif len(argv) == 1 or argv[1].startswith("-"):
-        name, rest = "compat", argv[1:]  # the former run_compat_suite.py usage
+        name, rest = "collect", argv[1:]  # the successor of collector.pl
     else:
         print(f"unknown subcommand '{argv[1]}' "
               f"(expected: {', '.join(SUBCOMMANDS)})", file=sys.stderr)

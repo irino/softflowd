@@ -41,8 +41,9 @@ softflowd and includes a few handy features, such as the ability
 to filter flows it receives as well as Perl and Python APIs to its
 storage format. NB. You don't have to use flowd: any NetFlow compatible 
 collector should work with softflowd. An example Python collector for
-testing purposes is included as "tools/softflowd_test_collector.py collect";
-it decodes NetFlow v1, v5, v9 and IPFIX. The old Perl collector,
+testing purposes is included as "tools/softflowd_test_collector.py collect"
+(the default when no subcommand is given); it decodes NetFlow v1, v5, v9
+and IPFIX. The old Perl collector,
 tools/deprecated/collector.pl, is deprecated: it only supports NetFlow v1
 and v5.
 
@@ -103,16 +104,17 @@ hyperfine for timing. Optional flags add callgrind instruction counts
 (-C) and softflowd's own -g cpu-clock counters (-g) to the comparison.
 Run tools/softflowd_test_collector.py bench -h for details.
 
-tools/softflowd_test_collector.py (formerly run_compat_suite.py) is a
-regression test suite that replays sample pcap files through two
-softflowd builds (e.g. a stable release and a development build) and
-diffs their NetFlow/IPFIX output as captured by nfdump/nfcapd, or by a
-built-in Python collector if nfdump is not installed, to catch
-unintended changes in exported flow data. With --gauge-clock,
---benchmark, --callgrind and/or --perf it also records the -g cpu
-clock counters, the run time (time or hyperfine), the callgrind
-instruction counts and perf stat of both builds in the same run.
-Run tools/softflowd_test_collector.py --help for details.
+tools/softflowd_test_collector.py compat (formerly run_compat_suite.py) is a
+regression test suite that replays sample pcap files, and any pcap files
+given on the command line, through two softflowd builds (e.g. a stable
+release and a development build) and diffs their NetFlow/IPFIX output as
+captured by nfdump/nfcapd, or by a built-in Python collector if nfdump is
+not installed, to catch unintended changes in exported flow data. It also
+records the -g cpu clock counters and the run time (time or hyperfine) of
+both builds in the same run, which needs no extra tool; --no-gauge-clock
+and --no-benchmark turn this off, and --callgrind and/or --perf add the
+callgrind instruction counts and perf stat.
+Run tools/softflowd_test_collector.py compat --help for details.
 
 tools/benchmark_export.sh is kept as a thin wrapper of the bench
 subcommand.

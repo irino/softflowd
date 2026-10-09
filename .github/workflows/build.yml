@@ -160,7 +160,7 @@ jobs:
 
       - name: Compatibility test (stable 1.1.1 vs this tree)
         run: |
-          python3 tools/softflowd_test_collector.py --skip-cpp --skip-rust \
+          python3 tools/softflowd_test_collector.py compat --skip-cpp --skip-rust \
             --collector ${{ matrix.collector }} --pcap-dir pcaps
 
   freebsd:
