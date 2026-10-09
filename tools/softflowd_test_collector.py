@@ -62,7 +62,8 @@ Options:
                               (fixed upstream in ipv6_to_flowrec(), commit 262225e) by masking
                               the protocol and destination-port columns (whatever they are
                               named in this nfdump build) only for rows either side reports as
-                              ICMP/ICMPv6 -- and only where every other column still matches
+                              ICMPv6 (ICMPv4 rows are always compared) -- and only where
+                              every other column still matches
                               (default: True)
     --no-auto-ignore-icmp-reclass : Disable the above; compare those columns too
     -6, --ignore-ipv6       : Ignore IPv6 test cases
@@ -714,10 +715,13 @@ COLLECTOR_METADATA_COLUMNS = {"ra", "eng", "exid", "tr"}
 # Protocol numbers softflowd's C stable reference (<= 1.1.1) can misreport for
 # ICMPv6 due to a pointer-arithmetic bug in ipv6_to_flowrec() (fixed upstream
 # in commit 262225e): affected rows show protocol 0 instead of 58, with a
-# correspondingly wrong ICMP type/code overlaid in nfdump's 'dp' column. "1"
-# (ICMPv4) is included defensively even though the bug is IPv6-specific, since
-# ICMPv4 rows use the same 'pr'/'dp' overlay convention.
-ICMP_RECLASSIFICATION_PROTOCOLS = {"0", "1", "58"}
+# correspondingly wrong ICMP type/code overlaid in nfdump's 'dp' column.
+# ICMPv4 ("1" / "ICMP") is deliberately not listed: the bug is IPv6-specific,
+# so ICMPv4 rows are compared like any other row.
+# nfdump 1.7.3 prints the protocol of an ICMPv6 row by name ("ICMP6") and only
+# protocol 0 as a number; other builds print numbers.  The values are compared
+# upper-cased, so both spellings are listed.
+ICMP_RECLASSIFICATION_PROTOCOLS = {"0", "58", "ICMP6"}
 
 # Known aliases nfdump's `-o csv` uses for the protocol / destination-port
 # columns across versions and builds (e.g. terse 'pr'/'dp' vs the more
@@ -1455,7 +1459,7 @@ def normalize_nfdump_csv(
         if ignore_timestamp:
             parts[0] = "TIMESTAMP"
             parts[1] = "DURATION"
-        if icmp_mask_idx and pr_idx is not None and pr_idx < len(parts) and parts[pr_idx] in ICMP_RECLASSIFICATION_PROTOCOLS:
+        if icmp_mask_idx and pr_idx is not None and pr_idx < len(parts) and parts[pr_idx].strip().upper() in ICMP_RECLASSIFICATION_PROTOCOLS:
             for i in icmp_mask_idx:
                 if i < len(parts):
                     parts[i] = "ICMP_RECLASSIFIED"
@@ -1526,7 +1530,7 @@ def test_differential_output(
         if should_ignore_ts and not ignore_timestamp:
             display_name += " [timestamp ignored: known stable-legacy NetFlow v9 bug]"
         if norm_icmp:
-            display_name += " [ICMP protocol/dest-port tolerance active]"
+            display_name += " [ICMPv6 protocol/dest-port tolerance active]"
 
         if norm_stable == norm_dev and len(norm_stable) > 0:
             print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")

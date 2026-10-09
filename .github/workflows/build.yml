@@ -107,6 +107,48 @@ jobs:
           echo "== bidirectional IPFIX (-b, version 10) =="
           ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v 10 -b
 
+  # Replays sample pcaps through softflowd 1.1.1 (the stable reference) and
+  # through this tree, and diffs the NetFlow v1/v5/v9 and IPFIX flows they
+  # export, so that an unintended change in the exported flow data fails the
+  # build (tools/softflowd_test_collector.py compat).  The flows are decoded
+  # either by the built-in Python collector or by nfcapd/nfdump.  The pcaps
+  # are generated, so the job does not depend on downloading them.
+  compat-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        collector: [python, nfdump]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The stable reference is built from an old commit.
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libpcap-dev autoconf automake libtool pkg-config python3
+          if [ "${{ matrix.collector }}" = nfdump ]; then
+            sudo apt-get install -y --no-install-recommends nfdump
+          fi
+
+      - name: Generate sample pcaps
+        run: |
+          # 20 flows fit in one NetFlow v1 datagram (24 records at most).
+          # softflowd 1.1.1 puts 29 records into a v1 datagram, which
+          # nfdump drops, so more flows would fail the nfdump job on the
+          # stable reference.
+          mkdir pcaps
+          python3 tools/gen_ci_smoke_pcap.py -n 20 pcaps/http.cap
+          python3 tools/gen_ci_smoke_pcap.py -6 -n 20 pcaps/v6-http.cap
+
+      - name: Compatibility test (stable 1.1.1 vs this tree)
+        run: |
+          python3 tools/softflowd_test_collector.py --skip-cpp --skip-rust \
+            --collector ${{ matrix.collector }} --pcap-dir pcaps
+
   freebsd:
     runs-on: ubuntu-latest
     steps:

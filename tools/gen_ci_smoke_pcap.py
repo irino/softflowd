@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Generate a tiny, deterministic pcap for CI smoke-testing softflowd.
-Stdlib-only (no scapy) so CI doesn't need to install anything extra."""
+Stdlib-only (no scapy) so CI doesn't need to install anything extra.
+
+Usage: gen_ci_smoke_pcap.py [-6] [-n FLOWS] [OUTFILE]
+  -6        generate IPv6 flows (TCP, UDP and ICMPv6) instead of IPv4 ones
+  -n FLOWS  number of flows (default: 40)"""
 import struct, socket, sys
 
 PCAP_MAGIC = 0xa1b2c3d4
@@ -52,22 +56,40 @@ def udp_hdr(sport, dport, payload_len):
     return struct.pack('!HHHH', sport, dport, 8 + payload_len, 0)
 
 
+def ip6_hdr(src, dst, next_header, payload_len):
+    return struct.pack('!IHBB16s16s', 0x60000000, payload_len, next_header, 64,
+                       socket.inet_pton(socket.AF_INET6, src),
+                       socket.inet_pton(socket.AF_INET6, dst))
+
 def icmp_hdr():
     return struct.pack('!BBHHH', 8, 0, 0, 1, 1)
 
 
 def main():
-    out_path = sys.argv[1] if len(sys.argv) > 1 else 'ci_smoke.pcap'
-    smac, dmac = "02:00:00:00:00:01", "02:00:00:00:00:02"
+    ipv6 = False
     n_flows = 40
+    args = []
+    argv = iter(sys.argv[1:])
+    for a in argv:
+        if a == '-6':
+            ipv6 = True
+        elif a == '-n':
+            n_flows = int(next(argv))
+        else:
+            args.append(a)
+    out_path = args[0] if args else 'ci_smoke.pcap'
+    smac, dmac = "02:00:00:00:00:01", "02:00:00:00:00:02"
     pkts_per_flow = 6
     t = 1_000_000.0
     out = [pcap_global_header()]
     ident = 0
     protos = ["tcp", "udp", "icmp"]
     for f in range(n_flows):
-        src = f"10.0.{(f >> 8) & 0xff}.{f & 0xff}"
-        dst = f"172.16.{(f >> 8) & 0xff}.{f & 0xff}"
+        if ipv6:
+            src, dst = f"2001:db8::{f + 1:x}", f"2001:db8:1::{f + 1:x}"
+        else:
+            src = f"10.0.{(f >> 8) & 0xff}.{f & 0xff}"
+            dst = f"172.16.{(f >> 8) & 0xff}.{f & 0xff}"
         sport = 1024 + (f % 60000)
         dport = [80, 443, 22, 53][f % 4]
         proto_choice = protos[f % 3]
@@ -77,14 +99,21 @@ def main():
             if proto_choice == "tcp":
                 flags = "S" if k == 0 else ("F" if k == pkts_per_flow - 1 else "PA")
                 l4 = tcp_hdr(sport, dport, flags) + payload
-                ip = ip_hdr(src, dst, 6, len(l4), ident); ident += 1
+                proto = 6
             elif proto_choice == "udp":
                 l4 = udp_hdr(sport, dport, len(payload)) + payload
-                ip = ip_hdr(src, dst, 17, len(l4), ident); ident += 1
+                proto = 17
+            elif ipv6:
+                l4 = struct.pack('!BBHHH', 128, 0, 0, 1, 1) + payload  # echo request
+                proto = 58
             else:
                 l4 = icmp_hdr() + payload
-                ip = ip_hdr(src, dst, 1, len(l4), ident); ident += 1
-            frame = eth_hdr(smac, dmac) + ip + l4
+                proto = 1
+            if ipv6:
+                ip = ip6_hdr(src, dst, proto, len(l4))
+            else:
+                ip = ip_hdr(src, dst, proto, len(l4), ident); ident += 1
+            frame = eth_hdr(smac, dmac, 0x86DD if ipv6 else 0x0800) + ip + l4
             out.append(pcap_rec(t, frame))
     with open(out_path, "wb") as fh:
         fh.write(b"".join(out))

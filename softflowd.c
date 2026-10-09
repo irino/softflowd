@@ -560,11 +560,9 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 #ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
   struct tcphdr tcp;
   struct udphdr udp;
-  struct icmp icmp;
 #else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
   const struct tcphdr *tcp = (const struct tcphdr *) pkt;
   const struct udphdr *udp = (const struct udphdr *) pkt;
-  const struct icmp *icmp = (const struct icmp *) pkt;
 #endif
 
   /*
@@ -609,24 +607,19 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
     break;
   case IPPROTO_ICMP:
   case IPPROTO_ICMPV6:
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-    if (caplen < sizeof (icmp))
+    /*
+     * Only the type and code are used: the first two bytes of both the
+     * ICMP and the ICMPv6 header.  Do not require a whole struct icmp
+     * (28 bytes on Linux), or shorter messages lose their type and code.
+     */
+    if (caplen < 2)
       return;
-    memcpy (&icmp, pkt, sizeof (icmp));
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-    if (caplen < sizeof (*icmp))
-      return;
-#endif
     /*
      * Encode ICMP type * 256 + code into dest port like
      * Cisco routers
      */
     flow->port[ndx] = 0;
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-    flow->port[ndx ^ 1] = htons (icmp.icmp_type * 256 + icmp.icmp_code);
-#else
-    flow->port[ndx ^ 1] = htons (icmp->icmp_type * 256 + icmp->icmp_code);
-#endif
+    flow->port[ndx ^ 1] = htons (pkt[0] * 256 + pkt[1]);
     break;
   }
   return;
