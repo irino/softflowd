@@ -116,8 +116,8 @@ and --no-benchmark turn this off, and --callgrind and/or --perf add the
 callgrind instruction counts and perf stat.
 Run tools/softflowd_test_collector.py compat --help for details.
 
-tools/benchmark_export.sh is kept as a thin wrapper of the bench
-subcommand.
+The old shell script tools/deprecated/benchmark_export.sh is deprecated: it
+is only a thin wrapper of the bench subcommand.
 
 Licensing
 ---------
