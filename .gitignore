@@ -1,0 +1,40 @@
+# autoreconf output
+/autom4te.cache/
+/aclocal.m4
+/compile
+/config.guess
+/config.h.in
+/config.h.in~
+/config.sub
+/configure
+/configure~
+/depcomp
+/install-sh
+/missing
+Makefile.in
+
+# configure / make output
+/Makefile
+/config.h
+/config.log
+/config.status
+/stamp-h1
+.deps/
+.dirstamp
+*.o
+
+# built binaries and the per-variant copies made by tools/softflowd_test_collector.py bench
+/softflowd
+/softflowctl
+/softflowd-dynamic
+/softflowd-static
+/softflowd-static-separate
+
+# bench output (default -o file and its companions)
+/benchmark_results*
+
+# C++ / Rust build directories
+/cpp/build/
+/rust/target/
+
+__pycache__/
