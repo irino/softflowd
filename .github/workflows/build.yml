@@ -13,16 +13,18 @@ jobs:
           - ubuntu:26.04
           - debian:12
           - debian:13
-        compat_export: [default, static, static-separate]
         # "without": libbsd is not installed, so configure falls back to the
         # files in compat/ where the C library lacks a function.
         libbsd: [without]
         include:
-          - {image: "ubuntu:22.04", compat_export: default, libbsd: with}
-          - {image: "ubuntu:24.04", compat_export: default, libbsd: with}
-          - {image: "debian:12", compat_export: default, libbsd: with}
+          - {image: "ubuntu:22.04", libbsd: with}
+          - {image: "ubuntu:24.04", libbsd: with}
+          - {image: "debian:12", libbsd: with}
     container:
-      image: ${{ matrix.image }}
+      # The Docker official images from the AWS ECR Public mirror: pulling
+      # them from Docker Hub fails once the shared runner IPs hit its
+      # unauthenticated pull rate limit.
+      image: public.ecr.aws/docker/library/${{ matrix.image }}
     steps:
       - name: Install git (needed by actions/checkout on minimal images)
         run: |
@@ -41,12 +43,24 @@ jobs:
         if: matrix.libbsd == 'with'
         run: apt-get install -y --no-install-recommends libbsd-dev
 
+      # Every --enable-compat-export variant is built in the same job (out of
+      # tree) instead of one job each, so an image is pulled once, not three
+      # times.  All variants are tried even if one of them fails.
       - name: Build with warnings
+        env:
+          LIBBSD_ARG: ${{ matrix.libbsd == 'with' && '--with-libbsd' || '' }}
         run: |
           autoreconf -if
-          ./configure --enable-gcc-warnings ${{ matrix.compat_export != 'default' && format('--enable-compat-export={0}', matrix.compat_export) || '' }} \
-            ${{ matrix.libbsd == 'with' && '--with-libbsd' || '' }}
-          make
+          fail=0
+          for ce in default static static-separate; do
+            echo "::group::compat-export=$ce"
+            args=""
+            [ "$ce" = default ] || args="--enable-compat-export=$ce"
+            mkdir "build-$ce"
+            (cd "build-$ce" && ../configure --enable-gcc-warnings $args $LIBBSD_ARG && make) || fail=1
+            echo "::endgroup::"
+          done
+          exit $fail
 
   # Builds compile every --enable-compat-export variant above, but
   # never actually run the resulting binary -- which is exactly how a

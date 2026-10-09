@@ -28,7 +28,8 @@ jobs:
     needs: dist
     runs-on: ubuntu-latest
     container:
-      image: fedora:latest
+      # Mirror of the Docker official image; see the note in build.yml.
+      image: public.ecr.aws/docker/library/fedora:latest
     steps:
       - uses: actions/download-artifact@v4
         with:
