@@ -74,10 +74,12 @@ Options:
     --collector MODE          : Flow collector: auto (nfdump if nfcapd and nfdump are installed,
                               otherwise python), nfdump, or python (default: auto)
     --pcap-dir DIR            : Use http.cap and v6-http.cap from DIR instead of downloading them
-    --cache-dir DIR           : Persistent cache for the stable binaries and the downloaded
-                              sample pcaps (default: ~/.cache/softflowd-test)
+    --cache-dir DIR           : Persistent cache for the stable and development C binaries
+                              and the downloaded sample pcaps (default:
+                              ~/.cache/softflowd-test)
     --no-cache                : Do not use the cache (build and download on every run)
     --rebuild-stable          : Rebuild the stable binaries even if they are cached
+    --rebuild-dev             : Rebuild the development C binaries even if they are cached
     --refresh-pcap            : Download the sample pcaps again even if they are cached
     --gauge-clock             : Also run each daemon once per test case with its own
                               -g flag and print the "cpu clocks" (total) and
@@ -160,6 +162,7 @@ import argparse
 import atexit
 import csv
 import datetime
+import hashlib
 import ipaddress
 import json
 import os
@@ -709,6 +712,7 @@ PCAP_DIR: Optional[str] = None
 # removed at exit.
 CACHE_DIR: Optional[str] = None
 REBUILD_STABLE = False
+REBUILD_DEV = False
 REFRESH_PCAP = False
 
 # Magic numbers of libpcap (both byte orders, micro/nanosecond) and pcapng.
@@ -879,15 +883,11 @@ def build_c_stable(commit_hash: str, output_dir: str) -> Tuple[str, str, str, st
     if CACHE_DIR:
         key = stable_cache_key(commit_hash)
         cache_entry = os.path.join(CACHE_DIR, "stable", re.sub(r"[^A-Za-z0-9._-]", "_", key))
-        if not REBUILD_STABLE and all(os.access(os.path.join(cache_entry, n), os.X_OK)
-                                      for n in STABLE_BINARIES):
+        cached = None if REBUILD_STABLE else cached_binaries(cache_entry, STABLE_BINARIES,
+                                                            output_dir)
+        if cached:
             print_cyan(f"\n[Build] Using cached C stable binaries ({commit_hash}): {cache_entry}")
-            paths = []
-            for n in STABLE_BINARIES:
-                dest = os.path.join(output_dir, n)
-                shutil.copy2(os.path.join(cache_entry, n), dest)
-                paths.append(dest)
-            return tuple(paths)
+            return cached
 
     print_cyan(f"\n[Build] Compiling C stable version (Commit/Tag: {commit_hash})...")
     worktree_dir = os.path.join(SUITE_TMP_DIR, "c_stable_worktree")
@@ -899,11 +899,25 @@ def build_c_stable(commit_hash: str, output_dir: str) -> Tuple[str, str, str, st
     paths = tuple(build_c_variants(worktree_dir, output_dir, "stable", "stable-",
                                    C_BUILD_VARIANTS[:2]))
     if cache_entry:
-        store_stable_cache(cache_entry, paths)
+        store_binary_cache(cache_entry, paths, "stable")
     return paths
 
 
-def store_stable_cache(cache_entry: str, paths: Sequence[str]) -> None:
+def cached_binaries(cache_entry: str, names: Sequence[str],
+                    output_dir: str) -> Optional[Tuple[str, ...]]:
+    """Copy the cached binaries into output_dir; None if the entry is not complete."""
+    if not all(os.access(os.path.join(cache_entry, n), os.X_OK) for n in names):
+        return None
+    os.utime(cache_entry)  # most recently used, see prune_dev_cache()
+    paths = []
+    for n in names:
+        dest = os.path.join(output_dir, n)
+        shutil.copy2(os.path.join(cache_entry, n), dest)
+        paths.append(dest)
+    return tuple(paths)
+
+
+def store_binary_cache(cache_entry: str, paths: Sequence[str], what: str) -> None:
     """Store the built binaries in the cache; a failure only costs a rebuild next time."""
     tmp = f"{cache_entry}.tmp.{os.getpid()}"
     try:
@@ -914,10 +928,68 @@ def store_stable_cache(cache_entry: str, paths: Sequence[str]) -> None:
         if os.path.isdir(cache_entry):
             shutil.rmtree(cache_entry)
         os.rename(tmp, cache_entry)
-        print(f"  -> Cached stable binaries in {cache_entry}")
+        print(f"  -> Cached {what} binaries in {cache_entry}")
     except OSError as e:
-        print_yellow(f"Warning: could not cache the stable binaries: {e}")
+        print_yellow(f"Warning: could not cache the {what} binaries: {e}")
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# Binary names build_c_dev() produces, in the order build_c_variants() returns them.
+DEV_BINARIES = tuple(f"{b}{suffix}" for _, _, _, suffix in C_BUILD_VARIANTS
+                     for b in ("softflowd", "softflowctl"))
+
+# Number of development builds kept in the cache.
+DEV_CACHE_KEEP = 5
+
+# Paths (and *.md files) that do not influence the C binaries and are left out of
+# the cache key.
+DEV_KEY_EXCLUDE_DIRS = ("cpp", "rust", "tools", ".github")
+
+
+def dev_cache_key() -> Tuple[str, bool]:
+    """Hash everything the C build depends on: the contents of the tracked and
+    the not-ignored untracked files (so uncommitted edits count, HEAD does not),
+    the configure arguments, the compiler settings and the compiler version.
+
+    Returns (hex digest, whether the tree differs from HEAD).
+    """
+    out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                         cwd=PROJECT_ROOT, capture_output=True, check=True).stdout
+    names = sorted(n for n in (b.decode() for b in out.split(b"\0") if b)
+                   if n.split("/")[0] not in DEV_KEY_EXCLUDE_DIRS
+                   and not n.endswith(".md"))
+    h = hashlib.sha256()
+    for name in names:
+        h.update(name.encode() + b"\0")
+        path = os.path.join(PROJECT_ROOT, name)
+        if os.path.isfile(path):  # a tracked file deleted from the tree has no content
+            with open(path, "rb") as f:
+                h.update(hashlib.sha256(f.read()).digest())
+    for _, _, args, _ in C_BUILD_VARIANTS:
+        h.update(b"\0args\0" + " ".join(args).encode())
+    for var in ("CC", "CFLAGS", "CPPFLAGS", "LDFLAGS"):
+        h.update(f"\0{var}={os.environ.get(var, '')}".encode())
+    cc = subprocess.run([os.environ.get("CC") or "cc", "--version"],
+                        capture_output=True, text=True)
+    h.update(b"\0cc\0" + cc.stdout.encode())
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", ".",
+                            *[f":(exclude){d}" for d in DEV_KEY_EXCLUDE_DIRS],
+                            ":(exclude,glob)**/*.md", ":(exclude)*.md"],
+                           cwd=PROJECT_ROOT, capture_output=True, text=True,
+                           check=True).stdout.strip() != ""
+    return h.hexdigest(), dirty
+
+
+def prune_dev_cache(dev_cache_dir: str, keep: int = DEV_CACHE_KEEP) -> None:
+    """Remove all but the `keep` most recently used development builds."""
+    try:
+        entries = [os.path.join(dev_cache_dir, n) for n in os.listdir(dev_cache_dir)
+                   if ".tmp." not in n]
+        entries.sort(key=os.path.getmtime, reverse=True)
+        for old in entries[keep:]:
+            shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        pass
 
 
 def build_c_dev(output_dir: str) -> Tuple[str, ...]:
@@ -927,10 +999,36 @@ def build_c_dev(output_dir: str) -> Tuple[str, ...]:
       1. Default (softflowd / softflowctl)
       2. Legacy (softflowd-legacy / softflowctl-legacy)
       3. Static compat export (softflowd-static / softflowctl-static)
+    The binaries are cached in CACHE_DIR under a hash of the build inputs, so
+    an unchanged tree is not compiled again.
     """
-    print_cyan("\n[Build] Compiling C development version (current source tree)...")
-    return tuple(build_c_variants(PROJECT_ROOT, output_dir, "C development", "",
-                                  C_BUILD_VARIANTS))
+    cache_entry = None
+    if CACHE_DIR:
+        try:
+            key, dirty = dev_cache_key()
+        except (OSError, subprocess.CalledProcessError) as e:
+            print_yellow(f"Warning: cannot compute the development build cache key ({e}); "
+                         "building without the cache")
+        else:
+            dev_cache_dir = os.path.join(CACHE_DIR, "dev")
+            cache_entry = os.path.join(dev_cache_dir, key[:16])
+            state = "uncommitted changes" if dirty else "same as HEAD"
+            cached = None if REBUILD_DEV else cached_binaries(cache_entry, DEV_BINARIES,
+                                                              output_dir)
+            if cached:
+                print_cyan(f"\n[Build] Using cached C development binaries "
+                           f"(key {key[:12]}, {state}): {cache_entry}")
+                return cached
+            print_cyan(f"\n[Build] Compiling C development version (current source tree; "
+                       f"key {key[:12]}, {state})...")
+    if cache_entry is None:
+        print_cyan("\n[Build] Compiling C development version (current source tree)...")
+    paths = tuple(build_c_variants(PROJECT_ROOT, output_dir, "C development", "",
+                                   C_BUILD_VARIANTS))
+    if cache_entry:
+        store_binary_cache(cache_entry, paths, "development")
+        prune_dev_cache(os.path.dirname(cache_entry))
+    return paths
 
 
 def build_cpp(output_dir: str) -> Tuple[Optional[str], Optional[str]]:
@@ -1697,7 +1795,7 @@ def run_single_comparison(
 
 def compat_main():
     global COLLECTOR_BACKEND, PCAP_DIR, SUITE_TMP_DIR, MEASURE
-    global CACHE_DIR, REBUILD_STABLE, REFRESH_PCAP
+    global CACHE_DIR, REBUILD_STABLE, REBUILD_DEV, REFRESH_PCAP
     parser = argparse.ArgumentParser(
         description="softflowd Comprehensive Backward Compatibility Test Suite",
         epilog="Other subcommands: bench (export benchmark) and collect (flow "
@@ -1818,18 +1916,23 @@ def compat_main():
         "--cache-dir",
         default=None,
         metavar="DIR",
-        help="Persistent cache for the stable binaries and the downloaded sample pcaps "
-             "(default: ~/.cache/softflowd-test)"
+        help="Persistent cache for the stable and development C binaries and the "
+             "downloaded sample pcaps (default: ~/.cache/softflowd-test)"
     )
     parser.add_argument(
         "--no-cache",
         action="store_true",
-        help="Do not use the cache: build the stable version and download the pcaps on every run"
+        help="Do not use the cache: build the C binaries and download the pcaps on every run"
     )
     parser.add_argument(
         "--rebuild-stable",
         action="store_true",
         help="Rebuild the stable binaries even if they are cached"
+    )
+    parser.add_argument(
+        "--rebuild-dev",
+        action="store_true",
+        help="Rebuild the development C binaries even if they are cached"
     )
     parser.add_argument(
         "--refresh-pcap",
@@ -1925,6 +2028,7 @@ def compat_main():
     CACHE_DIR = None if args.no_cache else os.path.abspath(
         os.path.expanduser(args.cache_dir or default_cache_dir()))
     REBUILD_STABLE = args.rebuild_stable
+    REBUILD_DEV = args.rebuild_dev
     REFRESH_PCAP = args.refresh_pcap
     have_nfdump = bool(shutil.which("nfdump") and shutil.which("nfcapd"))
     if args.collector == "auto":
