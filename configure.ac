@@ -213,6 +213,9 @@ AC_CHECK_LIB(pcap, pcap_set_immediate_mode,
 		[libpcap provides pcap_set_immediate_mode()])])
 
 AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strlcat strsep)
+dnl getopt_long() is required for the long options (e.g. --full-transport-header-check)
+AC_CHECK_HEADERS(getopt.h, [], [AC_MSG_ERROR([getopt.h not found; required for long options])])
+AC_CHECK_FUNCS(getopt_long, [], [AC_MSG_ERROR([getopt_long() not found; required for long options])])
 AC_CHECK_DECLS([htobe64, htonll])
 
 AC_CHECK_TYPES([u_int64_t, int64_t, uint64_t, u_int32_t, int32_t, uint32_t])

@@ -51,7 +51,10 @@
 #include "netflow.h"
 #include "ipfix.h"
 #include "psamp.h"
+#include <netinet/in.h>
+#include <netinet/icmp6.h>
 #include <pcap.h>
+#include <getopt.h>
 #ifdef LINUX
 #include <net/if.h>
 #include <net/if_arp.h>
@@ -63,11 +66,15 @@
 #if !defined(LINUX) && defined(HAVE_IFADDRS_H)
 #include <net/if_dl.h>
 #endif
+#define TCP_CHECK_MIN_SIZE 14 /* source port, destination port, and flag */
+#define UDP_CHECK_MIN_SIZE 4 /* source port and destination port */
+#define ICMP_CHECK_MIN_SIZE 2 /* type and code in ICMP(v4) and ICMPv6 */
 
 /* Global variables */
 static int verbose_flag = 0;	/**< Debugging flag */
 static u_int16_t if_index = 0;	/**< "manual" interface index */
 static int track_level;		/**< Flow tracking level (TRACK_*) */
+static int full_transport_header_check = 0;	/**< --full-transport-header-check: check whole transport headers */
 static int snaplen = 0;		/**< Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
 static int gauge_clock = 0;		/**< -g: report cpu clocks */
 static clock_t export_clocks = 0;	/**< cpu clocks spent in the export function */
@@ -557,14 +564,6 @@ format_flow_brief (struct FLOW *flow) {
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 		      const size_t caplen, int protocol, int ndx) {
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-  struct tcphdr tcp;
-  struct udphdr udp;
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-  const struct tcphdr *tcp = (const struct tcphdr *) pkt;
-  const struct udphdr *udp = (const struct udphdr *) pkt;
-#endif
-
   /*
    * XXX to keep flow in proper canonical format, it may be necessary to
    * swap the array slots based on the order of the port numbers does
@@ -573,51 +572,44 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
    */
 
   switch (protocol) {
-  case IPPROTO_TCP:
-    /* Check for runt packet */
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-    if (caplen < sizeof (tcp))
-      return;
-    memcpy (&tcp, pkt, sizeof (tcp));
-    flow->port[ndx] = tcp.th_sport;
-    flow->port[ndx ^ 1] = tcp.th_dport;
-    flow->tcp_flags[ndx] |= tcp.th_flags;
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-    if (caplen < sizeof (*tcp))
-      return;
-    flow->port[ndx] = tcp->th_sport;
-    flow->port[ndx ^ 1] = tcp->th_dport;
-    flow->tcp_flags[ndx] |= tcp->th_flags;
+    case IPPROTO_TCP:
+      /*
+      * Default: require only the source and destination ports and the
+      * TCP flags (offset 13), i.e. the first 14 bytes.  The ports are
+      * copied as they are on the wire (network byte order).
+      */
+      if (caplen < (full_transport_header_check ? sizeof (struct tcphdr) : TCP_CHECK_MIN_SIZE))
+        return;
+      flow->tcp_flags[ndx] |= pkt[13];
+      /* fall through */
+    case IPPROTO_UDP:
+      /* Default: require only the source and destination ports (4 bytes). */
+      if (protocol == IPPROTO_UDP &&
+          caplen < (full_transport_header_check ? sizeof (struct udphdr) : UDP_CHECK_MIN_SIZE))
+        return;
+#ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
+      {
+        const struct udphdr *udp = (const struct udphdr *) pkt;
+        flow->port[ndx] = udp->uh_sport;
+        flow->port[ndx ^ 1] = udp->uh_dport;
+        break;
+      }
 #endif
-    break;
-  case IPPROTO_UDP:
-    /* Check for runt packet */
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-    if (caplen < sizeof (udp))
-      return;
-    memcpy (&udp, pkt, sizeof (udp));
-    flow->port[ndx] = udp.uh_sport;
-    flow->port[ndx ^ 1] = udp.uh_dport;
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-    if (caplen < sizeof (*udp))
-      return;
-    flow->port[ndx] = udp->uh_sport;
-    flow->port[ndx ^ 1] = udp->uh_dport;
-#endif
-    break;
+      memcpy (&flow->port[ndx], pkt, 2); /* source port  */
+      memcpy (&flow->port[ndx ^ 1], pkt + 2, 2); /* destination port */
+      break;
   case IPPROTO_ICMP:
-  case IPPROTO_ICMPV6:
-    /*
-     * Only the type and code are used: the first two bytes of both the
-     * ICMP and the ICMPv6 header.  Do not require a whole struct icmp
-     * (28 bytes on Linux), or shorter messages lose their type and code.
-     */
-    if (caplen < 2)
+    /* Default: only the type and code (the first two bytes) are used.
+     * With --full-transport-header-check, require the whole struct icmp.
+     * sizeoof (struct icmp)*/
+    if (caplen < (full_transport_header_check ? sizeof (struct icmp) : ICMP_CHECK_MIN_SIZE))
       return;
-    /*
-     * Encode ICMP type * 256 + code into dest port like
-     * Cisco routers
-     */
+    /* fall through */
+  case IPPROTO_ICMPV6:
+    if (protocol == IPPROTO_ICMPV6 &&
+        caplen < (full_transport_header_check ? sizeof (struct icmp6_hdr) : ICMP_CHECK_MIN_SIZE))
+      return;
+    /* Encode ICMP type * 256 + code into dest port like Cisco routers */
     flow->port[ndx] = 0;
     flow->port[ndx ^ 1] = htons (pkt[0] * 256 + pkt[1]);
     break;
@@ -2296,50 +2288,70 @@ usage (void) {
   fprintf (stderr,
 	   "Usage: %s [options] [bpf_program]\n"
 	   "This is %s version %s. Valid commandline options:\n"
-	   "  -i [idx:]interface      Specify interface to listen on\n"
-	   "  -r pcap_file            Specify packet capture file to read\n"
-	   "  -t timeout=time         Specify named timeout\n"
-	   "  -m max_flows            Specify maximum number of flows to track (1 or more, default %d)\n"
-	   "  -n host:port            Send Cisco NetFlow(tm)-compatible packets to host:port\n"
-	   "  -p pidfile              Record pid in specified file\n"
+	   "  -i, --interface [idx:]interface\n"
+	   "                          Specify interface to listen on\n"
+	   "  -r, --read pcap_file    Specify packet capture file to read\n"
+	   "  -t, --timeout timeout=time\n"
+	   "                          Specify named timeout\n"
+	   "  -m, --max-flows max_flows\n"
+	   "                          Specify maximum number of flows to track (1 or more, default %d)\n"
+	   "  -n, --netflow-dest host:port\n"
+	   "                          Send Cisco NetFlow(tm)-compatible packets to host:port\n"
+	   "  -p, --pidfile pidfile   Record pid in specified file\n"
 	   "                          (default: %s)\n"
-	   "  -c socketfile           Location of control socket\n"
+	   "  -c, --control-socket socketfile\n"
+	   "                          Location of control socket\n"
 	   "                          (default: %s)\n"
-	   "  -v 1|5|9|10|psamp       NetFlow export packet version\n"
+	   "  -v, --netflow-version 1|5|9|10|psamp\n"
+	   "                          NetFlow export packet version\n"
 	   "                          10 means IPFIX and psamp means PSAMP (packet sampling)\n"
 #ifdef ENABLE_NTOPNG
 	   "     ntopng               ntopng means direct injection to NTOPNG (if supported).\n"
 #endif
-	   "  -L hoplimit             Set TTL/hoplimit for export datagrams\n"
-	   "  -T full|port|proto|ip|  Set flow tracking level (default: full)\n"
-	   "     vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
-	   "     ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
-	   "  -H                      Specify MAC Address to determine direction (requires -T ether)\n"
-	   "  -6                      Track IPv6 flows, regardless of whether selected \n"
+	   "  -L, --hoplimit hoplimit Set TTL/hoplimit for export datagrams\n"
+	   "  -T, --track full|port|proto|ip|\n"
+	   "                          Set flow tracking level (default: full)\n"
+	   "                          vlan                 (\"vlan\" tracking means \"full\" tracking with vlanid)\n"
+	   "                          ether                (\"ether\" tracking means \"vlan\" tracking with ether header)\n"
+	   "  -H, --direction-mac MAC Specify MAC Address to determine direction (requires -T ether)\n"
+	   "  -6, --track-ipv6        Track IPv6 flows, regardless of whether selected \n"
 	   "                          NetFlow export protocol supports it\n"
-	   "  -d                      Don't daemonise (run in foreground)\n"
-	   "  -D                      Debug mode: foreground + verbosity + track v6 flows\n"
-	   "  -P udp|tcp|sctp         Specify transport layer protocol for exporting packets\n"
-	   "  -A sec|milli|micro|nano Specify absolute time format form exporting records\n"
-	   "  -s sampling_rate        Specify periodical sampling rate (denominator)\n"
-	   "  -B bytes                Libpcap buffer size in bytes\n"
-	   "  -b                      Bidirectional mode in IPFIX (-b work with -v 10)\n"
-	   "  -a                      Adjusting time for reading pcap file (-a work with -r)\n"
-	   "  -C capture_length       Specify length for packet capture (snaplen)\n"
-	   "  -l                      Load balancing mode for multiple destinations\n"
-	   "  -R receive_port         Specify port number for PSAMP receive mode\n"
+	   "  -d, --foreground        Don't daemonise (run in foreground)\n"
+	   "  -D, --debug             Debug mode: foreground + verbosity + track v6 flows\n"
+	   "  -P, --export-protocol udp|tcp|sctp\n"
+	   "                          Specify transport layer protocol for exporting packets\n"
+	   "  -A, --absolute-time sec|milli|micro|nano\n"
+	   "                          Specify absolute time format form exporting records\n"
+	   "  -s, --sampling-rate rate\n"
+	   "                          Specify periodical sampling rate (denominator)\n"
+	   "  -B, --pcap-buffer-size bytes\n"
+	   "                          Libpcap buffer size in bytes\n"
+	   "  -b, --bidirectional     Bidirectional mode in IPFIX (-b work with -v 10)\n"
+	   "  -a, --adjust-time       Adjusting time for reading pcap file (-a work with -r)\n"
+	   "  -C, --snaplen capture_length\n"
+	   "                          Specify length for packet capture (snaplen)\n"
+	   "  -l, --load-balance      Load balancing mode for multiple destinations\n"
+	   "  -R, --psamp-port receive_port\n"
+	   "                          Specify port number for PSAMP receive mode\n"
 #ifdef ENABLE_PTHREAD
-	   "  -M                      Enable multithread\n"
+	   "  -M, --multithread       Enable multithread\n"
 #endif /* ENABLE_PTHREAD */
-	   "  -N                      Disable promiscuous mode\n"
+	   "  -N, --no-promisc        Disable promiscuous mode\n"
 #ifdef LINUX
-	   "  -S send_interface_name  Specify send interface name\n"
+	   "  -S, --send-interface send_interface_name\n"
+	   "                          Specify send interface name\n"
 #endif /* LINUX */
-	   "  -x                      Specify number of MPLS labels (1 to 10)\n"
-	   "  -I                      Specify seconds for reinitialize boot time\n"
-	   "  -g                      Gauge cpu clock (total and export) for benchmark\n"
-	   "  -e                      Specify Exporter IP (IPv4 or IPv6) address\n"
-	   "  -h                      Display this help\n"
+	   "  -x, --mpls-labels labels\n"
+	   "                          Specify number of MPLS labels (1 to 10)\n"
+	   "  -I, --reinit-interval seconds\n"
+	   "                          Specify seconds for reinitialize boot time\n"
+	   "  -g, --gauge-cpu-clock   Gauge cpu clock (total and export) for benchmark\n"
+	   "  -e, --exporter-ip address\n"
+	   "                          Specify Exporter IP (IPv4 or IPv6) address\n"
+	   "  -f, --full-transport-header-check\n"
+	   "                          Require the whole TCP/UDP/ICMP header instead of\n"
+	   "                          only the fields used (ports, TCP flags, ICMP type/code)\n"
+	   "  -h, --help              Display this help\n"
 	   "\n"
 	   "Valid timeout names and default values:\n"
 	   "  tcp     (default %6d)"
@@ -2591,6 +2603,45 @@ main (int argc, char **argv) {
   extern char *optarg;
   extern int optind;
   int ch, dontfork_flag, linktype = 0, ctlsock, err, always_v6, r, dest_idx;
+  static const struct option long_options[] = {
+    {"interface", required_argument, NULL, 'i'},
+    {"read", required_argument, NULL, 'r'},
+    {"timeout", required_argument, NULL, 't'},
+    {"max-flows", required_argument, NULL, 'm'},
+    {"netflow-dest", required_argument, NULL, 'n'},
+    {"pidfile", required_argument, NULL, 'p'},
+    {"control-socket", required_argument, NULL, 'c'},
+    {"netflow-version", required_argument, NULL, 'v'},
+    {"hoplimit", required_argument, NULL, 'L'},
+    {"track", required_argument, NULL, 'T'},
+    {"direction-mac", required_argument, NULL, 'H'},
+    {"track-ipv6", no_argument, NULL, '6'},
+    {"foreground", no_argument, NULL, 'd'},
+    {"debug", no_argument, NULL, 'D'},
+    {"export-protocol", required_argument, NULL, 'P'},
+    {"absolute-time", required_argument, NULL, 'A'},
+    {"sampling-rate", required_argument, NULL, 's'},
+    {"pcap-buffer-size", required_argument, NULL, 'B'},
+    {"bidirectional", no_argument, NULL, 'b'},
+    {"adjust-time", no_argument, NULL, 'a'},
+    {"snaplen", required_argument, NULL, 'C'},
+    {"load-balance", no_argument, NULL, 'l'},
+    {"psamp-port", required_argument, NULL, 'R'},
+#ifdef ENABLE_PTHREAD
+    {"multithread", no_argument, NULL, 'M'},
+#endif /* ENABLE_PTHREAD */
+    {"no-promisc", no_argument, NULL, 'N'},
+#ifdef LINUX
+    {"send-interface", required_argument, NULL, 'S'},
+#endif /* LINUX */
+    {"mpls-labels", required_argument, NULL, 'x'},
+    {"reinit-interval", required_argument, NULL, 'I'},
+    {"gauge-cpu-clock", no_argument, NULL, 'g'},
+    {"exporter-ip", required_argument, NULL, 'e'},
+    {"full-transport-header-check", no_argument, NULL, 'f'},
+    {"help", no_argument, NULL, 'h'},
+    {NULL, 0, NULL, 0}
+  };
   int stop_collection_flag, exit_request, hoplimit;
   pcap_t *pcap = NULL;
   struct FLOWTRACK flowtrack;
@@ -2635,10 +2686,14 @@ main (int argc, char **argv) {
   always_v6 = 0;
 
   while ((ch =
-	  getopt (argc, argv,
-		  "6hdDL:T:H:i:r:f:t:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:"))
+	  getopt_long (argc, argv,
+		       "6hdDL:T:H:i:r:ft:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:",
+		       long_options, NULL))
 	 != -1) {
     switch (ch) {
+    case 'f':
+      full_transport_header_check = 1;
+      break;
     case '6':
       always_v6 = 1;
       break;
