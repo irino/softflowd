@@ -27,102 +27,104 @@
 
 #include "softflowd.h"
 
-#define IPFIX_TEMPLATE_SET_ID           2
-#define IPFIX_OPTION_TEMPLATE_SET_ID    3
-#define IPFIX_MIN_RECORD_SET_ID         256
-#define IPFIX_PORT                      4739
+#define IPFIX_TEMPLATE_SET_ID 2
+#define IPFIX_OPTION_TEMPLATE_SET_ID 3
+#define IPFIX_MIN_RECORD_SET_ID 256
+#define IPFIX_PORT 4739
 
-#define IPFIX_BIFLAG_OFF                0
-#define IPFIX_BIFLAG_ON                 1
+#define IPFIX_BIFLAG_OFF 0
+#define IPFIX_BIFLAG_ON 1
 
-/* Template IDs and template re-send interval (packets); shared with NetFlow v9 */
-#define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID      1024
-#define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID  1025
-#define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID      2048
-#define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID  2049
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID  256
-#define IPFIX_DEFAULT_TEMPLATE_INTERVAL     16
+/* Template IDs and template re-send interval (packets); shared with NetFlow v9
+ */
+#define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID 1024
+#define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID 1025
+#define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID 2048
+#define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID 2049
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID 256
+#define IPFIX_DEFAULT_TEMPLATE_INTERVAL 16
 
 /* Option template scope types (same values in NetFlow v9 and IPFIX) */
-#define IPFIX_OPTION_SCOPE_SYSTEM               1
-#define IPFIX_OPTION_SCOPE_INTERFACE            2
-#define IPFIX_OPTION_SCOPE_LINECARD             3
-#define IPFIX_OPTION_SCOPE_CACHE                4
-#define IPFIX_OPTION_SCOPE_TEMPLATE             5
+#define IPFIX_OPTION_SCOPE_SYSTEM 1
+#define IPFIX_OPTION_SCOPE_INTERFACE 2
+#define IPFIX_OPTION_SCOPE_LINECARD 3
+#define IPFIX_OPTION_SCOPE_CACHE 4
+#define IPFIX_OPTION_SCOPE_TEMPLATE 5
 
 /* Sampling algorithms (same values in NetFlow v9 and IPFIX) */
-#define IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC  1
-#define IPFIX_SAMPLING_ALGORITHM_RANDOM         2
+#define IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC 1
+#define IPFIX_SAMPLING_ALGORITHM_RANDOM 2
 
 /* Flowset record ies the we care about */
-#define IPFIX_octetDeltaCount           1
-#define IPFIX_packetDeltaCount          2
+#define IPFIX_octetDeltaCount 1
+#define IPFIX_packetDeltaCount 2
 /* ... */
-#define IPFIX_protocolIdentifier        4
-#define IPFIX_ipClassOfService          5
+#define IPFIX_protocolIdentifier 4
+#define IPFIX_ipClassOfService 5
 /* ... */
-#define IPFIX_tcpControlBits            6
-#define IPFIX_sourceTransportPort       7
-#define IPFIX_sourceIPv4Address         8
-/* IEs 9, 15, 16, 17: Express NetFlow v1/v5 layouts for the default encoder-based engine (per IANA). */
-#define IPFIX_sourceIPv4PrefixLength    9
-#define IPFIX_ingressInterface          10
-#define IPFIX_destinationTransportPort  11
-#define IPFIX_destinationIPv4Address    12
+#define IPFIX_tcpControlBits 6
+#define IPFIX_sourceTransportPort 7
+#define IPFIX_sourceIPv4Address 8
+/* IEs 9, 15, 16, 17: Express NetFlow v1/v5 layouts for the default
+ * encoder-based engine (per IANA). */
+#define IPFIX_sourceIPv4PrefixLength 9
+#define IPFIX_ingressInterface 10
+#define IPFIX_destinationTransportPort 11
+#define IPFIX_destinationIPv4Address 12
 #define IPFIX_destinationIPv4PrefixLength 13
-#define IPFIX_egressInterface           14
-#define IPFIX_ipNextHopIPv4Address      15
-#define IPFIX_bgpSourceAsNumber         16
-#define IPFIX_bgpDestinationAsNumber    17
+#define IPFIX_egressInterface 14
+#define IPFIX_ipNextHopIPv4Address 15
+#define IPFIX_bgpSourceAsNumber 16
+#define IPFIX_bgpDestinationAsNumber 17
 /* ... */
-#define IPFIX_flowEndSysUpTime          21
-#define IPFIX_flowStartSysUpTime        22
+#define IPFIX_flowEndSysUpTime 21
+#define IPFIX_flowStartSysUpTime 22
 /* ... */
-#define IPFIX_sourceIPv6Address         27
-#define IPFIX_destinationIPv6Address    28
+#define IPFIX_sourceIPv6Address 27
+#define IPFIX_destinationIPv6Address 28
 /* ... */
-#define IPFIX_icmpTypeCodeIPv4          32
+#define IPFIX_icmpTypeCodeIPv4 32
 /* ... */
 /* Deprecated NetFlow v9 SamplingInterval (superseded by ID 305) */
-#define IPFIX_samplingInterval          34
-#define IPFIX_samplingAlgorithm         35
+#define IPFIX_samplingInterval 34
+#define IPFIX_samplingAlgorithm 35
 /* ... */
-#define IPFIX_engineType                38
-#define IPFIX_engineId                  39
-#define IPFIX_exportedMessageTotalCount 41 /* v9 packet sequence */
+#define IPFIX_engineType 38
+#define IPFIX_engineId 39
+#define IPFIX_exportedMessageTotalCount 41    /* v9 packet sequence */
 #define IPFIX_exportedFlowRecordTotalCount 42 /* v5/IPFIX record sequence */
 /* ... */
-#define IPFIX_sourceMacAddress          56
+#define IPFIX_sourceMacAddress 56
 #define IPFIX_postDestinationMacAddress 57
-#define IPFIX_vlanId                    58
-#define IPFIX_postVlanId                59
-#define IPFIX_ipVersion                 60
-#define IPFIX_flowDirection             61
-#define IPFIX_mplsTopLabelStackSection  70
+#define IPFIX_vlanId 58
+#define IPFIX_postVlanId 59
+#define IPFIX_ipVersion 60
+#define IPFIX_flowDirection 61
+#define IPFIX_mplsTopLabelStackSection 70
 /* ... */
-#define IPFIX_observationDomainId        149
-#define IPFIX_interfaceName             82
+#define IPFIX_observationDomainId 149
+#define IPFIX_interfaceName 82
 /* ... */
-#define IPFIX_exportProtocolVersion        214 /* NetFlow/IPFIX header version */
-#define IPFIX_paddingOctets              210
+#define IPFIX_exportProtocolVersion 214 /* NetFlow/IPFIX header version */
+#define IPFIX_paddingOctets 210
 /* ... */
-#define IPFIX_exporterIPv4Address       130
-#define IPFIX_exporterIPv6Address       131
+#define IPFIX_exporterIPv4Address 130
+#define IPFIX_exporterIPv6Address 131
 /* ... */
-#define IPFIX_flowEndReason             136
+#define IPFIX_flowEndReason 136
 /* ... */
-#define IPFIX_icmpTypeCodeIPv6          139
+#define IPFIX_icmpTypeCodeIPv6 139
 /* ... */
-#define IPFIX_meteringProcessId         143
+#define IPFIX_meteringProcessId 143
 /* ... */
-#define IPFIX_flowStartSeconds          150
-#define IPFIX_flowEndSeconds            151
-#define IPFIX_flowStartMilliSeconds     152
-#define IPFIX_flowEndMilliSeconds       153
-#define IPFIX_flowStartMicroSeconds     154
-#define IPFIX_flowEndMicroSeconds       155
-#define IPFIX_flowStartNanoSeconds      156
-#define IPFIX_flowEndNanoSeconds        157
+#define IPFIX_flowStartSeconds 150
+#define IPFIX_flowEndSeconds 151
+#define IPFIX_flowStartMilliSeconds 152
+#define IPFIX_flowEndMilliSeconds 153
+#define IPFIX_flowStartMicroSeconds 154
+#define IPFIX_flowEndMicroSeconds 155
+#define IPFIX_flowStartNanoSeconds 156
+#define IPFIX_flowEndNanoSeconds 157
 /* ... */
 #define IPFIX_systemInitTimeMilliseconds 160
 /* ... */
@@ -131,27 +133,26 @@
 /* ... */
 
 // flow end reason for ipfix ie 136
-#define IPFIX_flowEndReason_idleTimeout    0x01
-#define IPFIX_flowEndReason_activeTimeout  0x02
-#define IPFIX_flowEndReason_endOfFlow      0x03
-#define IPFIX_flowEndReason_forceEnd       0x04
+#define IPFIX_flowEndReason_idleTimeout 0x01
+#define IPFIX_flowEndReason_activeTimeout 0x02
+#define IPFIX_flowEndReason_endOfFlow 0x03
+#define IPFIX_flowEndReason_forceEnd 0x04
 #define IPFIX_flowEndReason_lackOfResource 0x05
 
 // flowDirection for ipfix ie 61
-#define IPFIX_FLOWDIRECTION_INGRESS        0x00
-#define IPFIX_FLOWDIRECTION_EGRESS         0x01
+#define IPFIX_FLOWDIRECTION_INGRESS 0x00
+#define IPFIX_FLOWDIRECTION_EGRESS 0x01
 
-#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE  1428
+#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE 1428
 #define IPFIX_mplsLabelStackSection_SIZE 3
 
 /* Upper limits of the field arrays in the templated exporter */
-#define IPFIX_MAXFIELDS          32
-#define IPFIX_MAXBIFIELDS        8
-
+#define IPFIX_MAXFIELDS 32
+#define IPFIX_MAXBIFIELDS 8
 
 struct IPFIX_HEADER {
   u_int16_t version, length;
-  u_int32_t export_time;        /* in seconds */
+  u_int32_t export_time; /* in seconds */
   u_int32_t sequence_number, observation_domain_id;
 } __packed;
 struct IPFIX_SET_HEADER {
@@ -196,10 +197,14 @@ struct ntp_time_t {
 };
 
 /* Force a resend of the flow template. */
-void ipfix_resend_template (void);
-int ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int * index,
-                       const struct IPFIX_FIELD_SPECIFIER *src,
-                       u_int field_number);
-void conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
-void conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv);
+void
+ipfix_resend_template (void);
+int
+ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int *index,
+                   const struct IPFIX_FIELD_SPECIFIER *src,
+                   u_int field_number);
+void
+conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
+void
+conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv);
 #endif /* _IPFIX_H */

@@ -1,0 +1,41 @@
+# Approximates the project's GNU indent style:
+#   indent -lp -br -brs -brf -ce -cdw -nut -i2
+BasedOnStyle: LLVM
+Language: Cpp
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ColumnLimit: 0
+ContinuationIndentWidth: 2
+BreakBeforeBraces: Attach
+BraceWrapping:
+  AfterFunction: false
+  AfterStruct: false
+  AfterEnum: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeCatch: false
+AlignAfterOpenBracket: Align
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterFunctionDeclarationName: true
+  AfterFunctionDefinitionName: true
+  BeforeNonEmptyParentheses: true
+SpaceAfterCStyleCast: true
+IndentCaseLabels: true
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: false
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignConsecutiveMacros: None
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 2
+AlwaysBreakAfterReturnType: All
+PenaltyExcessCharacter: 1000
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+SortIncludes: Never
+ReflowComments: false

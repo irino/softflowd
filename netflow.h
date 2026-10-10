@@ -28,23 +28,26 @@
 
 #include "softflowd.h"
 
-/* Cisco NetFlow v1 header format (16 octets), the first NETFLOW1_HEADER_SIZE octets of the v5 one.
- * Shared by compat/netflow1.c and the ipfix.c exporter. */
+/* Cisco NetFlow v1 header format (16 octets), the first NETFLOW1_HEADER_SIZE
+ * octets of the v5 one. Shared by compat/netflow1.c and the ipfix.c exporter.
+ */
 struct NETFLOW1_HEADER {
   u_int16_t version, flows;
-  u_int32_t sysUpTime;          // in milliseconds
-  u_int32_t export_time;        // in seconds
+  u_int32_t sysUpTime;    // in milliseconds
+  u_int32_t export_time;  // in seconds
   u_int32_t export_time_nanoseconds;
 } __packed;
 
 /* Cisco NetFlow v5 header format (shared with the default ipfix.c exporter).
  * NetFlow v1 shares the first 16 bytes (NETFLOW1_HEADER_SIZE).
- * Ref: https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html */
+ * Ref:
+ * https://www.cisco.com/c/en/us/td/docs/net_mgmt/netflow_collection_engine/3-6/user/guide/format.html
+ */
 struct NETFLOW5_HEADER {
-  u_int16_t version, flows;     // same as netflow v1
-  u_int32_t sysUpTime;          // in milliseconds, same as netflow v1
-  u_int32_t export_time;        // in seconds, same as netflow v1
-  u_int32_t export_time_nanoseconds;    // same as netflow v1
+  u_int16_t version, flows;           // same as netflow v1
+  u_int32_t sysUpTime;                // in milliseconds, same as netflow v1
+  u_int32_t export_time;              // in seconds, same as netflow v1
+  u_int32_t export_time_nanoseconds;  // same as netflow v1
   u_int32_t sequence_number;
   u_int8_t engine_type, engine_id;
   u_int16_t sampling_interval;
@@ -52,13 +55,15 @@ struct NETFLOW5_HEADER {
 
 #define NETFLOW1_HEADER_SIZE 16
 
-/* Cisco NetFlow v5 flow record (48 octets); NetFlow v1 records are the same size. */
+/* Cisco NetFlow v5 flow record (48 octets); NetFlow v1 records are the same
+ * size. */
 struct NETFLOW5_FLOW {
-  u_int32_t sourceIPv4Address, destinationIPv4Address, ipNextHopIPv4Address;    // same as netflow v1
-  u_int16_t ingressInterface, egressInterface;  // same as netflow v1
-  u_int32_t packetDeltaCount, octetDeltaCount;  // same as netflow v1
-  u_int32_t flowStartSysUpTime, flowEndSysUpTime;       // same as netflow v1
-  u_int16_t sourceTransportPort, destinationTransportPort;      // same as netflow v1
+  u_int32_t sourceIPv4Address, destinationIPv4Address,
+    ipNextHopIPv4Address;                                   // same as netflow v1
+  u_int16_t ingressInterface, egressInterface;              // same as netflow v1
+  u_int32_t packetDeltaCount, octetDeltaCount;              // same as netflow v1
+  u_int32_t flowStartSysUpTime, flowEndSysUpTime;           // same as netflow v1
+  u_int16_t sourceTransportPort, destinationTransportPort;  // same as netflow v1
   u_int8_t pad1;
   u_int8_t tcpControlBits, protocolIdentifier, ipClassOfService;
   u_int16_t bgpSourceAsNumber, bgpDestinationAsNumber;
@@ -67,24 +72,26 @@ struct NETFLOW5_FLOW {
 };
 
 /* Maximum number of flows per packet */
-#define NETFLOW1_MAXFLOWS            24
-#define NETFLOW5_MAXFLOWS            30
-#define NETFLOW5_MAXPACKET_SIZE      (sizeof(struct NETFLOW5_HEADER) + \
-                                 (NETFLOW5_MAXFLOWS * sizeof(struct NETFLOW5_FLOW)))
+#define NETFLOW1_MAXFLOWS 24
+#define NETFLOW5_MAXFLOWS 30
+#define NETFLOW5_MAXPACKET_SIZE      \
+  (sizeof (struct NETFLOW5_HEADER) + \
+   (NETFLOW5_MAXFLOWS * sizeof (struct NETFLOW5_FLOW)))
 
-#define NETFLOW9_TEMPLATE_SET_ID          0
-#define NETFLOW9_OPTION_TEMPLATE_SET_ID   1
+#define NETFLOW9_TEMPLATE_SET_ID 0
+#define NETFLOW9_OPTION_TEMPLATE_SET_ID 1
 
 struct NETFLOW9_HEADER {
   u_int16_t version, flows;
-  u_int32_t sysUpTime;          // in milliseconds
-  u_int32_t export_time;        // in seconds
+  u_int32_t sysUpTime;    // in milliseconds
+  u_int32_t export_time;  // in seconds
   u_int32_t sequence_number, observation_domain_id;
 } __packed;
 
 #if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
 /* Force a resend of the flow template, from netflow9.c */
-void netflow9_resend_template (void);
+void
+netflow9_resend_template (void);
 #endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
 
 #endif /* _NETFLOW_H */

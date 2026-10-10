@@ -23,16 +23,17 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "ipfix.h"
 #include "common.h"
 #include "log.h"
-#include "treetype.h"
-#include "softflowd.h"
 #include "netflow.h"
-#include "ipfix.h"
 #include "psamp.h"
+#include "softflowd.h"
+#include "treetype.h"
 
 /**
- * @brief Fill field specifiers of a template from a field table (also used by psamp.c).
+ * @brief Fill field specifiers of a template from a field table (also used by
+ * psamp.c).
  *
  * @param dst          Template field specifier array to fill.
  * @param index        Position in dst to start at; advanced by field_number.
@@ -41,8 +42,7 @@
  * @return Sum of the lengths of the copied fields.
  */
 int
-ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst,
-                   u_int *index,
+ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int *index,
                    const struct IPFIX_FIELD_SPECIFIER *src,
                    u_int field_number) {
   int length = 0;
@@ -81,23 +81,26 @@ void
 conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
   if (tv == NULL)
     return;
-  tv->tv_sec = ntp.second - 0x83AA7E80; // the seconds from Jan 1, 1900 to Jan 1, 1970
-  tv->tv_usec =
-    (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32));
+  tv->tv_sec =
+    ntp.second - 0x83AA7E80;  // the seconds from Jan 1, 1900 to Jan 1, 1970
+  tv->tv_usec = (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32));
 }
 
-/* IPFIX flowDirection (IANA IE 61, RFC 7011): Use MAC match (Src=Egress, Dst=Ingress)
- * if configured with ethernet tracking; otherwise fall back to array index i. */
+/* IPFIX flowDirection (IANA IE 61, RFC 7011): Use MAC match (Src=Egress,
+ * Dst=Ingress) if configured with ethernet tracking; otherwise fall back to
+ * array index i. */
 
 /**
  * @brief Value of the IPFIX flowDirection element (IANA IE 61, RFC 7011).
  *
- * Without a direction MAC and ethernet tracking the endpoint index i is returned instead.
+ * Without a direction MAC and ethernet tracking the endpoint index i is
+ * returned instead.
  *
  * @param flow  Flow.
  * @param i     Endpoint index (0 or 1) of the record being encoded.
  * @param param Tracking parameters holding the direction MAC.
- * @return IPFIX_FLOWDIRECTION_EGRESS if the source MAC of endpoint i matches the direction MAC, IPFIX_FLOWDIRECTION_INGRESS if its destination MAC does.
+ * @return IPFIX_FLOWDIRECTION_EGRESS if the source MAC of endpoint i matches
+ * the direction MAC, IPFIX_FLOWDIRECTION_INGRESS if its destination MAC does.
  */
 static u_int8_t
 ipfix_flow_direction (const struct FLOW *flow, int i,
@@ -113,10 +116,15 @@ ipfix_flow_direction (const struct FLOW *flow, int i,
 
 /* Determines flow template (v4/icmpv4/v6/icmpv6) index;
  * used to select from their TMPLMAX template arrays. */
-enum { TMPLV4, TMPLICMPV4, TMPLV6, TMPLICMPV6, TMPLMAX };
+enum { TMPLV4,
+       TMPLICMPV4,
+       TMPLV6,
+       TMPLICMPV6,
+       TMPLMAX };
 
 /**
- * @brief Select which of the TMPLMAX templates a flow uses (IPv4, ICMPv4, IPv6 or ICMPv6).
+ * @brief Select which of the TMPLMAX templates a flow uses (IPv4, ICMPv4, IPv6
+ * or ICMPv6).
  *
  * @param flow Flow.
  * @return TMPLV4, TMPLICMPV4, TMPLV6 or TMPLICMPV6.
@@ -130,127 +138,148 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
   return TMPLV4;
 }
 
-
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
  * COMPAT_EXPORT to avoid duplication. */
 /* DEF_FIELD_ENC(ie, len, fn): Single macro to define field tables for both
  * with and without COMPAT_EXPORT without duplicating IE
- * lists. Forward-declares encoder types so the default (encoder-based) expansion can compile. */
+ * lists. Forward-declares encoder types so the default (encoder-based)
+ * expansion can compile. */
 #ifndef COMPAT_EXPORT
 struct IPFIX_CTX;
-typedef void (*ipfix_encoder_t) (u_char * dst, u_int16_t length,
-                                         const struct IPFIX_CTX *
-                                         ctx);
+typedef void (*ipfix_encoder_t) (u_char *dst, u_int16_t length,
+                                 const struct IPFIX_CTX *ctx);
 struct IPFIX_FIELD_SPECIFIER_ENCODER {
   struct IPFIX_FIELD_SPECIFIER field;
   ipfix_encoder_t encoder;
 };
-/* Forward declarations for 'fn' in DEF_FIELD_ENC (for the default encoder-based exporter). */
-static void enc_sourceIPv4Address (u_char *, u_int16_t,
-                                   const struct IPFIX_CTX *);
-static void enc_destinationIPv4Address (u_char *, u_int16_t,
-                                        const struct IPFIX_CTX *);
-static void enc_sourceIPv6Address (u_char *, u_int16_t,
-                                   const struct IPFIX_CTX *);
-static void enc_destinationIPv6Address (u_char *, u_int16_t,
-                                        const struct IPFIX_CTX *);
-static void enc_sourceTransportPort (u_char *, u_int16_t,
-                                     const struct IPFIX_CTX *);
-static void enc_destinationTransportPort (u_char *, u_int16_t,
-                                          const struct IPFIX_CTX *);
-static void enc_protocolIdentifier (u_char *, u_int16_t,
-                                    const struct IPFIX_CTX *);
-static void enc_tcpControlBits (u_char *, u_int16_t,
-                                const struct IPFIX_CTX *);
-static void enc_ipVersion (u_char *, u_int16_t,
-                           const struct IPFIX_CTX *);
-static void enc_ipClassOfService (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_icmpTypeCode (u_char *, u_int16_t,
-                              const struct IPFIX_CTX *);
-static void enc_vlanId (u_char *, u_int16_t,
-                        const struct IPFIX_CTX *);
-static void enc_postVlanId (u_char *, u_int16_t,
+/* Forward declarations for 'fn' in DEF_FIELD_ENC (for the default encoder-based
+ * exporter). */
+static void
+enc_sourceIPv4Address (u_char *, u_int16_t,
+                       const struct IPFIX_CTX *);
+static void
+enc_destinationIPv4Address (u_char *, u_int16_t,
                             const struct IPFIX_CTX *);
-static void enc_sourceMacAddress (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_postDestinationMacAddress (u_char *, u_int16_t,
-                                           const struct IPFIX_CTX *);
-static void enc_flowStartSeconds (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_flowEndSeconds (u_char *, u_int16_t,
-                                const struct IPFIX_CTX *);
-static void enc_flowStartMilliSeconds (u_char *, u_int16_t,
-                                       const struct IPFIX_CTX *);
-static void enc_flowEndMilliSeconds (u_char *, u_int16_t,
-                                     const struct IPFIX_CTX *);
-static void enc_flowStartMicroSeconds (u_char *, u_int16_t,
-                                       const struct IPFIX_CTX *);
-static void enc_flowEndMicroSeconds (u_char *, u_int16_t,
-                                     const struct IPFIX_CTX *);
-/* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding. */
+static void
+enc_sourceIPv6Address (u_char *, u_int16_t,
+                       const struct IPFIX_CTX *);
+static void
+enc_destinationIPv6Address (u_char *, u_int16_t,
+                            const struct IPFIX_CTX *);
+static void
+enc_sourceTransportPort (u_char *, u_int16_t,
+                         const struct IPFIX_CTX *);
+static void
+enc_destinationTransportPort (u_char *, u_int16_t,
+                              const struct IPFIX_CTX *);
+static void
+enc_protocolIdentifier (u_char *, u_int16_t,
+                        const struct IPFIX_CTX *);
+static void
+enc_tcpControlBits (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_ipVersion (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_ipClassOfService (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_icmpTypeCode (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_vlanId (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_postVlanId (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_sourceMacAddress (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_postDestinationMacAddress (u_char *, u_int16_t,
+                               const struct IPFIX_CTX *);
+static void
+enc_flowStartSeconds (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_flowEndSeconds (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_flowStartMilliSeconds (u_char *, u_int16_t,
+                           const struct IPFIX_CTX *);
+static void
+enc_flowEndMilliSeconds (u_char *, u_int16_t,
+                         const struct IPFIX_CTX *);
+static void
+enc_flowStartMicroSeconds (u_char *, u_int16_t,
+                           const struct IPFIX_CTX *);
+static void
+enc_flowEndMicroSeconds (u_char *, u_int16_t,
+                         const struct IPFIX_CTX *);
+/* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
+ */
 #define enc_flowStartNanoSeconds enc_flowStartMicroSeconds
 #define enc_flowEndNanoSeconds enc_flowEndMicroSeconds
-static void enc_flowStartSysUpTime (u_char *, u_int16_t,
-                                    const struct IPFIX_CTX *);
-static void enc_flowEndSysUpTime (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_octetDeltaCount (u_char *, u_int16_t,
-                                 const struct IPFIX_CTX *);
-static void enc_packetDeltaCount (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_ifidx16 (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-static void enc_ifidx32 (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-static void enc_flowDirection (u_char *, u_int16_t,
-                               const struct IPFIX_CTX *);
-static void enc_flowEndReason (u_char *, u_int16_t,
-                               const struct IPFIX_CTX *);
+static void
+enc_flowStartSysUpTime (u_char *, u_int16_t,
+                        const struct IPFIX_CTX *);
+static void
+enc_flowEndSysUpTime (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_octetDeltaCount (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_packetDeltaCount (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_ifidx16 (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_ifidx32 (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_flowDirection (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_flowEndReason (u_char *, u_int16_t, const struct IPFIX_CTX *);
 #ifdef ENABLE_IFNAME
-static void enc_interfaceName (u_char *, u_int16_t,
-                               const struct IPFIX_CTX *);
+static void
+enc_interfaceName (u_char *, u_int16_t, const struct IPFIX_CTX *);
 #endif
-static void enc_nf9OptionScopeInterface (u_char *, u_int16_t,
-                                         const struct IPFIX_CTX *);
-static void enc_zero (u_char *, u_int16_t,
-                      const struct IPFIX_CTX *);
-static void enc_meteringProcessId (u_char *, u_int16_t,
-                                   const struct IPFIX_CTX *);
-static void enc_systemInitTimeMilliseconds (u_char *, u_int16_t,
-                                            const struct IPFIX_CTX *);
-static void enc_samplingPacketInterval (u_char *, u_int16_t,
-                                        const struct IPFIX_CTX *);
-static void enc_samplingPacketSpace (u_char *, u_int16_t,
-                                     const struct IPFIX_CTX *);
-static void enc_selectorAlgorithm (u_char *, u_int16_t,
-                                   const struct IPFIX_CTX *);
-static void enc_exporterAddress (u_char *, u_int16_t,
-                                 const struct IPFIX_CTX *);
-static void enc_originalExporterAddress (u_char *, u_int16_t,
-                                         const struct IPFIX_CTX *);
-static void enc_samplingInterval (u_char *, u_int16_t,
-                                  const struct IPFIX_CTX *);
-static void enc_samplingAlgorithm (u_char *, u_int16_t,
-                                   const struct IPFIX_CTX *);
+static void
+enc_nf9OptionScopeInterface (u_char *, u_int16_t,
+                             const struct IPFIX_CTX *);
+static void
+enc_zero (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_meteringProcessId (u_char *, u_int16_t,
+                       const struct IPFIX_CTX *);
+static void
+enc_systemInitTimeMilliseconds (u_char *, u_int16_t,
+                                const struct IPFIX_CTX *);
+static void
+enc_samplingPacketInterval (u_char *, u_int16_t,
+                            const struct IPFIX_CTX *);
+static void
+enc_samplingPacketSpace (u_char *, u_int16_t,
+                         const struct IPFIX_CTX *);
+static void
+enc_selectorAlgorithm (u_char *, u_int16_t,
+                       const struct IPFIX_CTX *);
+static void
+enc_exporterAddress (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_originalExporterAddress (u_char *, u_int16_t,
+                             const struct IPFIX_CTX *);
+static void
+enc_samplingInterval (u_char *, u_int16_t, const struct IPFIX_CTX *);
+static void
+enc_samplingAlgorithm (u_char *, u_int16_t,
+                       const struct IPFIX_CTX *);
 #define IPFIX_FIELD_TABLE_TYPE struct IPFIX_FIELD_SPECIFIER_ENCODER
-#define DEF_FIELD_ENC(ie, len, fn) { { (ie), (len) }, (fn) }
+#define DEF_FIELD_ENC(ie, len, fn) {{(ie), (len)}, (fn)}
 #else
 #define IPFIX_FIELD_TABLE_TYPE struct IPFIX_FIELD_SPECIFIER
-#define DEF_FIELD_ENC(ie, len, fn) { (ie), (len) }
+#define DEF_FIELD_ENC(ie, len, fn) {(ie), (len)}
 #endif
 
 /* Shared field-group descriptors (IPFIX IEs) used both with and without
  * COMPAT_EXPORT to avoid duplication. */
 const IPFIX_FIELD_TABLE_TYPE field_v4[] = {
   DEF_FIELD_ENC (IPFIX_sourceIPv4Address, 4, enc_sourceIPv4Address),
-  DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)
-};
+  DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)};
 
 const IPFIX_FIELD_TABLE_TYPE field_v6[] = {
   DEF_FIELD_ENC (IPFIX_sourceIPv6Address, 16, enc_sourceIPv6Address),
-  DEF_FIELD_ENC (IPFIX_destinationIPv6Address, 16, enc_destinationIPv6Address)
-};
+  DEF_FIELD_ENC (IPFIX_destinationIPv6Address, 16,
+                 enc_destinationIPv6Address)};
 
 const IPFIX_FIELD_TABLE_TYPE field_common[] = {
   DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
@@ -271,77 +300,65 @@ const IPFIX_FIELD_TABLE_TYPE field_transport[] = {
   DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
   DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits),
   DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)
-};
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
 
 const IPFIX_FIELD_TABLE_TYPE field_icmp4[] = {
   DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode),
   DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
   DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)
-};
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
 
 const IPFIX_FIELD_TABLE_TYPE field_icmp6[] = {
   DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode),
   DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
   DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)
-};
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
 
 const IPFIX_FIELD_TABLE_TYPE field_vlan[] = {
   DEF_FIELD_ENC (IPFIX_vlanId, 2, enc_vlanId),
-  DEF_FIELD_ENC (IPFIX_postVlanId, 2, enc_postVlanId)
-};
+  DEF_FIELD_ENC (IPFIX_postVlanId, 2, enc_postVlanId)};
 
 const IPFIX_FIELD_TABLE_TYPE field_ether[] = {
   DEF_FIELD_ENC (IPFIX_sourceMacAddress, 6, enc_sourceMacAddress),
   DEF_FIELD_ENC (IPFIX_postDestinationMacAddress, 6,
-                 enc_postDestinationMacAddress)
-};
+                 enc_postDestinationMacAddress)};
 
 const IPFIX_FIELD_TABLE_TYPE field_timesec[] = {
   DEF_FIELD_ENC (IPFIX_flowStartSeconds, 4, enc_flowStartSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndSeconds, 4, enc_flowEndSeconds)
-};
+  DEF_FIELD_ENC (IPFIX_flowEndSeconds, 4, enc_flowEndSeconds)};
 
 const IPFIX_FIELD_TABLE_TYPE field_timemsec[] = {
   DEF_FIELD_ENC (IPFIX_flowStartMilliSeconds, 8, enc_flowStartMilliSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndMilliSeconds, 8, enc_flowEndMilliSeconds)
-};
+  DEF_FIELD_ENC (IPFIX_flowEndMilliSeconds, 8, enc_flowEndMilliSeconds)};
 
 const IPFIX_FIELD_TABLE_TYPE field_timeusec[] = {
   DEF_FIELD_ENC (IPFIX_flowStartMicroSeconds, 8, enc_flowStartMicroSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndMicroSeconds, 8, enc_flowEndMicroSeconds)
-};
+  DEF_FIELD_ENC (IPFIX_flowEndMicroSeconds, 8, enc_flowEndMicroSeconds)};
 
 const IPFIX_FIELD_TABLE_TYPE field_timensec[] = {
   DEF_FIELD_ENC (IPFIX_flowStartNanoSeconds, 8, enc_flowStartNanoSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndNanoSeconds, 8, enc_flowEndNanoSeconds)
-};
+  DEF_FIELD_ENC (IPFIX_flowEndNanoSeconds, 8, enc_flowEndNanoSeconds)};
 
 const IPFIX_FIELD_TABLE_TYPE field_timesysup[] = {
   DEF_FIELD_ENC (IPFIX_flowStartSysUpTime, 4, enc_flowStartSysUpTime),
-  DEF_FIELD_ENC (IPFIX_flowEndSysUpTime, 4, enc_flowEndSysUpTime)
-};
+  DEF_FIELD_ENC (IPFIX_flowEndSysUpTime, 4, enc_flowEndSysUpTime)};
 
 const IPFIX_FIELD_TABLE_TYPE field_bicommon[] = {
   DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
   DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)
-};
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
 
-const IPFIX_FIELD_TABLE_TYPE field_bitransport[] =
-  { DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits) };
+const IPFIX_FIELD_TABLE_TYPE field_bitransport[] = {
+  DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits)};
 
-const IPFIX_FIELD_TABLE_TYPE field_biicmp4[] =
-  { DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode) };
+const IPFIX_FIELD_TABLE_TYPE field_biicmp4[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode)};
 
-const IPFIX_FIELD_TABLE_TYPE field_biicmp6[] =
-  { DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode) };
+const IPFIX_FIELD_TABLE_TYPE field_biicmp6[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode)};
 
 const IPFIX_FIELD_TABLE_TYPE field_scope[] = {
-  DEF_FIELD_ENC (IPFIX_meteringProcessId, 4, enc_meteringProcessId)
-};
+  DEF_FIELD_ENC (IPFIX_meteringProcessId, 4, enc_meteringProcessId)};
 
 const IPFIX_FIELD_TABLE_TYPE field_option[] = {
   DEF_FIELD_ENC (IPFIX_systemInitTimeMilliseconds, 8,
@@ -359,12 +376,10 @@ const IPFIX_FIELD_TABLE_TYPE field_option[] = {
   DEF_FIELD_ENC (IPFIX_originalExporterIPv4Address, 4,
                  enc_originalExporterAddress),
   DEF_FIELD_ENC (IPFIX_originalExporterIPv6Address, 16,
-                 enc_originalExporterAddress)
-};
+                 enc_originalExporterAddress)};
 
-const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {
-  DEF_FIELD_ENC (IPFIX_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)
-};
+const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {DEF_FIELD_ENC (
+  IPFIX_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)};
 
 const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
   DEF_FIELD_ENC (IPFIX_samplingInterval, 4, enc_samplingInterval),
@@ -379,37 +394,40 @@ const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
 /* Shared template sized for IPFIX (reused by NetFlow v9).
  * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)
  * to avoid over-counting and potential array bounds issues. */
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS   \
-    (sizeof(field_scope) / sizeof(IPFIX_FIELD_TABLE_TYPE))
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS        \
-    (sizeof(field_option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
+  (sizeof (field_scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
+  (sizeof (field_option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
 
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS  \
-    (sizeof(field_nf9scope) / sizeof(IPFIX_FIELD_TABLE_TYPE))
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS       \
-    (sizeof(field_nf9option) / sizeof(IPFIX_FIELD_TABLE_TYPE))
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
+  (sizeof (field_nf9scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
+  (sizeof (field_nf9option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
 
 struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
   struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER
-    s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
+  struct IPFIX_FIELD_SPECIFIER s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
   struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
 } __packed;
 
-/* Overlay of the packet headers (NETFLOW5/NETFLOW9/IPFIX) used to patch the count, length and
- * sequence number in place once a packet is complete, and by the ENABLE_DIRECT_COPIES variant of
- * build_flow_header(). The top-level 'version' member is shared across all formats. */
+/* Overlay of the packet headers (NETFLOW5/NETFLOW9/IPFIX) used to patch the
+ * count, length and sequence number in place once a packet is complete, and by
+ * the ENABLE_DIRECT_COPIES variant of build_flow_header(). The top-level
+ * 'version' member is shared across all formats. */
 union FLOW_PACKET_HEADER {
   u_int16_t version;
-  struct NETFLOW5_HEADER nf5;   /* NetFlow v1: only the first NETFLOW1_HEADER_SIZE octets */
+  struct NETFLOW5_HEADER
+    nf5; /* NetFlow v1: only the first NETFLOW1_HEADER_SIZE octets */
   struct NETFLOW9_HEADER nf9;
   struct IPFIX_HEADER ipfix;
 };
 
 /**
- * @brief Write the packet header for the given export version at the start of the packet.
+ * @brief Write the packet header for the given export version at the start of
+ * the packet.
  *
- * Count, length and sequence fields are left 0 and patched in place once the packet is complete.
+ * Count, length and sequence fields are left 0 and patched in place once the
+ * packet is complete.
  *
  * @param packet  Packet buffer.
  * @param version Export version: 1, 5, 9 or 10.
@@ -421,7 +439,7 @@ build_flow_header (u_char *packet, u_int16_t version,
                    const struct FLOWTRACKPARAMETERS *param) {
   struct timeval now;
   u_int32_t sysUpTime;
-#ifdef ENABLE_DIRECT_COPIES     /* legacy direct pointer casting */
+#ifdef ENABLE_DIRECT_COPIES /* legacy direct pointer casting */
   union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
 #endif
 
@@ -429,25 +447,29 @@ build_flow_header (u_char *packet, u_int16_t version,
 
   sysUpTime = timeval_sub_ms (&now, &param->system_boot_time);
 
-#ifndef ENABLE_DIRECT_COPIES /* default: build the header in a struct and copy it with memcpy */
+#ifndef ENABLE_DIRECT_COPIES /* default: build the header in a struct and copy \
+                                it with memcpy */
   switch (version) {
-  case 1:
-  case 5:{
-      /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of the v5 one,
-       * so v1 copies only that much. The members that are not set are 0. */
+    case 1:
+    case 5: {
+      /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of
+     * the v5 one, so v1 copies only that much. The members that are not set are
+     * 0. */
       struct NETFLOW5_HEADER hdr = {
         .version = htons (version),
         .sysUpTime = htonl (sysUpTime),
         .export_time = htonl ((u_int32_t) now.tv_sec),
         .export_time_nanoseconds = htonl ((u_int32_t) now.tv_usec * 1000),
-        .sampling_interval = param->option.sample > 0 ?
-          htons ((0x01 << 14) | (param->option.sample & 0x3FFF)) : 0,
+        .sampling_interval =
+          param->option.sample > 0
+            ? htons ((0x01 << 14) | (param->option.sample & 0x3FFF))
+            : 0,
       };
       u_int len = (version == 1) ? NETFLOW1_HEADER_SIZE : sizeof (hdr);
       memcpy (packet, &hdr, len);
       return len;
     }
-  case 9:{
+    case 9: {
       struct NETFLOW9_HEADER hdr = {
         .version = htons (version),
         .sysUpTime = htonl (sysUpTime),
@@ -456,7 +478,7 @@ build_flow_header (u_char *packet, u_int16_t version,
       memcpy (packet, &hdr, sizeof (hdr));
       return sizeof (hdr);
     }
-  default:{                    /* 10 = IPFIX */
+    default: { /* 10 = IPFIX */
       struct IPFIX_HEADER hdr = {
         .version = htons (version),
         .export_time = htonl ((u_int32_t) now.tv_sec),
@@ -465,49 +487,51 @@ build_flow_header (u_char *packet, u_int16_t version,
       return sizeof (hdr);
     }
   }
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
+#else  /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
   h->version = htons (version);
   switch (version) {
-  case 1:
-  case 5:
-    /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of the v5 one (see
-     * union FLOW_PACKET_HEADER's comment), so this much is shared. */
-    h->nf5.flows = 0;
-    h->nf5.sysUpTime = htonl (sysUpTime);
-    h->nf5.export_time = htonl ((u_int32_t) now.tv_sec);
-    h->nf5.export_time_nanoseconds =
-      htonl ((u_int32_t) now.tv_usec * 1000);
-    if (version == 1)
-      return NETFLOW1_HEADER_SIZE;
-    h->nf5.sequence_number = 0;
-    h->nf5.engine_type = 0;
-    h->nf5.engine_id = 0;
-    if (param->option.sample > 0) {
-      u_int16_t sampling_interval_raw = (0x01 << 14) | (param->option.sample & 0x3FFF);
-      h->nf5.sampling_interval = htons (sampling_interval_raw);
-    } else {
-      h->nf5.sampling_interval = 0;
-    }
-    return sizeof (h->nf5);
-  case 9:
-    h->nf9.flows = 0;
-    h->nf9.sysUpTime = htonl (sysUpTime);
-    h->nf9.export_time = htonl ((u_int32_t) now.tv_sec);
-    h->nf9.sequence_number = 0;
-    h->nf9.observation_domain_id = 0;
-    return sizeof (h->nf9);
-  default:                     /* 10 = IPFIX */
-    h->ipfix.length = 0;
-    h->ipfix.export_time = htonl ((u_int32_t) now.tv_sec);
-    h->ipfix.sequence_number = 0;
-    h->ipfix.observation_domain_id = 0;
-    return sizeof (h->ipfix);
+    case 1:
+    case 5:
+      /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of
+     * the v5 one (see union FLOW_PACKET_HEADER's comment), so this much is
+     * shared. */
+      h->nf5.flows = 0;
+      h->nf5.sysUpTime = htonl (sysUpTime);
+      h->nf5.export_time = htonl ((u_int32_t) now.tv_sec);
+      h->nf5.export_time_nanoseconds = htonl ((u_int32_t) now.tv_usec * 1000);
+      if (version == 1)
+        return NETFLOW1_HEADER_SIZE;
+      h->nf5.sequence_number = 0;
+      h->nf5.engine_type = 0;
+      h->nf5.engine_id = 0;
+      if (param->option.sample > 0) {
+        u_int16_t sampling_interval_raw =
+          (0x01 << 14) | (param->option.sample & 0x3FFF);
+        h->nf5.sampling_interval = htons (sampling_interval_raw);
+      } else {
+        h->nf5.sampling_interval = 0;
+      }
+      return sizeof (h->nf5);
+    case 9:
+      h->nf9.flows = 0;
+      h->nf9.sysUpTime = htonl (sysUpTime);
+      h->nf9.export_time = htonl ((u_int32_t) now.tv_sec);
+      h->nf9.sequence_number = 0;
+      h->nf9.observation_domain_id = 0;
+      return sizeof (h->nf9);
+    default: /* 10 = IPFIX */
+      h->ipfix.length = 0;
+      h->ipfix.export_time = htonl ((u_int32_t) now.tv_sec);
+      h->ipfix.sequence_number = 0;
+      h->ipfix.observation_domain_id = 0;
+      return sizeof (h->ipfix);
   }
 #endif /* ENABLE_DIRECT_COPIES */
 }
 
-/** Packets until templates are sent again: -1 = not built yet, 0 or less = send with the next packet,
- * reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending. */
+/** Packets until templates are sent again: -1 = not built yet, 0 or less = send
+ * with the next packet, reset to IPFIX_DEFAULT_TEMPLATE_INTERVAL after sending.
+ */
 static int ipfix_pkts_until_template = -1;
 
 /**
@@ -536,14 +560,17 @@ valuate_icmp (const struct FLOW *flow) {
 
 #ifndef COMPAT_EXPORT
 /* Merged NetFlow v1/v5/v9/IPFIX exporter (default, encoder-based):
- * Consolidates all 4 versions into a single path by treating v1/v5 fields as IPFIX IEs.
- * Active unless --enable-compat-export or --enable-legacy is given (psamp.c remains separate). */
+ * Consolidates all 4 versions into a single path by treating v1/v5 fields as
+ * IPFIX IEs. Active unless --enable-compat-export or --enable-legacy is given
+ * (psamp.c remains separate). */
 
-/** Context for resolving field values: flow, endpoint index, and send parameters. */
+/** Context for resolving field values: flow, endpoint index, and send
+ * parameters. */
 struct IPFIX_CTX {
-  const struct SENDPARAMETER *sp;       /**< Send parameters (tracking parameters, interface index) */
-  const struct FLOW *flow;              /**< Flow being encoded */
-  u_int i;                              /**< Which endpoint (0/1) is "source" here */
+  const struct SENDPARAMETER
+    *sp;                   /**< Send parameters (tracking parameters, interface index) */
+  const struct FLOW *flow; /**< Flow being encoded */
+  u_int i;                 /**< Which endpoint (0/1) is "source" here */
 };
 
 /**
@@ -559,52 +586,53 @@ static inline void
 hton (u_char *dst, u_int64_t val, u_int len) {
   switch (len) {
 #if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
-  case 8:
-    {
+    case 8: {
       u_int64_t v = htobe64 (val);
       memcpy (dst, &v, 8);
     }
-    return;
+      return;
 #endif
-  case 4:
-    {
+    case 4: {
       u_int32_t v = htonl ((u_int32_t) val);
       memcpy (dst, &v, 4);
     }
-    return;
-  case 2:
-    {
+      return;
+    case 2: {
       u_int16_t v = htons ((u_int16_t) val);
       memcpy (dst, &v, 2);
     }
-    return;
-  default:
-    {
+      return;
+    default: {
       u_int k;
       for (k = 0; k < len; k++)
         dst[k] = (u_char) (val >> (8 * (len - 1 - k)));
     }
-    return;
+      return;
   }
 }
 
 /**
- * @brief Define a static encoder that stores an integer value in network byte order.
+ * @brief Define a static encoder that stores an integer value in network byte
+ * order.
  *
- * The encoder is stored directly in the field tables, which removes any run-time lookup.
- * The compile-time constant width lets the compiler reduce hton()'s switch to a single branch.
+ * The encoder is stored directly in the field tables, which removes any
+ * run-time lookup. The compile-time constant width lets the compiler reduce
+ * hton()'s switch to a single branch.
  *
  * @param name     Name of the encoder function to define.
  * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
  * @param width    Number of octets to store.
  */
-#define IPFIX_ENC_HTON(name, val_expr, width) \
-static void \
-name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
-  const struct FLOW *flow = ctx->flow; u_int i = ctx->i; \
-  (void) flow; (void) i; (void) length; \
-  hton (dst, (val_expr), (width)); \
-}
+#define IPFIX_ENC_HTON(name, val_expr, width)      \
+  static void name (u_char *dst, u_int16_t length, \
+                    const struct IPFIX_CTX *ctx) { \
+    const struct FLOW *flow = ctx->flow;           \
+    u_int i = ctx->i;                              \
+    (void) flow;                                   \
+    (void) i;                                      \
+    (void) length;                                 \
+    hton (dst, (val_expr), (width));               \
+  }
 
 /**
  * @brief Define a static encoder that copies n octets from memory unchanged.
@@ -613,16 +641,20 @@ name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
  * so length >= n always holds and memcpy() can run unconditionally.
  *
  * @param name     Name of the encoder function to define.
- * @param src_expr Expression for the source address; may use "flow", "i" and "ctx".
+ * @param src_expr Expression for the source address; may use "flow", "i" and
+ * "ctx".
  * @param n        Number of octets to copy.
  */
-#define IPFIX_ENC_COPY(name, src_expr, n) \
-static void \
-name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
-  const struct FLOW *flow = ctx->flow; u_int i = ctx->i; \
-  (void) flow; (void) i; (void) length; \
-  memcpy (dst, (src_expr), (n)); \
-}
+#define IPFIX_ENC_COPY(name, src_expr, n)          \
+  static void name (u_char *dst, u_int16_t length, \
+                    const struct IPFIX_CTX *ctx) { \
+    const struct FLOW *flow = ctx->flow;           \
+    u_int i = ctx->i;                              \
+    (void) flow;                                   \
+    (void) i;                                      \
+    (void) length;                                 \
+    memcpy (dst, (src_expr), (n));                 \
+  }
 
 /**
  * @brief Define a static encoder that stores a single octet.
@@ -630,28 +662,34 @@ name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
  * @param name     Name of the encoder function to define.
  * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
  */
-#define IPFIX_ENC_BYTE(name, val_expr) \
-static void \
-name (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) { \
-  const struct FLOW *flow = ctx->flow; u_int i = ctx->i; \
-  (void) length; (void) flow; (void) i; \
-  *dst = (u_char) (val_expr); \
-}
+#define IPFIX_ENC_BYTE(name, val_expr)             \
+  static void name (u_char *dst, u_int16_t length, \
+                    const struct IPFIX_CTX *ctx) { \
+    const struct FLOW *flow = ctx->flow;           \
+    u_int i = ctx->i;                              \
+    (void) length;                                 \
+    (void) flow;                                   \
+    (void) i;                                      \
+    *dst = (u_char) (val_expr);                    \
+  }
 
 /**
- * @brief No-op encoder for NetFlow v1/v5 zero and padding fields (the buffer is already zeroed).
+ * @brief No-op encoder for NetFlow v1/v5 zero and padding fields (the buffer is
+ * already zeroed).
  *
- * Calling this dummy directly is faster than testing for a NULL sentinel on the hot path.
+ * Calling this dummy directly is faster than testing for a NULL sentinel on the
+ * hot path.
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
 static void
-enc_zero (u_char *dst, u_int16_t length, const struct IPFIX_CTX *ctx) {
+enc_zero (u_char *dst, u_int16_t length,
+          const struct IPFIX_CTX *ctx) {
   (void) dst;
   (void) length;
-  (void) ctx;                   /* no value; buffer already zeroed */
+  (void) ctx; /* no value; buffer already zeroed */
 }
 
 IPFIX_ENC_HTON (enc_octetDeltaCount, flow->octets[i], 4)
@@ -667,32 +705,37 @@ IPFIX_ENC_COPY (enc_destinationIPv4Address, &flow->addr[i ^ 1].v4, 4)
 IPFIX_ENC_COPY (enc_sourceIPv6Address, &flow->addr[i].v6, 16)
 IPFIX_ENC_COPY (enc_destinationIPv6Address, &flow->addr[i ^ 1].v6, 16)
 IPFIX_ENC_COPY (enc_sourceMacAddress, &flow->ethermac[i], 6)
-IPFIX_ENC_COPY (enc_postDestinationMacAddress, &flow->ethermac[i ^ 1],
-                        6)
-/* Split into 16-bit and 32-bit encoders so each passes a literal width to hton()
- * for compile-time switch optimization instead of using runtime length. */
-IPFIX_ENC_HTON (enc_ifidx16, ctx->sp->ifidx, 2)   /* NetFlow v1/v5 ingress/egressInterface */
-IPFIX_ENC_HTON (enc_ifidx32, ctx->sp->ifidx, 4)   /* NetFlow v9/IPFIX ingress/egressInterface */
+IPFIX_ENC_COPY (enc_postDestinationMacAddress, &flow->ethermac[i ^ 1], 6)
+/* Split into 16-bit and 32-bit encoders so each passes a literal width to
+ * hton() for compile-time switch optimization instead of using runtime length.
+ */
+IPFIX_ENC_HTON (enc_ifidx16, ctx->sp->ifidx,
+                2) /* NetFlow v1/v5 ingress/egressInterface */
+IPFIX_ENC_HTON (enc_ifidx32, ctx->sp->ifidx,
+                4) /* NetFlow v9/IPFIX ingress/egressInterface */
 IPFIX_ENC_HTON (enc_flowStartSysUpTime,
-                        timeval_sub_ms (&flow->flow_start,
-                                      &ctx->sp->param->system_boot_time), 4)
+                timeval_sub_ms (&flow->flow_start,
+                                &ctx->sp->param->system_boot_time),
+                4)
 IPFIX_ENC_HTON (enc_flowEndSysUpTime,
-                        timeval_sub_ms (&flow->flow_last,
-                                      &ctx->sp->param->system_boot_time), 4)
-IPFIX_ENC_HTON (enc_flowStartSeconds,
-                        (u_int32_t) flow->flow_start.tv_sec, 4)
-IPFIX_ENC_HTON (enc_flowEndSeconds,
-                        (u_int32_t) flow->flow_last.tv_sec, 4)
+                timeval_sub_ms (&flow->flow_last,
+                                &ctx->sp->param->system_boot_time),
+                4)
+IPFIX_ENC_HTON (enc_flowStartSeconds, (u_int32_t) flow->flow_start.tv_sec, 4)
+IPFIX_ENC_HTON (enc_flowEndSeconds, (u_int32_t) flow->flow_last.tv_sec, 4)
 IPFIX_ENC_HTON (enc_flowStartMilliSeconds,
-                        (u_int64_t) flow->flow_start.tv_sec * 1000 +
-                        (u_int64_t) flow->flow_start.tv_usec / 1000, 8)
+                (u_int64_t) flow->flow_start.tv_sec * 1000 +
+                  (u_int64_t) flow->flow_start.tv_usec / 1000,
+                8)
 IPFIX_ENC_HTON (enc_flowEndMilliSeconds,
-                        (u_int64_t) flow->flow_last.tv_sec * 1000 +
-                        (u_int64_t) flow->flow_last.tv_usec / 1000, 8)
+                (u_int64_t) flow->flow_last.tv_sec * 1000 +
+                  (u_int64_t) flow->flow_last.tv_usec / 1000,
+                8)
 IPFIX_ENC_BYTE (enc_flowEndReason, flow->flowEndReason)
 
 /**
- * @brief Encode the flow start time as a 64-bit NTP timestamp (flowStartMicroseconds / flowStartNanoseconds).
+ * @brief Encode the flow start time as a 64-bit NTP timestamp
+ * (flowStartMicroseconds / flowStartNanoseconds).
  *
  * The micro and nano forms use the same encoding.
  *
@@ -709,7 +752,8 @@ enc_flowStartMicroSeconds (u_char *dst, u_int16_t length,
   hton (dst, (u_int64_t) ntptime.second << 32 | ntptime.fraction, 8);
 }
 /**
- * @brief Encode the flow end time as a 64-bit NTP timestamp (flowEndMicroseconds / flowEndNanoseconds).
+ * @brief Encode the flow end time as a 64-bit NTP timestamp
+ * (flowEndMicroseconds / flowEndNanoseconds).
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
@@ -728,7 +772,8 @@ IPFIX_ENC_HTON (enc_vlanId, ctx->flow->vlanid[ctx->i], 2)
 IPFIX_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
 #ifdef ENABLE_IFNAME
 /**
- * @brief Encode the interface name (the capture interface, or the file name with -r), truncated to the field length.
+ * @brief Encode the interface name (the capture interface, or the file name
+ * with -r), truncated to the field length.
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
@@ -741,34 +786,37 @@ enc_interfaceName (u_char *dst, u_int16_t length,
   if (n > length)
     n = length;
   memcpy (dst, ctx->sp->param->option.interfaceName, n);
-  /* Copies string up to its own length (capped at 'n'), leaving remaining field bytes
-   * zeroed by the packet buffer's initial clearance. */
+  /* Copies string up to its own length (capped at 'n'), leaving remaining field
+   * bytes zeroed by the packet buffer's initial clearance. */
 }
 #endif /* ENABLE_IFNAME */
 
 IPFIX_ENC_HTON (enc_nf9OptionScopeInterface, ctx->sp->ifidx, 4)
 IPFIX_ENC_HTON (enc_samplingInterval,
-                        ctx->sp->param->option.sample > 1 ?
-                        ctx->sp->param->option.sample : 1, length)
+                ctx->sp->param->option.sample > 1 ? ctx->sp->param->option.sample
+                                                  : 1,
+                length)
 IPFIX_ENC_HTON (enc_systemInitTimeMilliseconds,
-                        (u_int64_t) ctx->sp->param->system_boot_time.tv_sec *
-                        1000 + (u_int64_t) ctx->sp->param->system_boot_time.tv_usec /
-                        1000, 8)
+                (u_int64_t) ctx->sp->param->system_boot_time.tv_sec * 1000 +
+                  (u_int64_t) ctx->sp->param->system_boot_time.tv_usec / 1000,
+                8)
 IPFIX_ENC_HTON (enc_meteringProcessId,
-                        (u_int32_t) ctx->sp->param->option.meteringProcessId, 4)
+                (u_int32_t) ctx->sp->param->option.meteringProcessId, 4)
 IPFIX_ENC_HTON (enc_samplingPacketInterval,
-                        ctx->sp->param->option.sample > 1 ?
-                        ctx->sp->param->option.sample : 1, length)
+                ctx->sp->param->option.sample > 1 ? ctx->sp->param->option.sample
+                                                  : 1,
+                length)
 IPFIX_ENC_HTON (enc_samplingPacketSpace,
-                        ctx->sp->param->option.sample > 0 ?
-                        ctx->sp->param->option.sample - 1 : 0, length)
-IPFIX_ENC_HTON (enc_selectorAlgorithm, PSAMP_selectorAlgorithm_count,
-                        length)
-IPFIX_ENC_BYTE (enc_samplingAlgorithm,
-                        IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC)
+                ctx->sp->param->option.sample > 0
+                  ? ctx->sp->param->option.sample - 1
+                  : 0,
+                length)
+IPFIX_ENC_HTON (enc_selectorAlgorithm, PSAMP_selectorAlgorithm_count, length)
+IPFIX_ENC_BYTE (enc_samplingAlgorithm, IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC)
 
 /**
- * @brief Encode the exporter address (-e) matching the field length: 4 octets for IPv4, 16 for IPv6.
+ * @brief Encode the exporter address (-e) matching the field length: 4 octets
+ * for IPv4, 16 for IPv6.
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
@@ -790,7 +838,8 @@ enc_exporterAddress (u_char *dst, u_int16_t length,
 }
 
 /**
- * @brief Encode the exporter address (-e) for the originalExporterIPv4/6Address elements.
+ * @brief Encode the exporter address (-e) for the originalExporterIPv4/6Address
+ * elements.
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
@@ -842,17 +891,17 @@ enc_flowDirection (u_char *dst, u_int16_t length,
 /* NetFlow v1/v5 fixed data records: same IEs as field_netflow_v1v5_common[]. */
 static const struct IPFIX_FIELD_SPECIFIER_ENCODER
   field_netflow_v1v5_common_enc[] = {
-  {{IPFIX_sourceIPv4Address, 4}, enc_sourceIPv4Address},
-  {{IPFIX_destinationIPv4Address, 4}, enc_destinationIPv4Address},
-  {{IPFIX_ipNextHopIPv4Address, 4}, enc_zero},
-  {{IPFIX_ingressInterface, 2}, enc_ifidx16},
-  {{IPFIX_egressInterface, 2}, enc_ifidx16},
-  {{IPFIX_packetDeltaCount, 4}, enc_packetDeltaCount},
-  {{IPFIX_octetDeltaCount, 4}, enc_octetDeltaCount},
-  {{IPFIX_flowStartSysUpTime, 4}, enc_flowStartSysUpTime},
-  {{IPFIX_flowEndSysUpTime, 4}, enc_flowEndSysUpTime},
-  {{IPFIX_sourceTransportPort, 2}, enc_sourceTransportPort},
-  {{IPFIX_destinationTransportPort, 2}, enc_destinationTransportPort},
+    {{IPFIX_sourceIPv4Address, 4}, enc_sourceIPv4Address},
+    {{IPFIX_destinationIPv4Address, 4}, enc_destinationIPv4Address},
+    {{IPFIX_ipNextHopIPv4Address, 4}, enc_zero},
+    {{IPFIX_ingressInterface, 2}, enc_ifidx16},
+    {{IPFIX_egressInterface, 2}, enc_ifidx16},
+    {{IPFIX_packetDeltaCount, 4}, enc_packetDeltaCount},
+    {{IPFIX_octetDeltaCount, 4}, enc_octetDeltaCount},
+    {{IPFIX_flowStartSysUpTime, 4}, enc_flowStartSysUpTime},
+    {{IPFIX_flowEndSysUpTime, 4}, enc_flowEndSysUpTime},
+    {{IPFIX_sourceTransportPort, 2}, enc_sourceTransportPort},
+    {{IPFIX_destinationTransportPort, 2}, enc_destinationTransportPort},
 };
 
 static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv1_tail_enc[] = {
@@ -900,12 +949,15 @@ static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
 #define field_nf9option_enc field_nf9option
 
 #define IPFIX_NFIELDS(a) (sizeof (a) / sizeof (struct IPFIX_FIELD_SPECIFIER))
-#define IPFIX_NFIELDS_ENC(a) (sizeof (a) / sizeof (struct IPFIX_FIELD_SPECIFIER_ENCODER))
+#define IPFIX_NFIELDS_ENC(a) \
+  (sizeof (a) / sizeof (struct IPFIX_FIELD_SPECIFIER_ENCODER))
 
 /**
- * @brief Emit every field of a data record group by calling the encoder of each entry.
+ * @brief Emit every field of a data record group by calling the encoder of each
+ * entry.
  *
- * The encoders are resolved at compile time, so no lookup is needed at run time.
+ * The encoders are resolved at compile time, so no lookup is needed at run
+ * time.
  *
  * @param fields  Field table with one encoder per entry.
  * @param nfields Number of entries.
@@ -915,10 +967,9 @@ static const struct IPFIX_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
  * @return Offset after the last emitted field.
  */
 static u_int
-ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
-                              *fields, u_int nfields, u_char *packet,
-                              u_int offset,
-                              const struct IPFIX_CTX *ctx) {
+ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER *fields,
+                      u_int nfields, u_char *packet, u_int offset,
+                      const struct IPFIX_CTX *ctx) {
   u_int i;
   for (i = 0; i < nfields; i++) {
     fields[i].encoder (packet + offset, fields[i].field.length, ctx);
@@ -934,9 +985,11 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER
 /**
  * @brief Send flows as NetFlow v1 or v5 packets with 48-octet data records.
  *
- * Uses the same field-list logic as the v9/IPFIX exporter. IPv6 flows are skipped.
+ * Uses the same field-list logic as the v9/IPFIX exporter. IPv6 flows are
+ * skipped.
  *
- * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp      Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @param version Export version: 1 or 5.
  * @return Number of packets sent, or -1 on error.
  */
@@ -949,14 +1002,13 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   u_char packet[NETFLOW5_MAXPACKET_SIZE];
   const struct IPFIX_FIELD_SPECIFIER_ENCODER *tail_fields =
     (version == 1) ? field_netflowv1_tail_enc : field_netflowv5_tail_enc;
-  u_int tail_nfields =
-    (version == 1) ? IPFIX_NFIELDS_ENC (field_netflowv1_tail_enc) :
-    IPFIX_NFIELDS_ENC (field_netflowv5_tail_enc);
-  u_int maxflows =
-    (version == 1) ? NETFLOW1_MAXFLOWS : NETFLOW5_MAXFLOWS;
+  u_int tail_nfields = (version == 1)
+                         ? IPFIX_NFIELDS_ENC (field_netflowv1_tail_enc)
+                         : IPFIX_NFIELDS_ENC (field_netflowv5_tail_enc);
+  u_int maxflows = (version == 1) ? NETFLOW1_MAXFLOWS : NETFLOW5_MAXFLOWS;
   u_int offset, j, i, k, num_packets, flowcount, need;
   u_int64_t *flows_exported = &param->flows_exported;
-  struct IPFIX_CTX ctx = { .sp = &sp, .flow = NULL, .i = 0 };
+  struct IPFIX_CTX ctx = {.sp = &sp, .flow = NULL, .i = 0};
 
   if (version != 1 && version != 5)
     return (-1);
@@ -966,14 +1018,15 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
     /* Records this flow adds: IPv4 only, one per direction with data.
      * Flush first if they do not all fit, so that the two directions of
      * one flow are never split across packets (or emitted twice). */
-    need = (flows[i]->af == AF_INET) ?
-      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    need = (flows[i]->af == AF_INET)
+             ? (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0)
+             : 0;
     if (j + need > maxflows) {
       param->records_sent += flowcount;
       ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
-      if (send_multi_destinations
-          (sp.target->num_destinations, sp.target->destinations,
-           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+      if (send_multi_destinations (
+            sp.target->num_destinations, sp.target->destinations,
+            sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -985,7 +1038,7 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
       offset = build_flow_header (packet, version, param);
       if (version == 5)
         ((union FLOW_PACKET_HEADER *) packet)->nf5.sequence_number =
-          htonl ((u_int32_t) * flows_exported);
+          htonl ((u_int32_t) *flows_exported);
     }
 
     /* NetFlow v1/v5 carry IPv4 only, as in the original implementation. */
@@ -997,13 +1050,12 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
         continue;
       ctx.flow = flows[i];
       ctx.i = k;
-      offset = ipfix_emit_group_enc (field_netflow_v1v5_common_enc,
-                                             IPFIX_NFIELDS_ENC
-                                             (field_netflow_v1v5_common_enc),
-                                             packet, offset, &ctx);
       offset =
-        ipfix_emit_group_enc (tail_fields, tail_nfields, packet,
-                                      offset, &ctx);
+        ipfix_emit_group_enc (field_netflow_v1v5_common_enc,
+                              IPFIX_NFIELDS_ENC (field_netflow_v1v5_common_enc),
+                              packet, offset, &ctx);
+      offset =
+        ipfix_emit_group_enc (tail_fields, tail_nfields, packet, offset, &ctx);
       j++;
       flowcount++;
     }
@@ -1012,9 +1064,9 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   if (j != 0) {
     param->records_sent += flowcount;
     ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
-    if (send_multi_destinations
-        (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations (
+          sp.target->num_destinations, sp.target->destinations,
+          sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     *flows_exported += j;
     num_packets++;
@@ -1031,7 +1083,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
 /**
  * @brief Send expired flows as NetFlow v1 packets.
  *
- * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
  */
 int
@@ -1042,7 +1095,8 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
 /**
  * @brief Send expired flows as NetFlow v5 packets.
  *
- * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
  */
 int
@@ -1054,33 +1108,45 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
 /* NetFlow v9 / IPFIX: templated export.                                */
 /* ------------------------------------------------------------------ */
 
-/** A NetFlow v9 / IPFIX template together with the encoders used to fill its data records. */
+/** A NetFlow v9 / IPFIX template together with the encoders used to fill its
+ * data records. */
 struct IPFIX_TEMPLATE {
-  struct IPFIX_TEMPLATE_SET_HEADER h;   /**< Template set header, in network byte order */
-  struct IPFIX_FIELD_SPECIFIER r[IPFIX_MAXFIELDS];      /**< Field specifiers, in network byte order */
-  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_MAXBIFIELDS];     /**< Reverse-direction (enterprise) field specifiers */
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_MAXFIELDS];     /**< Per-record encoders */
-  u_int hr_count;                       /**< Number of entries in hr[] */
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hbi[IPFIX_MAXBIFIELDS];  /**< Encoders of the reverse-direction fields */
-  u_int hbi_count;                      /**< Number of entries in hbi[] */
-  u_int16_t data_len;                   /**< Size of one data record in octets */
-  u_int16_t bi_count;                   /**< Number of reverse-direction fields in the template */
+  struct IPFIX_TEMPLATE_SET_HEADER
+    h; /**< Template set header, in network byte order */
+  struct IPFIX_FIELD_SPECIFIER
+    r[IPFIX_MAXFIELDS]; /**< Field specifiers, in network byte order */
+  struct IPFIX_VENDOR_FIELD_SPECIFIER
+    v[IPFIX_MAXBIFIELDS]; /**< Reverse-direction (enterprise) field specifiers
+                             */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER
+    hr[IPFIX_MAXFIELDS]; /**< Per-record encoders */
+  u_int hr_count;        /**< Number of entries in hr[] */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER
+    hbi[IPFIX_MAXBIFIELDS]; /**< Encoders of the reverse-direction fields */
+  u_int hbi_count;          /**< Number of entries in hbi[] */
+  u_int16_t data_len;       /**< Size of one data record in octets */
+  u_int16_t bi_count;       /**< Number of reverse-direction fields in the template */
 };
 
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
 static struct IPFIX_TEMPLATE templates[TMPLMAX];
 
-/* Emits NFv9/IPFIX Options Templates and Data Records using ipfix_emit_group_enc().
- * Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to avoid duplicate padded declarations. */
+/* Emits NFv9/IPFIX Options Templates and Data Records using
+ * ipfix_emit_group_enc(). Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to
+ * avoid duplicate padded declarations. */
 struct IPFIX_OPTION_TEMPLATE {
-  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;  /**< Options template as sent on the wire */
+  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE
+    tmpl; /**< Options template as sent on the wire */
   /* Host-order copies for the Data Record -- see IPFIX_TEMPLATE.hr[]. */
   struct IPFIX_FIELD_SPECIFIER_ENCODER
-    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];  /**< Encoders of the scope fields */
-  u_int hs_count;                       /**< Number of entries in hs[] */
-  struct IPFIX_FIELD_SPECIFIER_ENCODER hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];    /**< Encoders of the option fields */
-  u_int hr_count;                       /**< Number of entries in hr[] */
-  u_int16_t total_len;                  /**< Bytes of tmpl.h+s+r actually in use */
+    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS]; /**< Encoders of the
+                                                            scope fields */
+  u_int hs_count;                                      /**< Number of entries in hs[] */
+  struct IPFIX_FIELD_SPECIFIER_ENCODER
+    hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS]; /**< Encoders of the option
+                                                       fields */
+  u_int hr_count;                                 /**< Number of entries in hr[] */
+  u_int16_t total_len;                            /**< Bytes of tmpl.h+s+r actually in use */
 };
 
 /** The options template and data record, built once by ipfix_init_option(). */
@@ -1130,11 +1196,10 @@ ipfix_init_option (u_int16_t version) {
   opt_speclen = opt_n * sizeof (struct IPFIX_FIELD_SPECIFIER);
 
   option_template.tmpl.h.c.set_id =
-    htons (version == 10 ? IPFIX_OPTION_TEMPLATE_SET_ID :
-           NETFLOW9_OPTION_TEMPLATE_SET_ID);
+    htons (version == 10 ? IPFIX_OPTION_TEMPLATE_SET_ID
+                         : NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.tmpl.h.c.length =
-    htons (sizeof (option_template.tmpl.h) + scope_speclen +
-           opt_speclen);
+    htons (sizeof (option_template.tmpl.h) + scope_speclen + opt_speclen);
   if (version == 10) {
     option_template.tmpl.h.u.i.r.template_id =
       htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
@@ -1154,7 +1219,8 @@ ipfix_init_option (u_int16_t version) {
 /**
  * @brief Append the options template set and its data record to a packet.
  *
- * The data record is emitted through ipfix_emit_group_enc() like a standard record.
+ * The data record is emitted through ipfix_emit_group_enc() like a standard
+ * record.
  *
  * @param packet  Packet buffer.
  * @param offset  Offset to write at; advanced past the appended data.
@@ -1163,7 +1229,7 @@ ipfix_init_option (u_int16_t version) {
  */
 static void
 ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
-                           const struct SENDPARAMETER *sp) {
+                   const struct SENDPARAMETER *sp) {
   struct IPFIX_SET_HEADER *c;
   u_int doff;
   u_int scope_speclen, opt_speclen;
@@ -1171,12 +1237,12 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
   if (!option_initialized)
     ipfix_init_option (version);
 
-  /* Copies template header, s[], and r[] in 3 separate blocks to skip unused tail
-   * bytes caused by IPFIX's max-sized field array backing in option_template. */
+  /* Copies template header, s[], and r[] in 3 separate blocks to skip unused
+   * tail bytes caused by IPFIX's max-sized field array backing in
+   * option_template. */
   scope_speclen =
     option_template.hs_count * sizeof (struct IPFIX_FIELD_SPECIFIER);
-  opt_speclen =
-    option_template.hr_count * sizeof (struct IPFIX_FIELD_SPECIFIER);
+  opt_speclen = option_template.hr_count * sizeof (struct IPFIX_FIELD_SPECIFIER);
   memcpy (packet + *offset, &option_template.tmpl.h,
           sizeof (option_template.tmpl.h));
   *offset += sizeof (option_template.tmpl.h);
@@ -1190,12 +1256,10 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
   struct IPFIX_CTX ctx;
   memset (&ctx, 0, sizeof (ctx));
   ctx.sp = sp;
-  doff = ipfix_emit_group_enc (option_template.hs,
-                                       option_template.hs_count,
-                                       packet + *offset, doff, &ctx);
-  doff = ipfix_emit_group_enc (option_template.hr,
-                                       option_template.hr_count,
-                                       packet + *offset, doff, &ctx);
+  doff = ipfix_emit_group_enc (option_template.hs, option_template.hs_count,
+                               packet + *offset, doff, &ctx);
+  doff = ipfix_emit_group_enc (option_template.hr, option_template.hr_count,
+                               packet + *offset, doff, &ctx);
   c->set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   c->length = htons (doff);
   *offset += doff;
@@ -1207,17 +1271,18 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
  * At most IPFIX_MAXFIELDS (or IPFIX_MAXBIFIELDS) fields are held.
  *
  * @param tmpl         Template to extend.
- * @param index        Position to start at; advanced by the number of fields added.
+ * @param index        Position to start at; advanced by the number of fields
+ * added.
  * @param src          Field table with encoders.
  * @param field_number Number of fields to add.
- * @param bi_flag      IPFIX_BIFLAG_ON to add reverse-direction (enterprise) fields.
+ * @param bi_flag      IPFIX_BIFLAG_ON to add reverse-direction (enterprise)
+ * fields.
  * @return Sum of the lengths of the added fields.
  */
 static u_int
-ipfix_init_template_fields (struct IPFIX_TEMPLATE *tmpl,
-                           u_int *index,
-                           const struct IPFIX_FIELD_SPECIFIER_ENCODER *src,
-                           u_int field_number, int bi_flag) {
+ipfix_init_template_fields (struct IPFIX_TEMPLATE *tmpl, u_int *index,
+                            const struct IPFIX_FIELD_SPECIFIER_ENCODER *src,
+                            u_int field_number, int bi_flag) {
   u_int i, length = 0;
   u_int max_fields = bi_flag ? IPFIX_MAXBIFIELDS : IPFIX_MAXFIELDS;
   for (i = 0; i < field_number && *index + i < max_fields; i++) {
@@ -1242,29 +1307,36 @@ ipfix_init_template_fields (struct IPFIX_TEMPLATE *tmpl,
 }
 
 /**
- * @brief Add the flow start/end time fields chosen by the time format option (-A).
+ * @brief Add the flow start/end time fields chosen by the time format option
+ * (-A).
  *
  * @param param   Tracking parameters (time_format).
  * @param tmpl    Template to extend.
  * @param index   Position to start at; advanced.
- * @param version Export version: only IPFIX (10) supports absolute time formats.
+ * @param version Export version: only IPFIX (10) supports absolute time
+ * formats.
  * @return Sum of the lengths of the added fields.
  */
 static u_int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
-                                  struct IPFIX_TEMPLATE *tmpl,
-                                  u_int *index, u_int16_t version) {
+                          struct IPFIX_TEMPLATE *tmpl, u_int *index,
+                          u_int16_t version) {
   /* Absolute (calendar) timestamps are IPFIX-only
    * NetFlow v9 always uses the relative sysUpTime form. */
   if (version == 10 && param->time_format == 's')
-    return ipfix_init_template_fields (tmpl, index, field_timesec_enc, 2, IPFIX_BIFLAG_OFF);
+    return ipfix_init_template_fields (tmpl, index, field_timesec_enc, 2,
+                                       IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'm')
-    return ipfix_init_template_fields (tmpl, index, field_timemsec_enc, 2, IPFIX_BIFLAG_OFF);
+    return ipfix_init_template_fields (tmpl, index, field_timemsec_enc, 2,
+                                       IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'M')
-    return ipfix_init_template_fields (tmpl, index, field_timeusec_enc, 2, IPFIX_BIFLAG_OFF);
+    return ipfix_init_template_fields (tmpl, index, field_timeusec_enc, 2,
+                                       IPFIX_BIFLAG_OFF);
   if (version == 10 && param->time_format == 'n')
-    return ipfix_init_template_fields (tmpl, index, field_timensec_enc, 2, IPFIX_BIFLAG_OFF);
-  return ipfix_init_template_fields (tmpl, index, field_timesysup_enc, 2, IPFIX_BIFLAG_OFF);
+    return ipfix_init_template_fields (tmpl, index, field_timensec_enc, 2,
+                                       IPFIX_BIFLAG_OFF);
+  return ipfix_init_template_fields (tmpl, index, field_timesysup_enc, 2,
+                                     IPFIX_BIFLAG_OFF);
 }
 
 /**
@@ -1280,71 +1352,67 @@ ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
  */
 static void
 ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
-                                   struct IPFIX_TEMPLATE *tmpl,
-                                   u_int template_id, u_int8_t v6_flag,
-                                   u_int8_t icmp_flag, u_int8_t bi_flag,
-                                   u_int16_t version) {
+                           struct IPFIX_TEMPLATE *tmpl,
+                           u_int template_id, u_int8_t v6_flag,
+                           u_int8_t icmp_flag, u_int8_t bi_flag,
+                           u_int16_t version) {
   u_int index = 0, bi_index = 0, length = 0;
   memset (tmpl, 0, sizeof (*tmpl));
-  tmpl->h.c.set_id = htons (version == 10 ?
-                            IPFIX_TEMPLATE_SET_ID : NETFLOW9_TEMPLATE_SET_ID);
+  tmpl->h.c.set_id =
+    htons (version == 10 ? IPFIX_TEMPLATE_SET_ID : NETFLOW9_TEMPLATE_SET_ID);
   tmpl->h.r.template_id = htons (template_id);
 
   if (v6_flag)
     length += ipfix_init_template_fields (tmpl, &index, field_v6_enc,
-                                         IPFIX_NFIELDS_ENC
-                                         (field_v6_enc), IPFIX_BIFLAG_OFF);
+                                          IPFIX_NFIELDS_ENC (field_v6_enc),
+                                          IPFIX_BIFLAG_OFF);
   else
     length += ipfix_init_template_fields (tmpl, &index, field_v4_enc,
-                                         IPFIX_NFIELDS_ENC
-                                         (field_v4_enc), IPFIX_BIFLAG_OFF);
+                                          IPFIX_NFIELDS_ENC (field_v4_enc),
+                                          IPFIX_BIFLAG_OFF);
   length += ipfix_init_template_time (param, tmpl, &index, version);
   length += ipfix_init_template_fields (tmpl, &index, field_common_enc,
-                                       IPFIX_NFIELDS_ENC
-                                       (field_common_enc), IPFIX_BIFLAG_OFF);
+                                        IPFIX_NFIELDS_ENC (field_common_enc),
+                                        IPFIX_BIFLAG_OFF);
   if (icmp_flag) {
     if (v6_flag)
       length += ipfix_init_template_fields (tmpl, &index, field_icmp6_enc,
-                                           IPFIX_NFIELDS_ENC
-                                           (field_icmp6_enc), IPFIX_BIFLAG_OFF);
+                                            IPFIX_NFIELDS_ENC (field_icmp6_enc),
+                                            IPFIX_BIFLAG_OFF);
     else
       length += ipfix_init_template_fields (tmpl, &index, field_icmp4_enc,
-                                           IPFIX_NFIELDS_ENC
-                                           (field_icmp4_enc), IPFIX_BIFLAG_OFF);
+                                            IPFIX_NFIELDS_ENC (field_icmp4_enc),
+                                            IPFIX_BIFLAG_OFF);
   } else {
     length += ipfix_init_template_fields (tmpl, &index, field_transport_enc,
-                                         IPFIX_NFIELDS_ENC
-                                         (field_transport_enc), IPFIX_BIFLAG_OFF);
+                                          IPFIX_NFIELDS_ENC (field_transport_enc),
+                                          IPFIX_BIFLAG_OFF);
   }
   if (param->track_level >= TRACK_FULL_VLAN)
     length += ipfix_init_template_fields (tmpl, &index, field_vlan_enc,
-                                         IPFIX_NFIELDS_ENC
-                                         (field_vlan_enc), IPFIX_BIFLAG_OFF);
+                                          IPFIX_NFIELDS_ENC (field_vlan_enc),
+                                          IPFIX_BIFLAG_OFF);
   if (param->track_level >= TRACK_FULL_VLAN_ETHER)
     length += ipfix_init_template_fields (tmpl, &index, field_ether_enc,
-                                         IPFIX_NFIELDS_ENC
-                                         (field_ether_enc), IPFIX_BIFLAG_OFF);
+                                          IPFIX_NFIELDS_ENC (field_ether_enc),
+                                          IPFIX_BIFLAG_OFF);
   if (bi_flag && version == 10) {
-    length +=
-      ipfix_init_template_fields (tmpl, &bi_index, field_bicommon_enc,
-                                 IPFIX_NFIELDS_ENC
-                                 (field_bicommon_enc), IPFIX_BIFLAG_ON);
+    length += ipfix_init_template_fields (tmpl, &bi_index, field_bicommon_enc,
+                                          IPFIX_NFIELDS_ENC (field_bicommon_enc),
+                                          IPFIX_BIFLAG_ON);
     if (icmp_flag) {
       if (v6_flag)
-        length +=
-          ipfix_init_template_fields (tmpl, &bi_index, field_biicmp6_enc,
-                                     IPFIX_NFIELDS_ENC
-                                     (field_biicmp6_enc), IPFIX_BIFLAG_ON);
+        length += ipfix_init_template_fields (
+          tmpl, &bi_index, field_biicmp6_enc,
+          IPFIX_NFIELDS_ENC (field_biicmp6_enc), IPFIX_BIFLAG_ON);
       else
-        length +=
-          ipfix_init_template_fields (tmpl, &bi_index, field_biicmp4_enc,
-                                     IPFIX_NFIELDS_ENC
-                                     (field_biicmp4_enc), IPFIX_BIFLAG_ON);
+        length += ipfix_init_template_fields (
+          tmpl, &bi_index, field_biicmp4_enc,
+          IPFIX_NFIELDS_ENC (field_biicmp4_enc), IPFIX_BIFLAG_ON);
     } else {
-      length +=
-        ipfix_init_template_fields (tmpl, &bi_index, field_bitransport_enc,
-                                   IPFIX_NFIELDS_ENC
-                                   (field_bitransport_enc), IPFIX_BIFLAG_ON);
+      length += ipfix_init_template_fields (
+        tmpl, &bi_index, field_bitransport_enc,
+        IPFIX_NFIELDS_ENC (field_bitransport_enc), IPFIX_BIFLAG_ON);
     }
   }
   tmpl->bi_count = bi_index;
@@ -1367,41 +1435,41 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
  */
 static void
 ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
-                              u_int8_t bi_flag, u_int16_t version) {
+                      u_int8_t bi_flag, u_int16_t version) {
   u_int8_t v6_flag = 0, icmp_flag = 0;
   u_int16_t template_id = 0;
   int i;
   for (i = 0; i < TMPLMAX; i++) {
     switch (i) {
-    case TMPLV4:
-      v6_flag = 0;
-      icmp_flag = 0;
-      template_id = IPFIX_SOFTFLOWD_V4_TEMPLATE_ID;
-      break;
-    case TMPLICMPV4:
-      v6_flag = 0;
-      icmp_flag = 1;
-      template_id = IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID;
-      break;
-    case TMPLV6:
-      v6_flag = 1;
-      icmp_flag = 0;
-      template_id = IPFIX_SOFTFLOWD_V6_TEMPLATE_ID;
-      break;
-    case TMPLICMPV6:
-      v6_flag = 1;
-      icmp_flag = 1;
-      template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
-      break;
+      case TMPLV4:
+        v6_flag = 0;
+        icmp_flag = 0;
+        template_id = IPFIX_SOFTFLOWD_V4_TEMPLATE_ID;
+        break;
+      case TMPLICMPV4:
+        v6_flag = 0;
+        icmp_flag = 1;
+        template_id = IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID;
+        break;
+      case TMPLV6:
+        v6_flag = 1;
+        icmp_flag = 0;
+        template_id = IPFIX_SOFTFLOWD_V6_TEMPLATE_ID;
+        break;
+      case TMPLICMPV6:
+        v6_flag = 1;
+        icmp_flag = 1;
+        template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
+        break;
     }
-    ipfix_init_template_unity (param, &templates[i],
-                                       template_id, v6_flag, icmp_flag,
-                                       bi_flag, version);
+    ipfix_init_template_unity (param, &templates[i], template_id, v6_flag,
+                               icmp_flag, bi_flag, version);
   }
 }
 
 /**
- * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
+ * @brief Append a template to a packet, including reverse fields and the MPLS
+ * label fields.
  *
  * @param packet        Packet buffer.
  * @param offset        Offset to write at; advanced.
@@ -1411,12 +1479,11 @@ ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
  */
 static void
 ipfix_memcpy_template (u_char *packet, u_int *offset,
-                               struct IPFIX_TEMPLATE *tmpl,
-                               u_int8_t bi_flag, u_int8_t max_num_label) {
-  u_int i, size =
-    ntohs (tmpl->h.c.length) -
-    tmpl->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
-    max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER);
+                       struct IPFIX_TEMPLATE *tmpl, u_int8_t bi_flag,
+                       u_int8_t max_num_label) {
+  u_int i, size = ntohs (tmpl->h.c.length) -
+                  tmpl->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
+                  max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER);
   memcpy (packet + *offset, tmpl, size);
   *offset += size;
   if (bi_flag) {
@@ -1434,31 +1501,34 @@ ipfix_memcpy_template (u_char *packet, u_int *offset,
 }
 
 /**
- * @brief Encode the data records of one flow (standard or biflow) using the template field list.
+ * @brief Encode the data records of one flow (standard or biflow) using the
+ * template field list.
  *
  * Dynamic counterpart of the record loop in send_fixed_flow().
  *
  * @param flow     Flow to encode.
  * @param packet   Output buffer.
  * @param len      Space available in packet.
- * @param sp       Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp       Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @param len_used Receives the number of bytes written.
- * @param bi_flag  Non-zero to emit one biflow record instead of one per direction.
+ * @param bi_flag  Non-zero to emit one biflow record instead of one per
+ * direction.
  * @param version  Export version.
  * @return Number of records written, or -1 if the buffer is too small.
  */
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
-                               u_int len, const struct SENDPARAMETER *sp,
-                               u_int *len_used,
-                               u_int8_t bi_flag, u_int16_t version) {
+                       u_int len, const struct SENDPARAMETER *sp,
+                       u_int *len_used, u_int8_t bi_flag,
+                       u_int16_t version) {
   u_int tmplindex = ipfix_flow_to_template_index (flow);
   struct IPFIX_TEMPLATE *tmpl = &templates[tmplindex];
   u_int offset = 0, nflows = 0, k;
   u_int frecnum = bi_flag ? 1 : 2;
-  struct IPFIX_CTX ctx = {  .sp = sp, .flow = flow, .i = 0 };
+  struct IPFIX_CTX ctx = {.sp = sp, .flow = flow, .i = 0};
 
-  (void) version;               /* only used to size frecnum via bi_flag */
+  (void) version; /* only used to size frecnum via bi_flag */
   if (len < tmpl->data_len * frecnum)
     return (-1);
 
@@ -1467,14 +1537,12 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
       continue;
     nflows++;
     offset =
-      ipfix_emit_group_enc (tmpl->hr, tmpl->hr_count, packet, offset,
-                                    &ctx);
+      ipfix_emit_group_enc (tmpl->hr, tmpl->hr_count, packet, offset, &ctx);
     if (bi_flag && ctx.i == 0) {
       struct IPFIX_CTX bictx = ctx;
-      bictx.i = 1;              /* reverse direction */
-      offset =
-        ipfix_emit_group_enc (tmpl->hbi, tmpl->hbi_count, packet,
-                                      offset, &bictx);
+      bictx.i = 1; /* reverse direction */
+      offset = ipfix_emit_group_enc (tmpl->hbi, tmpl->hbi_count, packet, offset,
+                                     &bictx);
     }
     for (k = 0; k < sp->param->max_num_label; k++) {
       memcpy (&packet[offset], &flow->mplsLabels[k],
@@ -1489,13 +1557,14 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
 /**
  * @brief Build the templates and the option record on the first export.
  *
- * @param sp      Send parameters; the tracking parameters are taken from sp->param.
+ * @param sp      Send parameters; the tracking parameters are taken from
+ * sp->param.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
  */
 static void
-ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
-                     u_int16_t version) {
+ipfix_init_exporter (const struct SENDPARAMETER *sp,
+                     u_int8_t bi_flag, u_int16_t version) {
   ipfix_init_templates (sp->param, bi_flag, version);
   ipfix_init_option (version);
 }
@@ -1511,7 +1580,8 @@ ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
  */
 static void
 ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
-                     u_int16_t version, const struct SENDPARAMETER *sp) {
+                     u_int16_t version,
+                     const struct SENDPARAMETER *sp) {
   u_int i;
 
   for (i = 0; i < TMPLMAX; i++)
@@ -1522,47 +1592,46 @@ ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
 
 #else /* COMPAT_EXPORT */
 /* COMPAT_EXPORT (static or static-separate): Shares IPFIX
- * field tables above, but encodes the data records with the static send path. */
+ * field tables above, but encodes the data records with the static send path.
+ */
 
 /* Stuff pertaining to the templates that softflowd uses */
-#define IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS          \
-    sizeof(field_v4) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS        \
-    sizeof(field_timesysup) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS      \
-    sizeof(field_common) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS   \
-    sizeof(field_transport) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS        \
-    sizeof(field_icmp4) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS        \
-    sizeof(field_vlan) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS       \
-    sizeof(field_ether) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS    \
-    sizeof(field_bicommon) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS \
+  sizeof (field_v4) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS \
+  sizeof (field_timesysup) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS \
+  sizeof (field_common) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS \
+  sizeof (field_transport) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS \
+  sizeof (field_icmp4) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS \
+  sizeof (field_vlan) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS \
+  sizeof (field_ether) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS \
+  sizeof (field_bicommon) / sizeof (struct IPFIX_FIELD_SPECIFIER)
 #define IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS \
-    sizeof(field_bitransport) / sizeof(struct IPFIX_FIELD_SPECIFIER)
-#define IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS      \
-    sizeof(field_biicmp4) / sizeof(struct IPFIX_FIELD_SPECIFIER)
+  sizeof (field_bitransport) / sizeof (struct IPFIX_FIELD_SPECIFIER)
+#define IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS \
+  sizeof (field_biicmp4) / sizeof (struct IPFIX_FIELD_SPECIFIER)
 
-#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS       \
-    IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS +        \
-    IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS +      \
-    IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS +    \
-    IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS + \
-    IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS +      \
+#define IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS                                     \
+  IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS + IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS + \
+    IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS +                                  \
+    IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS +                               \
+    IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS +                                    \
     IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS
 
-#define IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS    \
-    IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS +  \
+#define IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS \
+  IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS + \
     IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS
 
 struct IPFIX_SOFTFLOWD_TEMPLATE {
   struct IPFIX_TEMPLATE_SET_HEADER h;
   struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];
-  struct IPFIX_VENDOR_FIELD_SPECIFIER
-    v[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS];
+  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS];
   u_int16_t data_len, bi_count;
 } __packed;
 
@@ -1651,9 +1720,10 @@ struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
 /* Local data: templates and counters */
 
 // prototype
-void memcpy_template (u_char * packet, u_int * offset,
-                      struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-                      u_int8_t bi_flag, u_int8_t max_num_label);
+void
+memcpy_template (u_char *packet, u_int *offset,
+                 struct IPFIX_SOFTFLOWD_TEMPLATE *template,
+                 u_int8_t bi_flag, u_int8_t max_num_label);
 
 // variables
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
@@ -1692,7 +1762,8 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
 }
 
 /**
- * @brief Add the flow start/end time fields chosen by the time format option (-A).
+ * @brief Add the flow start/end time fields chosen by the time format option
+ * (-A).
  *
  * @param param    Tracking parameters (time_format).
  * @param template Template to extend.
@@ -1705,24 +1776,19 @@ ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
                           u_int *index) {
   int length = 0;
   if (param->time_format == 's') {
-    length = ipfix_init_fields (template->r, index,
-                                field_timesec,
+    length = ipfix_init_fields (template->r, index, field_timesec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   } else if (param->time_format == 'm') {
-    length = ipfix_init_fields (template->r, index,
-                                field_timemsec,
+    length = ipfix_init_fields (template->r, index, field_timemsec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   } else if (param->time_format == 'M') {
-    length = ipfix_init_fields (template->r, index,
-                                field_timeusec,
+    length = ipfix_init_fields (template->r, index, field_timeusec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   } else if (param->time_format == 'n') {
-    length = ipfix_init_fields (template->r, index,
-                                field_timensec,
+    length = ipfix_init_fields (template->r, index, field_timensec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   } else {
-    length = ipfix_init_fields (template->r, index,
-                                field_timesysup,
+    length = ipfix_init_fields (template->r, index, field_timesysup,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   }
   return length;
@@ -1747,82 +1813,65 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
                            u_int16_t version) {
   u_int index = 0, bi_index = 0, length = 0;
   memset (template, 0, sizeof (*template));
-  template->h.c.set_id = htons (version == 10 ?
-                                IPFIX_TEMPLATE_SET_ID :
-                                NETFLOW9_TEMPLATE_SET_ID);
+  template->h.c.set_id =
+    htons (version == 10 ? IPFIX_TEMPLATE_SET_ID : NETFLOW9_TEMPLATE_SET_ID);
   template->h.r.template_id = htons (template_id);
   if (v6_flag) {
-    length += ipfix_init_fields (template->r, &index,
-                                 field_v6,
+    length += ipfix_init_fields (template->r, &index, field_v6,
                                  IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
   } else {
-    length += ipfix_init_fields (template->r, &index,
-                                 field_v4,
+    length += ipfix_init_fields (template->r, &index, field_v4,
                                  IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
   }
   length += ipfix_init_template_time (param, template, &index);
-  length += ipfix_init_fields (template->r, &index,
-                               field_common,
+  length += ipfix_init_fields (template->r, &index, field_common,
                                IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS);
   if (icmp_flag) {
     if (v6_flag) {
-      length += ipfix_init_fields (template->r, &index,
-                                   field_icmp6,
+      length += ipfix_init_fields (template->r, &index, field_icmp6,
                                    IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
     } else {
-      length += ipfix_init_fields (template->r, &index,
-                                   field_icmp4,
+      length += ipfix_init_fields (template->r, &index, field_icmp4,
                                    IPFIX_SOFTFLOWD_TEMPLATE_ICMPRECORDS);
     }
   } else {
-    length += ipfix_init_fields (template->r, &index,
-                                 field_transport,
+    length += ipfix_init_fields (template->r, &index, field_transport,
                                  IPFIX_SOFTFLOWD_TEMPLATE_TRANSPORTRECORDS);
   }
   if (param->track_level >= TRACK_FULL_VLAN) {
-    length += ipfix_init_fields (template->r, &index,
-                                 field_vlan,
+    length += ipfix_init_fields (template->r, &index, field_vlan,
                                  IPFIX_SOFTFLOWD_TEMPLATE_VLANRECORDS);
   }
   if (param->track_level >= TRACK_FULL_VLAN_ETHER) {
-    length += ipfix_init_fields (template->r, &index,
-                                 field_ether,
+    length += ipfix_init_fields (template->r, &index, field_ether,
                                  IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS);
   }
   if (bi_flag) {
-    length +=
-      ipfix_init_bifields (template, &bi_index,
-                           field_bicommon,
-                           IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS);
+    length += ipfix_init_bifields (template, &bi_index, field_bicommon,
+                                   IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS);
     if (icmp_flag) {
       if (v6_flag) {
-        length +=
-          ipfix_init_bifields (template, &bi_index,
-                               field_biicmp6,
-                               IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
+        length += ipfix_init_bifields (template, &bi_index, field_biicmp6,
+                                       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
       } else {
-        length +=
-          ipfix_init_bifields (template, &bi_index,
-                               field_biicmp4,
-                               IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
+        length += ipfix_init_bifields (template, &bi_index, field_biicmp4,
+                                       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
       }
     } else {
       length +=
-        ipfix_init_bifields (template, &bi_index,
-                             field_bitransport,
+        ipfix_init_bifields (template, &bi_index, field_bitransport,
                              IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS);
-
     }
   }
   template->bi_count = bi_index;
-  template->h.r.count = htons (index + bi_index + param->max_num_label);        // mpls
+  template->h.r.count = htons (index + bi_index + param->max_num_label);  // mpls
   template->h.c.length =
     htons (sizeof (struct IPFIX_TEMPLATE_SET_HEADER) +
            index * sizeof (struct IPFIX_FIELD_SPECIFIER) +
            bi_index * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) +
            param->max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER));
   template->data_len =
-    length + param->max_num_label * IPFIX_mplsLabelStackSection_SIZE;
+    length + param->max_num_label *IPFIX_mplsLabelStackSection_SIZE;
 }
 
 /**
@@ -1840,29 +1889,28 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
   int i = 0;
   for (i = 0; i < TMPLMAX; i++) {
     switch (i) {
-    case TMPLV4:
-      v6_flag = 0;
-      icmp_flag = 0;
-      template_id = IPFIX_SOFTFLOWD_V4_TEMPLATE_ID;
-      break;
-    case TMPLICMPV4:
-      v6_flag = 0;
-      icmp_flag = 1;
-      template_id = IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID;
-      break;
-    case TMPLV6:
-      v6_flag = 1;
-      icmp_flag = 0;
-      template_id = IPFIX_SOFTFLOWD_V6_TEMPLATE_ID;
-      break;
-    case TMPLICMPV6:
-      v6_flag = 1;
-      icmp_flag = 1;
-      template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
-      break;
+      case TMPLV4:
+        v6_flag = 0;
+        icmp_flag = 0;
+        template_id = IPFIX_SOFTFLOWD_V4_TEMPLATE_ID;
+        break;
+      case TMPLICMPV4:
+        v6_flag = 0;
+        icmp_flag = 1;
+        template_id = IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID;
+        break;
+      case TMPLV6:
+        v6_flag = 1;
+        icmp_flag = 0;
+        template_id = IPFIX_SOFTFLOWD_V6_TEMPLATE_ID;
+        break;
+      case TMPLICMPV6:
+        v6_flag = 1;
+        icmp_flag = 1;
+        template_id = IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID;
+        break;
     }
-    ipfix_init_template_unity (param, &templates[i],
-                               template_id, v6_flag,
+    ipfix_init_template_unity (param, &templates[i], template_id, v6_flag,
                                icmp_flag, bi_flag, version);
   }
 }
@@ -1876,33 +1924,27 @@ ipfix_init_template (struct FLOWTRACKPARAMETERS *param,
 static void
 nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
-  u_int16_t scope_len =
-    NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS *
-    sizeof (struct IPFIX_FIELD_SPECIFIER);
-  u_int16_t opt_len =
-    NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
-    sizeof (struct IPFIX_FIELD_SPECIFIER);
+  u_int16_t scope_len = NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS *
+                        sizeof (struct IPFIX_FIELD_SPECIFIER);
+  u_int16_t opt_len = NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS *
+                      sizeof (struct IPFIX_FIELD_SPECIFIER);
 
   memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.set_id = htons (NETFLOW9_OPTION_TEMPLATE_SET_ID);
   option_template.h.c.length =
     htons (sizeof (option_template.h) + scope_len + opt_len);
-  option_template.h.u.n.template_id =
-    htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
+  option_template.h.u.n.template_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   option_template.h.u.n.scope_length = htons (scope_len);
   option_template.h.u.n.option_length = htons (opt_len);
-  ipfix_init_fields (option_template.s, &scope_index,
-                     field_nf9scope,
+  ipfix_init_fields (option_template.s, &scope_index, field_nf9scope,
                      NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
-  ipfix_init_fields (option_template.r, &option_index,
-                     field_nf9option,
+  ipfix_init_fields (option_template.r, &option_index, field_nf9option,
                      NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
   memset (&nf9opt_data, 0, sizeof (nf9opt_data));
   nf9opt_data.c.set_id = htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID);
   nf9opt_data.c.length = htons (sizeof (nf9opt_data));
   nf9opt_data.scope_ifidx = htonl (ifidx);
-  nf9opt_data.samplingInterval =
-    htonl (option->sample > 1 ? option->sample : 1);
+  nf9opt_data.samplingInterval = htonl (option->sample > 1 ? option->sample : 1);
   nf9opt_data.samplingAlgorithm = IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC;
   strlcpy (nf9opt_data.interfaceName, option->interfaceName,
            sizeof (nf9opt_data.interfaceName));
@@ -1912,10 +1954,12 @@ nflow9_init_option (u_int16_t ifidx, struct OPTION *option) {
  * @brief Build the IPFIX options template and data record.
  *
  * @param system_boot_time Boot time reported in the data record.
- * @param option           Optional information (sampling, process id, interface name, exporter address).
+ * @param option           Optional information (sampling, process id, interface
+ * name, exporter address).
  */
 static void
-ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
+ipfix_init_option (struct timeval *system_boot_time,
+                   struct OPTION *option) {
   u_int scope_index = 0, option_index = 0;
   memset (&option_template, 0, sizeof (option_template));
   option_template.h.c.set_id = htons (IPFIX_OPTION_TEMPLATE_SET_ID);
@@ -1928,8 +1972,7 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
   option_template.h.u.i.scope_count =
     htons (IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
 
-  ipfix_init_fields (option_template.s, &scope_index,
-                     field_scope,
+  ipfix_init_fields (option_template.s, &scope_index, field_scope,
                      IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS);
   ipfix_init_fields (option_template.r, &option_index, field_option,
                      IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS);
@@ -1972,58 +2015,56 @@ ipfix_init_option (struct timeval *system_boot_time, struct OPTION *option) {
 }
 
 /**
- * @brief Fill the time part of a data record according to the time format option.
+ * @brief Fill the time part of a data record according to the time format
+ * option.
  *
  * @param dt               Record time fields to fill; -1 is returned if NULL.
  * @param flow             Flow whose start and end are stored.
  * @param system_boot_time Base for the relative (sysUpTime) form.
  * @param param            Tracking parameters (time_format).
- * @return Length of the time fields in octets (16 for the 64-bit forms, otherwise 8), or -1 on error.
+ * @return Length of the time fields in octets (16 for the 64-bit forms,
+ * otherwise 8), or -1 on error.
  */
 static int
 copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
                 const struct FLOW *flow,
                 const struct timeval *system_boot_time,
                 struct FLOWTRACKPARAMETERS *param) {
-  int length = (param->time_format == 'm' || param->time_format == 'M'
-                || param->time_format == 'n') ? 16 : 8;
+  int length = (param->time_format == 'm' || param->time_format == 'M' ||
+                param->time_format == 'n')
+                 ? 16
+                 : 8;
   if (dt == NULL)
     return -1;
 
   switch (param->time_format) {
     struct ntp_time_t ntptime;
-  case 's':
-    dt->u32.start = htonl (flow->flow_start.tv_sec);
-    dt->u32.end = htonl (flow->flow_last.tv_sec);
-    break;
+    case 's':
+      dt->u32.start = htonl (flow->flow_start.tv_sec);
+      dt->u32.end = htonl (flow->flow_last.tv_sec);
+      break;
 #if defined(htobe64) || defined(HAVE_DECL_HTOBE64)
-  case 'm':
-    dt->u64.start =
-      htobe64 ((u_int64_t) flow->flow_start.tv_sec * 1000 +
-               (u_int64_t) flow->flow_start.tv_usec / 1000);
-    dt->u64.end =
-      htobe64 ((u_int64_t) flow->flow_last.tv_sec * 1000 +
-               (u_int64_t) flow->flow_last.tv_usec / 1000);
-    break;
-  case 'M':
-  case 'n':
-    conv_unix_to_ntp ((struct timeval) flow->flow_start, &ntptime);
-    dt->u64.start =
-      htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
-    conv_unix_to_ntp ((struct timeval) flow->flow_last, &ntptime);
-    dt->u64.end =
-      htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
-    break;
+    case 'm':
+      dt->u64.start = htobe64 ((u_int64_t) flow->flow_start.tv_sec * 1000 +
+                               (u_int64_t) flow->flow_start.tv_usec / 1000);
+      dt->u64.end = htobe64 ((u_int64_t) flow->flow_last.tv_sec * 1000 +
+                             (u_int64_t) flow->flow_last.tv_usec / 1000);
+      break;
+    case 'M':
+    case 'n':
+      conv_unix_to_ntp ((struct timeval) flow->flow_start, &ntptime);
+      dt->u64.start = htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
+      conv_unix_to_ntp ((struct timeval) flow->flow_last, &ntptime);
+      dt->u64.end = htobe64 ((u_int64_t) ntptime.second << 32 | ntptime.fraction);
+      break;
 #endif
-  default:
-    dt->u32.start =
-      htonl (timeval_sub_ms (&flow->flow_start, system_boot_time));
-    dt->u32.end = htonl (timeval_sub_ms (&flow->flow_last, system_boot_time));
-    break;
+    default:
+      dt->u32.start = htonl (timeval_sub_ms (&flow->flow_start, system_boot_time));
+      dt->u32.end = htonl (timeval_sub_ms (&flow->flow_last, system_boot_time));
+      break;
   }
   return length;
 }
-
 
 /**
  * @brief Encode the data records of one flow (standard or biflow).
@@ -2031,30 +2072,32 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
  * @param flow     Flow to encode.
  * @param packet   Output buffer.
  * @param len      Space available in packet.
- * @param sp       Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp       Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @param len_used Receives the number of bytes written.
- * @param bi_flag  Non-zero to emit one biflow record instead of one per direction.
+ * @param bi_flag  Non-zero to emit one biflow record instead of one per
+ * direction.
  * @param version  Export version (not needed by this encoder).
  * @return Number of records written, or -1 on error.
  */
 static int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int len, const struct SENDPARAMETER *sp,
-                       u_int *len_used,
-                       u_int8_t bi_flag, u_int16_t version) {
+                       u_int *len_used, u_int8_t bi_flag,
+                       u_int16_t version) {
   u_int16_t ifidx = sp->ifidx;
   struct FLOWTRACKPARAMETERS *param = sp->param;
   const struct timeval *system_boot_time = &param->system_boot_time;
   (void) version;
 
-  struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = { NULL, NULL };
-  union IPFIX_SOFTFLOWD_DATA_TIME *dt[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_COMMON *dc[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_TRANSPORT *dtr[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_ICMP *di[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_VLAN *dv[2] = { NULL, NULL };
-  struct IPFIX_SOFTFLOWD_DATA_ETHER *de[2] = { NULL, NULL };
+  struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = {NULL, NULL};
+  union IPFIX_SOFTFLOWD_DATA_TIME *dt[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_COMMON *dc[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_TRANSPORT *dtr[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_ICMP *di[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_VLAN *dv[2] = {NULL, NULL};
+  struct IPFIX_SOFTFLOWD_DATA_ETHER *de[2] = {NULL, NULL};
   struct IPFIX_SOFTFLOWD_DATA_BICOMMON *dbc = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *dbtr = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BIICMP *dbi = NULL;
@@ -2136,13 +2179,11 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
       dbc->ipClassOfService = flow->tos[1];
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BICOMMON);
       if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
-        dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *)
-          &packet[offset];
+        dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *) &packet[offset];
         dbtr->tcpControlBits = flow->tcp_flags[1];
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
       } else {
-        dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *)
-          &packet[offset];
+        dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *) &packet[offset];
         dbi->icmpTypeCode = flow->port[1];
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
       }
@@ -2158,7 +2199,8 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
 }
 
 /**
- * @brief Append a template to a packet, including reverse fields and the MPLS label fields.
+ * @brief Append a template to a packet, including reverse fields and the MPLS
+ * label fields.
  *
  * @param packet        Packet buffer.
  * @param offset        Offset to write at; advanced.
@@ -2168,12 +2210,12 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
  */
 void
 memcpy_template (u_char *packet, u_int *offset,
-                 struct IPFIX_SOFTFLOWD_TEMPLATE *template, u_int8_t bi_flag,
-                 u_int8_t max_num_label) {
+                 struct IPFIX_SOFTFLOWD_TEMPLATE *template,
+                 u_int8_t bi_flag, u_int8_t max_num_label) {
   int i = 0;
   int size = ntohs (template->h.c.length) -
-    template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
-    max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER);
+             template->bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
+             max_num_label * sizeof (struct IPFIX_FIELD_SPECIFIER);
   memcpy (packet + *offset, template, size);
   *offset += size;
   if (bi_flag) {
@@ -2194,13 +2236,14 @@ memcpy_template (u_char *packet, u_int *offset,
 /**
  * @brief Build the templates and the option record on the first export.
  *
- * @param sp      Send parameters; the tracking parameters are taken from sp->param.
+ * @param sp      Send parameters; the tracking parameters are taken from
+ * sp->param.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
  */
 static void
-ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
-                     u_int16_t version) {
+ipfix_init_exporter (const struct SENDPARAMETER *sp,
+                     u_int8_t bi_flag, u_int16_t version) {
   struct FLOWTRACKPARAMETERS *param = sp->param;
 
   ipfix_init_template (param, bi_flag, version);
@@ -2217,11 +2260,13 @@ ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
  * @param offset  Offset in the packet to append at; updated.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
- * @param sp      Send parameters; the maximum number of labels is taken from sp->param.
+ * @param sp      Send parameters; the maximum number of labels is taken from
+ * sp->param.
  */
 static void
 ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
-                     u_int16_t version, const struct SENDPARAMETER *sp) {
+                     u_int16_t version,
+                     const struct SENDPARAMETER *sp) {
   u_int16_t opt_tmpl_len = ntohs (option_template.h.c.length);
   u_int i;
 
@@ -2245,12 +2290,14 @@ ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
  * @brief Send flows as NetFlow v9 or IPFIX packets.
  *
  * Packet-framing loop shared by every export layout that exports NetFlow v9 or
- * IPFIX from this file. Templates and the options record are sent first and then every
- * IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; the records come from ipfix_flow_to_flowset(),
- * which builds them dynamically from the template field lists by default
- * and encodes them statically for --enable-compat-export=static and static-separate.
+ * IPFIX from this file. Templates and the options record are sent first and
+ * then every IPFIX_DEFAULT_TEMPLATE_INTERVAL packets; the records come from
+ * ipfix_flow_to_flowset(), which builds them dynamically from the template
+ * field lists by default and encodes them statically for
+ * --enable-compat-export=static and static-separate.
  *
- * @param sp      Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp      Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
  * @return Number of packets sent, or -1 on error.
@@ -2292,9 +2339,9 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
       ipfix_put_templates (packet, &offset, bi_flag, version, &sp);
       ipfix_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
       if (target->is_loadbalance && target->num_destinations > 1) {
-          /* Template-only packet; NFv9 sets flows count to 1 (preserving
-           * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
-          if (version == 10) {
+        /* Template-only packet; NFv9 sets flows count to 1 (preserving
+         * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
+        if (version == 10) {
           h->ipfix.length = htons (offset);
           h->ipfix.sequence_number =
             htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
@@ -2302,9 +2349,9 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
           h->nf9.flows = htons (1);
           h->nf9.sequence_number = htonl (sequence++);
         }
-        if (send_multi_destinations
-            (target->num_destinations, target->destinations, 0, packet,
-             offset, verbose_flag) < 0)
+        if (send_multi_destinations (target->num_destinations,
+                                     target->destinations, 0, packet, offset,
+                                     verbose_flag) < 0)
           return (-1);
         offset = build_flow_header (packet, version, param);
       }
@@ -2339,8 +2386,8 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
         offset += sizeof (*dh);
       }
       r = ipfix_flow_to_flowset (flows[i + j], packet + offset,
-                                         sizeof (packet) - offset, &sp,
-                                         &inc, bi_flag, version);
+                                 sizeof (packet) - offset, &sp, &inc, bi_flag,
+                                 version);
       if (r <= 0) {
         if (last_valid)
           offset = last_valid;
@@ -2351,8 +2398,8 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
       dh->length += inc;
       last_valid = 0;
       if (verbose_flag)
-        logit (LOG_DEBUG, "Flow %d/%d: r %d offset %d ie %04x len %d(0x%04x)",
-               r, i, j, offset, dh->set_id, dh->length, dh->length);
+        logit (LOG_DEBUG, "Flow %d/%d: r %d offset %d ie %04x len %d(0x%04x)", r,
+               i, j, offset, dh->set_id, dh->length, dh->length);
     }
     if (dh != NULL) {
       if (offset % 4 != 0) {
@@ -2371,9 +2418,9 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
       h->nf9.sequence_number = htonl (sequence++);
     }
 
-    if (send_multi_destinations
-        (target->num_destinations, target->destinations,
-         target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations (target->num_destinations, target->destinations,
+                                 target->is_loadbalance, packet, offset,
+                                 verbose_flag) < 0)
       return (-1);
     num_packets++;
     ipfix_pkts_until_template--;
@@ -2393,9 +2440,11 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
 /**
  * @brief Send expired flows as NetFlow v9 packets.
  *
- * Not defined for --enable-compat-export=static-separate, where compat/netflow9.c does this.
+ * Not defined for --enable-compat-export=static-separate, where
+ * compat/netflow9.c does this.
  *
- * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
  */
 int
@@ -2407,7 +2456,8 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
 /**
  * @brief Send expired flows as IPFIX packets.
  *
- * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
  */
 int
@@ -2418,7 +2468,8 @@ send_ipfix (struct SENDPARAMETER sp) {
 /**
  * @brief Send expired flows as IPFIX biflow packets.
  *
- * @param sp Send parameters: flows, target, interface index, tracking parameters and verbosity.
+ * @param sp Send parameters: flows, target, interface index, tracking
+ * parameters and verbosity.
  * @return Number of packets sent, or -1 on error.
  */
 int
