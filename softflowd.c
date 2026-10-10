@@ -66,9 +66,6 @@
 #if !defined(LINUX) && defined(HAVE_IFADDRS_H)
 #include <net/if_dl.h>
 #endif
-#define TCP_CHECK_MIN_SIZE 14 /* source port, destination port, and flag */
-#define UDP_CHECK_MIN_SIZE 4 /* source port and destination port */
-#define ICMP_CHECK_MIN_SIZE 2 /* type and code in ICMP(v4) and ICMPv6 */
 
 /* Global variables */
 static int verbose_flag = 0;	/**< Debugging flag */
@@ -564,57 +561,57 @@ format_flow_brief (struct FLOW *flow) {
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 		      const size_t caplen, int protocol, int ndx) {
-  /*
-   * XXX to keep flow in proper canonical format, it may be necessary to
-   * swap the array slots based on the order of the port numbers does
-   * this matter in practice??? I don't think so - return flows will
-   * always match, because of their symmetrical addr/ports
-   */
+  size_t min_len;
 
+  /*
+   * Ports are stored per direction: slot "ndx" is the source side and
+   * slot "ndx ^ 1" the destination side.  ndx is chosen by the caller
+   * from the order of the IP addresses, so both directions of a flow
+   * land in the same record.  Limitation: if source and destination
+   * addresses are equal, both directions get ndx 0 and are not merged.
+   */
   switch (protocol) {
-    case IPPROTO_TCP:
-      /*
-      * Default: require only the source and destination ports and the
-      * TCP flags (offset 13), i.e. the first 14 bytes.  The ports are
-      * copied as they are on the wire (network byte order).
-      */
-      if (caplen < (full_transport_header_check ? sizeof (struct tcphdr) : TCP_CHECK_MIN_SIZE))
-        return;
-      flow->tcp_flags[ndx] |= pkt[13];
-      /* fall through */
-    case IPPROTO_UDP:
-      /* Default: require only the source and destination ports (4 bytes). */
-      if (protocol == IPPROTO_UDP &&
-          caplen < (full_transport_header_check ? sizeof (struct udphdr) : UDP_CHECK_MIN_SIZE))
-        return;
-#ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
-      {
-        const struct udphdr *udp = (const struct udphdr *) pkt;
-        flow->port[ndx] = udp->uh_sport;
-        flow->port[ndx ^ 1] = udp->uh_dport;
-        break;
-      }
-#endif
-      memcpy (&flow->port[ndx], pkt, 2); /* source port  */
-      memcpy (&flow->port[ndx ^ 1], pkt + 2, 2); /* destination port */
-      break;
+  case IPPROTO_TCP:
+    min_len = full_transport_header_check ? sizeof (struct tcphdr)
+      : offsetof (struct tcphdr, th_flags) + 1;	/* ports and flags */
+    break;
+  case IPPROTO_UDP:
+    min_len = full_transport_header_check ? sizeof (struct udphdr)
+      : offsetof (struct udphdr, uh_dport) + sizeof (flow->port[0]);
+    break;
   case IPPROTO_ICMP:
-    /* Default: only the type and code (the first two bytes) are used.
-     * With --full-transport-header-check, require the whole struct icmp.
-     * sizeoof (struct icmp)*/
-    if (caplen < (full_transport_header_check ? sizeof (struct icmp) : ICMP_CHECK_MIN_SIZE))
-      return;
-    /* fall through */
+    min_len = full_transport_header_check ? sizeof (struct icmp)
+      : offsetof (struct icmp, icmp_code) + 1; /* type and code */
+    break;
   case IPPROTO_ICMPV6:
-    if (protocol == IPPROTO_ICMPV6 &&
-        caplen < (full_transport_header_check ? sizeof (struct icmp6_hdr) : ICMP_CHECK_MIN_SIZE))
-      return;
-    /* Encode ICMP type * 256 + code into dest port like Cisco routers */
+    min_len = full_transport_header_check ? sizeof (struct icmp6_hdr)
+      : offsetof (struct icmp6_hdr, icmp6_code) + 1; /* type and code */
+    break;
+  default:
+    return;
+  }
+  if (caplen < min_len)
+    return;
+
+  if (protocol == IPPROTO_TCP)
+    flow->tcp_flags[ndx] |= pkt[offsetof (struct tcphdr, th_flags)];
+
+  if (protocol == IPPROTO_ICMP || protocol == IPPROTO_ICMPV6) {
+    /* Encode ICMP type * 256 + code into the destination port, like Cisco */
     flow->port[ndx] = 0;
     flow->port[ndx ^ 1] = htons (pkt[0] * 256 + pkt[1]);
-    break;
+  } else { /* TCP, UDP */
+#ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
+    const struct udphdr *udp = (const struct udphdr *) pkt;
+    flow->port[ndx] = udp->uh_sport;
+    flow->port[ndx ^ 1] = udp->uh_dport;
+#else /* default: ports are copied as they are on the wire */
+    memcpy (&flow->port[ndx], pkt + offsetof (struct udphdr, uh_sport),
+	    sizeof (flow->port[0]));
+    memcpy (&flow->port[ndx ^ 1], pkt + offsetof (struct udphdr, uh_dport),
+	    sizeof (flow->port[0]));
+#endif
   }
-  return;
 }
 
 /**
