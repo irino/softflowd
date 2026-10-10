@@ -5,7 +5,7 @@ softflowd_test_collector.py -- test, benchmark and collector tools for softflowd
 One self-contained script (standard library only) with three subcommands:
 
   tools/softflowd_test_collector.py collect [-p PORT] [-b ADDR] [-6]  flow collector (default)
-  tools/softflowd_test_collector.py compat  [options] [PCAP...]       backward compatibility
+  tools/softflowd_test_collector.py compat  [options] [PCAP...]       backward compatibility and variants
   tools/softflowd_test_collector.py bench   [options] PCAP...         export benchmark
 
 Options after the subcommand belong to that subcommand; `-h` after a
@@ -121,13 +121,9 @@ Options:
 ----------------------------------------------------------------------------
 bench
 ----------------------------------------------------------------------------
-benchmark -- compare softflowd's NetFlow/IPFIX export implementations
-(static-separate / static / dynamic, see --enable-compat-export) across one or more pcap
-files and NetFlow/IPFIX versions.  Options and output files are those of the
-former benchmark_export.sh.
-
-implementations (static-separate / static / dynamic, see --enable-compat-export) across one
-or more pcap files and NetFlow/IPFIX versions.
+benchmark -- compare softflowd's NetFlow/IPFIX export implementations across
+one or more pcap files and NetFlow/IPFIX versions.  Options and output files
+are those of the former benchmark_export.sh.
 
 Usage:
   tools/softflowd_test_collector.py bench [options] pcap1.pcap [pcap2.pcap ...]
@@ -851,6 +847,7 @@ C_BUILD_VARIANTS = [
     ("default", "default", [], ""),
     ("legacy", "legacy (--enable-legacy)", ["--enable-legacy"], "-legacy"),
     ("static", "static (--enable-compat-export=static)", ["--enable-compat-export=static"], "-static"),
+    ("direct", "direct-copies (--enable-direct-copies)", ["--enable-direct-copies"], "-direct"),
 ]
 
 
@@ -2130,13 +2127,10 @@ def compat_main():
         binaries["stable-softflowctl-legacy"] = st_leg_c
 
         # Build C Development variants (current working directory tree)
-        c_d, c_c, c_leg_d, c_leg_c, c_sta_d, c_sta_c = build_c_dev(build_dir)
-        binaries["softflowd"] = c_d
-        binaries["softflowctl"] = c_c
-        binaries["softflowd-legacy"] = c_leg_d
-        binaries["softflowctl-legacy"] = c_leg_c
-        binaries["softflowd-static"] = c_sta_d
-        binaries["softflowctl-static"] = c_sta_c
+        dev_paths = build_c_dev(build_dir)
+        for i, (short, _, _, suffix) in enumerate(C_BUILD_VARIANTS):
+            binaries[f"softflowd{suffix}"] = dev_paths[i * 2]
+            binaries[f"softflowctl{suffix}"] = dev_paths[i * 2 + 1]
 
         # Build C++ variants (if not skipped)
         if not args.skip_cpp:
@@ -2179,6 +2173,8 @@ def compat_main():
         # --enable-compat-export=static as the reference, the default (dynamic) build as dev
         # (the same two builds that `bench -b static,dynamic` compares)
         ("softflowd-static", "softflowd", "softflowctl-static", "softflowctl"),
+        # --enable-direct-copies as a variant to check ASan/UBSan implications
+        ("softflowd", "softflowd-direct", "softflowctl", "softflowctl-direct"),
     ]
 
     if not args.skip_cpp:
