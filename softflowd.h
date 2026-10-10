@@ -192,6 +192,7 @@ struct FLOWTRACKPARAMETERS {
   u_int64_t expired_overbytes;  /**< Flows expired for exceeding 2 GiB */
   u_int64_t expired_maxflows;   /**< Flows expired because the flow table was full */
   u_int64_t expired_flush;      /**< Flows expired by a flush (expire-all) */
+  u_int64_t expired_collision;  /**< Flows expired by a hash collision (hash mode) */
 
   /* Optional information */
   struct OPTION option;         /**< Data of the options record */
@@ -208,14 +209,28 @@ struct FLOWTRACKPARAMETERS {
   u_int8_t direction_mac[6];    /**< MAC address used to decide flowDirection */
   u_int8_t direction_mac_set;   /**< Non-zero when direction_mac is valid */
 };
+/** Head of a tree of flows; one per bucket of the flow table. */
+FLOW_HEAD (FLOWS, FLOW);
+
+/** How active flows are looked up (--flow-lookup). */
+enum FLOW_LOOKUP {
+  FLOW_LOOKUP_TREE,             /**< One tree of all flows (default) */
+  FLOW_LOOKUP_HASH_TREE,        /**< Hash table; flows sharing a bucket are kept in a tree */
+  FLOW_LOOKUP_HASH              /**< Hash table; a colliding flow expires the resident one */
+};
+
 /**
  * This structure is the root of the flow tracking system.
- * It holds the root of the tree of active flows and the head of the
- * tree of expiry events. It also collects miscellaneous statistics
+ * It holds the flow table and the head of the tree of expiry events.
+ * It also collects miscellaneous statistics
  */
 struct FLOWTRACK {
   /* The flows and their expiry events */
-  FLOW_HEAD (FLOWS, FLOW) flows;        /**< Top of flow tree */
+  enum FLOW_LOOKUP flow_lookup; /**< Lookup mode of the flow table */
+  u_int32_t flow_nbuckets;      /**< Number of buckets (power of two; 1 in tree mode) */
+  struct FLOWS *flow_buckets;   /**< Tree per bucket (tree and hash-tree modes) */
+  struct FLOW **flow_slots;     /**< One flow per bucket (hash mode) */
+  size_t flow_table_bytes;      /**< Memory used by the bucket array */
   EXPIRY_HEAD (EXPIRIES, EXPIRY) expiries;      /**< Top of expiries tree */
 
   struct freelist flow_freelist;        /**< Freelist for flows */
@@ -285,7 +300,7 @@ struct EXPIRY {
   u_int32_t expires_at;         /**< time_t */
   enum {
     R_GENERAL, R_TCP, R_TCP_RST, R_TCP_FIN, R_UDP, R_ICMP,
-    R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH
+    R_MAXLIFE, R_OVERBYTES, R_OVERFLOWS, R_FLUSH, R_COLLISION
   } reason;                     /**< Why the flow is expired */
 };
 

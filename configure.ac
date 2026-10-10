@@ -216,6 +216,26 @@ AC_CHECK_FUNCS(closefrom daemon setresuid setreuid setresgid setgid strlcpy strl
 dnl getopt_long() is required for the long options (e.g. --full-transport-header-check)
 AC_CHECK_HEADERS(getopt.h, [], [AC_MSG_ERROR([getopt.h not found; required for long options])])
 AC_CHECK_FUNCS(getopt_long, [], [AC_MSG_ERROR([getopt_long() not found; required for long options])])
+dnl xxHash is used to hash flows for --flow-lookup=hash-tree|hash. It is not
+dnl bundled: use the system library if found, else fall back to a built-in
+dnl FNV-1a hash.
+AC_ARG_WITH([xxhash],
+            AS_HELP_STRING([--without-xxhash],[do not use libxxhash to hash flows (default: use it if found)]),
+            [], [with_xxhash=check])
+XXHASH_LIBS=
+if test "x$with_xxhash" != "xno" ; then
+  AC_CHECK_HEADERS([xxhash.h], [
+    AC_CHECK_LIB([xxhash], [XXH64],
+                 [AC_DEFINE([HAVE_XXHASH], 1, [use libxxhash to hash flows])
+                  XXHASH_LIBS=-lxxhash],
+                 [if test "x$with_xxhash" = "xyes" ; then
+                    AC_MSG_ERROR([libxxhash not found])
+                  fi])],
+    [if test "x$with_xxhash" = "xyes" ; then
+       AC_MSG_ERROR([xxhash.h not found])
+     fi])
+fi
+AC_SUBST([XXHASH_LIBS])
 AC_CHECK_DECLS([htobe64, htonll])
 
 AC_CHECK_TYPES([u_int64_t, int64_t, uint64_t, u_int32_t, int32_t, uint32_t])

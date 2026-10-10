@@ -15,7 +15,7 @@ softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h psamp.h\
 	freelist.c softflowd.c log.c $(NETFLOW5_SOURCE) ipfix.c psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES)
-softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG)
+softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(XXHASH_LIBS)
 softflowd_DEPENDENCIES = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8

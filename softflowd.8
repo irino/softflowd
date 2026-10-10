@@ -185,6 +185,32 @@ The default is 8192 flows, which corresponds to slightly less
 than 800k of working data.
 This value is also the maximum number of packets processed in one pass
 of the main loop.
+.It Fl \-flow-lookup Ar mode
+Select how active flows are looked up.
+.Ar mode
+may be one of:
+.Dq tree
+(one tree of all flows, the default),
+.Dq hash-tree
+(a hash table of trees: flows that share a bucket are told apart by the tree), or
+.Dq hash
+(a hash table with room for one flow per bucket: when a different flow
+hashes to an occupied bucket, the flow already there is expired at once and
+the new flow takes its place).
+In
+.Dq hash
+mode a flow may therefore be exported as several records, and the number of
+flows expired this way is shown as
+.Dq collision
+in the statistics.
+The hash modes size the table from
+.Ar max_flows .
+The hash function is xxHash if
+.Nm
+was built with it (the configure script uses the system libxxhash if found
+and
+.Fl \-without-xxhash
+disables it), otherwise a built-in FNV-1a.
 .It Fl t Ar timeout_name=time
 Set the timeout names
 .Ar timeout_name

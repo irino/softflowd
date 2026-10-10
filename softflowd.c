@@ -55,6 +55,9 @@
 #include <netinet/icmp6.h>
 #include <pcap.h>
 #include <getopt.h>
+#ifdef HAVE_XXHASH
+#include <xxhash.h>
+#endif /* HAVE_XXHASH */
 #ifdef LINUX
 #include <net/if.h>
 #include <net/if_arp.h>
@@ -66,6 +69,8 @@
 #if !defined(LINUX) && defined(HAVE_IFADDRS_H)
 #include <net/if_dl.h>
 #endif
+#define OPT_FLOW_LOOKUP 256 /* --flow-lookup has no short option */
+#define FLOW_MAX_BUCKETS (1U << 24) /* upper bound of the flow table size */
 
 /* Global variables */
 static int verbose_flag = 0;	/**< Debugging flag */
@@ -402,6 +407,267 @@ expiry_compare (struct EXPIRY *a, struct EXPIRY *b) {
 /* Generate functions for flow tree */
 EXPIRY_PROTOTYPE (EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE (EXPIRIES, EXPIRY, trp, expiry_compare);
+
+static const char *format_flow_brief (struct FLOW *flow);
+
+/**
+ * @brief Hash the identity fields of a flow.
+ *
+ * Uses exactly the fields flow_compare() looks at (and only those), so flows that compare
+ * equal always hash equal. The fields are packed into one buffer first, so padding and the
+ * unused part of the address union cannot influence the result.
+ *
+ * @param flow Flow to hash.
+ * @return 32-bit hash value.
+ */
+static u_int32_t
+flow_hash (const struct FLOW *flow) {
+  u_int8_t key[sizeof (flow->vlanid) + sizeof (flow->ethermac) +
+	       sizeof (flow->af) + sizeof (flow->addr) + sizeof (flow->protocol) +
+	       sizeof (flow->port) + sizeof (flow->mplsLabelStackDepth) +
+	       sizeof (flow->mplsLabels)];
+  size_t len = 0, n;
+  u_int32_t depth = flow->mplsLabelStackDepth;
+#ifdef HAVE_XXHASH
+  XXH64_hash_t h;
+#else /* HAVE_XXHASH */
+  u_int32_t h = 2166136261U;    /* FNV-1a */
+  size_t i;
+#endif /* HAVE_XXHASH */
+
+#define KEY_ADD(p, size) do { memcpy (key + len, (p), (size)); len += (size); } while (0)
+  if (track_level == TRACK_FULL_VLAN || track_level == TRACK_FULL_VLAN_ETHER)
+    KEY_ADD (flow->vlanid, sizeof (flow->vlanid));
+  if (track_level == TRACK_FULL_VLAN_ETHER)
+    KEY_ADD (flow->ethermac, sizeof (flow->ethermac));
+  KEY_ADD (&flow->af, sizeof (flow->af));
+  KEY_ADD (flow->addr, sizeof (flow->addr));
+  KEY_ADD (&flow->protocol, sizeof (flow->protocol));
+  KEY_ADD (flow->port, sizeof (flow->port));
+  KEY_ADD (&flow->mplsLabelStackDepth, sizeof (flow->mplsLabelStackDepth));
+  if (depth > sizeof (flow->mplsLabels) / sizeof (flow->mplsLabels[0]))
+    depth = sizeof (flow->mplsLabels) / sizeof (flow->mplsLabels[0]);
+  n = depth * sizeof (flow->mplsLabels[0]);
+  if (n > 0)
+    KEY_ADD (flow->mplsLabels, n);
+#undef KEY_ADD
+
+#ifdef HAVE_XXHASH
+  h = XXH64 (key, len, 0);
+  return ((u_int32_t) (h ^ (h >> 32)));
+#else /* HAVE_XXHASH */
+  for (i = 0; i < len; i++) {
+    h ^= key[i];
+    h *= 16777619U;
+  }
+  return (h);
+#endif /* HAVE_XXHASH */
+}
+
+/**
+ * @brief Name of a flow lookup mode, as given to --flow-lookup.
+ *
+ * @param mode Lookup mode.
+ * @return Name of the mode.
+ */
+static const char *
+flow_lookup_name (enum FLOW_LOOKUP mode) {
+  switch (mode) {
+  case FLOW_LOOKUP_HASH_TREE:
+    return ("hash-tree");
+  case FLOW_LOOKUP_HASH:
+    return ("hash");
+  default:
+    return ("tree");
+  }
+}
+
+/**
+ * @brief Allocate the flow table according to the lookup mode and max_flows.
+ *
+ * Tree mode uses a single bucket. The hash modes use a power of two number of buckets
+ * (at least max_flows, twice that in hash mode, capped at FLOW_MAX_BUCKETS).
+ * Call after the options are parsed.
+ *
+ * @param ft Flow tracking state.
+ * @return 0 on success, -1 if the allocation failed.
+ */
+static int
+flow_table_init (struct FLOWTRACK *ft) {
+  u_int64_t want, n;
+  u_int32_t i;
+
+  n = 1;
+  if (ft->flow_lookup != FLOW_LOOKUP_TREE) {
+    want = ft->param.max_flows;
+    if (ft->flow_lookup == FLOW_LOOKUP_HASH)
+      want *= 2;
+    while (n < want && n < FLOW_MAX_BUCKETS)
+      n <<= 1;
+  }
+  ft->flow_nbuckets = (u_int32_t) n;
+
+  if (ft->flow_lookup == FLOW_LOOKUP_HASH) {
+    ft->flow_table_bytes = ft->flow_nbuckets * sizeof (*ft->flow_slots);
+    ft->flow_slots = calloc (ft->flow_nbuckets, sizeof (*ft->flow_slots));
+    return (ft->flow_slots == NULL ? -1 : 0);
+  }
+  ft->flow_table_bytes = ft->flow_nbuckets * sizeof (*ft->flow_buckets);
+  ft->flow_buckets = calloc (ft->flow_nbuckets, sizeof (*ft->flow_buckets));
+  if (ft->flow_buckets == NULL)
+    return (-1);
+  for (i = 0; i < ft->flow_nbuckets; i++)
+    FLOW_INIT (&ft->flow_buckets[i]);
+  return (0);
+}
+
+/**
+ * @brief Bucket index of a flow.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow (only its identity fields are used).
+ * @return Index into the flow table.
+ */
+static u_int32_t
+flow_index (const struct FLOWTRACK *ft, const struct FLOW *flow) {
+  if (ft->flow_nbuckets == 1)
+    return (0);
+  return (flow_hash (flow) & (ft->flow_nbuckets - 1));
+}
+
+/**
+ * @brief Look up a flow in the flow table.
+ *
+ * @param ft  Flow tracking state.
+ * @param key Flow holding the identity to look for.
+ * @param idx Bucket index of key, from flow_index().
+ * @return Matching flow, or NULL.
+ */
+static struct FLOW *
+flow_table_find (struct FLOWTRACK *ft, struct FLOW *key, u_int32_t idx) {
+  struct FLOW *resident;
+
+  if (ft->flow_lookup == FLOW_LOOKUP_HASH) {
+    resident = ft->flow_slots[idx];
+    return (resident != NULL && flow_compare (resident, key) == 0 ?
+	    resident : NULL);
+  }
+  return (FLOW_FIND (FLOWS, &ft->flow_buckets[idx], key));
+}
+
+/**
+ * @brief Insert a new flow into the flow table.
+ *
+ * In hash mode a flow already resident in the bucket is taken out of the table and
+ * scheduled for immediate expiry (R_COLLISION); it is exported by the next expiry scan.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow to insert.
+ * @param idx  Bucket index of flow, from flow_index().
+ */
+static void
+flow_table_insert (struct FLOWTRACK *ft, struct FLOW *flow, u_int32_t idx) {
+  struct FLOW *victim;
+  struct EXPIRY *expiry;
+
+  if (ft->flow_lookup != FLOW_LOOKUP_HASH) {
+    FLOW_INSERT (FLOWS, &ft->flow_buckets[idx], flow);
+    return;
+  }
+
+  if ((victim = ft->flow_slots[idx]) != NULL) {
+    expiry = victim->expiry;
+    /* Keep the reason of a flow that is already due for expiry */
+    if (expiry != NULL && expiry->expires_at != 0) {
+      EXPIRY_REMOVE (EXPIRIES, &ft->expiries, expiry);
+      expiry->expires_at = 0;
+      expiry->reason = R_COLLISION;
+      victim->flowEndReason = IPFIX_flowEndReason_lackOfResource;
+      EXPIRY_INSERT (EXPIRIES, &ft->expiries, expiry);
+    }
+    if (verbose_flag)
+      logit (LOG_DEBUG, "COLLISION %s", format_flow_brief (victim));
+  }
+  ft->flow_slots[idx] = flow;
+}
+
+/**
+ * @brief Remove a flow from the flow table.
+ *
+ * A flow that was evicted by a collision (hash mode) is no longer in the table; this is
+ * detected by comparing the resident of the bucket with the flow.
+ *
+ * @param ft   Flow tracking state.
+ * @param flow Flow to remove.
+ */
+static void
+flow_table_remove (struct FLOWTRACK *ft, struct FLOW *flow) {
+  u_int32_t idx = flow_index (ft, flow);
+
+  if (ft->flow_lookup == FLOW_LOOKUP_HASH) {
+    if (ft->flow_slots[idx] == flow)
+      ft->flow_slots[idx] = NULL;
+    return;
+  }
+  FLOW_REMOVE (FLOWS, &ft->flow_buckets[idx], flow);
+}
+
+/**
+ * @brief Print how the flow table was allocated (debug mode).
+ *
+ * Shows the number of buckets, the memory of the bucket array (also relative to tree mode,
+ * which has a single bucket) and, for scale, the memory flows take at max_flows.
+ *
+ * @param ft Flow tracking state.
+ */
+static void
+flow_table_report (const struct FLOWTRACK *ft) {
+  size_t tree_bytes = sizeof (struct FLOWS);
+
+  fprintf (stderr, "Flow table: mode=%s buckets=%u (max_flows=%u%s)\n",
+	   flow_lookup_name (ft->flow_lookup), ft->flow_nbuckets,
+	   ft->param.max_flows,
+	   ft->flow_nbuckets == FLOW_MAX_BUCKETS ? ", at the cap" : "");
+  fprintf (stderr,
+	   "Flow table: bucket array %zu bytes (%zu bytes/bucket), %+lld bytes vs tree mode\n",
+	   ft->flow_table_bytes, ft->flow_table_bytes / ft->flow_nbuckets,
+	   (long long) ft->flow_table_bytes - (long long) tree_bytes);
+  fprintf (stderr,
+	   "Flow table: flows at max_flows: %zu bytes (FLOW %zu + EXPIRY %zu each)\n",
+	   (size_t) ft->param.max_flows * (sizeof (struct FLOW) +
+					 sizeof (struct EXPIRY)),
+	   sizeof (struct FLOW), sizeof (struct EXPIRY));
+}
+
+/**
+ * @brief Measure how the active flows are spread over the buckets.
+ *
+ * Walks every bucket, so it is meant for statistics only.
+ *
+ * @param ft       Flow tracking state.
+ * @param used     Receives the number of non-empty buckets.
+ * @param maxdepth Receives the largest number of flows in one bucket.
+ */
+static void
+flow_table_usage (struct FLOWTRACK *ft, u_int32_t *used, u_int32_t *maxdepth) {
+  struct FLOW *flow;
+  u_int32_t i, depth;
+
+  *used = *maxdepth = 0;
+  for (i = 0; i < ft->flow_nbuckets; i++) {
+    depth = 0;
+    if (ft->flow_lookup == FLOW_LOOKUP_HASH)
+      depth = ft->flow_slots[i] != NULL;
+    else
+      for (flow = FLOW_MIN (FLOWS, &ft->flow_buckets[i]); flow != NULL;
+	   flow = FLOW_NEXT (FLOWS, &ft->flow_buckets[i], flow))
+	depth++;
+    if (depth > 0)
+      (*used)++;
+    if (depth > *maxdepth)
+      *maxdepth = depth;
+  }
+}
 
 /**
  * @brief Allocate a flow record from the flow freelist.
@@ -887,6 +1153,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
 		const u_char *frame, int datalink_size, int af,
 		u_int16_t vlanid, u_int8_t num_label) {
   struct FLOW tmp, *flow;
+  u_int32_t idx;
   struct FLOWTRACK *ft = cb_ctxt->ft;
   const u_int32_t caplen = phdr->caplen - datalink_size;
   int frag = 0, first = 1, ndx = -1, i = 0, size = -1;
@@ -934,7 +1201,8 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
   }
 
   /* If a matching flow does not exist, create and insert one */
-  if ((flow = FLOW_FIND (FLOWS, &ft->flows, &tmp)) == NULL) {
+  idx = flow_index (ft, &tmp);
+  if ((flow = flow_table_find (ft, &tmp, idx)) == NULL) {
     /* Allocate and fill in the flow */
     if ((flow = flow_get (ft)) == NULL) {
       logit (LOG_ERR, "process_packet: flow_get failed", sizeof (*flow));
@@ -943,7 +1211,7 @@ process_packet (struct CB_CTXT *cb_ctxt, const struct pcap_pkthdr *phdr,
     memcpy (flow, &tmp, sizeof (*flow));
     PCAP_TS_TO_TIMEVAL (flow->flow_start, phdr->ts);
     flow->flow_seq = ft->param.next_flow_seq++;
-    FLOW_INSERT (FLOWS, &ft->flows, flow);
+    flow_table_insert (ft, flow, idx);
 
     /* Allocate and fill in the associated expiry event */
     if ((flow->expiry = expiry_get (ft)) == NULL) {
@@ -1132,6 +1400,9 @@ update_expiry_stats (struct FLOWTRACK *ft, struct EXPIRY *e) {
   case R_FLUSH:
     ft->param.expired_flush++;
     break;
+  case R_COLLISION:
+    ft->param.expired_collision++;
+    break;
   }
 }
 
@@ -1160,7 +1431,8 @@ next_expire (struct FLOWTRACK *ft) {
   /* Don't cluster urgent expiries */
   if (expires_at == 0 && (expiry->reason == R_OVERBYTES ||
 			  expiry->reason == R_OVERFLOWS
-			  || expiry->reason == R_FLUSH))
+			  || expiry->reason == R_FLUSH
+			  || expiry->reason == R_COLLISION))
     return (0);			/* Now */
 
   /* Cluster expiries by expiry_interval */
@@ -1238,8 +1510,8 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target, int ex) {
 
       update_expiry_stats (ft, expiry);
 
-      /* Remove from flow tree, destroy expiry event */
-      FLOW_REMOVE (FLOWS, &ft->flows, expiry->flow);
+      /* Remove from flow table, destroy expiry event */
+      flow_table_remove (ft, expiry->flow);
       EXPIRY_REMOVE (EXPIRIES, &ft->expiries, expiry);
       expiry->flow->expiry = NULL;
       expiry_put (ft, expiry);
@@ -1409,16 +1681,20 @@ force_expire (struct FLOWTRACK *ft, u_int32_t num_to_expire) {
  */
 static int
 delete_all_flows (struct FLOWTRACK *ft) {
-  struct FLOW *flow, *nflow;
+  struct FLOW *flow;
+  struct EXPIRY *expiry, *nexpiry;
   int i;
 
   i = 0;
-  for (flow = FLOW_MIN (FLOWS, &ft->flows); flow != NULL; flow = nflow) {
-    nflow = FLOW_NEXT (FLOWS, &ft->flows, flow);
-    FLOW_REMOVE (FLOWS, &ft->flows, flow);
+  /* Every flow has an expiry event, including flows evicted from the table */
+  for (expiry = EXPIRY_MIN (EXPIRIES, &ft->expiries); expiry != NULL;
+       expiry = nexpiry) {
+    nexpiry = EXPIRY_NEXT (EXPIRIES, &ft->expiries, expiry);
+    flow = expiry->flow;
+    flow_table_remove (ft, flow);
 
-    EXPIRY_REMOVE (EXPIRIES, &ft->expiries, flow->expiry);
-    expiry_put (ft, flow->expiry);
+    EXPIRY_REMOVE (EXPIRIES, &ft->expiries, expiry);
+    expiry_put (ft, expiry);
 
     ft->param.num_flows--;
     flow_put (ft, flow);
@@ -1463,6 +1739,22 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
 	   ft->param.records_sent, ft->param.packets_sent,
 	   ft->param.flows_dropped);
 
+  if (ft->flow_lookup != FLOW_LOOKUP_TREE) {
+    u_int32_t used, maxdepth;
+
+    flow_table_usage (ft, &used, &maxdepth);
+    char size[32];
+
+    if (ft->flow_table_bytes < 1024)
+      snprintf (size, sizeof (size), "%zu B", ft->flow_table_bytes);
+    else
+      snprintf (size, sizeof (size), "%zu KiB", ft->flow_table_bytes / 1024);
+    fprintf (out, "Flow table: %s, %u buckets (%s), %u in use, "
+	     "max depth %u, %" PRIu64 " collisions\n",
+	     flow_lookup_name (ft->flow_lookup), ft->flow_nbuckets,
+	     size, used, maxdepth, ft->param.expired_collision);
+  }
+
   if (pcap_stats (pcap, &ps) == 0) {
     fprintf (out, "Packets received by libpcap: %lu\n",
 	     (unsigned long) ps.ps_recv);
@@ -1500,6 +1792,8 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
     fprintf (out, "over 2 GiB = %9" PRIu64 "\n", ft->param.expired_overbytes);
     fprintf (out, "  maxflows = %9" PRIu64 "\n", ft->param.expired_maxflows);
     fprintf (out, "   flushed = %9" PRIu64 "\n", ft->param.expired_flush);
+    if (ft->flow_lookup == FLOW_LOOKUP_HASH)
+      fprintf (out, "collision = %9" PRIu64 "\n", ft->param.expired_collision);
 
     fprintf (out, "\n");
 
@@ -2223,7 +2517,7 @@ init_flowtrack (struct FLOWTRACK *ft) {
   /* Set up flow-tracking structure */
   memset (ft, '\0', sizeof (*ft));
   ft->param.next_flow_seq = 1;
-  FLOW_INIT (&ft->flows);
+  ft->flow_lookup = FLOW_LOOKUP_TREE;
   EXPIRY_INIT (&ft->expiries);
 
   freelist_init (&ft->flow_freelist, sizeof (struct FLOW));
@@ -2348,6 +2642,8 @@ usage (void) {
 	   "  -f, --full-transport-header-check\n"
 	   "                          Require the whole TCP/UDP/ICMP header instead of\n"
 	   "                          only the fields used (ports, TCP flags, ICMP type/code)\n"
+	   "      --flow-lookup mode  Flow table lookup: tree (default), hash-tree or hash\n"
+	   "                          (hash: a colliding flow expires the resident one)\n"
 	   "  -h, --help              Display this help\n"
 	   "\n"
 	   "Valid timeout names and default values:\n"
@@ -2636,6 +2932,7 @@ main (int argc, char **argv) {
     {"gauge-cpu-clock", no_argument, NULL, 'g'},
     {"exporter-ip", required_argument, NULL, 'e'},
     {"full-transport-header-check", no_argument, NULL, 'f'},
+    {"flow-lookup", required_argument, NULL, OPT_FLOW_LOOKUP},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
   };
@@ -2690,6 +2987,19 @@ main (int argc, char **argv) {
     switch (ch) {
     case 'f':
       full_transport_header_check = 1;
+      break;
+    case OPT_FLOW_LOOKUP:
+      if (strcmp (optarg, "tree") == 0)
+	flowtrack.flow_lookup = FLOW_LOOKUP_TREE;
+      else if (strcmp (optarg, "hash-tree") == 0)
+	flowtrack.flow_lookup = FLOW_LOOKUP_HASH_TREE;
+      else if (strcmp (optarg, "hash") == 0)
+	flowtrack.flow_lookup = FLOW_LOOKUP_HASH;
+      else {
+	fprintf (stderr, "Invalid flow lookup mode\n\n");
+	usage ();
+	exit (1);
+      }
       break;
     case '6':
       always_v6 = 1;
@@ -2987,6 +3297,14 @@ main (int argc, char **argv) {
     usage ();
     exit (1);
   }
+
+  /* max_flows is final now, so the flow table can be sized */
+  if (flow_table_init (&flowtrack) < 0) {
+    fprintf (stderr, "Unable to allocate the flow table\n");
+    exit (1);
+  }
+  if (verbose_flag)
+    flow_table_report (&flowtrack);
 
   /* join remaining arguments (if any) into bpf program */
   bpf_prog = argv_join (argc - optind, argv + optind);
