@@ -3030,6 +3030,7 @@ main (int argc, char **argv) {
   struct NETFLOW_TARGET target;
   struct CB_CTXT cb_ctxt;
   struct pollfd pl[2];
+  int pcapfd = -1;
   struct DESTINATION *dest;
   int pcap_override_buffer_size = 0;
   int protocol = IPPROTO_UDP;
@@ -3541,6 +3542,16 @@ main (int argc, char **argv) {
     }
   }
 #endif /* ENABLE_PTHREAD */
+  /*
+   * pl[] is also read when a capture file is replayed, so it must always be
+   * initialised.  With a control socket, wait for the capture file and the
+   * control socket together (as for a live capture) so that control
+   * connections are served even while a file such as a FIFO has no data.
+   */
+  memset (pl, '\0', sizeof (pl));
+  if (capfile != NULL && ctlsock != -1)
+    pcapfd = pcap_get_selectable_fd (pcap);
+
   for (r = 0; graceful_shutdown_request == 0; r = 0) {
     /*
      * Silly libpcap's timeout function doesn't work, so we
@@ -3570,6 +3581,17 @@ main (int argc, char **argv) {
         logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
         break;
       }
+    } else if (pcapfd >= 0) {  // capture file with a control socket
+      memset (pl, '\0', sizeof (pl));
+      pl[0].fd = stop_collection_flag ? -1 : pcapfd;
+      pl[0].events = POLLIN | POLLERR | POLLHUP;
+      pl[1].fd = ctlsock;
+      pl[1].events = POLLIN | POLLERR | POLLHUP;
+      r = poll (pl, 2, -1);
+      if (r == -1 && errno != EINTR) {
+        logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
+        break;
+      }
     }
 
     /* Accept connection on control socket if present */
@@ -3583,7 +3605,8 @@ main (int argc, char **argv) {
     }
 
     /* If we have data, run it through libpcap */
-    if (!stop_collection_flag && (capfile != NULL || pl[0].revents != 0)) {
+    if (!stop_collection_flag &&
+        ((capfile != NULL && pcapfd < 0) || pl[0].revents != 0)) {
       if (capfile != NULL || dev != NULL) {
 #ifdef ENABLE_PTHREAD
         if (use_thread)
