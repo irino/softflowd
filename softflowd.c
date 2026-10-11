@@ -1415,41 +1415,7 @@ update_statistics (struct FLOWTRACK *ft, struct FLOW *flow) {
  */
 static void
 update_expiry_stats (struct FLOWTRACK *ft, struct EXPIRY *e) {
-  switch (e->reason) {
-    case R_GENERAL:
-      ft->param.expired_general++;
-      break;
-    case R_TCP:
-      ft->param.expired_tcp++;
-      break;
-    case R_TCP_RST:
-      ft->param.expired_tcp_rst++;
-      break;
-    case R_TCP_FIN:
-      ft->param.expired_tcp_fin++;
-      break;
-    case R_UDP:
-      ft->param.expired_udp++;
-      break;
-    case R_ICMP:
-      ft->param.expired_icmp++;
-      break;
-    case R_MAXLIFE:
-      ft->param.expired_maxlife++;
-      break;
-    case R_OVERBYTES:
-      ft->param.expired_overbytes++;
-      break;
-    case R_OVERFLOWS:
-      ft->param.expired_maxflows++;
-      break;
-    case R_FLUSH:
-      ft->param.expired_flush++;
-      break;
-    case R_COLLISION:
-      ft->param.expired_collision++;
-      break;
-  }
+  ft->param.expired[e->reason]++;
 }
 
 /**
@@ -1803,7 +1769,7 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
              "Flow table: %s, %u buckets (%s), %u in use, "
              "max depth %u, %" PRIu64 " collisions\n",
              flow_lookup_name (ft->flow_lookup), ft->flow_nbuckets, size, used,
-             maxdepth, ft->param.expired_collision);
+             maxdepth, ft->param.expired[R_COLLISION]);
   }
 
   if (pcap_stats (pcap, &ps) == 0) {
@@ -1834,19 +1800,19 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
     fprintf (out,
              "       tcp = %9" PRIu64 "   tcp.rst = %9" PRIu64 "   "
              "tcp.fin = %9" PRIu64 "\n",
-             ft->param.expired_tcp, ft->param.expired_tcp_rst,
-             ft->param.expired_tcp_fin);
+             ft->param.expired[R_TCP], ft->param.expired[R_TCP_RST],
+             ft->param.expired[R_TCP_FIN]);
     fprintf (out,
              "       udp = %9" PRIu64 "      icmp = %9" PRIu64 "   "
              "general = %9" PRIu64 "\n",
-             ft->param.expired_udp, ft->param.expired_icmp,
-             ft->param.expired_general);
-    fprintf (out, "   maxlife = %9" PRIu64 "\n", ft->param.expired_maxlife);
-    fprintf (out, "over 2 GiB = %9" PRIu64 "\n", ft->param.expired_overbytes);
-    fprintf (out, "  maxflows = %9" PRIu64 "\n", ft->param.expired_maxflows);
-    fprintf (out, "   flushed = %9" PRIu64 "\n", ft->param.expired_flush);
+             ft->param.expired[R_UDP], ft->param.expired[R_ICMP],
+             ft->param.expired[R_GENERAL]);
+    fprintf (out, "   maxlife = %9" PRIu64 "\n", ft->param.expired[R_MAXLIFE]);
+    fprintf (out, "over 2 GiB = %9" PRIu64 "\n", ft->param.expired[R_OVERBYTES]);
+    fprintf (out, "  maxflows = %9" PRIu64 "\n", ft->param.expired[R_OVERFLOWS]);
+    fprintf (out, "   flushed = %9" PRIu64 "\n", ft->param.expired[R_FLUSH]);
     if (ft->flow_lookup == FLOW_LOOKUP_HASH)
-      fprintf (out, "collision = %9" PRIu64 "\n", ft->param.expired_collision);
+      fprintf (out, "collision = %9" PRIu64 "\n", ft->param.expired[R_COLLISION]);
 
     fprintf (out, "\n");
 

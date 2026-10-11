@@ -144,6 +144,22 @@ struct OPTION {
     *exporterAddr; /**< Exporter address(es) sent in the option record */
 };
 
+/** Why a flow is expired; also indexes FLOWTRACKPARAMETERS.expired[]. */
+enum EXPIRY_REASON {
+  R_GENERAL,   /**< General timeout */
+  R_TCP,       /**< TCP timeout */
+  R_TCP_RST,   /**< TCP RST seen */
+  R_TCP_FIN,   /**< FIN seen in both directions */
+  R_UDP,       /**< UDP timeout */
+  R_ICMP,      /**< ICMP timeout */
+  R_MAXLIFE,   /**< Maximum lifetime */
+  R_OVERBYTES, /**< More than 2 GiB */
+  R_OVERFLOWS, /**< Flow table full (maxflows) */
+  R_FLUSH,     /**< Flush (expire-all) */
+  R_COLLISION, /**< Hash collision (hash mode) */
+  R_COUNT      /**< Number of reasons; not a reason itself */
+};
+
 /** Parameters, limits, timeouts and statistics of the flow tracker. */
 struct FLOWTRACKPARAMETERS {
   unsigned int num_flows;  /**< # of active flows */
@@ -188,19 +204,7 @@ struct FLOWTRACKPARAMETERS {
     duration_pp[256]; /**< Flow duration per IP protocol number */
 
   /* Timeout statistics */
-  u_int64_t expired_general;   /**< Flows expired by the general timeout */
-  u_int64_t expired_tcp;       /**< Flows expired by the TCP timeout */
-  u_int64_t expired_tcp_rst;   /**< Flows expired after a TCP RST */
-  u_int64_t expired_tcp_fin;   /**< Flows expired after FIN in both directions */
-  u_int64_t expired_udp;       /**< Flows expired by the UDP timeout */
-  u_int64_t expired_icmp;      /**< Flows expired by the ICMP timeout */
-  u_int64_t expired_maxlife;   /**< Flows expired by the maximum lifetime */
-  u_int64_t expired_overbytes; /**< Flows expired for exceeding 2 GiB */
-  u_int64_t
-    expired_maxflows;      /**< Flows expired because the flow table was full */
-  u_int64_t expired_flush; /**< Flows expired by a flush (expire-all) */
-  u_int64_t
-    expired_collision; /**< Flows expired by a hash collision (hash mode) */
+  u_int64_t expired[R_COUNT]; /**< Flows expired, indexed by enum EXPIRY_REASON */
 
   /* Optional information */
   struct OPTION option; /**< Data of the options record */
@@ -313,19 +317,7 @@ struct EXPIRY {
   struct FLOW *flow; /**< pointer to flow */
 
   u_int32_t expires_at; /**< time_t */
-  enum {
-    R_GENERAL,
-    R_TCP,
-    R_TCP_RST,
-    R_TCP_FIN,
-    R_UDP,
-    R_ICMP,
-    R_MAXLIFE,
-    R_OVERBYTES,
-    R_OVERFLOWS,
-    R_FLUSH,
-    R_COLLISION
-  } reason; /**< Why the flow is expired */
+  enum EXPIRY_REASON reason; /**< Why the flow is expired */
 };
 
 /** One export destination. */
