@@ -2724,7 +2724,7 @@ usage (void) {
     "of\n"
     "                          only the fields used (ports, TCP flags, ICMP "
     "type/code)\n"
-    "      --flow-lookup mode  Flow table lookup: tree (default), hash-tree "
+    "  -F, --flow-lookup mode  Flow table lookup: tree (default), hash-tree "
     "or hash\n"
     "                          (hash: a colliding flow expires the resident "
     "one)\n"
@@ -2982,43 +2982,43 @@ main (int argc, char **argv) {
   extern int optind;
   int ch, dontfork_flag, linktype = 0, ctlsock, err, always_v6, r, dest_idx;
   static const struct option long_options[] = {
-    {"interface", required_argument, NULL, 'i'},
-    {"read", required_argument, NULL, 'r'},
-    {"timeout", required_argument, NULL, 't'},
-    {"max-flows", required_argument, NULL, 'm'},
-    {"netflow-dest", required_argument, NULL, 'n'},
-    {"pidfile", required_argument, NULL, 'p'},
-    {"control-socket", required_argument, NULL, 'c'},
-    {"netflow-version", required_argument, NULL, 'v'},
-    {"hoplimit", required_argument, NULL, 'L'},
-    {"track", required_argument, NULL, 'T'},
-    {"direction-mac", required_argument, NULL, 'H'},
     {"track-ipv6", no_argument, NULL, '6'},
+    {"adjust-time", no_argument, NULL, 'a'},
+    {"absolute-time", required_argument, NULL, 'A'},
+    {"bidirectional", no_argument, NULL, 'b'},
+    {"pcap-buffer-size", required_argument, NULL, 'B'},
+    {"control-socket", required_argument, NULL, 'c'},
+    {"snaplen", required_argument, NULL, 'C'},
     {"foreground", no_argument, NULL, 'd'},
     {"debug", no_argument, NULL, 'D'},
-    {"export-protocol", required_argument, NULL, 'P'},
-    {"absolute-time", required_argument, NULL, 'A'},
-    {"sampling-rate", required_argument, NULL, 's'},
-    {"pcap-buffer-size", required_argument, NULL, 'B'},
-    {"bidirectional", no_argument, NULL, 'b'},
-    {"adjust-time", no_argument, NULL, 'a'},
-    {"snaplen", required_argument, NULL, 'C'},
+    {"exporter-ip", required_argument, NULL, 'e'},
+    {"full-transport-header-check", no_argument, NULL, 'f'},
+    {"flow-lookup", required_argument, NULL, 'F'},
+    {"gauge-cpu-clock", no_argument, NULL, 'g'},
+    {"help", no_argument, NULL, 'h'},
+    {"direction-mac", required_argument, NULL, 'H'},
+    {"interface", required_argument, NULL, 'i'},
+    {"reinit-interval", required_argument, NULL, 'I'},
     {"load-balance", no_argument, NULL, 'l'},
-    {"psamp-port", required_argument, NULL, 'R'},
+    {"hoplimit", required_argument, NULL, 'L'},
+    {"max-flows", required_argument, NULL, 'm'},
 #ifdef ENABLE_PTHREAD
     {"multithread", no_argument, NULL, 'M'},
 #endif /* ENABLE_PTHREAD */
+    {"netflow-dest", required_argument, NULL, 'n'},
     {"no-promisc", no_argument, NULL, 'N'},
+    {"pidfile", required_argument, NULL, 'p'},
+    {"export-protocol", required_argument, NULL, 'P'},
+    {"read", required_argument, NULL, 'r'},
+    {"psamp-port", required_argument, NULL, 'R'},
+    {"sampling-rate", required_argument, NULL, 's'},
 #ifdef LINUX
     {"send-interface", required_argument, NULL, 'S'},
 #endif /* LINUX */
+    {"timeout", required_argument, NULL, 't'},
+    {"track", required_argument, NULL, 'T'},
+    {"netflow-version", required_argument, NULL, 'v'},
     {"mpls-labels", required_argument, NULL, 'x'},
-    {"reinit-interval", required_argument, NULL, 'I'},
-    {"gauge-cpu-clock", no_argument, NULL, 'g'},
-    {"exporter-ip", required_argument, NULL, 'e'},
-    {"full-transport-header-check", no_argument, NULL, 'f'},
-    {"flow-lookup", required_argument, NULL, OPT_FLOW_LOOKUP},
-    {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}};
   int stop_collection_flag, exit_request, hoplimit;
   pcap_t *pcap = NULL;
@@ -3065,13 +3065,72 @@ main (int argc, char **argv) {
 
   while (
     (ch = getopt_long (argc, argv,
-                       "6hdDL:T:H:i:r:ft:n:m:p:c:v:s:P:A:B:baC:lR:MNS:x:I:ge:",
+                       "6aA:bB:c:C:dDe:fF:ghH:i:I:lL:m:Mn:Np:P:r:R:s:S:t:T:v:x:",
                        long_options, NULL)) != -1) {
     switch (ch) {
+      case '6':
+        always_v6 = 1;
+        break;
+      case 'a':
+        flowtrack.param.adjust_time = 1;
+        break;
+      case 'A':
+        if (strcasecmp (optarg, "sec") == 0)
+          flowtrack.param.time_format = 's';
+        else if (strcasecmp (optarg, "milli") == 0)
+          flowtrack.param.time_format = 'm';
+        else if (strcasecmp (optarg, "micro") == 0)
+          flowtrack.param.time_format = 'M';
+        else if (strcasecmp (optarg, "nano") == 0)
+          flowtrack.param.time_format = 'n';
+        else {
+          fprintf (stderr, "Unknown time format"
+                           "\n");
+          usage();
+          exit (1);
+        }
+        break;
+      case 'b':
+        flowtrack.param.bidirection = 1;
+        break;
+      case 'B':
+        pcap_override_buffer_size = atoi (optarg);
+        break;
+      case 'c':
+        if (strcmp (optarg, "none") == 0)
+          ctlsock_path = NULL;
+        else
+          ctlsock_path = optarg;
+        break;
+      case 'C': /* Capture Length */
+        snaplen = atoi (optarg);
+        break;
+      case 'd':
+        dontfork_flag = 1;
+        break;
+      case 'D':
+        verbose_flag = 1;
+        always_v6 = 1;
+        dontfork_flag = 1;
+        break;
+      case 'e':
+        if (optarg != NULL) {
+          struct addrinfo hints;
+          hints.ai_family = AF_UNSPEC;
+          hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
+          hints.ai_flags = 0;
+          hints.ai_protocol = protocol;
+          if (getaddrinfo (optarg, NULL, &hints,
+                           &flowtrack.param.option.exporterAddr) != 0) {
+            perror ("getaddrinfo");
+            break;
+          }
+        }
+        break;
       case 'f':
         full_transport_header_check = 1;
         break;
-      case OPT_FLOW_LOOKUP:
+      case 'F':
         if (strcmp (optarg, "tree") == 0)
           flowtrack.flow_lookup = FLOW_LOOKUP_TREE;
         else if (strcmp (optarg, "hash-tree") == 0)
@@ -3084,18 +3143,20 @@ main (int argc, char **argv) {
           exit (1);
         }
         break;
-      case '6':
-        always_v6 = 1;
+      case 'g':
+        gauge_clock = 1;
         break;
       case 'h':
         usage();
         return (0);
-      case 'D':
-        verbose_flag = 1;
-        always_v6 = 1;
-        /* FALLTHROUGH */
-      case 'd':
-        dontfork_flag = 1;
+      case 'H':
+        if (optarg != NULL) {
+          if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
+            fprintf (stderr, "Invalid MAC address %s\n", optarg);
+            exit (1);
+          }
+          flowtrack.param.direction_mac_set = 1;
+        }
         break;
       case 'i':
         if (capfile != NULL || dev != NULL) {
@@ -3126,186 +3187,6 @@ main (int argc, char **argv) {
         strlcpy (flowtrack.param.option.interfaceName, dev,
                  sizeof (flowtrack.param.option.interfaceName));
         break;
-      case 'r':
-        if (capfile != NULL || dev != NULL) {
-          fprintf (stderr, "Packet source already "
-                           "specified.\n\n");
-          usage();
-          exit (1);
-        }
-        capfile = optarg;
-        dontfork_flag = 1;
-        ctlsock_path = NULL;
-        strlcpy (flowtrack.param.option.interfaceName, capfile,
-                 sizeof (flowtrack.param.option.interfaceName));
-        break;
-      case 't':
-        /* Will exit on failure */
-        set_timeout (&flowtrack, optarg);
-        break;
-      case 'T':
-        if (strcasecmp (optarg, "full") == 0)
-          flowtrack.param.track_level = TRACK_FULL;
-        else if (strcasecmp (optarg, "port") == 0)
-          flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
-        else if (strcasecmp (optarg, "proto") == 0)
-          flowtrack.param.track_level = TRACK_IP_PROTO;
-        else if (strcasecmp (optarg, "ip") == 0)
-          flowtrack.param.track_level = TRACK_IP_ONLY;
-        else if (strcasecmp (optarg, "vlan") == 0)
-          flowtrack.param.track_level = TRACK_FULL_VLAN;
-        else if (strcasecmp (optarg, "ether") == 0)
-          flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
-
-        else {
-          fprintf (stderr, "Unknown flow tracking "
-                           "level\n");
-          usage();
-          exit (1);
-        }
-        track_level = flowtrack.param.track_level;
-        break;
-      case 'H':
-        if (optarg != NULL) {
-          if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
-            fprintf (stderr, "Invalid MAC address %s\n", optarg);
-            exit (1);
-          }
-          flowtrack.param.direction_mac_set = 1;
-        }
-        break;
-      case 'L':
-        hoplimit = atoi (optarg);
-        if (hoplimit < 0 || hoplimit > 255) {
-          fprintf (stderr, "Invalid hop limit\n\n");
-          usage();
-          exit (1);
-        }
-        break;
-      case 'm': {
-        /* Range check on an int: max_flows is unsigned and would wrap. */
-        int max_flows = atoi (optarg);
-        if (max_flows < 1) {
-          fprintf (stderr, "Invalid maximum flows\n\n");
-          usage();
-          exit (1);
-        }
-        flowtrack.param.max_flows = max_flows;
-      } break;
-      case 'n':
-        /* Will exit on failure */
-        target.num_destinations = parse_hostports (optarg, target.destinations,
-                                                   SOFTFLOWD_MAX_DESTINATIONS);
-        break;
-      case 'p':
-        pidfile_path = optarg;
-        break;
-      case 'c':
-        if (strcmp (optarg, "none") == 0)
-          ctlsock_path = NULL;
-        else
-          ctlsock_path = optarg;
-        break;
-      case 'v':
-        if (!strncmp (optarg, "psamp", sizeof ("psamp"))) {
-          flowtrack.param.is_psamp = 1;
-          break;
-        }
-#ifdef ENABLE_NTOPNG
-        if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
-                      sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
-          version = SOFTFLOWD_NF_VERSION_NTOPNG;
-        }
-#endif /* ENABLE_NTOPNG */
-        version = version ? version : atoi (optarg);
-        target.dialect = lookup_netflow_sender (version);
-        if (target.dialect == NULL) {
-          fprintf (stderr, "Invalid NetFlow version\n");
-          exit (1);
-        }
-        break;
-      case 's':
-        flowtrack.param.option.sample = atoi (optarg);
-        if (flowtrack.param.option.sample < 2) {
-          flowtrack.param.option.sample = 0;
-        }
-        break;
-      case 'B':
-        pcap_override_buffer_size = atoi (optarg);
-        break;
-      case 'P':
-        if (strcasecmp (optarg, "udp") == 0)
-          protocol = IPPROTO_UDP;
-        else if (strcasecmp (optarg, "tcp") == 0)
-          protocol = IPPROTO_TCP;
-#ifdef IPPROTO_SCTP
-        else if (strcasecmp (optarg, "sctp") == 0)
-          protocol = IPPROTO_SCTP;
-#endif
-        else {
-          fprintf (stderr, "Unknown transport layer protocol"
-                           "\n");
-          usage();
-          exit (1);
-        }
-        break;
-      case 'A':
-        if (strcasecmp (optarg, "sec") == 0)
-          flowtrack.param.time_format = 's';
-        else if (strcasecmp (optarg, "milli") == 0)
-          flowtrack.param.time_format = 'm';
-        else if (strcasecmp (optarg, "micro") == 0)
-          flowtrack.param.time_format = 'M';
-        else if (strcasecmp (optarg, "nano") == 0)
-          flowtrack.param.time_format = 'n';
-        else {
-          fprintf (stderr, "Unknown time format"
-                           "\n");
-          usage();
-          exit (1);
-        }
-        break;
-      case 'b':
-        flowtrack.param.bidirection = 1;
-        break;
-      case 'a':
-        flowtrack.param.adjust_time = 1;
-        break;
-      case 'C': /* Capture Length */
-        snaplen = atoi (optarg);
-        break;
-      case 'l':  // load balancing
-        target.is_loadbalance = 1;
-        break;
-      case 'R':
-        recvport = atoi (optarg);
-        if (recvport < 0 && recvport > 65535)
-          recvport = IPFIX_PORT;
-        rsock = recvsock ((uint16_t) recvport);
-        break;
-      case 'M':
-#ifdef ENABLE_PTHREAD
-        use_thread = 1;
-#endif /* ENABLE_PTHREAD */
-        break;
-      case 'N':
-        use_promisc = 0;
-        break;
-#ifdef LINUX
-      case 'S':
-        send_ifname = optarg;
-        break;
-#endif /* LINUX */
-      case 'x': {
-        /* Range check on an int: max_num_label is u_int8_t and would wrap. */
-        int num_label = atoi (optarg);
-        if (num_label < 1 || num_label > 10) {
-          fprintf (stderr, "Invalid number of MPLS label (1 to 10)\n\n");
-          usage();
-          exit (1);
-        }
-        flowtrack.param.max_num_label = num_label;
-      } break;
       case 'I':
         boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
         if ((errno == ERANGE && (boot_time_reinit_sec == LONG_MAX ||
@@ -3345,23 +3226,143 @@ main (int argc, char **argv) {
                    boot_time_reinit_sec);
         }
         break;
-      case 'g':
-        gauge_clock = 1;
+      case 'l':  // load balancing
+        target.is_loadbalance = 1;
         break;
-      case 'e':
-        if (optarg != NULL) {
-          struct addrinfo hints;
-          hints.ai_family = AF_UNSPEC;
-          hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
-          hints.ai_flags = 0;
-          hints.ai_protocol = protocol;
-          if (getaddrinfo (optarg, NULL, &hints,
-                           &flowtrack.param.option.exporterAddr) != 0) {
-            perror ("getaddrinfo");
-            break;
-          }
+      case 'L':
+        hoplimit = atoi (optarg);
+        if (hoplimit < 0 || hoplimit > 255) {
+          fprintf (stderr, "Invalid hop limit\n\n");
+          usage();
+          exit (1);
         }
         break;
+      case 'm': {
+        /* Range check on an int: max_flows is unsigned and would wrap. */
+        int max_flows = atoi (optarg);
+        if (max_flows < 1) {
+          fprintf (stderr, "Invalid maximum flows\n\n");
+          usage();
+          exit (1);
+        }
+        flowtrack.param.max_flows = max_flows;
+      } break;
+      case 'M':
+#ifdef ENABLE_PTHREAD
+        use_thread = 1;
+#endif /* ENABLE_PTHREAD */
+        break;
+      case 'n':
+        /* Will exit on failure */
+        target.num_destinations = parse_hostports (optarg, target.destinations,
+                                                   SOFTFLOWD_MAX_DESTINATIONS);
+        break;
+      case 'N':
+        use_promisc = 0;
+        break;
+      case 'p':
+        pidfile_path = optarg;
+        break;
+      case 'P':
+        if (strcasecmp (optarg, "udp") == 0)
+          protocol = IPPROTO_UDP;
+        else if (strcasecmp (optarg, "tcp") == 0)
+          protocol = IPPROTO_TCP;
+#ifdef IPPROTO_SCTP
+        else if (strcasecmp (optarg, "sctp") == 0)
+          protocol = IPPROTO_SCTP;
+#endif
+        else {
+          fprintf (stderr, "Unknown transport layer protocol"
+                           "\n");
+          usage();
+          exit (1);
+        }
+        break;
+      case 'r':
+        if (capfile != NULL || dev != NULL) {
+          fprintf (stderr, "Packet source already "
+                           "specified.\n\n");
+          usage();
+          exit (1);
+        }
+        capfile = optarg;
+        dontfork_flag = 1;
+        ctlsock_path = NULL;
+        strlcpy (flowtrack.param.option.interfaceName, capfile,
+                 sizeof (flowtrack.param.option.interfaceName));
+        break;
+      case 'R':
+        recvport = atoi (optarg);
+        if (recvport < 0 && recvport > 65535)
+          recvport = IPFIX_PORT;
+        rsock = recvsock ((uint16_t) recvport);
+        break;
+      case 's':
+        flowtrack.param.option.sample = atoi (optarg);
+        if (flowtrack.param.option.sample < 2) {
+          flowtrack.param.option.sample = 0;
+        }
+        break;
+#ifdef LINUX
+      case 'S':
+        send_ifname = optarg;
+        break;
+#endif /* LINUX */
+      case 't':
+        /* Will exit on failure */
+        set_timeout (&flowtrack, optarg);
+        break;
+      case 'T':
+        if (strcasecmp (optarg, "full") == 0)
+          flowtrack.param.track_level = TRACK_FULL;
+        else if (strcasecmp (optarg, "port") == 0)
+          flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
+        else if (strcasecmp (optarg, "proto") == 0)
+          flowtrack.param.track_level = TRACK_IP_PROTO;
+        else if (strcasecmp (optarg, "ip") == 0)
+          flowtrack.param.track_level = TRACK_IP_ONLY;
+        else if (strcasecmp (optarg, "vlan") == 0)
+          flowtrack.param.track_level = TRACK_FULL_VLAN;
+        else if (strcasecmp (optarg, "ether") == 0)
+          flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
+
+        else {
+          fprintf (stderr, "Unknown flow tracking "
+                           "level\n");
+          usage();
+          exit (1);
+        }
+        track_level = flowtrack.param.track_level;
+        break;
+      case 'v':
+        if (!strncmp (optarg, "psamp", sizeof ("psamp"))) {
+          flowtrack.param.is_psamp = 1;
+          break;
+        }
+#ifdef ENABLE_NTOPNG
+        if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
+                      sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
+          version = SOFTFLOWD_NF_VERSION_NTOPNG;
+        }
+#endif /* ENABLE_NTOPNG */
+        version = version ? version : atoi (optarg);
+        target.dialect = lookup_netflow_sender (version);
+        if (target.dialect == NULL) {
+          fprintf (stderr, "Invalid NetFlow version\n");
+          exit (1);
+        }
+        break;
+      case 'x': {
+        /* Range check on an int: max_num_label is u_int8_t and would wrap. */
+        int num_label = atoi (optarg);
+        if (num_label < 1 || num_label > 10) {
+          fprintf (stderr, "Invalid number of MPLS label (1 to 10)\n\n");
+          usage();
+          exit (1);
+        }
+        flowtrack.param.max_num_label = num_label;
+      } break;
       default:
         fprintf (stderr, "Invalid commandline option.\n");
         usage();

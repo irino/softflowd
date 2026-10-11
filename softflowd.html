@@ -1,5 +1,5 @@
 <!-- Creator     : groff version 1.23.0 -->
-<!-- CreationDate: Tue Feb 11 00:28:01 2025 -->
+<!-- CreationDate: Sun Oct 11 02:49:58 2026 -->
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
 "http://www.w3.org/TR/html4/loose.dtd">
 <html>
@@ -31,13 +31,15 @@ monitoring</p>
 <p style="margin-top: 1em"><b>SYNOPSIS</b></p>
 
 <p style="margin-left:22%;"><b>softflowd</b>
-[<b>-6dDhbalN</b>] [<b>-L&nbsp;</b><i>hoplimit</i>]
+[<b>-6dDfghbalMN</b>] [<b>-L&nbsp;</b><i>hoplimit</i>]
 [<b>-T&nbsp;</b><i>track_level</i>]
+[<b>-H&nbsp;</b><i>mac_address</i>]
 [<b>-c&nbsp;</b><i>ctl_sock</i>] [</p>
 
 <p><b>-i&nbsp;</b> [ <i><br>
 if_ndx</i>:]<i>interface</i> ]
 [<b>-m&nbsp;</b><i>max_flows</i>]
+[<b>-F&nbsp;</b><i>mode</i>] [<b>-I&nbsp;</b><i>seconds</i>]
 [<b>-n&nbsp;</b><i>host:port</i>]
 [<b>-p&nbsp;</b><i>pidfile</i>]
 [<b>-r&nbsp;</b><i>pcap_file</i>]
@@ -107,7 +109,8 @@ multicast group.</p>
 <p style="margin-left:9%; margin-top: 1em">The command-line
 options are as follows:</p>
 
-<p style="margin-top: 1em"><b>-n</b> <i>host:port</i></p>
+<p style="margin-top: 1em"><b>-n</b> <i>host:port</i>,
+<b>--netflow-dest</b> <i>host:port</i></p>
 
 <p style="margin-left:19%;">Specify the <i>host</i> and
 <i>port</i> that the accounting datagrams are to be sent to.
@@ -118,21 +121,23 @@ the address and the port. The destination port may be a
 portname listed in <i>services</i>(5) or a numeric port.
 Comma can be used for specifying multiple destinations.</p>
 
-<p style="margin-top: 1em"><b>-N</b></p>
+<p style="margin-top: 1em"><b>-N</b>,
+<b>--no-promisc</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Do not put the
-interface into promiscuous mode. Note that the interface
-might be in promiscuous mode for some other reason.</p>
+<p style="margin-left:19%;">Do not put the interface into
+promiscuous mode. Note that the interface might be in
+promiscuous mode for some other reason.</p>
 
-<p style="margin-top: 1em"><b>-i</b> <br>
-[ <i><br>
+<p style="margin-top: 1em"><b>-i</b> [ <i><br>
+if_ndx</i>:]<i>interface</i>, <b>--interface</b> [ <i><br>
 if_ndx</i>:]<i>interface</i></p>
 
 <p style="margin-left:19%;">Specify a network interface on
 which to listen for traffic. Either the <b>-i</b> or the
 <b>-r</b> options must be specified.</p>
 
-<p style="margin-top: 1em"><b>-r</b> <i>pcap_file</i></p>
+<p style="margin-top: 1em"><b>-r</b> <i>pcap_file</i>,
+<b>--read</b> <i>pcap_file</i></p>
 
 <p style="margin-left:19%;">Specify that <b>softflowd</b>
 should read from a <i>pcap</i>(3) packet capture file (such
@@ -143,30 +148,57 @@ expires flows when <i>max_flows</i> is exceeded. In this
 mode, <b>softflowd</b> will not fork and will automatically
 print summary statistics before exiting.</p>
 
-<p style="margin-top: 1em"><b>-p</b> <i>pidfile</i></p>
+<p style="margin-top: 1em"><b>-p</b> <i>pidfile</i>,
+<b>--pidfile</b> <i>pidfile</i></p>
 
 <p style="margin-left:19%;">Specify an alternate location
 to store the process ID when in daemon mode. Default is
 <i>/var/run/softflowd.pid</i></p>
 
-<p style="margin-top: 1em"><b>-c</b> <i>ctlsock</i></p>
+<p style="margin-top: 1em"><b>-c</b> <i>ctlsock</i>,
+<b>--control-socket</b> <i>ctlsock</i></p>
 
 <p style="margin-left:19%;">Specify an alternate location
 for the remote control socket in daemon mode. Default is
 <i>/var/run/softflowd.ctl</i></p>
 
-<p style="margin-top: 1em"><b>-m</b> <i>max_flows</i></p>
+<p style="margin-top: 1em"><b>-m</b> <i>max_flows</i>,
+<b>--max-flows</b> <i>max_flows</i></p>
 
 <p style="margin-left:19%;">Specify the maximum number of
-flows to concurrently track. If this limit is exceeded, the
-flows which have least recently seen traffic are forcibly
-expired. In practice, the actual maximum may briefly exceed
-this limit by a small amount as expiry processing happens
-less frequently than traffic collection. The default is 8192
-flows, which corresponds to slightly less than 800k of
-working data.</p>
+flows to concurrently track. The value must be 1 or more. If
+this limit is exceeded, the flows which have least recently
+seen traffic are forcibly expired. In practice, the actual
+maximum may briefly exceed this limit by a small amount as
+expiry processing happens less frequently than traffic
+collection. The default is 8192 flows, which corresponds to
+slightly less than 800k of working data. This value is also
+the maximum number of packets processed in one pass of the
+main loop.</p>
+
+<p style="margin-top: 1em"><b>-F</b> <i>mode</i>,
+<b>--flow-lookup</b> <i>mode</i></p>
+
+<p style="margin-left:19%;">Select how active flows are
+looked up. <i>mode</i> may be one of: &ldquo;tree&rdquo;
+(one tree of all flows, the default),
+&ldquo;hash-tree&rdquo; (a hash table of trees: flows that
+share a bucket are told apart by the tree), or
+&ldquo;hash&rdquo; (a hash table with room for one flow per
+bucket: when a different flow hashes to an occupied bucket,
+the flow already there is expired at once and the new flow
+takes its place). In &ldquo;hash&rdquo; mode a flow may
+therefore be exported as several records, and the number of
+flows expired this way is shown as &ldquo;collision&rdquo;
+in the statistics. The hash modes size the table from
+<i>max_flows</i>. The hash function is xxHash if
+<b>softflowd</b> was built with it (the configure script
+uses the system libxxhash if found and
+<b>--without-xxhash</b> disables it), otherwise a built-in
+FNV-1a.</p>
 
 <p style="margin-top: 1em"><b>-t</b>
+<i>timeout_name=time</i>, <b>--timeout</b>
 <i>timeout_name=time</i></p>
 
 <p style="margin-left:19%;">Set the timeout names
@@ -176,58 +208,67 @@ and their meanings. The <i>time</i> parameter may be
 specified using one of the formats explained in the
 &ldquo;Time Formats&rdquo; section below.</p>
 
-<p style="margin-top: 1em"><b>-d</b></p>
+<p style="margin-top: 1em"><b>-d</b>,
+<b>--foreground</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Specify that
-<b>softflowd</b> should not fork and daemonise itself.</p>
+<p style="margin-left:19%;">Specify that <b>softflowd</b>
+should not fork and daemonise itself.</p>
 
-<p style="margin-top: 1em"><b>-6</b></p>
+<p style="margin-top: 1em"><b>-6</b>,
+<b>--track-ipv6</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Force
-<b>softflowd</b> to track IPv6 flows even if the NetFlow
-export protocol does not support reporting them. This is
-useful for debugging and statistics gathering only.</p>
+<p style="margin-left:19%;">Force <b>softflowd</b> to track
+IPv6 flows even if the NetFlow export protocol does not
+support reporting them. This is useful for debugging and
+statistics gathering only.</p>
 
-<p style="margin-top: 1em"><b>-D</b></p>
+<p style="margin-top: 1em"><b>-D</b>, <b>--debug</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Places
-<b>softflowd</b> in a debugging mode. This implies the
-<b>-d</b> and <b>-6</b> flags and turns on additional
-debugging output.</p>
+<p style="margin-left:19%;">Places <b>softflowd</b> in a
+debugging mode. This implies the <b>-d</b> and <b>-6</b>
+flags and turns on additional debugging output.</p>
 
-<p style="margin-top: 1em"><b>-B</b> <i>size_bytes</i></p>
+<p style="margin-top: 1em"><b>-B</b> <i>size_bytes</i>,
+<b>--pcap-buffer-size</b> <i>size_bytes</i></p>
 
 <p style="margin-left:19%;">Libpcap buffer size in
 bytes</p>
 
-<p style="margin-top: 1em"><b>-b</b></p>
+<p style="margin-top: 1em"><b>-b</b>,
+<b>--bidirectional</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Bidirectional
-mode in IPFIX (-b work with -v 10)</p>
+<p style="margin-left:19%;">Bidirectional mode in IPFIX (-b
+work with -v 10)</p>
 
-<p style="margin-top: 1em"><b>-a</b></p>
+<p style="margin-top: 1em"><b>-a</b>,
+<b>--adjust-time</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Adjusting time
-for reading pcap file (-a work with -r)</p>
+<p style="margin-left:19%;">Adjusting time for reading pcap
+file (-a work with -r)</p>
 
-<p style="margin-top: 1em"><b>-l</b></p>
+<p style="margin-top: 1em"><b>-l</b>,
+<b>--load-balance</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Load balancing
-mode for multiple destinations which are specified with
--n</p>
+<p style="margin-left:19%;">Load balancing mode for
+multiple destinations which are specified with -n</p>
 
 <p style="margin-top: 1em"><b>-x</b>
+<i>number_of_mpls_labels</i>, <b>--mpls-labels</b>
 <i>number_of_mpls_labels</i></p>
 
-<p style="margin-left:19%;">specify number of mpls labels
-for export</p>
+<p style="margin-left:19%;">Specify the number of MPLS
+labels to export with each flow record. The value must be
+between 1 and 10. MPLS label export is available for NetFlow
+v9 and IPFIX and is not used for NetFlow v1 and v5. By
+default no MPLS labels are exported.</p>
 
-<p style="margin-top: 1em"><b>-h</b></p>
+<p style="margin-top: 1em"><b>-h</b>, <b>--help</b></p>
 
-<p style="margin-left:19%; margin-top: 1em">Display
-command-line usage information.</p>
+<p style="margin-left:19%;">Display command-line usage
+information.</p>
 
-<p style="margin-top: 1em"><b>-L</b> <i>hoplimit</i></p>
+<p style="margin-top: 1em"><b>-L</b> <i>hoplimit</i>,
+<b>--hoplimit</b> <i>hoplimit</i></p>
 
 <p style="margin-left:19%;">Set the IPv4 TTL or the IPv6
 hop limit to <i>hoplimit</i>. <b>softflowd</b> will use the
@@ -235,7 +276,8 @@ default system TTL when exporting flows to a unicast host.
 When exporting to a multicast group, the default TTL will be
 1 (i.e. link-local).</p>
 
-<p style="margin-top: 1em"><b>-T</b> <i>track_level</i></p>
+<p style="margin-top: 1em"><b>-T</b> <i>track_level</i>,
+<b>--track</b> <i>track_level</i></p>
 
 <p style="margin-left:19%;">Specify which flow elements
 <b>softflowd</b> should be used to define a flow.
@@ -256,7 +298,39 @@ consolidated, reducing the quantity of output and CPU load
 that <b>softflowd</b> will place on the system at the cost
 of some detail being lost.</p>
 
+<p style="margin-top: 1em"><b>-H</b> <i>mac_address</i>,
+<b>--direction-mac</b> <i>mac_address</i></p>
+
+<p style="margin-left:19%;">Specify a MAC address to use
+for determining the IPFIX/NetFlow v9 <i>flowDirection</i>
+field. <i>mac_address</i> is given in the form
+&ldquo;aa:bb:cc:dd:ee:ff&rdquo;. For each flow record, if
+the source ethernet address matches <i>mac_address</i> the
+record is reported as &ldquo;egress&rdquo;, and if the
+destination ethernet address matches <i>mac_address</i> the
+record is reported as &ldquo;ingress&rdquo;. If neither
+address matches (for example, transit traffic between two
+other hosts), the historical canonical-ordering behaviour is
+used instead.</p>
+
+<p style="margin-left:19%; margin-top: 1em">This option
+requires ethernet addresses to be tracked, i.e. <b>-T</b>
+<i>ether</i> must also be specified; otherwise the ethernet
+addresses needed for the comparison are not available and
+<i>mac_address</i> is ignored.</p>
+
+<p style="margin-left:19%; margin-top: 1em">If <b>-H</b> is
+not given and an interface is specified with <b>-i</b>,
+<b>softflowd</b> will attempt to automatically detect the
+MAC address of that interface and use it in place of an
+explicit <i>mac_address</i>. Automatic detection is skipped
+when reading from a <b>-r</b> capture file, since the
+capture may not have been taken on the system running
+<b>softflowd</b>, and in that case <b>-H</b> should be
+specified explicitly.</p>
+
 <p style="margin-top: 1em"><b>-v</b>
+<i>netflow_version</i>, <b>--netflow-version</b>
 <i>netflow_version</i></p>
 
 <p style="margin-left:19%;">Specify which version of the
@@ -265,37 +339,40 @@ of the flow data. Supported versions are 1, 5, 9, 10(IPFIX),
 and psamp. Default is version 5.</p>
 
 <p style="margin-top: 1em"><b>-P</b>
+<i>transport_protocol</i>, <b>--export-protocol</b>
 <i>transport_protocol</i></p>
 
 <p style="margin-left:19%;">Specify transport layer
 protocol for exporting packets. Supported transport layer
 protocols are udp, tcp, and sctp.</p>
 
-<p style="margin-top: 1em"><b>-A</b> <i>time_format</i></p>
+<p style="margin-top: 1em"><b>-A</b> <i>time_format</i>,
+<b>--absolute-time</b> <i>time_format</i></p>
 
 <p style="margin-left:19%;">Specify absolute time format
 form exporting records. Supported time formats are sec,
 milli, micro, and nano.</p>
 
-<p style="margin-top: 1em"><b>-s</b>
-<i>sampling_rate</i></p>
+<p style="margin-top: 1em"><b>-s</b> <i>sampling_rate</i>,
+<b>--sampling-rate</b> <i>sampling_rate</i></p>
 
 <p style="margin-left:19%;">Specify periodical sampling
 rate (denominator).</p>
 
-<p style="margin-top: 1em"><b>-C</b>
-<i>capture_length</i></p>
+<p style="margin-top: 1em"><b>-C</b> <i>capture_length</i>,
+<b>--snaplen</b> <i>capture_length</i></p>
 
 <p style="margin-left:19%;">Specify length for packet
 capture (snaplen).</p>
 
-<p style="margin-top: 1em"><b>-R</b>
-<i>receive_port</i></p>
+<p style="margin-top: 1em"><b>-R</b> <i>receive_port</i>,
+<b>--psamp-port</b> <i>receive_port</i></p>
 
 <p style="margin-left:19%;">Specify port number for PSAMP
 receive mode.</p>
 
 <p style="margin-top: 1em"><b>-S</b>
+<i>send_interface_name</i>, <b>--send-interface</b>
 <i>send_interface_name</i></p>
 
 <p style="margin-left:19%;">Specify send interface name.
@@ -303,10 +380,39 @@ receive mode.</p>
 SO_BINDTODEVICE for setsockopt.)</p>
 
 <p style="margin-top: 1em"><b>-e</b>
+<i>exporter_ip_address</i>, <b>--exporter-ip</b>
 <i>exporter_ip_address</i></p>
 
 <p style="margin-left:19%;">Specify exporter IPv4 or IPv6
 address.</p>
+
+<p style="margin-top: 1em"><b>-f</b>,
+<b>--full-transport-header-check</b></p>
+
+<p style="margin-left:19%;">Require the whole TCP, UDP or
+ICMP header instead of only the fields <b>softflowd</b> uses
+(the ports, the TCP flags and the ICMP type and code).</p>
+
+<p style="margin-top: 1em"><b>-g</b>,
+<b>--gauge-cpu-clock</b></p>
+
+<p style="margin-left:19%;">Gauge the CPU clock (total and
+export) for benchmarking.</p>
+
+<p style="margin-top: 1em"><b>-I</b> <i>seconds</i>,
+<b>--reinit-interval</b> <i>seconds</i></p>
+
+<p style="margin-left:19%;">Specify the interval in seconds
+for reinitialising the boot time. The value may be followed
+by &lsquo;d&rsquo;, &lsquo;h&rsquo; or &lsquo;m&rsquo; for
+days, hours or minutes.</p>
+
+<p style="margin-top: 1em"><b>-M</b>,
+<b>--multithread</b></p>
+
+<p style="margin-left:19%;">Enable multithreaded operation.
+This is only available if <b>softflowd</b> was built with
+pthread support (<b>./configure --enable-pthread</b>).</p>
 
 <p style="margin-left:9%; margin-top: 1em">Any further
 command-line arguments will be concatenated together and

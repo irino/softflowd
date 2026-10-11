@@ -1,3 +1,8 @@
+---
+Content-Style: text/css
+generator: groff -Thtml, see www.gnu.org
+---
+
 ------------------------------------------------------------------------
 
 *SOFTFLOWD*(8) System Manager's Manual *SOFTFLOWD*(8)
@@ -8,18 +13,19 @@ softflowd --- Traffic flow monitoring
 
 **SYNOPSIS**
 
-**softflowd** \[**-6dDhbalN**\] \[**-L ***hoplimit*\]
-\[**-T ***track_level*\] \[**-c ***ctl_sock*\] \[
+**softflowd** \[**-6dDfghbalMN**\] \[**-L ***hoplimit*\]
+\[**-T ***track_level*\] \[**-H ***mac_address*\] \[**-c ***ctl_sock*\]
+\[
 
 **-i ** \[ *\
-if_ndx*:\]*interface* \] \[**-m ***max_flows*\] \[**-n ***host:port*\]
-\[**-p ***pidfile*\] \[**-r ***pcap_file*\]
-\[**-t ***timeout_name=seconds*\] \[**-v ***netflow_version*\]
-\[**-P ***transport_protocol*\] \[**-A ***time_format*\]
-\[**-s ***sampling_rate*\] \[**-C ***capture_length*\]
-\[**-R ***receive_port*\] \[**-S ***send_interface_name*\]
-\[**-x ***number_of_mpls_labels*\] \[**-e ***exporter_ip_address*\]
-\[bpf_expression\]
+if_ndx*:\]*interface* \] \[**-m ***max_flows*\] \[**-F ***mode*\]
+\[**-I ***seconds*\] \[**-n ***host:port*\] \[**-p ***pidfile*\]
+\[**-r ***pcap_file*\] \[**-t ***timeout_name=seconds*\]
+\[**-v ***netflow_version*\] \[**-P ***transport_protocol*\]
+\[**-A ***time_format*\] \[**-s ***sampling_rate*\]
+\[**-C ***capture_length*\] \[**-R ***receive_port*\]
+\[**-S ***send_interface_name*\] \[**-x ***number_of_mpls_labels*\]
+\[**-e ***exporter_ip_address*\] \[bpf_expression\]
 
 **DESCRIPTION**
 
@@ -60,7 +66,7 @@ export format. These records are sent to the specified *host* and
 
 The command-line options are as follows:
 
-**-n** *host:port*
+**-n** *host:port*, **\--netflow-dest** *host:port*
 
 Specify the *host* and *port* that the accounting datagrams are to be
 sent to. The host may be specified using a hostname or using a numeric
@@ -69,19 +75,19 @@ square brackets to avoid ambiguity between the address and the port. The
 destination port may be a portname listed in *services*(5) or a numeric
 port. Comma can be used for specifying multiple destinations.
 
-**-N**
+**-N**, **\--no-promisc**
 
 Do not put the interface into promiscuous mode. Note that the interface
 might be in promiscuous mode for some other reason.
 
-**-i**\
-\[ *\
+**-i** \[ *\
+if_ndx*:\]*interface*, **\--interface** \[ *\
 if_ndx*:\]*interface*
 
 Specify a network interface on which to listen for traffic. Either the
 **-i** or the **-r** options must be specified.
 
-**-r** *pcap_file*
+**-r** *pcap_file*, **\--read** *pcap_file*
 
 Specify that **softflowd** should read from a *pcap*(3) packet capture
 file (such as one created with the **-w** option of *tcpdump*(8)) file
@@ -90,80 +96,100 @@ capture file and only expires flows when *max_flows* is exceeded. In
 this mode, **softflowd** will not fork and will automatically print
 summary statistics before exiting.
 
-**-p** *pidfile*
+**-p** *pidfile*, **\--pidfile** *pidfile*
 
 Specify an alternate location to store the process ID when in daemon
 mode. Default is */var/run/softflowd.pid*
 
-**-c** *ctlsock*
+**-c** *ctlsock*, **\--control-socket** *ctlsock*
 
 Specify an alternate location for the remote control socket in daemon
 mode. Default is */var/run/softflowd.ctl*
 
-**-m** *max_flows*
+**-m** *max_flows*, **\--max-flows** *max_flows*
 
-Specify the maximum number of flows to concurrently track. If this limit
-is exceeded, the flows which have least recently seen traffic are
-forcibly expired. In practice, the actual maximum may briefly exceed
-this limit by a small amount as expiry processing happens less
-frequently than traffic collection. The default is 8192 flows, which
-corresponds to slightly less than 800k of working data.
+Specify the maximum number of flows to concurrently track. The value
+must be 1 or more. If this limit is exceeded, the flows which have least
+recently seen traffic are forcibly expired. In practice, the actual
+maximum may briefly exceed this limit by a small amount as expiry
+processing happens less frequently than traffic collection. The default
+is 8192 flows, which corresponds to slightly less than 800k of working
+data. This value is also the maximum number of packets processed in one
+pass of the main loop.
 
-**-t** *timeout_name=time*
+**-F** *mode*, **\--flow-lookup** *mode*
+
+Select how active flows are looked up. *mode* may be one of: "tree" (one
+tree of all flows, the default), "hash-tree" (a hash table of trees:
+flows that share a bucket are told apart by the tree), or "hash" (a hash
+table with room for one flow per bucket: when a different flow hashes to
+an occupied bucket, the flow already there is expired at once and the
+new flow takes its place). In "hash" mode a flow may therefore be
+exported as several records, and the number of flows expired this way is
+shown as "collision" in the statistics. The hash modes size the table
+from *max_flows*. The hash function is xxHash if **softflowd** was built
+with it (the configure script uses the system libxxhash if found and
+**\--without-xxhash** disables it), otherwise a built-in FNV-1a.
+
+**-t** *timeout_name=time*, **\--timeout** *timeout_name=time*
 
 Set the timeout names *timeout_name* to *time*. Refer to the "Timeouts"
 section for the valid timeout names and their meanings. The *time*
 parameter may be specified using one of the formats explained in the
 "Time Formats" section below.
 
-**-d**
+**-d**, **\--foreground**
 
 Specify that **softflowd** should not fork and daemonise itself.
 
-**-6**
+**-6**, **\--track-ipv6**
 
 Force **softflowd** to track IPv6 flows even if the NetFlow export
 protocol does not support reporting them. This is useful for debugging
 and statistics gathering only.
 
-**-D**
+**-D**, **\--debug**
 
 Places **softflowd** in a debugging mode. This implies the **-d** and
 **-6** flags and turns on additional debugging output.
 
-**-B** *size_bytes*
+**-B** *size_bytes*, **\--pcap-buffer-size** *size_bytes*
 
 Libpcap buffer size in bytes
 
-**-b**
+**-b**, **\--bidirectional**
 
 Bidirectional mode in IPFIX (-b work with -v 10)
 
-**-a**
+**-a**, **\--adjust-time**
 
 Adjusting time for reading pcap file (-a work with -r)
 
-**-l**
+**-l**, **\--load-balance**
 
 Load balancing mode for multiple destinations which are specified with
 -n
 
-**-x** *number_of_mpls_labels*
+**-x** *number_of_mpls_labels*, **\--mpls-labels**
+*number_of_mpls_labels*
 
-specify number of mpls labels for export
+Specify the number of MPLS labels to export with each flow record. The
+value must be between 1 and 10. MPLS label export is available for
+NetFlow v9 and IPFIX and is not used for NetFlow v1 and v5. By default
+no MPLS labels are exported.
 
-**-h**
+**-h**, **\--help**
 
 Display command-line usage information.
 
-**-L** *hoplimit*
+**-L** *hoplimit*, **\--hoplimit** *hoplimit*
 
 Set the IPv4 TTL or the IPv6 hop limit to *hoplimit*. **softflowd** will
 use the default system TTL when exporting flows to a unicast host. When
 exporting to a multicast group, the default TTL will be 1 (i.e.
 link-local).
 
-**-T** *track_level*
+**-T** *track_level*, **\--track** *track_level*
 
 Specify which flow elements **softflowd** should be used to define a
 flow. *track_level* may be one of: "ether" (track everything including
@@ -179,42 +205,85 @@ ports will not be recorded). This will cause flows to be consolidated,
 reducing the quantity of output and CPU load that **softflowd** will
 place on the system at the cost of some detail being lost.
 
-**-v** *netflow_version*
+**-H** *mac_address*, **\--direction-mac** *mac_address*
+
+Specify a MAC address to use for determining the IPFIX/NetFlow v9
+*flowDirection* field. *mac_address* is given in the form
+"aa:bb:cc:dd:ee:ff". For each flow record, if the source ethernet
+address matches *mac_address* the record is reported as "egress", and if
+the destination ethernet address matches *mac_address* the record is
+reported as "ingress". If neither address matches (for example, transit
+traffic between two other hosts), the historical canonical-ordering
+behaviour is used instead.
+
+This option requires ethernet addresses to be tracked, i.e. **-T**
+*ether* must also be specified; otherwise the ethernet addresses needed
+for the comparison are not available and *mac_address* is ignored.
+
+If **-H** is not given and an interface is specified with **-i**,
+**softflowd** will attempt to automatically detect the MAC address of
+that interface and use it in place of an explicit *mac_address*.
+Automatic detection is skipped when reading from a **-r** capture file,
+since the capture may not have been taken on the system running
+**softflowd**, and in that case **-H** should be specified explicitly.
+
+**-v** *netflow_version*, **\--netflow-version** *netflow_version*
 
 Specify which version of the NetFlow(tm) protocol **softflowd** should
 use for export of the flow data. Supported versions are 1, 5, 9,
 10(IPFIX), and psamp. Default is version 5.
 
-**-P** *transport_protocol*
+**-P** *transport_protocol*, **\--export-protocol** *transport_protocol*
 
 Specify transport layer protocol for exporting packets. Supported
 transport layer protocols are udp, tcp, and sctp.
 
-**-A** *time_format*
+**-A** *time_format*, **\--absolute-time** *time_format*
 
 Specify absolute time format form exporting records. Supported time
 formats are sec, milli, micro, and nano.
 
-**-s** *sampling_rate*
+**-s** *sampling_rate*, **\--sampling-rate** *sampling_rate*
 
 Specify periodical sampling rate (denominator).
 
-**-C** *capture_length*
+**-C** *capture_length*, **\--snaplen** *capture_length*
 
 Specify length for packet capture (snaplen).
 
-**-R** *receive_port*
+**-R** *receive_port*, **\--psamp-port** *receive_port*
 
 Specify port number for PSAMP receive mode.
 
-**-S** *send_interface_name*
+**-S** *send_interface_name*, **\--send-interface**
+*send_interface_name*
 
 Specify send interface name. (This option works on Linux only because of
 use of SO_BINDTODEVICE for setsockopt.)
 
-**-e** *exporter_ip_address*
+**-e** *exporter_ip_address*, **\--exporter-ip** *exporter_ip_address*
 
 Specify exporter IPv4 or IPv6 address.
+
+**-f**, **\--full-transport-header-check**
+
+Require the whole TCP, UDP or ICMP header instead of only the fields
+**softflowd** uses (the ports, the TCP flags and the ICMP type and
+code).
+
+**-g**, **\--gauge-cpu-clock**
+
+Gauge the CPU clock (total and export) for benchmarking.
+
+**-I** *seconds*, **\--reinit-interval** *seconds*
+
+Specify the interval in seconds for reinitialising the boot time. The
+value may be followed by 'd', 'h' or 'm' for days, hours or minutes.
+
+**-M**, **\--multithread**
+
+Enable multithreaded operation. This is only available if **softflowd**
+was built with pthread support (**./configure \--enable-pthread**).
 
 Any further command-line arguments will be concatenated together and
 applied as a *bpf*(4) packet filter. This filter will cause

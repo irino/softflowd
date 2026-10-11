@@ -29,7 +29,7 @@
 .Nd Traffic flow monitoring
 .Sh SYNOPSIS
 .Nm softflowd
-.Op Fl 6dDhbalN
+.Op Fl 6dDfghbalMN
 .Op Fl L Ar hoplimit
 .Op Fl T Ar track_level
 .Op Fl H Ar mac_address
@@ -43,6 +43,8 @@
 .Oc
 .Ek
 .Op Fl m Ar max_flows
+.Op Fl F Ar mode
+.Op Fl I Ar seconds
 .Op Fl n Ar host:port
 .Op Fl p Ar pidfile
 .Op Fl r Ar pcap_file
@@ -118,7 +120,7 @@ The host may represent a unicast host or a multicast group.
 .Pp
 The command-line options are as follows:
 .Bl -tag -width Ds
-.It Fl n Ar host:port
+.It Fl n Ar host:port , Fl \-netflow-dest Ar host:port
 Specify the
 .Ar host
 and
@@ -132,10 +134,16 @@ The destination port may be a portname listed in
 .Xr services 5
 or a numeric port.
 Comma can be used for specifying multiple destinations.
-.It Fl N
+.It Fl N , Fl \-no-promisc
 Do not put the interface into promiscuous mode. Note that the interface
 might be in promiscuous mode for some other reason.
-.It Fl i Xo
+.It Xo
+.Fl i
+.Sm off
+.Oo Ar if_ndx : Oc
+.Ar interface ,
+.Sm on
+.Fl \-interface
 .Sm off
 .Oo Ar if_ndx : Oc
 .Ar interface
@@ -147,7 +155,7 @@ Either the
 or the
 .Fl r
 options must be specified.
-.It Fl r Ar pcap_file
+.It Fl r Ar pcap_file , Fl \-read Ar pcap_file
 Specify that
 .Nm
 should read from a
@@ -165,15 +173,15 @@ In this mode,
 .Nm
 will not fork and will automatically print summary statistics before
 exiting.
-.It Fl p Ar pidfile
+.It Fl p Ar pidfile , Fl \-pidfile Ar pidfile
 Specify an alternate location to store the process ID when in daemon mode.
 Default is
 .Pa /var/run/softflowd.pid
-.It Fl c Ar ctlsock
+.It Fl c Ar ctlsock , Fl \-control-socket Ar ctlsock
 Specify an alternate location for the remote control socket in daemon mode.
 Default is
 .Pa /var/run/softflowd.ctl
-.It Fl m Ar max_flows
+.It Fl m Ar max_flows , Fl \-max-flows Ar max_flows
 Specify the maximum number of flows to concurrently track.
 The value must be 1 or more.
 If this limit is exceeded, the flows which have least recently seen traffic
@@ -185,7 +193,7 @@ The default is 8192 flows, which corresponds to slightly less
 than 800k of working data.
 This value is also the maximum number of packets processed in one pass
 of the main loop.
-.It Fl \-flow-lookup Ar mode
+.It Fl F Ar mode , Fl \-flow-lookup Ar mode
 Select how active flows are looked up.
 .Ar mode
 may be one of:
@@ -211,7 +219,7 @@ was built with it (the configure script uses the system libxxhash if found
 and
 .Fl \-without-xxhash
 disables it), otherwise a built-in FNV-1a.
-.It Fl t Ar timeout_name=time
+.It Fl t Ar timeout_name=time , Fl \-timeout Ar timeout_name=time
 Set the timeout names
 .Ar timeout_name
 to
@@ -224,17 +232,17 @@ The
 parameter may be specified using one of the formats explained in the
 .Sx Time Formats
 section below.
-.It Fl d
+.It Fl d , Fl \-foreground
 Specify that
 .Nm
 should not fork and daemonise itself.
-.It Fl 6
+.It Fl 6 , Fl \-track-ipv6
 Force
 .Nm
 to track IPv6 flows even if the NetFlow export protocol does not support
 reporting them.
 This is useful for debugging and statistics gathering only.
-.It Fl D
+.It Fl D , Fl \-debug
 Places
 .Nm
 in a debugging mode.
@@ -243,30 +251,30 @@ This implies the
 and
 .Fl 6
 flags and turns on additional debugging output.
-.It Fl B Ar size_bytes
+.It Fl B Ar size_bytes , Fl \-pcap-buffer-size Ar size_bytes
 Libpcap buffer size in bytes
-.It Fl b
+.It Fl b , Fl \-bidirectional
 Bidirectional mode in IPFIX (-b work with -v 10)
-.It Fl a
+.It Fl a , Fl \-adjust-time
 Adjusting time for reading pcap file (-a work with -r)
-.It Fl l
+.It Fl l , Fl \-load-balance
 Load balancing mode for multiple destinations which are specified with -n
-.It Fl x Ar number_of_mpls_labels
+.It Fl x Ar number_of_mpls_labels , Fl \-mpls-labels Ar number_of_mpls_labels
 Specify the number of MPLS labels to export with each flow record.
 The value must be between 1 and 10.
 MPLS label export is available for NetFlow v9 and IPFIX
 and is not used for NetFlow v1 and v5.
 By default no MPLS labels are exported.
-.It Fl h
+.It Fl h , Fl \-help
 Display command-line usage information.
-.It Fl L Ar hoplimit
+.It Fl L Ar hoplimit , Fl \-hoplimit Ar hoplimit
 Set the IPv4 TTL or the IPv6 hop limit to
 .Ar hoplimit .
 .Nm
 will use the default system TTL when exporting flows to a unicast host.
 When exporting to a multicast group, the default TTL will be 1
 (i.e. link-local).
-.It Fl T Ar track_level
+.It Fl T Ar track_level , Fl \-track Ar track_level
 Specify which flow elements
 .Nm
 should be used to define a flow.
@@ -288,7 +296,7 @@ This will cause flows to be consolidated, reducing the quantity of output
 and CPU load that
 .Nm
 will place on the system at the cost of some detail being lost.
-.It Fl H Ar mac_address
+.It Fl H Ar mac_address , Fl \-direction-mac Ar mac_address
 Specify a MAC address to use for determining the IPFIX/NetFlow v9
 .Ar flowDirection
 field.
@@ -330,30 +338,50 @@ system running
 and in that case
 .Fl H
 should be specified explicitly.
-.It Fl v Ar netflow_version
+.It Fl v Ar netflow_version , Fl \-netflow-version Ar netflow_version
 Specify which version of the NetFlow(tm) protocol
 .Nm
 should use for export of the flow data.
 Supported versions are 1, 5, 9, 10(IPFIX), and psamp.
 Default is version 5.
-.It Fl P Ar transport_protocol
+.It Fl P Ar transport_protocol , Fl \-export-protocol Ar transport_protocol
 Specify transport layer protocol for exporting packets.
 Supported transport layer protocols are udp, tcp, and sctp.
-.It Fl A Ar time_format
+.It Fl A Ar time_format , Fl \-absolute-time Ar time_format
 Specify absolute time format form exporting records.
 Supported time formats are sec, milli, micro, and nano.
-.It Fl s Ar sampling_rate
+.It Fl s Ar sampling_rate , Fl \-sampling-rate Ar sampling_rate
 Specify periodical sampling rate (denominator).
-.It Fl C Ar capture_length
+.It Fl C Ar capture_length , Fl \-snaplen Ar capture_length
 Specify length for packet capture (snaplen).
-.It Fl R Ar receive_port
+.It Fl R Ar receive_port , Fl \-psamp-port Ar receive_port
 Specify port number for PSAMP receive mode.
-.It Fl S Ar send_interface_name
+.It Fl S Ar send_interface_name , Fl \-send-interface Ar send_interface_name
 Specify send interface name.
 (This option works on Linux only because of use of SO_BINDTODEVICE for
 setsockopt.)
-.It Fl e Ar exporter_ip_address
+.It Fl e Ar exporter_ip_address , Fl \-exporter-ip Ar exporter_ip_address
 Specify exporter IPv4 or IPv6 address.
+.It Fl f , Fl \-full-transport-header-check
+Require the whole TCP, UDP or ICMP header instead of only the fields
+.Nm
+uses (the ports, the TCP flags and the ICMP type and code).
+.It Fl g , Fl \-gauge-cpu-clock
+Gauge the CPU clock (total and export) for benchmarking.
+.It Fl I Ar seconds , Fl \-reinit-interval Ar seconds
+Specify the interval in seconds for reinitialising the boot time.
+The value may be followed by
+.Sq d ,
+.Sq h
+or
+.Sq m
+for days, hours or minutes.
+.It Fl M , Fl \-multithread
+Enable multithreaded operation.
+This is only available if
+.Nm
+was built with pthread support
+.Pq Li ./configure --enable-pthread .
 .El
 .Pp
 Any further command-line arguments will be concatenated together and

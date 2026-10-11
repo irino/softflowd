@@ -19,4 +19,4 @@ softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(XXHASH_LIBS)
 softflowd_DEPENDENCIES = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
-EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig
+EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig README.md
