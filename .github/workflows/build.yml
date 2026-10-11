@@ -163,6 +163,17 @@ jobs:
           python3 tools/softflowd_test_collector.py compat --skip-cpp --skip-rust \
             --collector ${{ matrix.collector }} --pcap-dir pcaps
 
+      # The statistics do not depend on the collector, so check them once.
+      - name: Expiry statistics with a tiny flow table (stable 1.1.1 vs this tree)
+        if: matrix.collector == 'python'
+        run: |
+          # The compat test above reuses the binaries it built in its cache.
+          cache="$HOME/.cache/softflowd-test"
+          stable=$(find "$cache/stable" -name stable-softflowd -type f | head -n 1)
+          dev=$(find "$cache/dev" -name softflowd -type f | head -n 1)
+          sh tools/compare_expiry_stats.sh "$stable" "$dev" \
+            pcaps/http.cap pcaps/v6-http.cap
+
   freebsd:
     runs-on: ubuntu-latest
     steps:
