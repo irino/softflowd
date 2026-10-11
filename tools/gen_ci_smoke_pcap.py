@@ -4,7 +4,11 @@ Stdlib-only (no scapy) so CI doesn't need to install anything extra.
 
 Usage: gen_ci_smoke_pcap.py [-6] [-n FLOWS] [OUTFILE]
   -6        generate IPv6 flows (TCP, UDP and ICMPv6) instead of IPv4 ones
-  -n FLOWS  number of flows (default: 40)"""
+  -n FLOWS  number of flows (default: 40)
+
+TCP flows (every third flow) cycle through three endings so that the TCP
+expiry paths are exercised: a FIN from one side only, a FIN from both sides,
+and an RST (sent by the client or by the server, alternating)."""
 import struct, socket, sys
 
 PCAP_MAGIC = 0xa1b2c3d4
@@ -47,7 +51,8 @@ def ip_hdr(src, dst, proto, payload_len, ident):
 
 
 def tcp_hdr(sport, dport, flags):
-    flagmap = {'S': 0x02, 'A': 0x10, 'F': 0x01, 'PA': 0x18}
+    flagmap = {'S': 0x02, 'SA': 0x12, 'A': 0x10, 'F': 0x01, 'FA': 0x11,
+               'PA': 0x18, 'R': 0x04}
     f = flagmap.get(flags, 0x10)
     return struct.pack('!HHIIBBHHH', sport, dport, 1000, 0, 5 << 4, f, 8192, 0, 0)
 
@@ -63,6 +68,14 @@ def ip6_hdr(src, dst, next_header, payload_len):
 
 def icmp_hdr():
     return struct.pack('!BBHHH', 8, 0, 0, 1, 1)
+
+
+# (TCP flags, sent by the server) of the six packets of a TCP flow
+TCP_ENDINGS = [
+    [('S', 0), ('PA', 0), ('PA', 0), ('PA', 0), ('PA', 0), ('F', 0)],  # FIN, one side
+    [('S', 0), ('SA', 1), ('PA', 0), ('PA', 1), ('FA', 0), ('FA', 1)],  # FIN, both sides
+    [('S', 0), ('SA', 1), ('PA', 0), ('PA', 1), ('PA', 0), ('R', None)],  # RST
+]
 
 
 def main():
@@ -96,9 +109,13 @@ def main():
         for k in range(pkts_per_flow):
             t += 0.01
             payload = b"x" * (f % 32)
+            from_server = False
             if proto_choice == "tcp":
-                flags = "S" if k == 0 else ("F" if k == pkts_per_flow - 1 else "PA")
-                l4 = tcp_hdr(sport, dport, flags) + payload
+                flags, from_server = TCP_ENDINGS[(f // 3) % 3][k]
+                if from_server is None:  # RST: client and server alternate
+                    from_server = bool((f // 9) % 2)
+                psport, pdport = (dport, sport) if from_server else (sport, dport)
+                l4 = tcp_hdr(psport, pdport, flags) + payload
                 proto = 6
             elif proto_choice == "udp":
                 l4 = udp_hdr(sport, dport, len(payload)) + payload
@@ -109,11 +126,13 @@ def main():
             else:
                 l4 = icmp_hdr() + payload
                 proto = 1
+            psrc, pdst = (dst, src) if from_server else (src, dst)
+            pmacs = (dmac, smac) if from_server else (smac, dmac)
             if ipv6:
-                ip = ip6_hdr(src, dst, proto, len(l4))
+                ip = ip6_hdr(psrc, pdst, proto, len(l4))
             else:
-                ip = ip_hdr(src, dst, proto, len(l4), ident); ident += 1
-            frame = eth_hdr(smac, dmac, 0x86DD if ipv6 else 0x0800) + ip + l4
+                ip = ip_hdr(psrc, pdst, proto, len(l4), ident); ident += 1
+            frame = eth_hdr(*pmacs, 0x86DD if ipv6 else 0x0800) + ip + l4
             out.append(pcap_rec(t, frame))
     with open(out_path, "wb") as fh:
         fh.write(b"".join(out))
