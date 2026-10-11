@@ -32,15 +32,18 @@ Default comparison matrix:
   1. stable-softflowd-legacy vs softflowd-legacy
   2. stable-softflowd vs softflowd
   3. softflowd-static vs softflowd
-  4. softflowd vs softflowd+ (skippable)
-  5. softflowd vs rsoftflowd (skippable)
+  4. softflowd-direct vs softflowd
+  5. softflowd vs softflowd+ (skippable)
+  6. softflowd vs rsoftflowd (skippable)
+
+Each pair is A vs B: A is the comparison source (reference), B the target, and
+the binary names are shown in the titles of the results.
 
 Usage:
     tools/softflowd_test_collector.py compat [OPTIONS] [PCAP...]
 
 Positional PCAP files are tested in addition to the sample pcaps: each one is
-exported as NetFlow v1, v5, v9 and IPFIX by the stable and the development
-daemon, the flows are compared, and the daemons are measured on it.  A pcap
+exported as NetFlow v1, v5, v9 and IPFIX by daemons A and B of each pair, the flows are compared, and the daemons are measured on it.  A pcap
 that yields no flow records on either side (an IPv6-only pcap has none in v1 and
 v5) is reported as skipped, not as a failure.
 
@@ -51,10 +54,10 @@ Options:
     --skip-ctl              : Skip softflowctl control socket tests
     --skip-cpp              : Skip C++ tests / builds
     --skip-rust             : Skip Rust tests / builds
-    --stable PATH           : Explicit reference stable softflowd daemon binary
-    --dev PATH              : Explicit target development softflowd daemon binary
-    --ctl-stable PATH       : Explicit reference stable softflowctl binary
-    --ctl-dev PATH          : Explicit target development softflowctl binary
+    --a PATH                : Explicit comparison source (A, reference) softflowd daemon binary
+    --b PATH                : Explicit comparison target (B) softflowd daemon binary
+    --ctl-a PATH            : Explicit comparison source (A) softflowctl binary
+    --ctl-b PATH            : Explicit comparison target (B) softflowctl binary
     -i, --ignore-timestamp  : Ignore 'firstSeen' and 'duration' timestamps in nfdump comparison
     --auto-ignore-legacy-v9 : Ignore timestamps for the stable-softflowd-legacy vs
                               softflowd-legacy pair's NetFlow v9 case only (default: True).
@@ -90,9 +93,9 @@ Options:
     --gauge-clock             : Run each daemon once per test case with its own
     --no-gauge-clock            -g flag and print the "cpu clocks" (total) and
                               "cpu clocks (export)" (time inside the export call)
-                              counters it reports on exit, for stable and dev.
+                              counters it reports on exit, for A and B.
                               On by default; --no-gauge-clock turns it off
-    --benchmark [TOOL]        : Time each daemon (stable and dev) for every test
+    --benchmark [TOOL]        : Time each daemon (A and B) for every test
     --no-benchmark              case.  TOOL is hyperfine, time (wall clock plus user and
                               system CPU time of the child, as time(1) reports them,
                               measured in-process) or auto (hyperfine if installed,
@@ -736,7 +739,7 @@ V6_HTTP_PCAP_URL = "https://wiki.wireshark.org/uploads/__moin_import__/attachmen
 # nfdump `-o csv` appends collector-side metadata columns to NetFlow v9/IPFIX
 # output describing when/where nfcapd received the record (see nfdump(1),
 # OUTPUT FORMAT: %ra, %eng, %exid, %tr) -- not anything the exporter under
-# test produced. Because this suite always runs the stable and dev captures
+# test produced. Because this suite always runs the captures of A and B
 # as two separate, sequential nfcapd sessions, these columns legitimately
 # differ between runs even when the exported flow data is byte-identical.
 # Masked out by default; see --include-collector-metadata.
@@ -1112,33 +1115,34 @@ def build_rust(output_dir: str) -> Tuple[Optional[str], Optional[str]]:
 # Testing Verification Functions
 # ==============================================================================
 
-def test_cli_compatibility(stable_bin: str, dev_bin: str) -> bool:
+def test_cli_compatibility(a_bin: str, b_bin: str) -> bool:
     """Verify CLI options handling and return code compatibility."""
     print("  [Step 1] Verifying CLI Options...")
+    a_name, b_name = os.path.basename(a_bin), os.path.basename(b_bin)
 
-    p_stable = subprocess.run([stable_bin, "-z"], capture_output=True, text=True)
-    p_dev = subprocess.run([dev_bin, "-z"], capture_output=True, text=True)
+    p_a = subprocess.run([a_bin, "-z"], capture_output=True, text=True)
+    p_b = subprocess.run([b_bin, "-z"], capture_output=True, text=True)
 
-    if p_stable.returncode == 0 or p_dev.returncode == 0:
+    if p_a.returncode == 0 or p_b.returncode == 0:
         print_red("    FAILED: Invalid CLI options should return non-zero exit code.")
         return False
 
-    p_stable_res = subprocess.run([stable_bin, "-h"], capture_output=True, text=True)
-    p_dev_res = subprocess.run([dev_bin, "-h"], capture_output=True, text=True)
-    stable_help = p_stable_res.stdout + p_stable_res.stderr
-    dev_help = p_dev_res.stdout + p_dev_res.stderr
+    p_a_res = subprocess.run([a_bin, "-h"], capture_output=True, text=True)
+    p_b_res = subprocess.run([b_bin, "-h"], capture_output=True, text=True)
+    a_help = p_a_res.stdout + p_a_res.stderr
+    b_help = p_b_res.stdout + p_b_res.stderr
 
     required_options = ["-i", "-r", "-t", "-m", "-n", "-p", "-c", "-v", "-L", "-T", "-d", "-D"]
-    missing_stable = [opt for opt in required_options if opt not in stable_help]
-    missing_dev = [opt for opt in required_options if opt not in dev_help]
+    missing_a = [opt for opt in required_options if opt not in a_help]
+    missing_b = [opt for opt in required_options if opt not in b_help]
 
-    if missing_stable or missing_dev:
+    if missing_a or missing_b:
         print_red(
-            f"    FAILED: Help strings missing key options. Stable missing: {missing_stable}, Dev missing: {missing_dev}"
+            f"    FAILED: Help strings missing key options. A ({a_name}) missing: {missing_a}, B ({b_name}) missing: {missing_b}"
         )
-        # If dev daemon doesn't support -d / -D or similar, warn or handle gracefully depending on implementation
-        if not missing_stable and len(missing_dev) > 0 and all(o in ["-d", "-D"] for o in missing_dev):
-            print_yellow("    Warning: Dev daemon help output omitted daemon background flags (-d/-D), continuing...")
+        # If the B daemon doesn't support -d / -D or similar, warn or handle gracefully depending on implementation
+        if not missing_a and len(missing_b) > 0 and all(o in ["-d", "-D"] for o in missing_b):
+            print_yellow("    Warning: B daemon ({b_name}) help output omitted daemon background flags (-d/-D), continuing...")
         else:
             return False
 
@@ -1189,38 +1193,40 @@ def stop_blocked_daemon(proc: subprocess.Popen, fifo_fd: int, fifo_path: str, fi
 
 
 def test_control_socket_compatibility(
-    stable_daemon: str, dev_daemon: str, ctl_stable: str, ctl_dev: str
+    a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str
 ) -> bool:
     """Verify control socket queries and cross-compatibility."""
     print("  [Step 2] Verifying Control Socket Cross-Connection...")
+    a_name, b_name = os.path.basename(a_daemon), os.path.basename(b_daemon)
+    ctl_a_name, ctl_b_name = os.path.basename(ctl_a), os.path.basename(ctl_b)
 
-    sock_stable = os.path.join(SUITE_TMP_DIR, "ctl_stable.sock")
-    sock_dev = os.path.join(SUITE_TMP_DIR, "ctl_dev.sock")
+    sock_a = os.path.join(SUITE_TMP_DIR, "ctl_a.sock")
+    sock_b = os.path.join(SUITE_TMP_DIR, "ctl_b.sock")
 
-    # 1. Test Stable Daemon
-    proc_stable, o_fd, o_path, o_dir = start_blocked_daemon(stable_daemon, sock_stable)
+    # 1. Test daemon A
+    proc_a, o_fd, o_path, o_dir = start_blocked_daemon(a_daemon, sock_a)
     try:
-        res1 = subprocess.run([ctl_stable, "-c", sock_stable, "statistics"], capture_output=True, text=True, timeout=3)
+        res1 = subprocess.run([ctl_a, "-c", sock_a, "statistics"], capture_output=True, text=True, timeout=3)
         if res1.returncode != 0:
-            print_red(f"    FAILED: Stable CTL failed to query Stable Daemon: {res1.stderr}")
+            print_red(f"    FAILED: {ctl_a_name} failed to query {a_name}: {res1.stderr}")
             return False
 
         try:
-            subprocess.run([ctl_dev, "-c", sock_stable, "statistics"], capture_output=True, text=True, timeout=3)
+            subprocess.run([ctl_b, "-c", sock_a, "statistics"], capture_output=True, text=True, timeout=3)
         except Exception:
             pass
     finally:
-        stop_blocked_daemon(proc_stable, o_fd, o_path, o_dir)
+        stop_blocked_daemon(proc_a, o_fd, o_path, o_dir)
 
-    # 2. Test Dev Daemon
-    proc_dev, n_fd, n_path, n_dir = start_blocked_daemon(dev_daemon, sock_dev)
+    # 2. Test daemon B
+    proc_b, n_fd, n_path, n_dir = start_blocked_daemon(b_daemon, sock_b)
     try:
-        res4 = subprocess.run([ctl_dev, "-c", sock_dev, "statistics"], capture_output=True, text=True, timeout=3)
+        res4 = subprocess.run([ctl_b, "-c", sock_b, "statistics"], capture_output=True, text=True, timeout=3)
         if res4.returncode != 0:
-            print_red(f"    FAILED: Dev CTL failed to query Dev Daemon: {res4.stderr}")
+            print_red(f"    FAILED: {ctl_b_name} failed to query {b_name}: {res4.stderr}")
             return False
     finally:
-        stop_blocked_daemon(proc_dev, n_fd, n_path, n_dir)
+        stop_blocked_daemon(proc_b, n_fd, n_path, n_dir)
 
     print_green("    Control socket verification: PASSED")
     return True
@@ -1430,11 +1436,11 @@ def measure_runtime(daemon_bin: str, pcap_path: str, version: int) -> Optional[d
     return _time_runs(cmd, MEASURE.min_runs or MEASURE.runs, MEASURE.warmup)
 
 
-def _dev_ratio(dev: Optional[float], stable: Optional[float]) -> str:
-    """dev / stable as "0.87x"; "-" when either side is missing."""
-    if not dev or not stable:
+def _b_over_a(b: Optional[float], a: Optional[float]) -> str:
+    """b / a as "0.87x"; "-" when either side is missing."""
+    if not b or not a:
         return "-"
-    return f"{dev / stable:.2f}x"
+    return f"{b / a:.2f}x"
 
 
 def _slug(text: str) -> str:
@@ -1463,9 +1469,9 @@ def _fmt_gauge(g: Optional[Tuple[int, Optional[int], Optional[int]]]) -> str:
     return f"total={total} export={export} ({calls} calls)"
 
 
-def measure_pair(stable_daemon: str, dev_daemon: str, pair_name: str,
+def measure_pair(a_daemon: str, b_daemon: str, pair_name: str,
                  cases: List[Tuple[str, str, int]]) -> None:
-    """Measure the stable and dev daemon of a pair on the compat test cases
+    """Measure daemons A and B of a pair on the compat test cases
     (plus --bench-pcap files) and remember the results for the summary."""
     if MEASURE is None:
         return
@@ -1478,30 +1484,31 @@ def measure_pair(stable_daemon: str, dev_daemon: str, pair_name: str,
                             (f"{MEASURE.tool} {runs_label}", MEASURE.tool),
                             ("callgrind", MEASURE.callgrind),
                             ("perf stat", MEASURE.perf)) if on]
-    print(f"  [Step 4] Measuring stable vs dev ({', '.join(what)})...")
+    a_name, b_name = os.path.basename(a_daemon), os.path.basename(b_daemon)
+    print(f"  [Step 4] Measuring A={a_name} vs B={b_name} ({', '.join(what)})...")
     cases = list(cases)
     for extra in MEASURE.extra_pcaps:
         for version, label in ((1, "NetFlow v1"), (5, "NetFlow v5"),
                                (9, "NetFlow v9"), (10, "IPFIX")):
             cases.append((f"{os.path.basename(extra)} ({label})", extra, version))
     for name, pcap_path, version in cases:
-        row: dict = {"pair": pair_name, "case": name,
+        row: dict = {"pair": pair_name, "a": a_name, "b": b_name, "case": name,
                      "pcap": os.path.basename(pcap_path), "version": version}
         print(f"    - {name}")
         warm_page_cache(pcap_path)
         if MEASURE.gauge:
-            row["gauge_stable"] = run_gauge_capture(pcap_path, stable_daemon, version)
-            row["gauge_dev"] = run_gauge_capture(pcap_path, dev_daemon, version)
-            print(f"        cpu clocks: stable[{_fmt_gauge(row['gauge_stable'])}]"
-                  f"  dev[{_fmt_gauge(row['gauge_dev'])}]")
+            row["gauge_a"] = run_gauge_capture(pcap_path, a_daemon, version)
+            row["gauge_b"] = run_gauge_capture(pcap_path, b_daemon, version)
+            print(f"        cpu clocks: A[{_fmt_gauge(row['gauge_a'])}]"
+                  f"  B[{_fmt_gauge(row['gauge_b'])}]")
         if MEASURE.tool:
-            row["time_stable"] = measure_runtime(stable_daemon, pcap_path, version)
-            row["time_dev"] = measure_runtime(dev_daemon, pcap_path, version)
-            ts, td = row["time_stable"], row["time_dev"]
-            print(f"        time:       stable {_fmt_ms(ts)}  dev {_fmt_ms(td)}  "
-                  f"dev/stable {_dev_ratio(td and td['mean'], ts and ts['mean'])}")
+            row["time_a"] = measure_runtime(a_daemon, pcap_path, version)
+            row["time_b"] = measure_runtime(b_daemon, pcap_path, version)
+            ta, tb = row["time_a"], row["time_b"]
+            print(f"        time:       A {_fmt_ms(ta)}  B {_fmt_ms(tb)}  "
+                  f"B/A {_b_over_a(tb and tb['mean'], ta and ta['mean'])}")
         if MEASURE.callgrind:
-            for side, daemon in (("stable", stable_daemon), ("dev", dev_daemon)):
+            for side, daemon in (("a", a_daemon), ("b", b_daemon)):
                 tag = f"{_slug(pair_name)}_{_slug(name)}_{side}"
                 res = callgrind_profile(measure_cmd(daemon, pcap_path, version),
                                         MEASURE.cg_dir, tag, MEASURE.topn)
@@ -1510,11 +1517,11 @@ def measure_pair(stable_daemon: str, dev_daemon: str, pair_name: str,
                     print(f"        top {MEASURE.topn} functions ({side}):")
                     for line in res[2]:
                         print("          " + line)
-            cs, cd = row["cg_stable"], row["cg_dev"]
-            print(f"        callgrind:  stable {_fmt_ir(cs)}  dev {_fmt_ir(cd)}  "
-                  f"dev/stable {_dev_ratio(cd and cd[0], cs and cs[0])}")
+            ca, cb = row["cg_a"], row["cg_b"]
+            print(f"        callgrind:  A {_fmt_ir(ca)}  B {_fmt_ir(cb)}  "
+                  f"B/A {_b_over_a(cb and cb[0], ca and ca[0])}")
         if MEASURE.perf:
-            for side, daemon in (("stable", stable_daemon), ("dev", dev_daemon)):
+            for side, daemon in (("a", a_daemon), ("b", b_daemon)):
                 perf_stat(measure_cmd(daemon, pcap_path, version), MEASURE.perf_log,
                           f"{pair_name} / {name} / {side}")
         MEASURE.rows.append(row)
@@ -1533,8 +1540,8 @@ CSV_STATS = ("mean", "median", "stddev", "user", "system")
 
 
 def _write_measure_csv(path: str, rows: List[dict], tool: Optional[str]) -> None:
-    header = ["pair", "case", "pcap", "version", "tool", "runs"]
-    for side in ("stable", "dev"):
+    header = ["pair", "a", "b", "case", "pcap", "version", "tool", "runs"]
+    for side in ("a", "b"):
         header += [f"{side}_{k}_s" for k in CSV_STATS]
         header += [f"{side}_cpu_clocks_total", f"{side}_cpu_clocks_export",
                    f"{side}_export_calls", f"{side}_ir_total",
@@ -1544,57 +1551,59 @@ def _write_measure_csv(path: str, rows: List[dict], tool: Optional[str]) -> None
         out = csv.writer(f, lineterminator="\n")
         out.writerow(header)
         for r in rows:
-            line = [r["pair"], r["case"], r["pcap"], r["version"], tool or "",
-                    (r.get("time_stable") or {}).get("runs", "")]
-            for side in ("stable", "dev"):
+            line = [r["pair"], r["a"], r["b"], r["case"], r["pcap"], r["version"],
+                    tool or "", (r.get("time_a") or {}).get("runs", "")]
+            for side in ("a", "b"):
                 t = r.get(f"time_{side}") or {}
                 line += [f"{t[k]:.6f}" if k in t else "" for k in CSV_STATS]
                 g = r.get(f"gauge_{side}") or (None, None, None)
                 line += ["" if v is None else v for v in g]
                 c = r.get(f"cg_{side}") or (None, None)
                 line += ["" if v is None else v for v in c]
-            ts, td = r.get("time_stable"), r.get("time_dev")
-            line += [_dev_ratio(td and td["mean"], ts and ts["mean"]).rstrip("x")]
+            ta, tb = r.get("time_a"), r.get("time_b")
+            line += [_b_over_a(tb and tb["mean"], ta and ta["mean"]).rstrip("x")]
             out.writerow(line)
 
 
 def finish_measurements() -> None:
-    """Print the stable-vs-dev summary, write --bench-csv and stop the sink."""
+    """Print the A-vs-B summary, write --bench-csv and stop the sink."""
     if MEASURE is None:
         return
     try:
         if MEASURE.rows:
             print("\n" + "=" * 60)
-            print("MEASUREMENT SUMMARY (dev / stable; below 1.00x means dev is faster)")
+            print("MEASUREMENT SUMMARY (B / A; below 1.00x means B is faster)")
             print("=" * 60)
-            headers = ["case"]
-            if MEASURE.tool:
-                headers += ["stable ms", "dev ms", "time"]
-            if MEASURE.gauge:
-                headers += ["stable clk", "dev clk", "clk", "export clk"]
-            if MEASURE.callgrind:
-                headers += ["stable Ir", "dev Ir", "Ir", "exporter Ir"]
             for pair in dict.fromkeys(r["pair"] for r in MEASURE.rows):
-                print(f"\n[{pair}]")
+                pair_rows = [x for x in MEASURE.rows if x["pair"] == pair]
+                a_name, b_name = pair_rows[0]["a"], pair_rows[0]["b"]
+                print(f"\n[A={a_name}  B={b_name}]")
+                headers = ["case"]
+                if MEASURE.tool:
+                    headers += [f"A:{a_name} ms", f"B:{b_name} ms", "B/A time"]
+                if MEASURE.gauge:
+                    headers += [f"A:{a_name} clk", f"B:{b_name} clk", "B/A clk", "B/A export clk"]
+                if MEASURE.callgrind:
+                    headers += [f"A:{a_name} Ir", f"B:{b_name} Ir", "B/A Ir", "B/A exporter Ir"]
                 table = []
-                for r in (x for x in MEASURE.rows if x["pair"] == pair):
+                for r in pair_rows:
                     line = [r["case"]]
                     if MEASURE.tool:
-                        ts, td = r["time_stable"], r["time_dev"]
-                        line += [f"{ts['mean'] * 1000:.3f}" if ts else "failed",
-                                 f"{td['mean'] * 1000:.3f}" if td else "failed",
-                                 _dev_ratio(td and td["mean"], ts and ts["mean"])]
+                        ta, tb = r["time_a"], r["time_b"]
+                        line += [f"{ta['mean'] * 1000:.3f}" if ta else "failed",
+                                 f"{tb['mean'] * 1000:.3f}" if tb else "failed",
+                                 _b_over_a(tb and tb["mean"], ta and ta["mean"])]
                     if MEASURE.gauge:
-                        gs, gd = r["gauge_stable"], r["gauge_dev"]
-                        line += [str(gs[0]) if gs else "-", str(gd[0]) if gd else "-",
-                                 _dev_ratio(gd and gd[0], gs and gs[0]),
-                                 _dev_ratio(gd and gd[1], gs and gs[1])]
+                        ga, gb = r["gauge_a"], r["gauge_b"]
+                        line += [str(ga[0]) if ga else "-", str(gb[0]) if gb else "-",
+                                 _b_over_a(gb and gb[0], ga and ga[0]),
+                                 _b_over_a(gb and gb[1], ga and ga[1])]
                     if MEASURE.callgrind:
-                        cs, cd = r["cg_stable"], r["cg_dev"]
-                        line += [f"{cs[0]:,}" if cs else "failed",
-                                 f"{cd[0]:,}" if cd else "failed",
-                                 _dev_ratio(cd and cd[0], cs and cs[0]),
-                                 _dev_ratio(cd and cd[1], cs and cs[1])]
+                        ca, cb = r["cg_a"], r["cg_b"]
+                        line += [f"{ca[0]:,}" if ca else "failed",
+                                 f"{cb[0]:,}" if cb else "failed",
+                                 _b_over_a(cb and cb[0], ca and ca[0]),
+                                 _b_over_a(cb and cb[1], ca and ca[1])]
                     table.append(line)
                 _print_table(headers, table)
             if MEASURE.csv_path:
@@ -1686,8 +1695,8 @@ def normalize_nfdump_csv(
 
 
 def test_differential_output(
-    stable_daemon: str,
-    dev_daemon: str,
+    a_daemon: str,
+    b_daemon: str,
     pair_name: str,
     ignore_timestamp: bool,
     auto_ignore_legacy_v9: bool,
@@ -1697,6 +1706,7 @@ def test_differential_output(
 ) -> bool:
     """Compare nfdump output across NetFlow v1, v5, v9 and IPFIX."""
     print(f"  [Step 3] Verifying Differential Packet Export ({COLLECTOR_BACKEND} collector)...")
+    a_name, b_name = os.path.basename(a_daemon), os.path.basename(b_daemon)
 
     http_pcap = ensure_sample_pcap("http.cap", HTTP_PCAP_URL)
     v6_pcap = ensure_sample_pcap("v6-http.cap", V6_HTTP_PCAP_URL)
@@ -1734,11 +1744,11 @@ def test_differential_output(
         # when comparing against that old reference.
         norm_icmp = auto_ignore_icmp_reclass and ("stable-softflowd" in pair_name)
 
-        csv_stable = run_capture(pcap_path, stable_daemon, version)
-        norm_stable = normalize_nfdump_csv(csv_stable, should_ignore_ts, include_collector_metadata, norm_icmp)
+        csv_a = run_capture(pcap_path, a_daemon, version)
+        norm_a = normalize_nfdump_csv(csv_a, should_ignore_ts, include_collector_metadata, norm_icmp)
 
-        csv_dev = run_capture(pcap_path, dev_daemon, version)
-        norm_dev = normalize_nfdump_csv(csv_dev, should_ignore_ts, include_collector_metadata, norm_icmp)
+        csv_b = run_capture(pcap_path, b_daemon, version)
+        norm_b = normalize_nfdump_csv(csv_b, should_ignore_ts, include_collector_metadata, norm_icmp)
 
         display_name = name
         if should_ignore_ts and not ignore_timestamp:
@@ -1746,32 +1756,32 @@ def test_differential_output(
         if norm_icmp:
             display_name += " [ICMPv6 protocol/dest-port tolerance active]"
 
-        if norm_stable == norm_dev and len(norm_stable) > 0:
-            print(f"    - {display_name}: MATCHED ({len(norm_stable)} records)")
-        elif norm_stable == norm_dev and pcap_path in COMPAT_PCAPS:
+        if norm_a == norm_b and len(norm_a) > 0:
+            print(f"    - {display_name}: MATCHED ({len(norm_a)} records)")
+        elif norm_a == norm_b and pcap_path in COMPAT_PCAPS:
             # e.g. an IPv6-only pcap exported as NetFlow v1/v5, which carry no IPv6
             print_yellow(f"    - {display_name}: SKIPPED (no flow records on either side)")
         else:
-            print_red(f"    - {display_name}: FAILED (Records: stable={len(norm_stable)}, dev={len(norm_dev)})")
-            show = max(len(norm_stable), len(norm_dev), 3)
+            print_red(f"    - {display_name}: FAILED (Records: A={len(norm_a)}, B={len(norm_b)})")
+            show = max(len(norm_a), len(norm_b), 3)
             show = min(show, 20)  # cap so a large real regression doesn't flood the terminal
-            print("--- Stable Expected ---")
-            for l in norm_stable[:show]:
+            print(f"--- A Expected ({a_name}) ---")
+            for l in norm_a[:show]:
                 print(l)
-            print("--- Dev Actual ---")
-            for l in norm_dev[:show]:
+            print(f"--- B Actual ({b_name}) ---")
+            for l in norm_b[:show]:
                 print(l)
             all_matched = False
 
-    measure_pair(stable_daemon, dev_daemon, pair_name, test_cases)
+    measure_pair(a_daemon, b_daemon, pair_name, test_cases)
     return all_matched
 
 
 def run_single_comparison(
-    stable_daemon: str,
-    dev_daemon: str,
-    ctl_stable: Optional[str],
-    ctl_dev: Optional[str],
+    a_daemon: str,
+    b_daemon: str,
+    ctl_a: Optional[str],
+    ctl_b: Optional[str],
     pair_name: str,
     test_ctl: bool,
     ignore_timestamp: bool,
@@ -1780,30 +1790,30 @@ def run_single_comparison(
     ignore_ipv6: bool,
     include_collector_metadata: bool = False
 ) -> bool:
-    """Run full verification between a stable and development daemon/ctl implementation pair."""
+    """Run full verification between daemon/ctl implementation pair A (reference) and B (target)."""
     print("=" * 60)
-    print_cyan(f"Comparing: {os.path.basename(stable_daemon)}  <==>  {os.path.basename(dev_daemon)}")
-    print(f"  Stable: {stable_daemon}")
-    print(f"  Dev:    {dev_daemon}")
+    print_cyan(f"Comparing: A={os.path.basename(a_daemon)}  <==>  B={os.path.basename(b_daemon)}")
+    print(f"  A (reference): {a_daemon}")
+    print(f"  B (target):    {b_daemon}")
     print("=" * 60)
 
     # 1. CLI Compatibility
-    if not test_cli_compatibility(stable_daemon, dev_daemon):
+    if not test_cli_compatibility(a_daemon, b_daemon):
         return False
 
     # 2. Control Socket Compatibility
-    if test_ctl and ctl_stable and ctl_dev and os.path.exists(ctl_stable) and os.path.exists(ctl_dev):
-        if not test_control_socket_compatibility(stable_daemon, dev_daemon, ctl_stable, ctl_dev):
+    if test_ctl and ctl_a and ctl_b and os.path.exists(ctl_a) and os.path.exists(ctl_b):
+        if not test_control_socket_compatibility(a_daemon, b_daemon, ctl_a, ctl_b):
             return False
 
     # 3. Differential Output Verification
     if not test_differential_output(
-        stable_daemon, dev_daemon, pair_name, ignore_timestamp, auto_ignore_legacy_v9,
+        a_daemon, b_daemon, pair_name, ignore_timestamp, auto_ignore_legacy_v9,
         auto_ignore_icmp_reclass, ignore_ipv6, include_collector_metadata
     ):
         return False
 
-    print_green(f"\n>> Pair comparison [{os.path.basename(stable_daemon)} vs {os.path.basename(dev_daemon)}] PASSED.\n")
+    print_green(f"\n>> Pair comparison [A={os.path.basename(a_daemon)} vs B={os.path.basename(b_daemon)}] PASSED.\n")
     return True
 
 
@@ -1850,24 +1860,24 @@ def compat_main():
         help="Skip Rust (rsoftflowd) build and test matrix pairs"
     )
     parser.add_argument(
-        "--stable",
+        "--a",
         default=None,
-        help="Explicit reference stable softflowd daemon binary"
+        help="Explicit comparison source (A, reference) softflowd daemon binary"
     )
     parser.add_argument(
-        "--dev",
+        "--b",
         default=None,
-        help="Explicit target development softflowd daemon binary"
+        help="Explicit comparison target (B) softflowd daemon binary"
     )
     parser.add_argument(
-        "--ctl-stable",
+        "--ctl-a",
         default=None,
-        help="Explicit reference stable softflowctl binary"
+        help="Explicit comparison source (A) softflowctl binary"
     )
     parser.add_argument(
-        "--ctl-dev",
+        "--ctl-b",
         default=None,
-        help="Explicit target development softflowctl binary"
+        help="Explicit comparison target (B) softflowctl binary"
     )
     parser.add_argument(
         "-i", "--ignore-timestamp",
@@ -1971,7 +1981,7 @@ def compat_main():
         default=True,
         help="Run each daemon once per test case with its own -g flag and print "
              "the \"cpu clocks\" (total) and \"cpu clocks (export)\" counters it reports "
-             "on exit, for stable and dev (default: on; --no-gauge-clock turns it off)"
+             "on exit, for A and B (default: on; --no-gauge-clock turns it off)"
     )
     parser.add_argument(
         "--benchmark",
@@ -1980,7 +1990,7 @@ def compat_main():
         default="auto",
         choices=["auto", "hyperfine", "time"],
         metavar="TOOL",
-        help="Time each daemon (stable and dev) for every test case with hyperfine, "
+        help="Time each daemon (A and B) for every test case with hyperfine, "
              "time (wall clock and user/system CPU time as time(1) reports them) or auto "
              "(hyperfine if installed, otherwise time; the default, also when TOOL is "
              "omitted).  Needs no extra tool; --no-benchmark turns it off"
@@ -2099,13 +2109,13 @@ def compat_main():
     os.makedirs(build_dir, exist_ok=True)
 
     # Handle explicit single pair comparison
-    if args.stable and args.dev:
+    if args.a and args.b:
         success = run_single_comparison(
-            stable_daemon=args.stable,
-            dev_daemon=args.dev,
-            ctl_stable=args.ctl_stable or args.stable.replace("softflowd", "softflowctl"),
-            ctl_dev=args.ctl_dev or args.dev.replace("softflowd", "softflowctl"),
-            pair_name=f"{os.path.basename(args.stable)}_vs_{os.path.basename(args.dev)}",
+            a_daemon=args.a,
+            b_daemon=args.b,
+            ctl_a=args.ctl_a or args.a.replace("softflowd", "softflowctl"),
+            ctl_b=args.ctl_b or args.b.replace("softflowd", "softflowctl"),
+            pair_name=f"{os.path.basename(args.a)}_vs_{os.path.basename(args.b)}",
             test_ctl=not args.skip_ctl,
             ignore_timestamp=args.ignore_timestamp,
             auto_ignore_legacy_v9=args.auto_ignore_legacy_v9,
@@ -2167,14 +2177,14 @@ def compat_main():
 
     # 2. Define standard compatibility comparison matrix requested by user
     comparison_pairs = [
-        # (Stable Daemon, Dev Daemon, Stable CTL, Dev CTL)
+        # (A daemon, B daemon, A ctl, B ctl): A is the comparison source, B the target
         ("stable-softflowd-legacy", "softflowd-legacy", "stable-softflowctl-legacy", "softflowctl-legacy"),
         ("stable-softflowd", "softflowd", "stable-softflowctl", "softflowctl"),
-        # --enable-compat-export=static as the reference, the default (dynamic) build as dev
+        # --enable-compat-export=static as A, the default (dynamic) build as B
         # (the same two builds that `bench -b static,dynamic` compares)
         ("softflowd-static", "softflowd", "softflowctl-static", "softflowctl"),
         # --enable-direct-copies as a variant to check ASan/UBSan implications
-        ("softflowd", "softflowd-direct", "softflowctl", "softflowctl-direct"),
+        ("softflowd-direct", "softflowd", "softflowctl-direct", "softflowctl"),
     ]
 
     if not args.skip_cpp:
@@ -2187,25 +2197,25 @@ def compat_main():
     print("=" * 60)
 
     overall_passed = True
-    for stable_name, dev_name, ctl_stable_name, ctl_dev_name in comparison_pairs:
-        stable_daemon = binaries.get(stable_name)
-        dev_daemon = binaries.get(dev_name)
-        ctl_stable = binaries.get(ctl_stable_name)
-        ctl_dev = binaries.get(ctl_dev_name)
+    for a_name, b_name, ctl_a_name, ctl_b_name in comparison_pairs:
+        a_daemon = binaries.get(a_name)
+        b_daemon = binaries.get(b_name)
+        ctl_a = binaries.get(ctl_a_name)
+        ctl_b = binaries.get(ctl_b_name)
 
-        if not stable_daemon or not os.path.exists(stable_daemon):
-            print_yellow(f"\n[SKIPPED] Stable binary '{stable_name}' not available.")
+        if not a_daemon or not os.path.exists(a_daemon):
+            print_yellow(f"\n[SKIPPED] A binary '{a_name}' not available.")
             continue
-        if not dev_daemon or not os.path.exists(dev_daemon):
-            print_yellow(f"\n[SKIPPED] Development binary '{dev_name}' not available.")
+        if not b_daemon or not os.path.exists(b_daemon):
+            print_yellow(f"\n[SKIPPED] B binary '{b_name}' not available.")
             continue
 
         passed = run_single_comparison(
-            stable_daemon=stable_daemon,
-            dev_daemon=dev_daemon,
-            ctl_stable=ctl_stable,
-            ctl_dev=ctl_dev,
-            pair_name=f"{stable_name}_vs_{dev_name}",
+            a_daemon=a_daemon,
+            b_daemon=b_daemon,
+            ctl_a=ctl_a,
+            ctl_b=ctl_b,
+            pair_name=f"{a_name}_vs_{b_name}",
             test_ctl=not args.skip_ctl,
             ignore_timestamp=args.ignore_timestamp,
             auto_ignore_legacy_v9=args.auto_ignore_legacy_v9,
