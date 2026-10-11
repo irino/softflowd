@@ -52,6 +52,7 @@
 #include "psamp.h"
 #include "treetype.h"
 #include <getopt.h>
+#include <stdarg.h> /* va_start and va_end for die_usage() */
 #include <netinet/icmp6.h>
 #include <netinet/in.h>
 #include <pcap.h>
@@ -2717,6 +2718,26 @@ usage (void) {
     DEFAULT_EXPIRY_INTERVAL);
 }
 
+/* Empty fallback where common.h does not define __dead (non-GNU C, non-BSD). */
+#ifndef __dead
+#define __dead
+#endif
+/**
+ * @brief Print an error message and the usage text to stderr, then exit(1).
+ *
+ * @param fmt printf-style error message, written to stderr before the usage.
+ */
+static __dead void
+die_usage (const char *fmt, ...) {
+  va_list ap;
+
+  va_start (ap, fmt);
+  vfprintf (stderr, fmt, ap);
+  va_end (ap);
+  usage ();
+  exit (1);
+}
+
 /**
  * @brief Parse a "-t name=time" argument and set that timeout.
  *
@@ -2736,16 +2757,12 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
     exit (1);
   }
   if ((value = strchr (name, '=')) == NULL || *(++value) == '\0') {
-    fprintf (stderr, "Invalid -t option \"%s\".\n", name);
-    usage();
-    exit (1);
+    die_usage ("Invalid -t option \"%s\".\n", name);
   }
   *(value - 1) = '\0';
   timeout = convtime (value);
   if (timeout < 0) {
-    fprintf (stderr, "Invalid -t timeout.\n");
-    usage();
-    exit (1);
+    die_usage ("Invalid -t timeout.\n");
   }
   if (strcmp (name, "tcp") == 0)
     ft->param.tcp_timeout = timeout;
@@ -2764,9 +2781,7 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
   else if (strcmp (name, "expint") == 0)
     ft->param.expiry_interval = timeout;
   else {
-    fprintf (stderr, "Invalid -t name.\n");
-    usage();
-    exit (1);
+    die_usage ("Invalid -t name.\n");
   }
 
   if (ft->param.general_timeout == 0) {
@@ -2800,9 +2815,7 @@ parse_hostport (const char *s, struct sockaddr *addr,
   }
   if ((port = strrchr (host, ':')) == NULL || *(++port) == '\0' ||
       *host == '\0') {
-    fprintf (stderr, "Invalid -n argument.\n");
-    usage();
-    exit (1);
+    die_usage ("Invalid -n argument.\n");
   }
   *(port - 1) = '\0';
 
@@ -3055,10 +3068,8 @@ main (int argc, char **argv) {
         else if (strcasecmp (optarg, "nano") == 0)
           flowtrack.param.time_format = 'n';
         else {
-          fprintf (stderr, "Unknown time format"
+          die_usage ("Unknown time format"
                            "\n");
-          usage();
-          exit (1);
         }
         break;
       case 'b':
@@ -3109,9 +3120,7 @@ main (int argc, char **argv) {
         else if (strcmp (optarg, "hash") == 0)
           flowtrack.flow_lookup = FLOW_LOOKUP_HASH;
         else {
-          fprintf (stderr, "Invalid flow lookup mode\n\n");
-          usage();
-          exit (1);
+          die_usage ("Invalid flow lookup mode\n\n");
         }
         break;
       case 'g':
@@ -3131,10 +3140,8 @@ main (int argc, char **argv) {
         break;
       case 'i':
         if (capfile != NULL || dev != NULL) {
-          fprintf (stderr, "Packet source already "
+          die_usage ("Packet source already "
                            "specified.\n\n");
-          usage();
-          exit (1);
         }
 #if defined(HAVE_STRSEP)
         dev = strsep (&optarg, ":");
@@ -3149,9 +3156,7 @@ main (int argc, char **argv) {
           user_ifindex_flag = 1;
         }
         if (strlen (dev) == 0) {
-          fprintf (stderr, "Wrong interface is specified.\n\n");
-          usage();
-          exit (1);
+          die_usage ("Wrong interface is specified.\n\n");
         }
         if (verbose_flag)
           fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
@@ -3168,9 +3173,7 @@ main (int argc, char **argv) {
           exit (EXIT_FAILURE);
         }
         if (timeunit == optarg) {
-          fprintf (stderr, "No digits were found in boot_time_reinit\n");
-          usage();
-          exit (EXIT_FAILURE);
+          die_usage ("No digits were found in boot_time_reinit\n");
         }
         if (*timeunit == 'd' || *timeunit == 'D') { /* days */
           if (boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
@@ -3203,18 +3206,14 @@ main (int argc, char **argv) {
       case 'L':
         hoplimit = atoi (optarg);
         if (hoplimit < 0 || hoplimit > 255) {
-          fprintf (stderr, "Invalid hop limit\n\n");
-          usage();
-          exit (1);
+          die_usage ("Invalid hop limit\n\n");
         }
         break;
       case 'm': {
         /* Range check on an int: max_flows is unsigned and would wrap. */
         int max_flows = atoi (optarg);
         if (max_flows < 1) {
-          fprintf (stderr, "Invalid maximum flows\n\n");
-          usage();
-          exit (1);
+          die_usage ("Invalid maximum flows\n\n");
         }
         flowtrack.param.max_flows = max_flows;
       } break;
@@ -3244,18 +3243,14 @@ main (int argc, char **argv) {
           protocol = IPPROTO_SCTP;
 #endif
         else {
-          fprintf (stderr, "Unknown transport layer protocol"
+          die_usage ("Unknown transport layer protocol"
                            "\n");
-          usage();
-          exit (1);
         }
         break;
       case 'r':
         if (capfile != NULL || dev != NULL) {
-          fprintf (stderr, "Packet source already "
+          die_usage ("Packet source already "
                            "specified.\n\n");
-          usage();
-          exit (1);
         }
         capfile = optarg;
         dontfork_flag = 1;
@@ -3299,10 +3294,8 @@ main (int argc, char **argv) {
           flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
 
         else {
-          fprintf (stderr, "Unknown flow tracking "
+          die_usage ("Unknown flow tracking "
                            "level\n");
-          usage();
-          exit (1);
         }
         track_level = flowtrack.param.track_level;
         break;
@@ -3328,23 +3321,17 @@ main (int argc, char **argv) {
         /* Range check on an int: max_num_label is u_int8_t and would wrap. */
         int num_label = atoi (optarg);
         if (num_label < 1 || num_label > 10) {
-          fprintf (stderr, "Invalid number of MPLS label (1 to 10)\n\n");
-          usage();
-          exit (1);
+          die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
         }
         flowtrack.param.max_num_label = num_label;
       } break;
       default:
-        fprintf (stderr, "Invalid commandline option.\n");
-        usage();
-        exit (1);
+        die_usage ("Invalid commandline option.\n");
     }
   }
 
   if (capfile == NULL && dev == NULL && rsock <= 0) {
-    fprintf (stderr, "-i, -r or -R option not specified.\n");
-    usage();
-    exit (1);
+    die_usage ("-i, -r or -R option not specified.\n");
   }
 
   /* max_flows is final now, so the flow table can be sized */
