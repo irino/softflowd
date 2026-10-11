@@ -82,13 +82,14 @@ testing on this platform has been performed.
 
 ## Flow Table Lookup
 
-By default softflowd keeps all active flows in one tree. The
-`-F` / `--flow-lookup` option selects how the active flows are looked up:
+By default softflowd hashes the active flows into buckets, each holding a
+tree. The `-F` / `--flow-lookup` option selects how the active flows are
+looked up:
 
 | Mode        | Buckets                                         | What a bucket holds             | Different flows in the same bucket     |
 |-------------|-------------------------------------------------|---------------------------------|----------------------------------------|
-| `tree`      | 1                                               | the root of a tree of all flows | all kept in the one tree (default)     |
-| `hash-tree` | a power of two, at least `max_flows`            | the root of a tree of its flows | kept side by side in the bucket's tree |
+| `tree`      | 1                                               | the root of a tree of all flows | all kept in the one tree               |
+| `hash-tree` | a power of two, at least `max_flows`            | the root of a tree of its flows | kept side by side in the bucket's tree (default) |
 | `hash`      | a power of two, at least twice `max_flows`      | one flow                        | the resident flow is expired at once   |
 
 `tree` is the same as `hash-tree` with a single bucket. The number of

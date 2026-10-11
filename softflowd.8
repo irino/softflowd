@@ -198,9 +198,9 @@ Select how active flows are looked up.
 .Ar mode
 may be one of:
 .Dq tree
-(one tree of all flows, the default),
+(one tree of all flows),
 .Dq hash-tree
-(a hash table of trees: flows that share a bucket are told apart by the tree), or
+(a hash table of trees: flows that share a bucket are told apart by the tree; the default), or
 .Dq hash
 (a hash table with room for one flow per bucket: when a different flow
 hashes to an occupied bucket, the flow already there is expired at once and

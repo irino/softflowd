@@ -1089,12 +1089,15 @@ ether_to_flowrec (struct FLOW *flow,
  */
 static void
 flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
-  EXPIRY_REMOVE (EXPIRIES, &ft->expiries, flow->expiry);
+  /* Compute the new key first: the flow stays in the tree until the
+   * expiry key really changes, so unchanged packets skip the tree work. */
+  u_int32_t exp;
+  int rsn;
 
   /* Flows over 2 GiB traffic */
   if (flow->octets[0] > (1U << 31) || flow->octets[1] > (1U << 31)) {
-    flow->expiry->expires_at = 0;
-    flow->expiry->reason = R_OVERBYTES;
+    exp = 0;
+    rsn = R_OVERBYTES;
     flow->flowEndReason = IPFIX_flowEndReason_lackOfResource;
     goto out;
   }
@@ -1103,8 +1106,8 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
   if (ft->param.maximum_lifetime != 0 &&
       flow->flow_last.tv_sec - flow->flow_start.tv_sec >
         ft->param.maximum_lifetime) {
-    flow->expiry->expires_at = 0;
-    flow->expiry->reason = R_MAXLIFE;
+    exp = 0;
+    rsn = R_MAXLIFE;
     flow->flowEndReason = IPFIX_flowEndReason_activeTimeout;
     goto out;
   }
@@ -1113,26 +1116,24 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
     /* Reset TCP flows */
     if (ft->param.tcp_rst_timeout != 0 &&
         ((flow->tcp_flags[0] & TH_RST) || (flow->tcp_flags[1] & TH_RST))) {
-      flow->expiry->expires_at =
-        flow->flow_last.tv_sec + ft->param.tcp_rst_timeout;
-      flow->expiry->reason = R_TCP_RST;
+      exp = flow->flow_last.tv_sec + ft->param.tcp_rst_timeout;
+      rsn = R_TCP_RST;
       flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
     }
     /* Finished TCP flows */
     if (ft->param.tcp_fin_timeout != 0 &&
         ((flow->tcp_flags[0] & TH_FIN) && (flow->tcp_flags[1] & TH_FIN))) {
-      flow->expiry->expires_at =
-        flow->flow_last.tv_sec + ft->param.tcp_fin_timeout;
-      flow->expiry->reason = R_TCP_FIN;
+      exp = flow->flow_last.tv_sec + ft->param.tcp_fin_timeout;
+      rsn = R_TCP_FIN;
       flow->flowEndReason = IPFIX_flowEndReason_endOfFlow;
       goto out;
     }
 
     /* TCP flows */
     if (ft->param.tcp_timeout != 0) {
-      flow->expiry->expires_at = flow->flow_last.tv_sec + ft->param.tcp_timeout;
-      flow->expiry->reason = R_TCP;
+      exp = flow->flow_last.tv_sec + ft->param.tcp_timeout;
+      rsn = R_TCP;
       flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
       goto out;
     }
@@ -1140,8 +1141,8 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
 
   if (ft->param.udp_timeout != 0 && flow->protocol == IPPROTO_UDP) {
     /* UDP flows */
-    flow->expiry->expires_at = flow->flow_last.tv_sec + ft->param.udp_timeout;
-    flow->expiry->reason = R_UDP;
+    exp = flow->flow_last.tv_sec + ft->param.udp_timeout;
+    rsn = R_UDP;
     flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
     goto out;
   }
@@ -1150,25 +1151,28 @@ flow_update_expiry (struct FLOWTRACK *ft, struct FLOW *flow) {
       ((flow->af == AF_INET && flow->protocol == IPPROTO_ICMP) ||
        ((flow->af == AF_INET6 && flow->protocol == IPPROTO_ICMPV6)))) {
     /* ICMP flows */
-    flow->expiry->expires_at = flow->flow_last.tv_sec + ft->param.icmp_timeout;
-    flow->expiry->reason = R_ICMP;
+    exp = flow->flow_last.tv_sec + ft->param.icmp_timeout;
+    rsn = R_ICMP;
     flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
     goto out;
   }
 
   /* Everything else */
-  flow->expiry->expires_at = flow->flow_last.tv_sec + ft->param.general_timeout;
-  flow->expiry->reason = R_GENERAL;
+  exp = flow->flow_last.tv_sec + ft->param.general_timeout;
+  rsn = R_GENERAL;
   flow->flowEndReason = IPFIX_flowEndReason_idleTimeout;
 
 out:
-  if (ft->param.maximum_lifetime != 0 && flow->expiry->expires_at != 0) {
-    flow->expiry->expires_at =
-      MIN (flow->expiry->expires_at,
-           flow->flow_start.tv_sec + ft->param.maximum_lifetime);
+  if (ft->param.maximum_lifetime != 0 && exp != 0) {
+    exp = MIN (exp, flow->flow_start.tv_sec + ft->param.maximum_lifetime);
   }
 
-  EXPIRY_INSERT (EXPIRIES, &ft->expiries, flow->expiry);
+  if (exp != flow->expiry->expires_at) {
+    EXPIRY_REMOVE (EXPIRIES, &ft->expiries, flow->expiry);
+    flow->expiry->expires_at = exp;
+    EXPIRY_INSERT (EXPIRIES, &ft->expiries, flow->expiry);
+  }
+  flow->expiry->reason = rsn;
 }
 
 /**
@@ -2579,7 +2583,7 @@ init_flowtrack (struct FLOWTRACK *ft) {
   /* Set up flow-tracking structure */
   memset (ft, '\0', sizeof (*ft));
   ft->param.next_flow_seq = 1;
-  ft->flow_lookup = FLOW_LOOKUP_TREE;
+  ft->flow_lookup = FLOW_LOOKUP_HASH_TREE; /* default; -F selects another */
   EXPIRY_INIT (&ft->expiries);
 
   freelist_init (&ft->flow_freelist, sizeof (struct FLOW));
@@ -2724,7 +2728,7 @@ usage (void) {
     "of\n"
     "                          only the fields used (ports, TCP flags, ICMP "
     "type/code)\n"
-    "  -F, --flow-lookup mode  Flow table lookup: tree (default), hash-tree "
+    "  -F, --flow-lookup mode  Flow table lookup: tree, hash-tree (default) "
     "or hash\n"
     "                          (hash: a colliding flow expires the resident "
     "one)\n"

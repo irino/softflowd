@@ -224,9 +224,9 @@ FLOW_HEAD (FLOWS, FLOW);
 
 /** How active flows are looked up (--flow-lookup). */
 enum FLOW_LOOKUP {
-  FLOW_LOOKUP_TREE,      /**< One tree of all flows (default) */
+  FLOW_LOOKUP_TREE,      /**< One tree of all flows */
   FLOW_LOOKUP_HASH_TREE, /**< Hash table; flows sharing a bucket are kept in a
-                            tree */
+                            tree (default) */
   FLOW_LOOKUP_HASH       /**< Hash table; a colliding flow expires the resident one */
 };
 
