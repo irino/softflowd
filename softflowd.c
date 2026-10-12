@@ -846,21 +846,32 @@ format_flow_brief (struct FLOW *flow) {
   return (buf);
 }
 
+/** Offset just past a member of a struct, i.e. the bytes needed to read it. */
+#define MEMBER_END(type, member) \
+  (offsetof (type, member) + sizeof (((type *) 0)->member))
+
+/** Bytes of a header that must be present: all of it if "full", else up to
+ * and including its member "last". */
+#define HDR_MIN_LEN(full, type, last) \
+  ((full) ? sizeof (type) : MEMBER_END (type, last))
+
 /**
  * @brief Fill in the transport-layer (TCP/UDP/ICMP) parts of a flow record.
  *
  * ICMP type and code are encoded into the destination port, like Cisco routers
  * do.
  *
- * @param flow     Flow record to fill.
- * @param pkt      Start of the transport header.
- * @param caplen   Bytes available at pkt.
- * @param protocol IP protocol number.
- * @param ndx      Endpoint index (0 or 1) of the packet source.
+ * @param flow             Flow record to fill.
+ * @param pkt              Start of the transport header.
+ * @param caplen           Bytes available at pkt.
+ * @param protocol         IP protocol number.
+ * @param ndx              Endpoint index (0 or 1) of the packet source.
+ * @param full_l4hdr_check Non-zero to require the whole transport header.
  */
 static void
 transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
-                      const size_t caplen, int protocol, int ndx) {
+                      const size_t caplen, int protocol, int ndx,
+                      int full_l4hdr_check) {
   size_t min_len;
 
   /*
@@ -872,25 +883,19 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
    */
   switch (protocol) {
     case IPPROTO_TCP:
-      min_len = full_transport_header_check
-                  ? sizeof (struct tcphdr)
-                  : offsetof (struct tcphdr, th_flags) + 1; /* ports and flags */
+      /* ports and flags */
+      min_len = HDR_MIN_LEN (full_l4hdr_check, struct tcphdr, th_flags);
       break;
     case IPPROTO_UDP:
-      min_len = full_transport_header_check
-                  ? sizeof (struct udphdr)
-                  : offsetof (struct udphdr, uh_dport) + sizeof (flow->port[0]);
+      min_len = HDR_MIN_LEN (full_l4hdr_check, struct udphdr, uh_dport);
       break;
     case IPPROTO_ICMP:
-      min_len = full_transport_header_check
-                  ? sizeof (struct icmp)
-                  : offsetof (struct icmp, icmp_code) + 1; /* type and code */
+      /* type and code */
+      min_len = HDR_MIN_LEN (full_l4hdr_check, struct icmp, icmp_code);
       break;
     case IPPROTO_ICMPV6:
-      min_len =
-        full_transport_header_check
-          ? sizeof (struct icmp6_hdr)
-          : offsetof (struct icmp6_hdr, icmp6_code) + 1; /* type and code */
+      /* type and code */
+      min_len = HDR_MIN_LEN (full_l4hdr_check, struct icmp6_hdr, icmp6_code);
       break;
     default:
       return;
@@ -903,9 +908,13 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 
   if (protocol == IPPROTO_ICMP || protocol == IPPROTO_ICMPV6) {
     /* Encode ICMP type * 256 + code into the destination port, like Cisco */
+    /* ICMP header also serves ICMPv6: both start with type and code */
     flow->port[ndx] = 0;
-    flow->port[ndx ^ 1] = htons (pkt[0] * 256 + pkt[1]);
-  } else {                  /* TCP, UDP */
+    flow->port[ndx ^ 1] =
+      htons ((pkt[offsetof (struct icmp, icmp_type)] << 8) |
+             pkt[offsetof (struct icmp, icmp_code)]);
+  } else {
+    /* UDP header also serves TCP: both start with the source and dest. ports */
 #ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
     const struct udphdr *udp = (const struct udphdr *) pkt;
     flow->port[ndx] = udp->uh_sport;
@@ -1226,7 +1235,8 @@ process_packet (struct CB_CTXT *cb_ctxt,
   if (frag)
     ft->param.frag_packets++;
   if (first && ft->param.track_level >= TRACK_IP_PROTO_PORT)
-    transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx);
+    transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx,
+                          full_transport_header_check);
   if (ft->param.track_level >= TRACK_FULL_VLAN)
     tmp.vlanid[ndx] = vlanid;
   if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER &&
