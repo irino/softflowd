@@ -2148,7 +2148,16 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
                 int *stop_collection_flag) {
   char buf[64], *p;
   FILE *ctlf;
-  int fd, ret;
+  int fd, ret = 0, cmd;
+  /* A command's position in control_words[] is its number in the switch */
+  enum { CTL_HELP, CTL_SHUTDOWN, CTL_EXIT, CTL_EXPIRE_ALL, CTL_SEND_TEMPLATE,
+         CTL_DELETE_ALL, CTL_STATISTICS, CTL_DEBUG_ON, CTL_DEBUG_OFF,
+         CTL_STOP_GATHER, CTL_START_GATHER, CTL_DUMP_FLOWS, CTL_TIMEOUTS,
+         CTL_UNKNOWN };
+  static const char *const control_words[] = {
+    "help", "shutdown", "exit", "expire-all", "send-template", "delete-all",
+    "statistics", "debug+", "debug-", "stop-gather", "start-gather",
+    "dump-flows", "timeouts"};
 
   if ((fd = accept (lsock, NULL, NULL)) == -1) {
     logit (LOG_ERR, "ctl accept: %s - exiting", strerror (errno));
@@ -2171,90 +2180,76 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
   if (verbose_flag)
     logit (LOG_DEBUG, "Control socket \"%s\"", buf);
 
-  /* XXX - use dispatch table */
-  ret = -1;
-  if (strcmp (buf, "help") == 0) {
-    fprintf (ctlf, "Valid control words are:\n");
-    fprintf (ctlf, "\tdebug+ debug- delete-all dump-flows exit "
-                   "expire-all\n");
-    fprintf (ctlf, "\tshutdown start-gather statistics stop-gather "
-                   "timeouts\n");
-    fprintf (ctlf, "\tsend-template\n");
-    ret = 0;
-  } else if (strcmp (buf, "shutdown") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Shutting down gracefully...\n",
-             (unsigned int) getpid());
-    graceful_shutdown_request = 1;
-    ret = 1;
-  } else if (strcmp (buf, "exit") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Exiting now...\n", (unsigned int) getpid());
-    *exit_request = 1;
-    ret = 1;
-  } else if (strcmp (buf, "expire-all") == 0) {
+  for (cmd = 0; cmd < CTL_UNKNOWN && strcmp (buf, control_words[cmd]) != 0;
+       cmd++)
+    ;
+  /* Every reply except help and the unknown command starts with the pid */
+  if (cmd != CTL_HELP && cmd != CTL_UNKNOWN)
+    fprintf (ctlf, "softflowd[%u]: ", (unsigned int) getpid());
+  if (cmd == CTL_EXPIRE_ALL || cmd == CTL_SEND_TEMPLATE)
 #if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
     netflow9_resend_template();
 #else  /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
     ipfix_resend_template();
 #endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
-    fprintf (ctlf, "softflowd[%u]: Expired %d flows.\n", (unsigned int) getpid(),
-             check_expired (ft, target, CE_EXPIRE_ALL));
-    ret = 0;
-  } else if (strcmp (buf, "send-template") == 0) {
-#if COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE
-    netflow9_resend_template();
-#else  /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
-    ipfix_resend_template();
-#endif /* COMPAT_EXPORT == COMPAT_EXPORT_STATIC_SEPARATE */
-    fprintf (ctlf,
-             "softflowd[%u]: Template will be sent at "
-             "next flow export\n",
-             (unsigned int) getpid());
-    ret = 0;
-  } else if (strcmp (buf, "delete-all") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Deleted %d flows.\n", (unsigned int) getpid(),
-             delete_all_flows (ft));
-    ret = 0;
-  } else if (strcmp (buf, "statistics") == 0) {
-    fprintf (ctlf,
-             "softflowd[%u]: Accumulated statistics "
-             "since %s UTC:\n",
-             (unsigned int) getpid(),
-             format_time (ft->param.system_boot_time.tv_sec));
-    statistics (ft, ctlf, pcap);
-    ret = 0;
-  } else if (strcmp (buf, "debug+") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Debug level increased.\n",
-             (unsigned int) getpid());
-    verbose_flag = 1;
-    ret = 0;
-  } else if (strcmp (buf, "debug-") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Debug level decreased.\n",
-             (unsigned int) getpid());
-    verbose_flag = 0;
-    ret = 0;
-  } else if (strcmp (buf, "stop-gather") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Data collection stopped.\n",
-             (unsigned int) getpid());
-    *stop_collection_flag = 1;
-    ret = 0;
-  } else if (strcmp (buf, "start-gather") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Data collection resumed.\n",
-             (unsigned int) getpid());
-    *stop_collection_flag = 0;
-    ret = 0;
-  } else if (strcmp (buf, "dump-flows") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Dumping flow data:\n",
-             (unsigned int) getpid());
-    dump_flows (ft, ctlf);
-    ret = 0;
-  } else if (strcmp (buf, "timeouts") == 0) {
-    fprintf (ctlf, "softflowd[%u]: Printing timeouts:\n",
-             (unsigned int) getpid());
-    print_timeouts (ft, ctlf);
-    ret = 0;
-  } else {
-    fprintf (ctlf, "Unknown control command \"%s\"\n", buf);
-    ret = 0;
+  switch (cmd) {
+    case CTL_HELP:
+      fprintf (ctlf, "Valid control words are:\n"
+                     "\tdebug+ debug- delete-all dump-flows exit expire-all\n"
+                     "\tshutdown start-gather statistics stop-gather timeouts\n"
+                     "\tsend-template\n");
+      break;
+    case CTL_SHUTDOWN:
+      fprintf (ctlf, "Shutting down gracefully...\n");
+      graceful_shutdown_request = 1;
+      ret = 1;
+      break;
+    case CTL_EXIT:
+      fprintf (ctlf, "Exiting now...\n");
+      *exit_request = 1;
+      ret = 1;
+      break;
+    case CTL_EXPIRE_ALL:
+      fprintf (ctlf, "Expired %d flows.\n",
+               check_expired (ft, target, CE_EXPIRE_ALL));
+      break;
+    case CTL_SEND_TEMPLATE:
+      fprintf (ctlf, "Template will be sent at next flow export\n");
+      break;
+    case CTL_DELETE_ALL:
+      fprintf (ctlf, "Deleted %d flows.\n", delete_all_flows (ft));
+      break;
+    case CTL_STATISTICS:
+      fprintf (ctlf, "Accumulated statistics since %s UTC:\n",
+               format_time (ft->param.system_boot_time.tv_sec));
+      statistics (ft, ctlf, pcap);
+      break;
+    case CTL_DEBUG_ON:
+      fprintf (ctlf, "Debug level increased.\n");
+      verbose_flag = 1;
+      break;
+    case CTL_DEBUG_OFF:
+      fprintf (ctlf, "Debug level decreased.\n");
+      verbose_flag = 0;
+      break;
+    case CTL_STOP_GATHER:
+      fprintf (ctlf, "Data collection stopped.\n");
+      *stop_collection_flag = 1;
+      break;
+    case CTL_START_GATHER:
+      fprintf (ctlf, "Data collection resumed.\n");
+      *stop_collection_flag = 0;
+      break;
+    case CTL_DUMP_FLOWS:
+      fprintf (ctlf, "Dumping flow data:\n");
+      dump_flows (ft, ctlf);
+      break;
+    case CTL_TIMEOUTS:
+      fprintf (ctlf, "Printing timeouts:\n");
+      print_timeouts (ft, ctlf);
+      break;
+    default:
+      fprintf (ctlf, "Unknown control command \"%s\"\n", buf);
   }
 
   fclose (ctlf);
