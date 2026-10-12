@@ -28,22 +28,24 @@
 #include "common.h"
 #include "softflowd.h"
 
-#define PSAMP_selectionSequenceId         301
-#define PSAMP_selectorAlgorithm           304
-#define PSAMP_samplingPacketInterval      305
-#define PSAMP_samplingPacketSpace         306
-#define PSAMP_digestHashValue             326
+/** IPFIX information element IDs used by the PSAMP record. */
+#define PSAMP_selectionSequenceId 301
+#define PSAMP_selectorAlgorithm 304
+#define PSAMP_samplingPacketInterval 305
+#define PSAMP_samplingPacketSpace 306
+#define PSAMP_digestHashValue 326
 #define PSAMP_observationTimeMicroseconds 324
-#define PSAMP_dataLinkFrameSection        315
-#define PSAMP_sectionExportedOctets       410
+#define PSAMP_dataLinkFrameSection 315
+#define PSAMP_sectionExportedOctets 410
 
-#define PSAMP_selectorAlgorithm_count   1
+#define PSAMP_selectorAlgorithm_count 1
 
-#define PSAMP_SOFTFLOWD_TEMPLATE_ID       3072
-#define PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS 4
+/** Template ID of the PSAMP record exported by softflowd. */
+#define PSAMP_SOFTFLOWD_TEMPLATE_ID 3072
 
-
-int send_psamp (const u_char * pkt, int caplen, struct timeval tv,
-                struct NETFLOW_TARGET *target, uint64_t total_packets);
-int recv_psamp (int rsock, struct CB_CTXT *cb_ctxt);
+int
+send_psamp (const u_char *pkt, int caplen, struct timeval tv,
+            struct NETFLOW_TARGET *target, uint64_t total_packets);
+int
+recv_psamp (int rsock, struct CB_CTXT *cb_ctxt);
 #endif /* _PSAMP_H */

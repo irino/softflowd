@@ -28,23 +28,28 @@
 #include "psamp.h"
 #include <pcap.h>
 
-#define PSAMP_DATALINKFRAME_SIZE (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - \
-  sizeof(struct IPFIX_HEADER) - sizeof(struct IPFIX_SET_HEADER) - 8 - 8 -2)
+/** Size of the fixed-size fields that precede the frame section. */
+#define PSAMP_FIXED_FIELDS_SIZE (sizeof (u_int64_t) + sizeof (struct ntp_time_t) + sizeof (u_int16_t))
+/** Size of the frame section: what is left of a packet after the headers and the fixed-size fields. */
+#define PSAMP_DATALINKFRAME_SIZE (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - sizeof (struct IPFIX_HEADER) - sizeof (struct IPFIX_SET_HEADER) - PSAMP_FIXED_FIELDS_SIZE)
 
 /** Fields of the PSAMP data record: sequence id, observation time, exported octets and the frame section. */
-const struct IPFIX_FIELD_SPECIFIER field_psamp[] = {
-  {PSAMP_selectionSequenceId, 8},
-  {PSAMP_observationTimeMicroseconds, 8},
-  {PSAMP_sectionExportedOctets, 2},
-  {PSAMP_dataLinkFrameSection, PSAMP_DATALINKFRAME_SIZE}
-};
+static const struct IPFIX_FIELD_SPECIFIER field_psamp[] = {
+  {PSAMP_selectionSequenceId, sizeof (u_int64_t)},
+  {PSAMP_observationTimeMicroseconds, sizeof (struct ntp_time_t)},
+  {PSAMP_sectionExportedOctets, sizeof (u_int16_t)},
+  {PSAMP_dataLinkFrameSection, PSAMP_DATALINKFRAME_SIZE}};
 
+/** Number of the fields of the PSAMP data record. */
+#define PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS (sizeof (field_psamp) / sizeof (field_psamp[0]))
+
+/** PSAMP template set: the set header followed by the field specifiers of field_psamp[]. */
 struct PSAMP_SOFTFLOWD_TEMPLATE {
   struct IPFIX_TEMPLATE_SET_HEADER h;
   struct IPFIX_FIELD_SPECIFIER r[PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS];
 } __packed;
 /** The PSAMP template. */
-struct PSAMP_SOFTFLOWD_TEMPLATE template;
+static struct PSAMP_SOFTFLOWD_TEMPLATE psamp_template;
 /** Template state: -1 = not built and sent yet, 0 = already sent. */
 static int psamp_pkts_until_template = -1;
 
@@ -78,7 +83,7 @@ psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
  * @return 1 on success, -1 on send error.
  */
 int
-send_psamp (const u_char * pkt, int caplen, struct timeval tv,
+send_psamp (const u_char *pkt, int caplen, struct timeval tv,
             struct NETFLOW_TARGET *target, uint64_t total_packets) {
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) packet;
@@ -90,19 +95,18 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   int copysize =
     caplen < (int) PSAMP_DATALINKFRAME_SIZE ? caplen : (int) PSAMP_DATALINKFRAME_SIZE;
 
-  ipfix->version = htons (NF_VERSION_IPFIX);    // PSAMP uses IPFIX
+  ipfix->version = htons (NF_VERSION_IPFIX);  // PSAMP uses IPFIX
   ipfix->export_time = htonl (tv.tv_sec);
   ipfix->sequence_number = htonl ((u_int32_t) (total_packets & 0x00000000ffffffff));
   ipfix->observation_domain_id = 0;
 
   if (psamp_pkts_until_template == -1) {
-    psamp_init_template (&template);
+    psamp_init_template (&psamp_template);
     psamp_pkts_until_template = 0;
-    memcpy (&packet[offset], &template, sizeof (template));
-    ipfix->length = htons (offset + sizeof (template));
-    if (send_multi_destinations
-        (target->num_destinations, target->destinations, 0, packet,
-         offset + sizeof (template), 0) < 0)
+    memcpy (&packet[offset], &psamp_template, sizeof (psamp_template));
+    ipfix->length = htons (offset + sizeof (psamp_template));
+    if (send_multi_destinations (target->num_destinations, target->destinations, 0, packet,
+                                 offset + sizeof (psamp_template), 0) < 0)
       return (-1);
   }
 
@@ -127,8 +131,8 @@ send_psamp (const u_char * pkt, int caplen, struct timeval tv,
   PKT_STORE (&packet[offset], exportedOctets);
   offset += sizeof (exportedOctets);
 
-  memset (&packet[offset], 0, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - offset);
   memcpy (&packet[offset], pkt, copysize);
+  memset (&packet[offset + copysize], 0, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - offset - copysize);
   ipfix->length = htons (IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
   if (send_multi_destinations (target->num_destinations, target->destinations,
                                target->is_loadbalance,
@@ -151,6 +155,7 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   char buf[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) buf;
   struct ntp_time_t ntptime;
+  uint16_t exportedOctets;
   struct pcap_pkthdr pkthdr;
   int recvsize = 0;
   int offset = 0;
@@ -173,24 +178,27 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   if (ntohs (ipfix->version) != NF_VERSION_IPFIX)
     return -1;
   if (ntohs (sh->set_id) != PSAMP_SOFTFLOWD_TEMPLATE_ID)
-    return 0;                   // This function only process softflowd orignate psamp data record.
+    return 0;  // This function only processes psamp data records originated by softflowd.
 
-  // disrgard selectionSequenceId
+  // disregard selectionSequenceId
   offset += sizeof (uint64_t);
 
   // observationTimeMicroseconds
-  ntptime = *((struct ntp_time_t *) &buf[offset]);
+  PKT_LOAD (ntptime, &buf[offset]);
   offset += sizeof (struct ntp_time_t);
   ntptime.second = ntohl (ntptime.second);
   ntptime.fraction = ntohl (ntptime.fraction);
   conv_ntp_to_unix (ntptime, &pkthdr.ts);
 
   //sectionExportedOctets
-  pkthdr.caplen = pkthdr.len = ntohs (*((uint16_t *) & buf[offset]));
-  offset += sizeof (uint16_t);
+  PKT_LOAD (exportedOctets, &buf[offset]);
+  pkthdr.caplen = pkthdr.len = ntohs (exportedOctets);
+  offset += sizeof (exportedOctets);
   pkthdr.caplen =
     pkthdr.caplen <
-    sizeof (buf) - offset ? pkthdr.caplen : sizeof (buf) - offset;
+        sizeof (buf) - offset
+      ? pkthdr.caplen
+      : sizeof (buf) - offset;
 
   flow_cb ((u_char *) cb_ctxt, &pkthdr, (const u_char *) &buf[offset]);
   return 1;
