@@ -63,6 +63,9 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <sys/ioctl.h>
+#ifdef HAVE_LINUX_DCCP_H
+#include <linux/dccp.h> /* struct dccp_hdr */
+#endif
 #endif /* LINUX */
 #ifdef HAVE_IFADDRS_H
 #include <ifaddrs.h>
@@ -856,7 +859,8 @@ format_flow_brief (struct FLOW *flow) {
   ((full) ? sizeof (type) : MEMBER_END (type, last))
 
 /**
- * @brief Fill in the transport-layer (TCP/UDP/ICMP) parts of a flow record.
+ * @brief Fill in the transport-layer (TCP/UDP/SCTP/DCCP/ICMP/ICMPv6) parts of a
+ * flow record.
  *
  * ICMP type and code are encoded into the destination port, like Cisco routers
  * do.
@@ -889,6 +893,20 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
     case IPPROTO_UDP:
       min_len = HDR_MIN_LEN (full_l4hdr_check, struct udphdr, uh_dport);
       break;
+#ifdef IPPROTO_DCCP
+    case IPPROTO_DCCP:
+#ifdef HAVE_LINUX_DCCP_H
+      min_len = HDR_MIN_LEN (full_l4hdr_check, struct dccp_hdr, dccph_dport);
+#else
+      min_len = MEMBER_END (struct udphdr, uh_dport);
+#endif /* HAVE_LINUX_DCCP_H */
+      break;
+#endif
+#ifdef IPPROTO_SCTP
+    case IPPROTO_SCTP: /* no header struct available: ports only */
+      min_len = MEMBER_END (struct udphdr, uh_dport);
+      break;
+#endif
     case IPPROTO_ICMP:
       /* type and code */
       min_len = HDR_MIN_LEN (full_l4hdr_check, struct icmp, icmp_code);
@@ -914,7 +932,8 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
       htons ((pkt[offsetof (struct icmp, icmp_type)] << 8) |
              pkt[offsetof (struct icmp, icmp_code)]);
   } else {
-    /* UDP header also serves TCP: both start with the source and dest. ports */
+    /* UDP header also serves TCP, SCTP, DCCP:
+     * all start with the source destination ports */
 #ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
     const struct udphdr *udp = (const struct udphdr *) pkt;
     flow->port[ndx] = udp->uh_sport;

@@ -160,6 +160,8 @@ AC_CHECK_HEADERS([netinet/if_ether.h], [], [],
 #include <net/if_arp.h>
 #endif
 ]])
+dnl Linux only: struct dccp_hdr for the DCCP ports
+AC_CHECK_HEADERS([linux/dccp.h])
 dnl AC_CHECK_HEADERS(netinet/in_systm.h netinet/tcp.h netinet/udp.h)
 dnl
 dnl # This ugliness is because of autoconf's stupid default include list
