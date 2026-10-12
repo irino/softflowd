@@ -380,8 +380,10 @@ for days, hours or minutes.
 Enable multithreaded operation.
 This is only available if
 .Nm
-was built with pthread support
-.Pq Li ./configure --enable-pthread .
+was built with pthread support.
+This is the default if pthread.h and libpthread are found;
+.Li ./configure --disable-pthread
+disables it.
 .El
 .Pp
 Any further command-line arguments will be concatenated together and

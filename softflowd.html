@@ -412,7 +412,8 @@ days, hours or minutes.</p>
 
 <p style="margin-left:19%;">Enable multithreaded operation.
 This is only available if <b>softflowd</b> was built with
-pthread support (<b>./configure --enable-pthread</b>).</p>
+pthread support, which is the default if pthread.h and libpthread are
+found (<b>./configure --disable-pthread</b> disables it).</p>
 
 <p style="margin-left:9%; margin-top: 1em">Any further
 command-line arguments will be concatenated together and

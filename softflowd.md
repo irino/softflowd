@@ -283,7 +283,8 @@ value may be followed by 'd', 'h' or 'm' for days, hours or minutes.
 **-M**, **\--multithread**
 
 Enable multithreaded operation. This is only available if **softflowd**
-was built with pthread support (**./configure \--enable-pthread**).
+was built with pthread support, which is the default if pthread.h and
+libpthread are found (**./configure \--disable-pthread** disables it).
 
 Any further command-line arguments will be concatenated together and
 applied as a *bpf*(4) packet filter. This filter will cause

@@ -75,6 +75,10 @@ Use `--without-xxhash` to never use it, or `--with-xxhash` to fail if it is
 not found. Without xxHash a built-in FNV-1a hash is used, so all flow lookup
 modes work either way.
 
+The multithreaded operation (`-M`) is built when `pthread.h` and `libpthread`
+are found. Use `--disable-pthread` to never build it, or `--enable-pthread` to
+fail if they are not found.
+
 Unfortunately some systems like to make life complicated. Things work
 fine on the systems that I develop and test on (OpenBSD and Linux).
 There is peliminary support for Solaris 9 (i.e. it compiled), but no

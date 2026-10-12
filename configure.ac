@@ -98,8 +98,8 @@ elif test "x$legacy" = "xyes" ; then
   compat_export=static-separate
 fi
 AC_ARG_ENABLE(pthread,
-              AS_HELP_STRING([--enable-pthread],[enable pthread (default NO) (experimental, unstable)]),
-              [pthread=yes],[pthread=no])
+              AS_HELP_STRING([--disable-pthread],[do not build the multithreaded operation (-M) (default: build it if pthread.h and libpthread are found)]),
+              [pthread=$enableval],[pthread=check])
 AC_ARG_ENABLE(ntopng,
               AS_HELP_STRING([--enable-ntopng],[enable flow sending to ntopng with zeromq (default NO)]),
               [ntopng=yes],[ntopng=no])
@@ -268,10 +268,17 @@ case "$compat_export" in
 esac
 AM_CONDITIONAL([COMPAT_EXPORT_IS_ENABLED], [test -n "$compat_export"])
 AM_CONDITIONAL([COMPAT_EXPORT_IS_STATIC_SEPARATE], [test "x$compat_export" = xstatic-separate])
-if test "x$pthread" = "xyes" ; then
-  AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
-  AC_CHECK_LIB(pthread, pthread_create, [],[AC_MSG_ERROR([pthread.h not found])])
-  AC_CHECK_HEADERS(pthread.h, [],[AC_MSG_ERROR([pthread.h not found])])
+if test "x$pthread" != "xno" ; then
+  AC_CHECK_HEADERS([pthread.h], [
+    AC_CHECK_LIB([pthread], [pthread_create],
+                 [AC_DEFINE([ENABLE_PTHREAD], 1, [enable pthread])
+                  LIBS="-lpthread $LIBS"],
+                 [if test "x$pthread" = "xyes" ; then
+                    AC_MSG_ERROR([libpthread not found])
+                  fi])],
+    [if test "x$pthread" = "xyes" ; then
+       AC_MSG_ERROR([pthread.h not found])
+     fi])
 fi
 if test "x$ntopng" = "xyes" ; then
   AC_DEFINE([ENABLE_NTOPNG], 1, [enable ntopng])
