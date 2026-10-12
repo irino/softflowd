@@ -27,8 +27,8 @@
 
 #include "config.h"
 
-#define _BSD_SOURCE             /* Needed for BSD-style struct ip,tcp,udp on Linux */
-#define _DEFAULT_SOURCE         /* It is recommended to use instead of _BSD_SOURCE on Linux */
+#define _BSD_SOURCE     /* Needed for BSD-style struct ip,tcp,udp on Linux */
+#define _DEFAULT_SOURCE /* It is recommended to use instead of _BSD_SOURCE on Linux */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -90,57 +90,57 @@
 #endif
 
 /* The name of the program */
-#define PROGNAME		"softflowd"
+#define PROGNAME "softflowd"
 
 /* The name of the program */
-#define PROGVER			"1.1.1"
+#define PROGVER "1.1.1"
 
 /* Default pidfile */
-#define DEFAULT_PIDFILE		"/var/run/" PROGNAME ".pid"
+#define DEFAULT_PIDFILE "/var/run/" PROGNAME ".pid"
 
 /* Default control socket */
-#define DEFAULT_CTLSOCK		"/var/run/" PROGNAME ".ctl"
+#define DEFAULT_CTLSOCK "/var/run/" PROGNAME ".ctl"
 
-#define RCSID(msg) \
-	static /**/const char *const flowd_rcsid[] =		\
-	    { (const char *)flowd_rcsid, "\100(#)" msg }	\
+#define RCSID(msg)                              \
+  static /**/ const char *const flowd_rcsid[] = \
+    {(const char *) flowd_rcsid, "\100(#)" msg}
 
 #ifndef IP_OFFMASK
-#define IP_OFFMASK		0x1fff  /* mask for fragmenting bits */
+#define IP_OFFMASK 0x1fff /* mask for fragmenting bits */
 #endif
 #ifndef IPV6_VERSION
-#define IPV6_VERSION		0x60
+#define IPV6_VERSION 0x60
 #endif
 #ifndef IPV6_VERSION_MASK
-#define IPV6_VERSION_MASK	0xf0
+#define IPV6_VERSION_MASK 0xf0
 #endif
 #ifndef IPV6_FLOWINFO_MASK
-#define IPV6_FLOWINFO_MASK	ntohl(0x0fffffff)
+#define IPV6_FLOWINFO_MASK ntohl (0x0fffffff)
 #endif
 #ifndef IPV6_FLOWLABEL_MASK
-#define IPV6_FLOWLABEL_MASK	ntohl(0x000fffff)
+#define IPV6_FLOWLABEL_MASK ntohl (0x000fffff)
 #endif
 
 #ifndef _PATH_DEVNULL
-#define _PATH_DEVNULL		"/dev/null"
+#define _PATH_DEVNULL "/dev/null"
 #endif
 
 #ifndef MIN
-#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 #ifndef MAX
-#define MAX(a,b) (((a)>(b))?(a):(b))
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #endif
 #ifndef offsetof
-#define offsetof(type, member) ((size_t) &((type *)0)->member)
+#define offsetof(type, member) ((size_t) &((type *) 0)->member)
 #endif
 
 #if defined(__GNUC__)
 #ifndef __dead
-#define __dead                __attribute__((__noreturn__))
+#define __dead __attribute__ ((__noreturn__))
 #endif
 #ifndef __packed
-#define __packed              __attribute__((__packed__))
+#define __packed __attribute__ ((__packed__))
 #endif
 #endif
 
@@ -176,13 +176,16 @@ typedef OUR_CFG_U_INT64_T u_int64_t;
 #include <bsd/unistd.h>
 #endif
 #ifndef HAVE_STRLCPY
-size_t strlcpy (char *dst, const char *src, size_t siz);
+size_t
+strlcpy (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_STRLCAT
-size_t strlcat (char *dst, const char *src, size_t siz);
+size_t
+strlcat (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_CLOSEFROM
-void closefrom (int lowfd);
+void
+closefrom (int lowfd);
 #endif
 
 #ifndef HAVE_STRUCT_IP6_EXT
@@ -192,49 +195,51 @@ struct ip6_ext {
 } __packed;
 #endif
 
-
 /* following lines are copy from unistd.h in Linux for avoidance warnings in compilation */
 #if defined(HAVE_SETRESGID) && !defined(_GNU_SOURCE)
-extern int setresgid (uid_t __ruid, uid_t __euid, uid_t __suid);
+extern int
+setresgid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #endif
 #if defined(HAVE_SETRESUID) && !defined(_GNU_SOURCE)
-extern int setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
+extern int
+setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 #endif
 
-#if defined (HAVE_DECL_HTONLL) && !defined (HAVE_DECL_HTOBE64)
-#define htobe64     htonll
+#if defined(HAVE_DECL_HTONLL) && !defined(HAVE_DECL_HTOBE64)
+#define htobe64 htonll
 #endif
 
 #ifndef ETH_ALEN
 // https://cdn.kernel.org/pub/linux/kernel/people/marcelo/linux-2.4/include/linux/if_ether.h
-#define ETH_ALEN	6       /* Octets in one ethernet addr   */
-#endif /* ETH_ALEN */
+#define ETH_ALEN 6 /* Octets in one ethernet addr   */
+#endif             /* ETH_ALEN */
 
 #ifndef ETH_P_MPLS_UC
-#define ETH_P_MPLS_UC	0x8847  /* MPLS Unicast traffic         */
-#endif /* ETH_P_MPLS_UC */
+#define ETH_P_MPLS_UC 0x8847 /* MPLS Unicast traffic         */
+#endif                       /* ETH_P_MPLS_UC */
 #ifndef MPLS_LS_S_MASK
-#define MPLS_LS_S_MASK          0x00000100
+#define MPLS_LS_S_MASK 0x00000100
 #endif /* MPLS_LS_S_MASK */
 #ifndef MPLS_LS_S_SHIFT
-#define MPLS_LS_S_SHIFT         8
-#endif /* MPLS_LS_S_SHIFT */
-#ifndef IFNAMSIZ                /* defined in <net/if.h> in linux */
+#define MPLS_LS_S_SHIFT 8
+#endif           /* MPLS_LS_S_SHIFT */
+#ifndef IFNAMSIZ /* defined in <net/if.h> in linux */
 #define IFNAMSIZ 16
 #endif /* IFNAMSIZ */
 
 #ifdef __APPLE__
 #include <libkern/OSByteOrder.h>
-#define htobe64(x) OSSwapHostToBigInt64(x)
+#define htobe64(x) OSSwapHostToBigInt64 (x)
 #endif /* __APPLE__ */
 
 /* Set 'now' to last_packet_time (-a) or real wall-clock time.
  * Exporters must call this before computing export_time to ensure reproducibility. */
-#define SET_EXPORT_NOW(now, param) do {                                \
-    if ((param)->adjust_time)                                         \
-      (now) = (param)->last_packet_time;                              \
-    else                                                              \
-      gettimeofday (&(now), NULL);                                    \
+#define SET_EXPORT_NOW(now, param)       \
+  do {                                   \
+    if ((param)->adjust_time)            \
+      (now) = (param)->last_packet_time; \
+    else                                 \
+      gettimeofday (&(now), NULL);       \
   } while (0)
 
 #endif /* _SFD_COMMON_H */

@@ -30,10 +30,10 @@
 #include "ipfix.h"
 
 /* Legacy (--enable-compat-export=static-separate) NetFlow v9 exporter limits */
-#define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE                   512
-#define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS                 16
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS     1
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS          2
+#define NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE 512
+#define NETFLOW9_SOFTFLOWD_TEMPLATE_NRECORDS 16
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS 1
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS 2
 
 /* NetFlow v9: stuff pertaining to the templates that softflowd uses */
 struct NETFLOW9_SOFTFLOWD_TEMPLATE {
@@ -79,7 +79,6 @@ struct NETFLOW9_SOFTFLOWD_OPTION_DATA {
 } __packed;
 
 /* Local data: templates and counters */
-
 
 /** IPv4 data template. */
 static struct NETFLOW9_SOFTFLOWD_TEMPLATE v4_template;
@@ -217,9 +216,9 @@ nf9_init_option (u_int16_t ifidx, struct OPTION *option) {
  * @return Number of records written, or -1 if the buffer is too small or the address family is unsupported.
  */
 static int
-nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
+nf_flow_to_flowset (const struct FLOW *flow, u_char *packet, u_int len,
                     u_int16_t ifidx, const struct timeval *system_boot_time,
-                    u_int * len_used) {
+                    u_int *len_used) {
   union {
     struct NETFLOW9_SOFTFLOWD_DATA_V4 d4;
     struct NETFLOW9_SOFTFLOWD_DATA_V6 d6;
@@ -230,28 +229,28 @@ nf_flow_to_flowset (const struct FLOW *flow, u_char * packet, u_int len,
   memset (d, 0, sizeof (d));
   *len_used = nflows = ret_len = 0;
   switch (flow->af) {
-  case AF_INET:
-    freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V4);
-    memcpy (&d[0].d4.sourceIPv4Address, &flow->addr[0].v4, 4);
-    memcpy (&d[0].d4.destinationIPv4Address, &flow->addr[1].v4, 4);
-    memcpy (&d[1].d4.sourceIPv4Address, &flow->addr[1].v4, 4);
-    memcpy (&d[1].d4.destinationIPv4Address, &flow->addr[0].v4, 4);
-    dc[0] = &d[0].d4.c;
-    dc[1] = &d[1].d4.c;
-    dc[0]->ipVersion = dc[1]->ipVersion = 4;
-    break;
-  case AF_INET6:
-    freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V6);
-    memcpy (&d[0].d6.sourceIPv6Address, &flow->addr[0].v6, 16);
-    memcpy (&d[0].d6.destinationIPv6Address, &flow->addr[1].v6, 16);
-    memcpy (&d[1].d6.sourceIPv6Address, &flow->addr[1].v6, 16);
-    memcpy (&d[1].d6.destinationIPv6Address, &flow->addr[0].v6, 16);
-    dc[0] = &d[0].d6.c;
-    dc[1] = &d[1].d6.c;
-    dc[0]->ipVersion = dc[1]->ipVersion = 6;
-    break;
-  default:
-    return (-1);
+    case AF_INET:
+      freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V4);
+      memcpy (&d[0].d4.sourceIPv4Address, &flow->addr[0].v4, 4);
+      memcpy (&d[0].d4.destinationIPv4Address, &flow->addr[1].v4, 4);
+      memcpy (&d[1].d4.sourceIPv4Address, &flow->addr[1].v4, 4);
+      memcpy (&d[1].d4.destinationIPv4Address, &flow->addr[0].v4, 4);
+      dc[0] = &d[0].d4.c;
+      dc[1] = &d[1].d4.c;
+      dc[0]->ipVersion = dc[1]->ipVersion = 4;
+      break;
+    case AF_INET6:
+      freclen = sizeof (struct NETFLOW9_SOFTFLOWD_DATA_V6);
+      memcpy (&d[0].d6.sourceIPv6Address, &flow->addr[0].v6, 16);
+      memcpy (&d[0].d6.destinationIPv6Address, &flow->addr[1].v6, 16);
+      memcpy (&d[1].d6.sourceIPv6Address, &flow->addr[1].v6, 16);
+      memcpy (&d[1].d6.destinationIPv6Address, &flow->addr[0].v6, 16);
+      dc[0] = &d[0].d6.c;
+      dc[1] = &d[1].d6.c;
+      dc[0]->ipVersion = dc[1]->ipVersion = 6;
+      break;
+    default:
+      return (-1);
   }
 
   dc[0]->flowStartSysUpTime = dc[1]->flowStartSysUpTime =
@@ -327,7 +326,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
   SET_EXPORT_NOW (now, param);
 
   if (nf9_pkts_until_template == -1) {
-    nf9_init_template ();
+    nf9_init_template();
     nf9_pkts_until_template = 0;
     if (option != NULL && option->sample > 1) {
       nf9_init_option (ifidx, option);
@@ -340,7 +339,7 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     nf9 = (struct NETFLOW9_HEADER *) packet;
 
     nf9->version = htons (9);
-    nf9->flows = 0;             /* Filled as we go, htons at end */
+    nf9->flows = 0; /* Filled as we go, htons at end */
     nf9->sysUpTime = htonl (timeval_sub_ms (&now, system_boot_time));
     nf9->export_time = htonl ((u_int32_t) now.tv_sec);
     nf9->observation_domain_id = 0;
@@ -384,14 +383,12 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
           dh = NULL;
           break;
         }
-        dh = (struct IPFIX_SET_HEADER *)
-          (packet + offset);
+        dh = (struct IPFIX_SET_HEADER *) (packet + offset);
         dh->set_id =
-          (flows[i + j]->af == AF_INET) ?
-          v4_template.h.r.template_id : v6_template.h.r.template_id;
+          (flows[i + j]->af == AF_INET) ? v4_template.h.r.template_id : v6_template.h.r.template_id;
         last_af = flows[i + j]->af;
         last_valid = offset;
-        dh->length = sizeof (*dh);    /* Filled as we go */
+        dh->length = sizeof (*dh); /* Filled as we go */
         offset += sizeof (*dh);
       }
 
@@ -407,11 +404,12 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
       offset += inc;
       dh->length += inc;
       nf9->flows += r;
-      last_valid = 0;           /* Don't clobber this header now */
+      last_valid = 0; /* Don't clobber this header now */
       if (verbose_flag) {
         logit (LOG_DEBUG, "Flow %d/%d: "
-               "r %d offset %d type %04x len %d(0x%04x) "
-               "flows %d", r, i, j, offset,
+                          "r %d offset %d type %04x len %d(0x%04x) "
+                          "flows %d",
+               r, i, j, offset,
                dh->set_id, dh->length, dh->length, nf9->flows);
       }
     }
@@ -427,13 +425,12 @@ send_netflow_v9 (struct SENDPARAMETER sp) {
     }
     param->records_sent += nf9->flows;
     nf9->flows = htons (nf9->flows);
-    nf9->sequence_number = htonl ((u_int32_t)
-                           ((*packets_sent + num_packets +
-                             1) & 0x00000000ffffffff));
+    nf9->sequence_number = htonl ((u_int32_t) ((*packets_sent + num_packets +
+                                                1) &
+                                               0x00000000ffffffff));
 
-    if (send_multi_destinations
-        (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations (sp.target->num_destinations, sp.target->destinations,
+                                 sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
     nf9_pkts_until_template--;

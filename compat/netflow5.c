@@ -41,8 +41,8 @@ struct NETFLOW1_FLOW_PROTO_TOS_TCPF {
   u_int32_t reserved1;
 };
 
-#define NETFLOW1_FLOW_COMMON_SIZE (sizeof(struct NETFLOW5_FLOW) - \
-                                  sizeof(struct NETFLOW1_FLOW_PROTO_TOS_TCPF))
+#define NETFLOW1_FLOW_COMMON_SIZE (sizeof (struct NETFLOW5_FLOW) - \
+                                   sizeof (struct NETFLOW1_FLOW_PROTO_TOS_TCPF))
 
 /**
  * @brief Fill the v1-only tail of a NetFlow v1 flow record.
@@ -53,7 +53,7 @@ struct NETFLOW1_FLOW_PROTO_TOS_TCPF {
  * @param tcpf  Cumulative TCP flags.
  */
 static void
-fill_netflow_v1_proto_tos_tcp (u_int8_t * pkt, u_int8_t proto, u_int8_t tos,
+fill_netflow_v1_proto_tos_tcp (u_int8_t *pkt, u_int8_t proto, u_int8_t tos,
                                u_int8_t tcpf) {
   struct NETFLOW1_FLOW_PROTO_TOS_TCPF *flw =
     (struct NETFLOW1_FLOW_PROTO_TOS_TCPF *) pkt;
@@ -81,7 +81,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NETFLOW5_MAXPACKET_SIZE];  /* Maximum allowed packet size (v1: 24, v5: 30 flows) */
+  u_int8_t packet[NETFLOW5_MAXPACKET_SIZE]; /* Maximum allowed packet size (v1: 24, v5: 30 flows) */
   struct NETFLOW5_HEADER *hdr = NULL;
   struct NETFLOW5_FLOW *flw = NULL;
   int i, j, offset, num_packets;
@@ -99,14 +99,12 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   hdr = (struct NETFLOW5_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
     /* Records this flow adds: IPv4 only, one per direction with data. */
-    need = (flows[i]->af == AF_INET) ?
-      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    need = (flows[i]->af == AF_INET) ? (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
     if (j + need > maxflows) {
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
-      if (send_multi_destinations
-          (sp.target->num_destinations, sp.target->destinations,
-           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+      if (send_multi_destinations (sp.target->num_destinations, sp.target->destinations,
+                                   sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -115,7 +113,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
     if (j == 0) {
       memset (&packet, '\0', sizeof (packet));
       hdr->version = htons (version);
-      hdr->flows = 0;           /* Filled in as we go */
+      hdr->flows = 0; /* Filled in as we go */
       hdr->sysUpTime = htonl (uptime_ms);
       hdr->export_time = htonl (now.tv_sec);
       hdr->export_time_nanoseconds = htonl (now.tv_usec * 1000);
@@ -150,7 +148,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       flw->ipClassOfService = flows[i]->tos[0];
       if (version == 1) {
         fill_netflow_v1_proto_tos_tcp (packet + offset +
-                                       NETFLOW1_FLOW_COMMON_SIZE,
+                                         NETFLOW1_FLOW_COMMON_SIZE,
                                        flows[i]->protocol, flows[i]->tos[0],
                                        flows[i]->tcp_flags[0]);
       }
@@ -177,7 +175,7 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
       flw->ipClassOfService = flows[i]->tos[1];
       if (version == 1) {
         fill_netflow_v1_proto_tos_tcp (packet + offset +
-                                       NETFLOW1_FLOW_COMMON_SIZE,
+                                         NETFLOW1_FLOW_COMMON_SIZE,
                                        flows[i]->protocol, flows[i]->tos[1],
                                        flows[i]->tcp_flags[1]);
       }
@@ -191,9 +189,8 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
   if (j != 0) {
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
-    if (send_multi_destinations
-        (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations (sp.target->num_destinations, sp.target->destinations,
+                                 sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
   }

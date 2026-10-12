@@ -36,29 +36,29 @@
  */
 /** NetFlow v1 flow record (48 octets). */
 struct NETFLOW1_FLOW {
-  u_int32_t sourceIPv4Address;  /**< Source IPv4 address */
-  u_int32_t destinationIPv4Address;     /**< Destination IPv4 address */
-  u_int32_t ipNextHopIPv4Address;       /**< Next hop (always 0) */
-  u_int16_t ingressInterface;   /**< Input interface index */
-  u_int16_t egressInterface;    /**< Output interface index */
-  u_int32_t packetDeltaCount;   /**< Packets in the flow */
-  u_int32_t octetDeltaCount;    /**< Octets in the flow */
-  u_int32_t flowStartSysUpTime; /**< sysUpTime at flow start */
-  u_int32_t flowEndSysUpTime;   /**< sysUpTime at flow end */
-  u_int16_t sourceTransportPort;        /**< Source port */
-  u_int16_t destinationTransportPort;   /**< Destination port */
-  u_int16_t pad1;               /**< Padding */
-  u_int8_t protocolIdentifier;  /**< IP protocol number */
-  u_int8_t ipClassOfService;    /**< IP type of service */
-  u_int8_t tcpControlBits;      /**< Cumulative TCP flags */
-  u_int8_t pad2, pad3, pad4;    /**< Padding */
-  u_int32_t reserved1;          /**< Reserved */
+  u_int32_t sourceIPv4Address;        /**< Source IPv4 address */
+  u_int32_t destinationIPv4Address;   /**< Destination IPv4 address */
+  u_int32_t ipNextHopIPv4Address;     /**< Next hop (always 0) */
+  u_int16_t ingressInterface;         /**< Input interface index */
+  u_int16_t egressInterface;          /**< Output interface index */
+  u_int32_t packetDeltaCount;         /**< Packets in the flow */
+  u_int32_t octetDeltaCount;          /**< Octets in the flow */
+  u_int32_t flowStartSysUpTime;       /**< sysUpTime at flow start */
+  u_int32_t flowEndSysUpTime;         /**< sysUpTime at flow end */
+  u_int16_t sourceTransportPort;      /**< Source port */
+  u_int16_t destinationTransportPort; /**< Destination port */
+  u_int16_t pad1;                     /**< Padding */
+  u_int8_t protocolIdentifier;        /**< IP protocol number */
+  u_int8_t ipClassOfService;          /**< IP type of service */
+  u_int8_t tcpControlBits;            /**< Cumulative TCP flags */
+  u_int8_t pad2, pad3, pad4;          /**< Padding */
+  u_int32_t reserved1;                /**< Reserved */
 #if 0
   u_int8_t reserved2;           /* XXX: no longer used */
 #endif
 };
-#define NETFLOW1_MAXPACKET_SIZE	(sizeof(struct NETFLOW1_HEADER) + \
-				 (NETFLOW1_MAXFLOWS * sizeof(struct NETFLOW1_FLOW)))
+#define NETFLOW1_MAXPACKET_SIZE (sizeof (struct NETFLOW1_HEADER) + \
+                                 (NETFLOW1_MAXFLOWS * sizeof (struct NETFLOW1_FLOW)))
 
 /**
  * @brief Send expired flows as NetFlow v1 packets (independent exporter, export type "none").
@@ -77,7 +77,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   int verbose_flag = sp.verbose_flag;
   struct timeval now;
   u_int32_t uptime_ms;
-  u_int8_t packet[NETFLOW1_MAXPACKET_SIZE];  /* Maximum allowed packet size (24 flows) */
+  u_int8_t packet[NETFLOW1_MAXPACKET_SIZE]; /* Maximum allowed packet size (24 flows) */
   struct NETFLOW1_HEADER *hdr = NULL;
   struct NETFLOW1_FLOW *flw = NULL;
   int i, j, offset, num_packets;
@@ -90,14 +90,12 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   hdr = (struct NETFLOW1_HEADER *) packet;
   for (num_packets = offset = j = i = 0; i < num_flows; i++) {
     /* Records this flow adds: IPv4 only, one per direction with data. */
-    int need = (flows[i]->af == AF_INET) ?
-      (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
+    int need = (flows[i]->af == AF_INET) ? (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0) : 0;
     if (j + need > NETFLOW1_MAXFLOWS) {
       param->records_sent += hdr->flows;
       hdr->flows = htons (hdr->flows);
-      if (send_multi_destinations
-          (sp.target->num_destinations, sp.target->destinations,
-           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+      if (send_multi_destinations (sp.target->num_destinations, sp.target->destinations,
+                                   sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
         return (-1);
       *flows_exported += j;
       j = 0;
@@ -106,7 +104,7 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
     if (j == 0) {
       memset (&packet, '\0', sizeof (packet));
       hdr->version = htons (1);
-      hdr->flows = 0;           /* Filled in as we go */
+      hdr->flows = 0; /* Filled in as we go */
       hdr->sysUpTime = htonl (uptime_ms);
       hdr->export_time = htonl (now.tv_sec);
       hdr->export_time_nanoseconds = htonl (now.tv_usec * 1000);
@@ -163,9 +161,8 @@ send_netflow_v1 (struct SENDPARAMETER sp) {
   if (j != 0) {
     param->records_sent += hdr->flows;
     hdr->flows = htons (hdr->flows);
-    if (send_multi_destinations
-        (sp.target->num_destinations, sp.target->destinations,
-         sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_multi_destinations (sp.target->num_destinations, sp.target->destinations,
+                                 sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
       return (-1);
     num_packets++;
   }

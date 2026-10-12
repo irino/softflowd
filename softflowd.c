@@ -80,31 +80,30 @@
 static int verbose_flag = 0;   /**< Debugging flag */
 static u_int16_t if_index = 0; /**< "manual" interface index */
 static int track_level;        /**< Flow tracking level (TRACK_*) */
-static int snaplen =
-  0;                        /**< Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
+/** Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
+static int snaplen = 0;
 static int gauge_clock = 0; /**< -g: report cpu clocks */
-static clock_t export_clocks =
-  0; /**< cpu clocks spent in the export function */
-static unsigned long export_calls =
-  0; /**< Number of calls to the export function */
+/** cpu clocks spent in the export function */
+static clock_t export_clocks = 0;
+/** Number of calls to the export function */
+static unsigned long export_calls = 0;
 #ifdef ENABLE_PTHREAD
 pthread_mutex_t read_mutex; /**< Protects packet_header/packet_data handed to
                                the processing thread */
 pthread_cond_t read_cond;   /**< Signalled when a new packet is available */
-static pthread_mutex_t export_threads_mutex =
-  PTHREAD_MUTEX_INITIALIZER; /**< Protects export_threads_outstanding */
-static pthread_cond_t export_threads_cond =
-  PTHREAD_COND_INITIALIZER; /**< Signalled when the last export thread ends */
-static int export_threads_outstanding =
-  0; /**< Number of running export threads (-M) */
-static pthread_cond_t slot_cond =
-  PTHREAD_COND_INITIALIZER; /**< Signalled when the processing thread has
-                                 finished the handed-over packet */
-static int packet_ready =
-  0; /**< Non-zero while packet_data holds a packet that is not processed yet
-          (protected by read_mutex) */
-static int reader_stop =
-  0; /**< Set under read_mutex to make process_packet_loop() return */
+/** Protects export_threads_outstanding */
+static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+/** Signalled when the last export thread ends */
+static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;
+/** Number of running export threads (-M) */
+static int export_threads_outstanding = 0;
+/** Signalled when the processing thread has finished the handed-over packet */
+static pthread_cond_t slot_cond = PTHREAD_COND_INITIALIZER;
+/** Non-zero while packet_data holds a packet that is not processed yet
+ * (protected by read_mutex) */
+static int packet_ready = 0;
+/** Set under read_mutex to make process_packet_loop() return */
+static int reader_stop = 0;
 
 /**
  * @brief Block until every detached export thread (-M) has finished.
@@ -1624,9 +1623,9 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target,
       }
       if (verbose_flag)
         logit (LOG_DEBUG, "sent %d netflow packets", r);
+      /* XXX what if r < num_expired * 2 ? */
       if (r <= 0)
-        ft->param.flows_dropped +=
-          num_expired * 2; /* XXX what if r < num_expired * 2 ? */
+        ft->param.flows_dropped += num_expired * 2;
     }
     for (i = 0; i < num_expired; i++) {
       if (verbose_flag) {
@@ -2177,9 +2176,19 @@ accept_control (int lsock, struct NETFLOW_TARGET *target,
   FILE *ctlf;
   int fd, ret = 0, cmd;
   /* A command's position in control_words[] is its number in the switch */
-  enum { CTL_HELP, CTL_SHUTDOWN, CTL_EXIT, CTL_EXPIRE_ALL, CTL_SEND_TEMPLATE,
-         CTL_DELETE_ALL, CTL_STATISTICS, CTL_DEBUG_ON, CTL_DEBUG_OFF,
-         CTL_STOP_GATHER, CTL_START_GATHER, CTL_DUMP_FLOWS, CTL_TIMEOUTS,
+  enum { CTL_HELP,
+         CTL_SHUTDOWN,
+         CTL_EXIT,
+         CTL_EXPIRE_ALL,
+         CTL_SEND_TEMPLATE,
+         CTL_DELETE_ALL,
+         CTL_STATISTICS,
+         CTL_DEBUG_ON,
+         CTL_DEBUG_OFF,
+         CTL_STOP_GATHER,
+         CTL_START_GATHER,
+         CTL_DUMP_FLOWS,
+         CTL_TIMEOUTS,
          CTL_UNKNOWN };
   static const char *const control_words[] = {
     "help", "shutdown", "exit", "expire-all", "send-template", "delete-all",
@@ -2756,7 +2765,7 @@ die_usage (const char *fmt, ...) {
   va_start (ap, fmt);
   vfprintf (stderr, fmt, ap);
   va_end (ap);
-  usage ();
+  usage();
   exit (1);
 }
 
@@ -3090,8 +3099,7 @@ main (int argc, char **argv) {
         else if (strcasecmp (optarg, "nano") == 0)
           flowtrack.param.time_format = 'n';
         else {
-          die_usage ("Unknown time format"
-                           "\n");
+          die_usage ("Unknown time format\n");
         }
         break;
       case 'b':
@@ -3162,8 +3170,7 @@ main (int argc, char **argv) {
         break;
       case 'i':
         if (capfile != NULL || dev != NULL) {
-          die_usage ("Packet source already "
-                           "specified.\n\n");
+          die_usage ("Packet source already specified.\n\n");
         }
 #if defined(HAVE_STRSEP)
         dev = strsep (&optarg, ":");
@@ -3265,14 +3272,12 @@ main (int argc, char **argv) {
           protocol = IPPROTO_SCTP;
 #endif
         else {
-          die_usage ("Unknown transport layer protocol"
-                           "\n");
+          die_usage ("Unknown transport layer protocol\n");
         }
         break;
       case 'r':
         if (capfile != NULL || dev != NULL) {
-          die_usage ("Packet source already "
-                           "specified.\n\n");
+          die_usage ("Packet source already specified.\n\n");
         }
         capfile = optarg;
         dontfork_flag = 1;
@@ -3316,8 +3321,7 @@ main (int argc, char **argv) {
           flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
 
         else {
-          die_usage ("Unknown flow tracking "
-                           "level\n");
+          die_usage ("Unknown flow tracking level\n");
         }
         track_level = flowtrack.param.track_level;
         break;

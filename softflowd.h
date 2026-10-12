@@ -317,7 +317,7 @@ struct EXPIRY {
   trp;               /**< Tree pointer */
   struct FLOW *flow; /**< pointer to flow */
 
-  u_int32_t expires_at; /**< time_t */
+  u_int32_t expires_at;      /**< time_t */
   enum EXPIRY_REASON reason; /**< Why the flow is expired */
 };
 
