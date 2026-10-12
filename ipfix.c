@@ -434,6 +434,8 @@ union FLOW_PACKET_HEADER {
  * @param param   Tracking parameters (export time, boot time).
  * @return Size of the header in bytes.
  */
+/* Not shared through PKT_STORE: the default builds a struct and copies it
+ * with memcpy, the legacy one writes member by member through a union. */
 static u_int
 build_flow_header (u_char *packet, u_int16_t version,
                    const struct FLOWTRACKPARAMETERS *param) {

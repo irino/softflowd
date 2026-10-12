@@ -89,6 +89,20 @@
 #include <endian.h>
 #endif
 
+/* Access to multi-byte packet fields that may be unaligned.
+ * PKT_LOAD (dst, ptr) reads sizeof (dst) bytes at ptr into dst;
+ * PKT_STORE (ptr, src) writes src to sizeof (src) bytes at ptr.
+ * The default uses memcpy. ENABLE_DIRECT_COPIES selects the legacy direct
+ * pointer casting, kept to check regressions against it; it needs __typeof__,
+ * which is a GNU extension. */
+#ifndef ENABLE_DIRECT_COPIES
+#define PKT_LOAD(dst, ptr) memcpy (&(dst), (ptr), sizeof (dst))
+#define PKT_STORE(ptr, src) memcpy ((ptr), &(src), sizeof (src))
+#else
+#define PKT_LOAD(dst, ptr) ((dst) = *(const __typeof__ (dst) *) (ptr))
+#define PKT_STORE(ptr, src) (*(__typeof__ (src) *) (ptr) = (src))
+#endif
+
 /* The name of the program */
 #define PROGNAME "softflowd"
 

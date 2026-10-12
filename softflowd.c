@@ -931,16 +931,9 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
   } else {
     /* UDP header also serves TCP, SCTP, DCCP:
      * all start with the source destination ports */
-#ifdef ENABLE_DIRECT_COPIES /* not default, legacy direct pointer casting */
-    const struct udphdr *udp = (const struct udphdr *) pkt;
-    flow->port[ndx] = udp->uh_sport;
-    flow->port[ndx ^ 1] = udp->uh_dport;
-#else /* default: ports are copied as they are on the wire */
-    memcpy (&flow->port[ndx], pkt + offsetof (struct udphdr, uh_sport),
-            sizeof (flow->port[0]));
-    memcpy (&flow->port[ndx ^ 1], pkt + offsetof (struct udphdr, uh_dport),
-            sizeof (flow->port[0]));
-#endif
+    /* ports are copied as they are on the wire */
+    PKT_LOAD (flow->port[ndx], pkt + offsetof (struct udphdr, uh_sport));
+    PKT_LOAD (flow->port[ndx ^ 1], pkt + offsetof (struct udphdr, uh_dport));
   }
 }
 
@@ -958,6 +951,8 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
  * @return IP header size in bytes, or a negative value on error (runt packet or
  * wrong IP version).
  */
+/* The head is not shared through PKT_LOAD: the default works on a copy of the
+ * header (ip.), the legacy one on a pointer into the packet (ip->). */
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
                  size_t caplen, int *isfrag, int *isfirst, int *ndx,
@@ -1003,6 +998,8 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
  * @return Size of the IPv6 and extension headers in bytes, or a negative value
  * on error.
  */
+/* The head is not shared through PKT_LOAD: the default works on a copy of the
+ * header (ip6.), the legacy one on a pointer into the packet (ip6->). */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
                  size_t caplen, int *isfrag, int *isfirst, int *ndx,
@@ -1015,7 +1012,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
 #else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
   const struct ip6_hdr *ip6 = (const struct ip6_hdr *) pkt;
   const struct ip6_ext *eh6;
-  const struct ip6_frag *fh6;
+  struct ip6_frag fh6;
 #endif
   int nxt, size, remain;
 #ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
@@ -1057,23 +1054,13 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
       size += eh6size;
     } else if (nxt == IPPROTO_FRAGMENT) {
       *isfrag = 1;
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
       if (remain < (int) sizeof (fh6))
         return (size); /* Runt */
-      memcpy (&fh6, eh6, sizeof (fh6));
+      PKT_LOAD (fh6, eh6);
       if ((fh6.ip6f_offlg & IP6F_OFF_MASK) != 0)
         *isfirst = 0;
       nxt = fh6.ip6f_nxt;
       size += sizeof (fh6);
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-      fh6 = (const struct ip6_frag *) eh6;
-      if (remain < sizeof (*fh6))
-        return (size); /* Runt */
-      if ((fh6->ip6f_offlg & IP6F_OFF_MASK) != 0)
-        *isfirst = 0;
-      nxt = fh6->ip6f_nxt;
-      size += sizeof (*fh6);
-#endif
     } else
       break;
   }
@@ -1261,13 +1248,8 @@ process_packet (struct CB_CTXT *cb_ctxt,
 
   tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-    memcpy (&tmp.mplsLabels[i],
-            frame + datalink_size + i * sizeof (tmp.mplsLabels[i]),
-            sizeof (tmp.mplsLabels[i]));
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-    tmp.mplsLabels[i] = *(((const u_int32_t *) (frame + datalink_size)) + i);
-#endif
+    PKT_LOAD (tmp.mplsLabels[i],
+              frame + datalink_size + i * sizeof (tmp.mplsLabels[i]));
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1968,12 +1950,7 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen,
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
     do {
-#ifndef ENABLE_DIRECT_COPIES /* default: aligned copies via memcpy */
-      memcpy (&shim, pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim),
-              sizeof (shim));
-#else /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-      shim = *((const u_int32_t *) (pkt + dl->skiplen + vlan_size) + *num_label);
-#endif
+      PKT_LOAD (shim, pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim));
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
