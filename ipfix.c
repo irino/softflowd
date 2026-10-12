@@ -142,8 +142,7 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
  * COMPAT_EXPORT to avoid duplication. */
 /* DEF_FIELD_ENC(ie, len, fn): Single macro to define field tables for both
  * with and without COMPAT_EXPORT without duplicating IE
- * lists. Forward-declares encoder types so the default (encoder-based)
- * expansion can compile. */
+ * lists. The encoder functions (fn) are defined before the tables. */
 #ifndef COMPAT_EXPORT
 struct IPFIX_CTX;
 typedef void (*ipfix_encoder_t) (u_char *dst, u_int16_t length,
@@ -152,263 +151,12 @@ struct IPFIX_FIELD_SPECIFIER_ENCODER {
   struct IPFIX_FIELD_SPECIFIER field;
   ipfix_encoder_t encoder;
 };
-/* Forward declarations for 'fn' in DEF_FIELD_ENC (for the default encoder-based
- * exporter). */
-static void
-enc_sourceIPv4Address (u_char *, u_int16_t,
-                       const struct IPFIX_CTX *);
-static void
-enc_destinationIPv4Address (u_char *, u_int16_t,
-                            const struct IPFIX_CTX *);
-static void
-enc_sourceIPv6Address (u_char *, u_int16_t,
-                       const struct IPFIX_CTX *);
-static void
-enc_destinationIPv6Address (u_char *, u_int16_t,
-                            const struct IPFIX_CTX *);
-static void
-enc_sourceTransportPort (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-static void
-enc_destinationTransportPort (u_char *, u_int16_t,
-                              const struct IPFIX_CTX *);
-static void
-enc_protocolIdentifier (u_char *, u_int16_t,
-                        const struct IPFIX_CTX *);
-static void
-enc_tcpControlBits (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_ipVersion (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_ipClassOfService (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_icmpTypeCode (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_vlanId (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_postVlanId (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_sourceMacAddress (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_postDestinationMacAddress (u_char *, u_int16_t,
-                               const struct IPFIX_CTX *);
-static void
-enc_flowStartSeconds (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_flowEndSeconds (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_flowStartMilliSeconds (u_char *, u_int16_t,
-                           const struct IPFIX_CTX *);
-static void
-enc_flowEndMilliSeconds (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-static void
-enc_flowStartMicroSeconds (u_char *, u_int16_t,
-                           const struct IPFIX_CTX *);
-static void
-enc_flowEndMicroSeconds (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-/* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
- */
-#define enc_flowStartNanoSeconds enc_flowStartMicroSeconds
-#define enc_flowEndNanoSeconds enc_flowEndMicroSeconds
-static void
-enc_flowStartSysUpTime (u_char *, u_int16_t,
-                        const struct IPFIX_CTX *);
-static void
-enc_flowEndSysUpTime (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_octetDeltaCount (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_packetDeltaCount (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_ifidx16 (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_ifidx32 (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_flowDirection (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_flowEndReason (u_char *, u_int16_t, const struct IPFIX_CTX *);
-#ifdef ENABLE_IFNAME
-static void
-enc_interfaceName (u_char *, u_int16_t, const struct IPFIX_CTX *);
-#endif
-static void
-enc_nf9OptionScopeInterface (u_char *, u_int16_t,
-                             const struct IPFIX_CTX *);
-static void
-enc_zero (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_meteringProcessId (u_char *, u_int16_t,
-                       const struct IPFIX_CTX *);
-static void
-enc_systemInitTimeMilliseconds (u_char *, u_int16_t,
-                                const struct IPFIX_CTX *);
-static void
-enc_samplingPacketInterval (u_char *, u_int16_t,
-                            const struct IPFIX_CTX *);
-static void
-enc_samplingPacketSpace (u_char *, u_int16_t,
-                         const struct IPFIX_CTX *);
-static void
-enc_selectorAlgorithm (u_char *, u_int16_t,
-                       const struct IPFIX_CTX *);
-static void
-enc_exporterAddress (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_originalExporterAddress (u_char *, u_int16_t,
-                             const struct IPFIX_CTX *);
-static void
-enc_samplingInterval (u_char *, u_int16_t, const struct IPFIX_CTX *);
-static void
-enc_samplingAlgorithm (u_char *, u_int16_t,
-                       const struct IPFIX_CTX *);
 #define IPFIX_FIELD_TABLE_TYPE struct IPFIX_FIELD_SPECIFIER_ENCODER
 #define DEF_FIELD_ENC(ie, len, fn) {{(ie), (len)}, (fn)}
 #else
 #define IPFIX_FIELD_TABLE_TYPE struct IPFIX_FIELD_SPECIFIER
 #define DEF_FIELD_ENC(ie, len, fn) {(ie), (len)}
 #endif
-
-/* Shared field-group descriptors (IPFIX IEs) used both with and without
- * COMPAT_EXPORT to avoid duplication. */
-const IPFIX_FIELD_TABLE_TYPE field_v4[] = {
-  DEF_FIELD_ENC (IPFIX_sourceIPv4Address, 4, enc_sourceIPv4Address),
-  DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)};
-
-const IPFIX_FIELD_TABLE_TYPE field_v6[] = {
-  DEF_FIELD_ENC (IPFIX_sourceIPv6Address, 16, enc_sourceIPv6Address),
-  DEF_FIELD_ENC (IPFIX_destinationIPv6Address, 16,
-                 enc_destinationIPv6Address)};
-
-const IPFIX_FIELD_TABLE_TYPE field_common[] = {
-  DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
-  DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
-  DEF_FIELD_ENC (IPFIX_ingressInterface, 4, enc_ifidx32),
-  DEF_FIELD_ENC (IPFIX_egressInterface, 4, enc_ifidx32),
-  DEF_FIELD_ENC (IPFIX_flowDirection, 1, enc_flowDirection),
-  DEF_FIELD_ENC (IPFIX_flowEndReason, 1, enc_flowEndReason),
-#ifdef ENABLE_IFNAME
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
-#endif
-};
-
-const IPFIX_FIELD_TABLE_TYPE field_transport[] = {
-  DEF_FIELD_ENC (IPFIX_sourceTransportPort, 2, enc_sourceTransportPort),
-  DEF_FIELD_ENC (IPFIX_destinationTransportPort, 2,
-                 enc_destinationTransportPort),
-  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
-  DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits),
-  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
-
-const IPFIX_FIELD_TABLE_TYPE field_icmp4[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode),
-  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
-  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
-
-const IPFIX_FIELD_TABLE_TYPE field_icmp6[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode),
-  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
-  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
-
-const IPFIX_FIELD_TABLE_TYPE field_vlan[] = {
-  DEF_FIELD_ENC (IPFIX_vlanId, 2, enc_vlanId),
-  DEF_FIELD_ENC (IPFIX_postVlanId, 2, enc_postVlanId)};
-
-const IPFIX_FIELD_TABLE_TYPE field_ether[] = {
-  DEF_FIELD_ENC (IPFIX_sourceMacAddress, 6, enc_sourceMacAddress),
-  DEF_FIELD_ENC (IPFIX_postDestinationMacAddress, 6,
-                 enc_postDestinationMacAddress)};
-
-const IPFIX_FIELD_TABLE_TYPE field_timesec[] = {
-  DEF_FIELD_ENC (IPFIX_flowStartSeconds, 4, enc_flowStartSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndSeconds, 4, enc_flowEndSeconds)};
-
-const IPFIX_FIELD_TABLE_TYPE field_timemsec[] = {
-  DEF_FIELD_ENC (IPFIX_flowStartMilliSeconds, 8, enc_flowStartMilliSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndMilliSeconds, 8, enc_flowEndMilliSeconds)};
-
-const IPFIX_FIELD_TABLE_TYPE field_timeusec[] = {
-  DEF_FIELD_ENC (IPFIX_flowStartMicroSeconds, 8, enc_flowStartMicroSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndMicroSeconds, 8, enc_flowEndMicroSeconds)};
-
-const IPFIX_FIELD_TABLE_TYPE field_timensec[] = {
-  DEF_FIELD_ENC (IPFIX_flowStartNanoSeconds, 8, enc_flowStartNanoSeconds),
-  DEF_FIELD_ENC (IPFIX_flowEndNanoSeconds, 8, enc_flowEndNanoSeconds)};
-
-const IPFIX_FIELD_TABLE_TYPE field_timesysup[] = {
-  DEF_FIELD_ENC (IPFIX_flowStartSysUpTime, 4, enc_flowStartSysUpTime),
-  DEF_FIELD_ENC (IPFIX_flowEndSysUpTime, 4, enc_flowEndSysUpTime)};
-
-const IPFIX_FIELD_TABLE_TYPE field_bicommon[] = {
-  DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
-  DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
-  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
-
-const IPFIX_FIELD_TABLE_TYPE field_bitransport[] = {
-  DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits)};
-
-const IPFIX_FIELD_TABLE_TYPE field_biicmp4[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode)};
-
-const IPFIX_FIELD_TABLE_TYPE field_biicmp6[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode)};
-
-const IPFIX_FIELD_TABLE_TYPE field_scope[] = {
-  DEF_FIELD_ENC (IPFIX_meteringProcessId, 4, enc_meteringProcessId)};
-
-const IPFIX_FIELD_TABLE_TYPE field_option[] = {
-  DEF_FIELD_ENC (IPFIX_systemInitTimeMilliseconds, 8,
-                 enc_systemInitTimeMilliseconds),
-  DEF_FIELD_ENC (PSAMP_samplingPacketInterval, 4, enc_samplingPacketInterval),
-  DEF_FIELD_ENC (PSAMP_samplingPacketSpace, 4, enc_samplingPacketSpace),
-  DEF_FIELD_ENC (PSAMP_selectorAlgorithm, 2, enc_selectorAlgorithm),
-#ifdef ENABLE_IFNAME
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName),
-#else
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero),
-#endif
-  DEF_FIELD_ENC (IPFIX_exporterIPv4Address, 4, enc_exporterAddress),
-  DEF_FIELD_ENC (IPFIX_exporterIPv6Address, 16, enc_exporterAddress),
-  DEF_FIELD_ENC (IPFIX_originalExporterIPv4Address, 4,
-                 enc_originalExporterAddress),
-  DEF_FIELD_ENC (IPFIX_originalExporterIPv6Address, 16,
-                 enc_originalExporterAddress)};
-
-const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {DEF_FIELD_ENC (
-  IPFIX_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)};
-
-const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
-  DEF_FIELD_ENC (IPFIX_samplingInterval, 4, enc_samplingInterval),
-  DEF_FIELD_ENC (IPFIX_samplingAlgorithm, 1, enc_samplingAlgorithm),
-#ifdef ENABLE_IFNAME
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
-#else
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero)
-#endif
-};
-
-/* Shared template sized for IPFIX (reused by NetFlow v9).
- * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)
- * to avoid over-counting and potential array bounds issues. */
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
-  (sizeof (field_scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
-  (sizeof (field_option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
-  (sizeof (field_nf9scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
-  (sizeof (field_nf9option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-
-struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
-  struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
-  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
-} __packed;
 
 /* Overlay of the packet headers (NETFLOW5/NETFLOW9/IPFIX) used to patch the
  * count, length and sequence number in place once a packet is complete, and by
@@ -769,6 +517,10 @@ enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
   conv_unix_to_ntp (ctx->flow->flow_last, &ntptime);
   hton (dst, (u_int64_t) ntptime.second << 32 | ntptime.fraction, 8);
 }
+/* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
+ */
+#define enc_flowStartNanoSeconds enc_flowStartMicroSeconds
+#define enc_flowEndNanoSeconds enc_flowEndMicroSeconds
 
 IPFIX_ENC_HTON (enc_vlanId, ctx->flow->vlanid[ctx->i], 2)
 IPFIX_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
@@ -890,6 +642,149 @@ enc_flowDirection (u_char *dst, u_int16_t length,
   *dst = ipfix_flow_direction (ctx->flow, ctx->i, ctx->sp->param);
 }
 
+#endif /* COMPAT_EXPORT */
+
+/* Shared field-group descriptors (IPFIX IEs) used both with and without
+ * COMPAT_EXPORT to avoid duplication. */
+const IPFIX_FIELD_TABLE_TYPE field_v4[] = {
+  DEF_FIELD_ENC (IPFIX_sourceIPv4Address, 4, enc_sourceIPv4Address),
+  DEF_FIELD_ENC (IPFIX_destinationIPv4Address, 4, enc_destinationIPv4Address)};
+
+const IPFIX_FIELD_TABLE_TYPE field_v6[] = {
+  DEF_FIELD_ENC (IPFIX_sourceIPv6Address, 16, enc_sourceIPv6Address),
+  DEF_FIELD_ENC (IPFIX_destinationIPv6Address, 16,
+                 enc_destinationIPv6Address)};
+
+const IPFIX_FIELD_TABLE_TYPE field_common[] = {
+  DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
+  DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
+  DEF_FIELD_ENC (IPFIX_ingressInterface, 4, enc_ifidx32),
+  DEF_FIELD_ENC (IPFIX_egressInterface, 4, enc_ifidx32),
+  DEF_FIELD_ENC (IPFIX_flowDirection, 1, enc_flowDirection),
+  DEF_FIELD_ENC (IPFIX_flowEndReason, 1, enc_flowEndReason),
+#ifdef ENABLE_IFNAME
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
+#endif
+};
+
+const IPFIX_FIELD_TABLE_TYPE field_transport[] = {
+  DEF_FIELD_ENC (IPFIX_sourceTransportPort, 2, enc_sourceTransportPort),
+  DEF_FIELD_ENC (IPFIX_destinationTransportPort, 2,
+                 enc_destinationTransportPort),
+  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
+  DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits),
+  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
+
+const IPFIX_FIELD_TABLE_TYPE field_icmp4[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode),
+  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
+  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
+
+const IPFIX_FIELD_TABLE_TYPE field_icmp6[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode),
+  DEF_FIELD_ENC (IPFIX_protocolIdentifier, 1, enc_protocolIdentifier),
+  DEF_FIELD_ENC (IPFIX_ipVersion, 1, enc_ipVersion),
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
+
+const IPFIX_FIELD_TABLE_TYPE field_vlan[] = {
+  DEF_FIELD_ENC (IPFIX_vlanId, 2, enc_vlanId),
+  DEF_FIELD_ENC (IPFIX_postVlanId, 2, enc_postVlanId)};
+
+const IPFIX_FIELD_TABLE_TYPE field_ether[] = {
+  DEF_FIELD_ENC (IPFIX_sourceMacAddress, 6, enc_sourceMacAddress),
+  DEF_FIELD_ENC (IPFIX_postDestinationMacAddress, 6,
+                 enc_postDestinationMacAddress)};
+
+const IPFIX_FIELD_TABLE_TYPE field_timesec[] = {
+  DEF_FIELD_ENC (IPFIX_flowStartSeconds, 4, enc_flowStartSeconds),
+  DEF_FIELD_ENC (IPFIX_flowEndSeconds, 4, enc_flowEndSeconds)};
+
+const IPFIX_FIELD_TABLE_TYPE field_timemsec[] = {
+  DEF_FIELD_ENC (IPFIX_flowStartMilliSeconds, 8, enc_flowStartMilliSeconds),
+  DEF_FIELD_ENC (IPFIX_flowEndMilliSeconds, 8, enc_flowEndMilliSeconds)};
+
+const IPFIX_FIELD_TABLE_TYPE field_timeusec[] = {
+  DEF_FIELD_ENC (IPFIX_flowStartMicroSeconds, 8, enc_flowStartMicroSeconds),
+  DEF_FIELD_ENC (IPFIX_flowEndMicroSeconds, 8, enc_flowEndMicroSeconds)};
+
+const IPFIX_FIELD_TABLE_TYPE field_timensec[] = {
+  DEF_FIELD_ENC (IPFIX_flowStartNanoSeconds, 8, enc_flowStartNanoSeconds),
+  DEF_FIELD_ENC (IPFIX_flowEndNanoSeconds, 8, enc_flowEndNanoSeconds)};
+
+const IPFIX_FIELD_TABLE_TYPE field_timesysup[] = {
+  DEF_FIELD_ENC (IPFIX_flowStartSysUpTime, 4, enc_flowStartSysUpTime),
+  DEF_FIELD_ENC (IPFIX_flowEndSysUpTime, 4, enc_flowEndSysUpTime)};
+
+const IPFIX_FIELD_TABLE_TYPE field_bicommon[] = {
+  DEF_FIELD_ENC (IPFIX_octetDeltaCount, 4, enc_octetDeltaCount),
+  DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
+  DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
+
+const IPFIX_FIELD_TABLE_TYPE field_bitransport[] = {
+  DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits)};
+
+const IPFIX_FIELD_TABLE_TYPE field_biicmp4[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode)};
+
+const IPFIX_FIELD_TABLE_TYPE field_biicmp6[] = {
+  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode)};
+
+const IPFIX_FIELD_TABLE_TYPE field_scope[] = {
+  DEF_FIELD_ENC (IPFIX_meteringProcessId, 4, enc_meteringProcessId)};
+
+const IPFIX_FIELD_TABLE_TYPE field_option[] = {
+  DEF_FIELD_ENC (IPFIX_systemInitTimeMilliseconds, 8,
+                 enc_systemInitTimeMilliseconds),
+  DEF_FIELD_ENC (PSAMP_samplingPacketInterval, 4, enc_samplingPacketInterval),
+  DEF_FIELD_ENC (PSAMP_samplingPacketSpace, 4, enc_samplingPacketSpace),
+  DEF_FIELD_ENC (PSAMP_selectorAlgorithm, 2, enc_selectorAlgorithm),
+#ifdef ENABLE_IFNAME
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName),
+#else
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero),
+#endif
+  DEF_FIELD_ENC (IPFIX_exporterIPv4Address, 4, enc_exporterAddress),
+  DEF_FIELD_ENC (IPFIX_exporterIPv6Address, 16, enc_exporterAddress),
+  DEF_FIELD_ENC (IPFIX_originalExporterIPv4Address, 4,
+                 enc_originalExporterAddress),
+  DEF_FIELD_ENC (IPFIX_originalExporterIPv6Address, 16,
+                 enc_originalExporterAddress)};
+
+const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {DEF_FIELD_ENC (
+  IPFIX_OPTION_SCOPE_INTERFACE, 4, enc_nf9OptionScopeInterface)};
+
+const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
+  DEF_FIELD_ENC (IPFIX_samplingInterval, 4, enc_samplingInterval),
+  DEF_FIELD_ENC (IPFIX_samplingAlgorithm, 1, enc_samplingAlgorithm),
+#ifdef ENABLE_IFNAME
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
+#else
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero)
+#endif
+};
+
+/* Shared template sized for IPFIX (reused by NetFlow v9).
+ * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)
+ * to avoid over-counting and potential array bounds issues. */
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
+  (sizeof (field_scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
+  (sizeof (field_option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS \
+  (sizeof (field_nf9scope) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+#define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
+  (sizeof (field_nf9option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
+
+struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
+  struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
+  struct IPFIX_FIELD_SPECIFIER s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
+  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
+} __packed;
+
+#ifndef COMPAT_EXPORT
 /* NetFlow v1/v5 fixed data records: same IEs as field_netflow_v1v5_common[]. */
 static const struct IPFIX_FIELD_SPECIFIER_ENCODER
   field_netflow_v1v5_common_enc[] = {
