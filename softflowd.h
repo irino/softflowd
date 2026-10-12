@@ -169,6 +169,7 @@ struct FLOWTRACKPARAMETERS {
   /* Stuff related to flow export */
   struct timeval system_boot_time; /**< SysUptime */
   int track_level;                 /**< See TRACK_* above */
+  int full_l4hdr_check;            /**< Non-zero: require whole transport headers (-f) */
 
   /* Flow timeouts */
   int tcp_timeout;      /**< Open TCP connections */

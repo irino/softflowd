@@ -80,8 +80,6 @@
 static int verbose_flag = 0;   /**< Debugging flag */
 static u_int16_t if_index = 0; /**< "manual" interface index */
 static int track_level;        /**< Flow tracking level (TRACK_*) */
-static int full_transport_header_check =
-  0; /**< --full-transport-header-check: check whole transport headers */
 static int snaplen =
   0;                        /**< Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
 static int gauge_clock = 0; /**< -g: report cpu clocks */
@@ -1255,7 +1253,7 @@ process_packet (struct CB_CTXT *cb_ctxt,
     ft->param.frag_packets++;
   if (first && ft->param.track_level >= TRACK_IP_PROTO_PORT)
     transport_to_flowrec (&tmp, pkt + size, caplen - size, tmp.protocol, ndx,
-                          full_transport_header_check);
+                          ft->param.full_l4hdr_check);
   if (ft->param.track_level >= TRACK_FULL_VLAN)
     tmp.vlanid[ndx] = vlanid;
   if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER &&
@@ -3134,7 +3132,7 @@ main (int argc, char **argv) {
         }
         break;
       case 'f':
-        full_transport_header_check = 1;
+        flowtrack.param.full_l4hdr_check = 1;
         break;
       case 'F':
         if (strcmp (optarg, "tree") == 0)
