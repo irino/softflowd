@@ -28,7 +28,8 @@
 #include "common.h"
 #include "softflowd.h"
 
-/** IPFIX information element IDs used by the PSAMP record. */
+/** @name IPFIX information element IDs used by the PSAMP record
+ * @{ */
 #define PSAMP_selectionSequenceId 301
 #define PSAMP_selectorAlgorithm 304
 #define PSAMP_samplingPacketInterval 305
@@ -37,7 +38,9 @@
 #define PSAMP_observationTimeMicroseconds 324
 #define PSAMP_dataLinkFrameSection 315
 #define PSAMP_sectionExportedOctets 410
+/** @} */
 
+/** selectorAlgorithm value reported for sampling: systematic count-based sampling. */
 #define PSAMP_selectorAlgorithm_count 1
 
 /** Template ID of the PSAMP record exported by softflowd. */
@@ -45,7 +48,8 @@
 
 int
 send_psamp (const u_char *pkt, int caplen, struct timeval tv,
-            struct NETFLOW_TARGET *target, uint64_t total_packets);
+            struct NETFLOW_TARGET *target, uint64_t total_packets,
+            int adjust_time);
 int
 recv_psamp (int rsock, struct CB_CTXT *cb_ctxt);
 #endif /* _PSAMP_H */

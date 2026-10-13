@@ -1781,7 +1781,7 @@ statistics (struct FLOWTRACK *ft, FILE *out, pcap_t *pcap) {
              maxdepth, ft->param.expired[R_COLLISION]);
   }
 
-  if (pcap_stats (pcap, &ps) == 0) {
+  if (pcap != NULL && pcap_stats (pcap, &ps) == 0) {
     fprintf (out, "Packets received by libpcap: %lu\n",
              (unsigned long) ps.ps_recv);
     fprintf (out, "Packets dropped by libpcap: %lu\n",
@@ -2002,7 +2002,8 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr,
     struct timeval ts;
     PCAP_TS_TO_TIMEVAL (ts, phdr->ts);
     send_psamp (pkt, phdr->caplen, ts, cb_ctxt->target,
-                cb_ctxt->ft->param.total_packets);
+                cb_ctxt->ft->param.total_packets,
+                cb_ctxt->ft->param.adjust_time);
     return;
   }
 
@@ -3589,9 +3590,11 @@ main (int argc, char **argv) {
             logit (LOG_ERR, "recv_psamp error");
             break;
           }
-          if (recvloop + 1 == flowtrack.param.max_flows) {
-            r = poll (pl, 1, next_expire (&flowtrack));
-            if (r == -1 && errno != EINTR) {
+          /* recv() blocks if the queue is empty: look at it again. */
+          r = poll (pl, 1, 0);
+          if (r == -1) {
+            pl[0].revents = 0;
+            if (errno != EINTR) {
               logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
               break;
             }
@@ -3673,7 +3676,8 @@ main (int argc, char **argv) {
   }
 #endif /* ENABLE_PTHREAD */
 
-  pcap_close (pcap);
+  if (pcap != NULL)
+    pcap_close (pcap);
 
   for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];

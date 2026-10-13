@@ -45,12 +45,14 @@ static const struct IPFIX_FIELD_SPECIFIER field_psamp[] = {
 
 /** PSAMP template set: the set header followed by the field specifiers of field_psamp[]. */
 struct PSAMP_SOFTFLOWD_TEMPLATE {
-  struct IPFIX_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER r[PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS];
+  struct IPFIX_TEMPLATE_SET_HEADER h;                                /**< Set header and template record header. */
+  struct IPFIX_FIELD_SPECIFIER r[PSAMP_SOFTFLOWD_TEMPLATE_NRECORDS]; /**< Field specifiers. */
 } __packed;
 /** The PSAMP template. */
 static struct PSAMP_SOFTFLOWD_TEMPLATE psamp_template;
-/** Template state: -1 = not built and sent yet, 0 = already sent. */
+/** Number of the data records sent so far: the IPFIX sequence number of the next message. */
+static u_int32_t psamp_sequence_number = 0;
+/** Data packets until the template is sent again: -1 = not built yet, 0 or less = send with the next packet. */
 static int psamp_pkts_until_template = -1;
 
 /**
@@ -73,41 +75,48 @@ psamp_init_template (struct PSAMP_SOFTFLOWD_TEMPLATE *template_p) {
 /**
  * @brief Export one captured packet as a PSAMP record over IPFIX.
  *
- * The template is sent before the first data record; the data record is always a fixed-size packet.
+ * The template is sent before the first data record and then every IPFIX_DEFAULT_TEMPLATE_INTERVAL data
+ * packets; the data record is always a fixed-size packet.
  *
  * @param pkt           Captured packet (link layer onwards).
  * @param caplen        Captured length of pkt.
  * @param tv            Capture time.
  * @param target        Destinations to send to.
- * @param total_packets Running packet count, used as sequence number.
+ * @param total_packets Running packet count, used as selectionSequenceId.
+ * @param adjust_time   Non-zero to use the capture time as export time.
  * @return 1 on success, -1 on send error.
  */
 int
 send_psamp (const u_char *pkt, int caplen, struct timeval tv,
-            struct NETFLOW_TARGET *target, uint64_t total_packets) {
+            struct NETFLOW_TARGET *target, uint64_t total_packets,
+            int adjust_time) {
   u_char packet[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) packet;
   struct IPFIX_SET_HEADER *dh;
   u_int64_t sequenceId;
   struct ntp_time_t ntptime;
   u_int16_t exportedOctets;
+  struct timeval now = tv;
   int offset = sizeof (struct IPFIX_HEADER);
   int copysize =
     caplen < (int) PSAMP_DATALINKFRAME_SIZE ? caplen : (int) PSAMP_DATALINKFRAME_SIZE;
 
   ipfix->version = htons (NF_VERSION_IPFIX);  // PSAMP uses IPFIX
-  ipfix->export_time = htonl (tv.tv_sec);
-  ipfix->sequence_number = htonl ((u_int32_t) (total_packets & 0x00000000ffffffff));
+  if (!adjust_time)
+    gettimeofday (&now, NULL);
+  ipfix->export_time = htonl (now.tv_sec);
+  ipfix->sequence_number = htonl (psamp_sequence_number);
   ipfix->observation_domain_id = 0;
 
-  if (psamp_pkts_until_template == -1) {
+  if (psamp_pkts_until_template == -1)
     psamp_init_template (&psamp_template);
-    psamp_pkts_until_template = 0;
+  if (psamp_pkts_until_template <= 0) {
     memcpy (&packet[offset], &psamp_template, sizeof (psamp_template));
     ipfix->length = htons (offset + sizeof (psamp_template));
     if (send_multi_destinations (target->num_destinations, target->destinations, 0, packet,
                                  offset + sizeof (psamp_template), 0) < 0)
       return (-1);
+    psamp_pkts_until_template = IPFIX_DEFAULT_TEMPLATE_INTERVAL;
   }
 
   dh = (struct IPFIX_SET_HEADER *) &packet[offset];
@@ -138,6 +147,8 @@ send_psamp (const u_char *pkt, int caplen, struct timeval tv,
                                target->is_loadbalance,
                                packet, IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, 0) < 0)
     return (-1);
+  psamp_pkts_until_template--;
+  psamp_sequence_number++;
   return 1;
 }
 
@@ -194,11 +205,9 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   PKT_LOAD (exportedOctets, &buf[offset]);
   pkthdr.caplen = pkthdr.len = ntohs (exportedOctets);
   offset += sizeof (exportedOctets);
-  pkthdr.caplen =
-    pkthdr.caplen <
-        sizeof (buf) - offset
-      ? pkthdr.caplen
-      : sizeof (buf) - offset;
+  /* The frame section cannot be longer than what was received. */
+  if (pkthdr.caplen > (size_t) recvsize - offset)
+    pkthdr.caplen = recvsize - offset;
 
   flow_cb ((u_char *) cb_ctxt, &pkthdr, (const u_char *) &buf[offset]);
   return 1;
