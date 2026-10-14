@@ -286,6 +286,9 @@ static const struct NETFLOW_SENDER nf[] = {
   {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
 #ifdef ENABLE_NTOPNG
   {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
+#ifdef ENABLE_NTOPNG_JSON
+  {SOFTFLOWD_NF_VERSION_NTOPNG_JSON, send_ntopng_json, NULL, 1},
+#endif
 #endif
 };
 
@@ -293,7 +296,7 @@ static const struct NETFLOW_SENDER nf[] = {
  * @brief Find the export function set for an export version.
  *
  * @param version Export version (1, 5, 9, NF_VERSION_IPFIX, or
- * SOFTFLOWD_NF_VERSION_NTOPNG).
+ * SOFTFLOWD_NF_VERSION_NTOPNG, or SOFTFLOWD_NF_VERSION_NTOPNG_JSON).
  * @return Matching entry of the nf[] table, or NULL if the version is unknown.
  */
 static const struct NETFLOW_SENDER *
@@ -2645,7 +2648,12 @@ usage (void) {
     "sampling)\n"
 #ifdef ENABLE_NTOPNG
     "     ntopng               ntopng means direct injection to NTOPNG (if "
-    "supported).\n"
+    "supported, ntopng 6.0 or later).\n"
+#ifdef ENABLE_NTOPNG_JSON
+    "     ntopng-json          ntopng-json means direct injection to NTOPNG "
+    "5.x or earlier\n"
+    "                          using JSON\n"
+#endif
 #endif
     "  -L, --hoplimit hoplimit Set TTL/hoplimit for export datagrams\n"
     "  -T, --track full|port|proto|ip|\n"
@@ -3313,6 +3321,12 @@ main (int argc, char **argv) {
                       sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
           version = SOFTFLOWD_NF_VERSION_NTOPNG;
         }
+#ifdef ENABLE_NTOPNG_JSON
+        if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING,
+                      sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING))) {
+          version = SOFTFLOWD_NF_VERSION_NTOPNG_JSON;
+        }
+#endif /* ENABLE_NTOPNG_JSON */
 #endif /* ENABLE_NTOPNG */
         version = version ? version : atoi (optarg);
         target.dialect = lookup_netflow_sender (version);
@@ -3395,7 +3409,11 @@ main (int argc, char **argv) {
         exit (1);
       }
 #ifdef ENABLE_NTOPNG
-      if (target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG) {
+      if (target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG
+#ifdef ENABLE_NTOPNG_JSON
+          || target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG_JSON
+#endif
+      ) {
         int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
 
         if (rc) {

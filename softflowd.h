@@ -43,6 +43,10 @@ extern int use_thread;
 // If the version number is over 0x7fff0000, it is unique number in softflowd.
 #define SOFTFLOWD_NF_VERSION_NTOPNG (0x7fff0001)
 #define SOFTFLOWD_NF_VERSION_NTOPNG_STRING "ntopng"
+#ifdef ENABLE_NTOPNG_JSON
+#define SOFTFLOWD_NF_VERSION_NTOPNG_JSON (0x7fff0002)
+#define SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING "ntopng-json"
+#endif /* ENABLE_NTOPNG_JSON */
 struct ZMQ {
   void *context;
   void *socket;
@@ -395,6 +399,11 @@ int
 connect_ntopng (const char *host, const char *port, struct ZMQ *zmq);
 int
 send_ntopng (struct SENDPARAMETER sp);
+#ifdef ENABLE_NTOPNG_JSON
+/* Protypes for compat/ntopng-json.c */
+int
+send_ntopng_json (struct SENDPARAMETER sp);
+#endif /* ENABLE_NTOPNG_JSON */
 #endif /* ENABLE_NTOPNG */
 
 #endif /* _SOFTFLOWD_H */

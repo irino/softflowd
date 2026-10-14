@@ -11,12 +11,15 @@ endif
 if ENABLE_NTOPNG
   NTOPNG_SOURCES = ntopng.c
 endif
+if ENABLE_NTOPNG_JSON
+  NTOPNG_JSON_SOURCES = compat/ntopng-json.c
+endif
 softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h psamp.h\
 	freelist.c softflowd.c log.c $(NETFLOW5_SOURCE) ipfix.c psamp.c\
   $(COMMON)
-EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES)
-softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(XXHASH_LIBS)
-softflowd_DEPENDENCIES = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG)
+EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES) $(NTOPNG_JSON_SOURCES)
+softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON) $(XXHASH_LIBS)
+softflowd_DEPENDENCIES = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
 EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig README.md

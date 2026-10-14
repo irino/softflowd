@@ -103,6 +103,9 @@ AC_ARG_ENABLE(pthread,
 AC_ARG_ENABLE(ntopng,
               AS_HELP_STRING([--enable-ntopng],[enable flow sending to ntopng with zeromq (default NO)]),
               [ntopng=yes],[ntopng=no])
+AC_ARG_ENABLE(ntopng-json,
+              AS_HELP_STRING([--enable-ntopng-json],[also build the JSON export for ntopng 5.x or earlier, requires --enable-ntopng (default NO)]),
+              [ntopng_json=yes],[ntopng_json=no])
 AC_ARG_ENABLE(ifname,
               AS_HELP_STRING([--enable-ifname],[enable flow reporting iface name in normal data of v9 and IPFIX (default NO)]),
               [ifname=yes],[ifname=no])
@@ -287,7 +290,16 @@ if test "x$ntopng" = "xyes" ; then
   NTOPNG='ntopng.$(OBJEXT)'
   AC_SUBST([NTOPNG])
 fi
+if test "x$ntopng_json" = "xyes" ; then
+  if test "x$ntopng" != "xyes" ; then
+    AC_MSG_ERROR([--enable-ntopng-json requires --enable-ntopng])
+  fi
+  AC_DEFINE([ENABLE_NTOPNG_JSON], 1, [enable JSON export for ntopng 5.x or earlier])
+  NTOPNG_JSON='compat/ntopng-json.$(OBJEXT)'
+  AC_SUBST([NTOPNG_JSON])
+fi
 AM_CONDITIONAL([ENABLE_NTOPNG], [test x$ntopng = xyes])
+AM_CONDITIONAL([ENABLE_NTOPNG_JSON], [test x$ntopng_json = xyes])
 if test "x$ifname" = "xyes" ; then
   AC_DEFINE([ENABLE_IFNAME], 1, [enable reporting iface name])
 fi

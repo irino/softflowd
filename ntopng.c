@@ -1,5 +1,6 @@
 /*
  * Copyright 2018 Alastair D'Silva <alastair@d-silva.org> All rights reserved.
+ * Copyright 2026 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,28 +27,86 @@
 #include "log.h"
 #include "treetype.h"
 #include "softflowd.h"
-#include <stdbool.h>
 
+/*
+ * TLV export for ntopng 6.0 and later (tested against the 7.0 sources).
+ *
+ * Message header: struct zmq_msg_hdr_v4 of ntopng (ZMQ_MSG_VERSION 4).
+ * Payload: nDPI serializer in TLV format, see ndpi_serializer.c:
+ *   2 bytes   serializer version (1) and format (1 = TLV)
+ *   per item  1 byte (key type << 4 | value type), key, value
+ *   per flow  1 byte end of record (1)
+ * Integers are big endian and use the smallest of 1, 2, 4 or 8 bytes,
+ * strings are a 2 byte length followed by the characters.
+ * Older ntopng (up to 5.x) can be fed with the JSON export in
+ * compat/ntopng-json.c.
+ */
+#define NTOPNG_MSG_VERSION 4
+#define NTOPNG_FLAG_IS_TLV (1 << 1)
+#define NTOPNG_MAX_TLV_SIZE 16384 /* ntopng accepts up to 128 KB */
 
+#define TLV_VERSION 1
+#define TLV_FORMAT_TLV 1
+#define TLV_END_OF_RECORD 1
+#define TLV_UINT8 2
+#define TLV_UINT16 3
+#define TLV_UINT32 4
+#define TLV_UINT64 5
+#define TLV_STRING 11
+
+/* NetFlow v9 element ids understood by ntopng */
+#define NTOPNG_IN_BYTES 1
+#define NTOPNG_IN_PKTS 2
+#define NTOPNG_PROTOCOL 4
+#define NTOPNG_TCP_FLAGS 6
+#define NTOPNG_L4_SRC_PORT 7
+#define NTOPNG_IPV4_SRC_ADDR 8
+#define NTOPNG_L4_DST_PORT 11
+#define NTOPNG_IPV4_DST_ADDR 12
+#define NTOPNG_LAST_SWITCHED 21
+#define NTOPNG_FIRST_SWITCHED 22
+#define NTOPNG_OUT_BYTES 23
+#define NTOPNG_OUT_PKTS 24
+#define NTOPNG_IPV6_SRC_ADDR 27
+#define NTOPNG_IPV6_DST_ADDR 28
+#define NTOPNG_IN_SRC_MAC 56
+#define NTOPNG_OUT_DST_MAC 57
+#define NTOPNG_SRC_VLAN 58
+#define NTOPNG_DST_VLAN 59
+
+/* struct zmq_msg_hdr_v4: 36 bytes, the two bytes after flags are padding */
 struct NTOPNG_MSG_HEADER {
   char url[16];
-  u_int8_t version, source_id;
-  u_int16_t size;
-  u_int32_t msg_id;
-} __attribute__((packed));
+  u_int8_t version, flags;
+  u_int8_t pad[2];
+  u_int32_t uncompressed_size; /* network byte order */
+  u_int32_t compressed_size;   /* network byte order */
+  u_int32_t msg_id;            /* network byte order */
+  u_int32_t source_id;         /* host byte order, read as is by ntopng */
+} __attribute__ ((packed));
+
+typedef char
+  ntopng_msg_header_size_check[(sizeof (struct NTOPNG_MSG_HEADER) == 36) ? 1
+                                                                         : -1];
+
+struct TLV {
+  u_int8_t *buf;
+  size_t size; /* capacity of buf */
+  size_t len;  /* bytes used */
+};
 
 /*
  * Connect to NTOPNG collector
  */
 int
 connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
-  void *context = zmq_ctx_new ();
-  void *pub_socket = zmq_socket (context, ZMQ_PUB);
-  char connect_str[6 + NI_MAXHOST + 1 + NI_MAXSERV + 1];        /* "tcp://hostname:port" */
+  void *context = zmq_ctx_new();
+  void *pub_socket;
+  char connect_str[6 + NI_MAXHOST + 1 + NI_MAXSERV + 1]; /* "tcp://hostname:port" */
 
   if (!context)
     return errno;
-
+  pub_socket = zmq_socket (context, ZMQ_PUB);
   if (!pub_socket) {
     zmq_ctx_destroy (context);
     return errno;
@@ -55,6 +114,7 @@ connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
 
   snprintf (connect_str, sizeof (connect_str), "tcp://%s:%s", host, port);
   fprintf (stderr, "Connecting ZMQ socket '%s'\n", connect_str);
+
   if (zmq_connect (pub_socket, connect_str)) {
     zmq_close (pub_socket);
     zmq_ctx_destroy (context);
@@ -63,146 +123,183 @@ connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
 
   zmq->context = context;
   zmq->socket = pub_socket;
+
+  return 0;
+}
+
+static void
+tlv_init (struct TLV *t, u_int8_t *buf, size_t size) {
+  t->buf = buf;
+  t->size = size;
+  buf[0] = TLV_VERSION;
+  buf[1] = TLV_FORMAT_TLV;
+  t->len = 2;
+}
+
+static void
+tlv_put_be (struct TLV *t, u_int64_t v, int bytes) {
+  int i;
+
+  for (i = bytes - 1; i >= 0; i--)
+    t->buf[t->len++] = (v >> (8 * i)) & 0xff;
+}
+
+/* Smallest of 1, 2, 4 or 8 bytes holding v, as the nDPI serializer does */
+static int
+tlv_uint_bytes (u_int64_t v) {
+  return v <= 0xff ? 1 : v <= 0xffff        ? 2
+                       : v <= 0xffffffffULL ? 4
+                                            : 8;
+}
+
+static u_int8_t
+tlv_uint_type (int bytes) {
+  return bytes == 1   ? TLV_UINT8
+         : bytes == 2 ? TLV_UINT16
+         : bytes == 4 ? TLV_UINT32
+                      : TLV_UINT64;
+}
+
+/* Returns 0 on success, -1 if the item does not fit in the buffer */
+static int
+tlv_put_uint (struct TLV *t, u_int32_t key, u_int64_t value) {
+  int kb = tlv_uint_bytes (key);
+  int vb = tlv_uint_bytes (value);
+
+  if (t->size - t->len < (size_t) (1 + kb + vb))
+    return -1;
+  t->buf[t->len++] = (tlv_uint_type (kb) << 4) | tlv_uint_type (vb);
+  tlv_put_be (t, key, kb);
+  tlv_put_be (t, value, vb);
   return 0;
 }
 
 static int
-add_json_flow (struct SENDPARAMETER *sp, struct FLOW *flow, char *buf,
-               size_t len) {
-  int size = snprintf (buf, len,
-                       "{" "\"7\": %d," /* src port */
-                       "\"11\": %d,"    /* dst port */
-                       "\"1\": %d,"     /* in octets */
-                       "\"2\": %d,"     /* in packets */
-                       "\"23\": %d,"    /* out octets */
-                       "\"24\": %d,"    /* out packets */
-                       "\"22\": %d,"    /* start timestamp */
-                       "\"21\": %d,"    /* last timestamp */
-                       "\"6\": %d,"     /* tcp flags */
-                       "\"4\": %d",     /* protocol */
-                       ntohs (flow->port[0]),
-                       ntohs (flow->port[1]),
-                       flow->octets[1],
-                       flow->packets[1],
-                       flow->octets[0],
-                       flow->packets[0],
-                       timeval_sub_ms (&flow->flow_start,
-                                       &sp->param->system_boot_time),
-                       timeval_sub_ms (&flow->flow_last,
-                                       &sp->param->system_boot_time),
-                       flow->tcp_flags[0],
-                       flow->protocol);
+tlv_put_string (struct TLV *t, u_int32_t key, const char *value) {
+  size_t slen = strlen (value);
+  int kb = tlv_uint_bytes (key);
 
-  if (size > (len - 1))
-    return size;
+  if (slen > 0xffff || t->size - t->len < 1 + kb + 2 + slen)
+    return -1;
+  t->buf[t->len++] = (tlv_uint_type (kb) << 4) | TLV_STRING;
+  tlv_put_be (t, key, kb);
+  tlv_put_be (t, slen, 2);
+  memcpy (t->buf + t->len, value, slen);
+  t->len += slen;
+  return 0;
+}
+
+static int
+tlv_end_record (struct TLV *t) {
+  if (t->len >= t->size)
+    return -1;
+  t->buf[t->len++] = TLV_END_OF_RECORD;
+  return 0;
+}
+
+/*
+ * Append one flow as a TLV record. Ports and counters are plain integers
+ * in host byte order, addresses and MAC addresses are strings.
+ * Returns 0 on success, -1 if the record does not fit in the buffer.
+ */
+static int
+add_tlv_flow (struct SENDPARAMETER *sp, struct FLOW *flow, struct TLV *t) {
+  char src[INET6_ADDRSTRLEN];
+  char dst[INET6_ADDRSTRLEN];
+  char mac[2][3 * 6];
+  int i;
+
+  if (tlv_put_uint (t, NTOPNG_L4_SRC_PORT, ntohs (flow->port[0])) ||
+      tlv_put_uint (t, NTOPNG_L4_DST_PORT, ntohs (flow->port[1])) ||
+      /* IN is source -> destination, OUT is destination -> source */
+      tlv_put_uint (t, NTOPNG_IN_BYTES, flow->octets[0]) ||
+      tlv_put_uint (t, NTOPNG_IN_PKTS, flow->packets[0]) ||
+      tlv_put_uint (t, NTOPNG_OUT_BYTES, flow->octets[1]) ||
+      tlv_put_uint (t, NTOPNG_OUT_PKTS, flow->packets[1]) ||
+      /* epoch seconds */
+      tlv_put_uint (t, NTOPNG_FIRST_SWITCHED, flow->flow_start.tv_sec) ||
+      tlv_put_uint (t, NTOPNG_LAST_SWITCHED, flow->flow_last.tv_sec) ||
+      tlv_put_uint (t, NTOPNG_TCP_FLAGS, flow->tcp_flags[0]) ||
+      tlv_put_uint (t, NTOPNG_PROTOCOL, flow->protocol))
+    return -1;
 
   if (flow->af == AF_INET) {
-    char src[INET_ADDRSTRLEN];
-    char dst[INET_ADDRSTRLEN];
-
-    /* safe to ignore errors, neither error case can occur */
     inet_ntop (AF_INET, &flow->addr[0].v4, src, sizeof (src));
     inet_ntop (AF_INET, &flow->addr[1].v4, dst, sizeof (dst));
-
-    size += snprintf (buf + size, len - size, ",\"8\":\"%s\","  /* ipv4 src addr */
-                      "\"12\":\"%s\"",  /* ipv4 dst addr */
-                      src, dst);
+    if (tlv_put_string (t, NTOPNG_IPV4_SRC_ADDR, src) ||
+        tlv_put_string (t, NTOPNG_IPV4_DST_ADDR, dst))
+      return -1;
   } else {
-    char src[INET6_ADDRSTRLEN];
-    char dst[INET6_ADDRSTRLEN];
-
-    /* safe to ignore errors, neither error case can occur */
     inet_ntop (AF_INET6, &flow->addr[0].v6, src, sizeof (src));
     inet_ntop (AF_INET6, &flow->addr[1].v6, dst, sizeof (dst));
-
-    size += snprintf (buf + size, len - size, ",\"27\":\"%s\"," /* ipv6 src addr */
-                      "\"28\":\"%s\"",  /* ipv6 dst addr */
-                      src, dst);
+    if (tlv_put_string (t, NTOPNG_IPV6_SRC_ADDR, src) ||
+        tlv_put_string (t, NTOPNG_IPV6_DST_ADDR, dst))
+      return -1;
   }
-  if (size > (len - 1))
-    return size;
 
   if (sp->param->track_level >= TRACK_FULL_VLAN) {
-    size += snprintf (buf + size, len - size, ",\"58\":%d,"     /* vlan src */
-                      "\"59\":%d",      /* vlan dst */
-                      flow->vlanid[0], flow->vlanid[1]
-      );
-
-    if (size > (len - 1))
-      return size;
+    if (tlv_put_uint (t, NTOPNG_SRC_VLAN, flow->vlanid[0]) ||
+        tlv_put_uint (t, NTOPNG_DST_VLAN, flow->vlanid[1]))
+      return -1;
   }
 
   if (sp->param->track_level >= TRACK_FULL_VLAN_ETHER) {
-    size += snprintf (buf + size, len - size, ",\"56\":\"%x:%x:%x:%x:%x:%x\","  /* ether mac src */
-                      "\"57\":\"%x:%x:%x:%x:%x:%x\"",   /* ether mac dst */
-                      flow->ethermac[0][0], flow->ethermac[0][1],
-                      flow->ethermac[0][2], flow->ethermac[0][3],
-                      flow->ethermac[0][4], flow->ethermac[0][5],
-                      flow->ethermac[1][0], flow->ethermac[1][1],
-                      flow->ethermac[1][2], flow->ethermac[1][3],
-                      flow->ethermac[1][4], flow->ethermac[1][5]
-      );
+    for (i = 0; i < 2; i++)
+      snprintf (mac[i], sizeof (mac[i]), "%02x:%02x:%02x:%02x:%02x:%02x",
+                flow->ethermac[i][0], flow->ethermac[i][1],
+                flow->ethermac[i][2], flow->ethermac[i][3],
+                flow->ethermac[i][4], flow->ethermac[i][5]);
+    if (tlv_put_string (t, NTOPNG_IN_SRC_MAC, mac[0]) ||
+        tlv_put_string (t, NTOPNG_OUT_DST_MAC, mac[1]))
+      return -1;
   }
 
-  if (size > (len - 1))
-    return size;
-
-  size += snprintf (buf + size, len - size, "}");
-
-  return size;
+  return tlv_end_record (t);
 }
-
-#define MAX_JSON_SIZE 7168
 
 static int
 send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   struct NTOPNG_MSG_HEADER header;
   static uint32_t msg_id = 0;
-  char json[MAX_JSON_SIZE];
-  int json_used = 0;
+  u_int8_t payload[NTOPNG_MAX_TLV_SIZE];
+  struct TLV t;
   int flow = start_at_flow;
-  bool first = true;
-  int target = 0;
+  int added = 0;
+  int target;
 
-  header.url[0] = 'f';
-  header.url[1] = 'l';
-  header.url[2] = 'o';
-  header.url[3] = 'w';
-  memset (header.url + 4, 0, sizeof (header.url) - 4);
-
-  header.version = 2;
-  header.msg_id = htonl (msg_id++);
-
-  json_used += snprintf (json + json_used, MAX_JSON_SIZE - json_used, "[");
+  tlv_init (&t, payload, sizeof (payload));
 
   while (flow < sp->num_flows) {
-    int size = 0;
-    if (first) {
-      first = false;
-    } else {
-      json_used +=
-        snprintf (json + json_used, MAX_JSON_SIZE - json_used, ",\n");
-    }
+    size_t mark = t.len;
 
-    size =
-      add_json_flow (sp, sp->flows[flow], json + json_used,
-                     MAX_JSON_SIZE - json_used);
-    if (size > (MAX_JSON_SIZE - json_used - 2 - 2)) {   /* space for "]\0" and next ",\n" */
-      break;
-    }
-
-    json_used += size;
+    if (add_tlv_flow (sp, sp->flows[flow], &t) < 0) {
+      t.len = mark; /* drop the partial record */
+      if (added)
+        break; /* continue in the next message */
+      /* A single flow never fits: skip it, otherwise we would loop forever */
+      logit (LOG_WARNING, "ntopng: flow too large for a TLV message");
+    } else
+      added++;
     flow++;
   }
-  json_used += snprintf (json + json_used, MAX_JSON_SIZE - json_used, "]");
+  if (!added)
+    return flow;
 
-  header.size = htons (json_used);
+  memset (&header, 0, sizeof (header));
+  memcpy (header.url, "flow", 4);
+  header.version = NTOPNG_MSG_VERSION;
+  header.flags = NTOPNG_FLAG_IS_TLV;
+  header.uncompressed_size = header.compressed_size = htonl (t.len);
+  header.msg_id = htonl (msg_id++);
+  header.source_id = 0;
 
   for (target = 0; target < sp->target->num_destinations; target++) {
-    zmq_send (sp->target->destinations[target].zmq.socket, &header,
-              sizeof (header), ZMQ_SNDMORE);
-    zmq_send (sp->target->destinations[target].zmq.socket, json, json_used,
-              0);
+    void *socket = sp->target->destinations[target].zmq.socket;
+
+    if (zmq_send (socket, &header, sizeof (header), ZMQ_SNDMORE) < 0 ||
+        zmq_send (socket, t.buf, t.len, 0) < 0)
+      logit (LOG_WARNING, "ntopng: zmq_send failed: %s",
+             zmq_strerror (errno));
   }
 
   return flow;
