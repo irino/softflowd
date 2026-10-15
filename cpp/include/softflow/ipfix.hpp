@@ -64,6 +64,13 @@ inline constexpr std::size_t kIpfixMaxPacketSize = 1428;
 // Milliseconds/Microseconds/Nanoseconds remain available via -A.
 enum class IpfixTimeFormat { SysUpTime, Seconds, Milliseconds, Microseconds, Nanoseconds };
 
+// Original: the `version` argument of send_ipfix_flows(). NetFlow v9 and
+// IPFIX share the templates, the data records and the packet framing; they
+// differ in the message header, the Set IDs of the template and options
+// template sets, and the options template and data record. NetFlow v9 has no
+// biflow and no absolute time formats.
+enum class MessageVersion : std::uint16_t { NetFlow9 = 9, Ipfix = 10 };
+
 class IpfixExporter {
 public:
     // mpls_label_count: see Netflow9Exporter's constructor (netflow9.hpp)
@@ -84,11 +91,26 @@ public:
                             IpfixTimeFormat time_format = IpfixTimeFormat::SysUpTime,
                             bool biflow = false, TimePoint boot_time = TimePoint{},
                             std::chrono::system_clock::time_point boot_wall_time = {},
-                            std::string interface_name = {})
+                            MessageVersion version = MessageVersion::Ipfix,
+                            std::uint32_t if_index = 0,
+                            std::uint32_t sampling_rate = 0)
         : observation_domain_id_(observation_domain_id),
           mpls_label_count_(std::min<std::uint8_t>(mpls_label_count, 10)),
-          time_format_(time_format), biflow_(biflow), boot_time_(boot_time),
-          boot_wall_time_(boot_wall_time), interface_name_(std::move(interface_name)) {}
+          time_format_(version == MessageVersion::Ipfix
+                           ? time_format
+                           : IpfixTimeFormat::SysUpTime),
+          biflow_(biflow && version == MessageVersion::Ipfix),
+          boot_time_(boot_time), boot_wall_time_(boot_wall_time),
+          version_(version),
+          if_index_(if_index), sampling_rate_(sampling_rate) {}
+
+    // Original: ipfix_resend_template() -- send the templates again with the
+    // next export packet.
+    void force_template_resend() noexcept {
+        if (packets_since_template_ != 0) {
+            packets_since_template_ = 0;
+        }
+    }
 
     // Original: softflowd.c's `ft->param.system_boot_time`, refreshed from
     // the first packet's own (pcap or wall-clock) timestamp -- see
@@ -111,8 +133,14 @@ public:
     std::uint32_t sequence() const noexcept { return sequence_; }
 
 private:
-    void write_header(ByteWriter& writer, std::uint16_t message_length,
+    // length_or_count is the message length for IPFIX and the number of data
+    // records for NetFlow v9.
+    void write_header(ByteWriter& writer, std::uint16_t length_or_count,
+                       TimePoint now,
                        std::chrono::system_clock::time_point wall_now) const;
+    std::size_t header_size() const noexcept {
+        return version_ == MessageVersion::Ipfix ? 16 : 20;
+    }
     void write_template_set(ByteWriter& writer) const;
     void write_options_set(ByteWriter& writer) const;
 
@@ -122,7 +150,10 @@ private:
     bool biflow_;
     TimePoint boot_time_;
     std::chrono::system_clock::time_point boot_wall_time_;
-    std::string interface_name_; // Original: -i dev, or capfile in -r mode
+    MessageVersion version_;
+    std::uint32_t if_index_;      // NetFlow v9 options scope (-i if_ndx:dev)
+    std::uint32_t sampling_rate_; // -s
+    std::uint32_t v9_sequence_{1}; // NetFlow v9 counts packets, from 1
     std::uint32_t sequence_{0}; // count of Data Records sent so far
     std::uint32_t packets_since_template_{0};
 };

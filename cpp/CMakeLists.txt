@@ -47,7 +47,6 @@ set(SOFTFLOW_LOGIC_SOURCES
   src/softflowd.cpp
   src/netflow1.cpp
   src/netflow5.cpp
-  src/netflow9.cpp
   src/ipfix.cpp
   src/psamp.cpp
   src/daemon.cpp
@@ -102,9 +101,6 @@ add_executable(test_netflow5 tests/test_netflow5.cpp)
 target_link_libraries(test_netflow5 PRIVATE softflow_core)
 add_test(NAME netflow5 COMMAND test_netflow5)
 
-add_executable(test_netflow9 tests/test_netflow9.cpp)
-target_link_libraries(test_netflow9 PRIVATE softflow_core)
-add_test(NAME netflow9 COMMAND test_netflow9)
 
 add_executable(test_ipfix tests/test_ipfix.cpp)
 target_link_libraries(test_ipfix PRIVATE softflow_core)

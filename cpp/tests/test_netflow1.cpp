@@ -95,8 +95,8 @@ void test_chunking_across_multiple_packets() {
     Netflow1Exporter exporter(boot);
 
     std::vector<ExportRecord> records;
-    // 35 unidirectional flows -> exceeds kNetflow1MaxRecordsPerPacket (30),
-    // so this must be split into two packets.
+    // 35 unidirectional flows -> exceeds kNetflow1MaxRecordsPerPacket (24),
+    // so this must be split into two packets: 24 + 11.
     for (int i = 0; i < 35; ++i) {
         const auto a = make_v4(10, 0, 0, static_cast<std::uint8_t>(i));
         const auto b = make_v4(10, 1, 0, static_cast<std::uint8_t>(i));
@@ -113,13 +113,38 @@ void test_chunking_across_multiple_packets() {
     auto packets = exporter.build_packets(
         records, boot + 1s, std::chrono::system_clock::time_point(1700000000s));
     assert(packets.size() == 2);
-    // Original: the per-flow `j >= NF5_MAXFLOWS - 1` (29) check flushes
-    // the first packet as soon as it reaches 29 records (not 30), to
-    // guarantee room for a flow that might need two records. With 35
-    // unidirectional (1-record) flows, that means 29 + 6, not 30 + 5.
     assert(packets[0].size() ==
-           kNetflow1HeaderSize + 29 * kNetflow1RecordSize);
-    assert(packets[1].size() == kNetflow1HeaderSize + 6 * kNetflow1RecordSize);
+           kNetflow1HeaderSize + 24 * kNetflow1RecordSize);
+    assert(packets[1].size() == kNetflow1HeaderSize + 11 * kNetflow1RecordSize);
+}
+
+void test_two_directions_are_not_split_across_packets() {
+    const auto boot = Clock::now();
+    Netflow1Exporter exporter(boot);
+
+    std::vector<ExportRecord> records;
+    auto add = [&](int i, bool bidirectional) {
+        const auto a = make_v4(10, 0, 0, static_cast<std::uint8_t>(i));
+        const auto b = make_v4(10, 1, 0, static_cast<std::uint8_t>(i));
+        const auto key = FlowKey::make_canonical(
+            a, b, static_cast<std::uint16_t>(2000 + i), 80, 6, 0, {0, 0});
+        Flow flow;
+        flow.flow_start = boot;
+        flow.flow_last = boot;
+        flow.octets = {64, bidirectional ? 64u : 0u};
+        flow.packets = {1, bidirectional ? 1u : 0u};
+        records.push_back(ExportRecord{key, flow});
+    };
+    // 23 records fill the packet up to one short of the limit; a flow that
+    // needs two records does not fit, so it starts the next packet.
+    for (int i = 0; i < 23; ++i) add(i, false);
+    add(23, true);
+
+    auto packets = exporter.build_packets(
+        records, boot + 1s, std::chrono::system_clock::time_point(1700000000s));
+    assert(packets.size() == 2);
+    assert(packets[0].size() == kNetflow1HeaderSize + 23 * kNetflow1RecordSize);
+    assert(packets[1].size() == kNetflow1HeaderSize + 2 * kNetflow1RecordSize);
 }
 
 } // namespace
@@ -129,6 +154,7 @@ int main() {
     test_single_bidirectional_flow_produces_two_records();
     test_zero_traffic_direction_is_not_exported();
     test_chunking_across_multiple_packets();
+    test_two_directions_are_not_split_across_packets();
     std::puts("all netflow1 tests passed");
     return 0;
 }

@@ -52,6 +52,72 @@ std::size_t find_set(const std::vector<std::uint8_t>& pkt, std::uint16_t target_
     return 0;
 }
 
+std::uint32_t read_u32(const std::vector<std::uint8_t>& b, std::size_t off) {
+    return (static_cast<std::uint32_t>(read_u16(b, off)) << 16) |
+           read_u16(b, off + 2);
+}
+
+ExportRecord make_record(Clock::time_point boot, int i, bool both_directions) {
+    const auto a = make_v4(10, 0, 0, static_cast<std::uint8_t>(i));
+    const auto b = make_v4(10, 1, 0, static_cast<std::uint8_t>(i));
+    const auto key = FlowKey::make_canonical(
+        a, b, static_cast<std::uint16_t>(2000 + i), 80, 6, 0, {0, 0});
+    Flow flow;
+    flow.flow_start = boot;
+    flow.flow_last = boot + 1s;
+    flow.octets = {100, both_directions ? 200u : 0u};
+    flow.packets = {1, both_directions ? 2u : 0u};
+    return ExportRecord{key, flow};
+}
+
+void test_netflow9_header_and_sets() {
+    const auto boot = Clock::now();
+    IpfixExporter exporter(0, 0, IpfixTimeFormat::SysUpTime, false, boot, {},
+                           MessageVersion::NetFlow9);
+    const auto record = make_record(boot, 1, true);
+    auto packets = exporter.build_packets(
+        std::span<const ExportRecord>(&record, 1), boot + 2s,
+        std::chrono::system_clock::time_point(1700000000s));
+    assert(packets.size() == 1);
+    const auto& pkt = packets[0];
+    assert(read_u16(pkt, 0) == 9);          // version
+    assert(read_u16(pkt, 2) == 2);          // data records (one per direction)
+    assert(read_u32(pkt, 4) == 2000);       // sysUpTime
+    assert(read_u32(pkt, 8) == 1700000000); // unix_secs
+    assert(read_u32(pkt, 12) == 1);         // sequence counts packets from 1
+    assert(read_u16(pkt, 20) == 0);         // template FlowSet ID
+    // The options template FlowSet (ID 1) has the scope Interface, 4 octets.
+    std::size_t off = 20;
+    while (read_u16(pkt, off) == 0) off += read_u16(pkt, off + 2);
+    assert(read_u16(pkt, off) == 1 && read_u16(pkt, off + 2) == 26);
+    assert(read_u16(pkt, off + 10) == 2 && read_u16(pkt, off + 12) == 4);
+    // Its data record follows, unpadded (29 octets).
+    off += 26;
+    assert(read_u16(pkt, off) == 256 && read_u16(pkt, off + 2) == 29);
+    // The data FlowSet is padded so that the packet ends on a multiple of 4.
+    assert(pkt.size() % 4 == 0);
+
+    // The next packet carries the next sequence number and no templates.
+    packets = exporter.build_packets(
+        std::span<const ExportRecord>(&record, 1), boot + 2s,
+        std::chrono::system_clock::time_point(1700000000s));
+    assert(read_u32(packets[0], 12) == 2);
+    assert(read_u16(packets[0], 20) == 1024);
+}
+
+void test_packet_size_includes_header_and_reserves_two_records() {
+    const auto boot = Clock::now();
+    IpfixExporter exporter;
+    std::vector<ExportRecord> records;
+    for (int i = 0; i < 60; ++i) records.push_back(make_record(boot, i, false));
+    const auto packets = exporter.build_packets(
+        records, boot + 2s, std::chrono::system_clock::time_point(1700000000s));
+    assert(packets.size() >= 2);
+    for (const auto& pkt : packets) {
+        assert(pkt.size() <= kIpfixMaxPacketSize);
+    }
+}
+
 void test_header_version_and_length() {
     const auto boot = Clock::now();
     IpfixExporter exporter;
@@ -312,6 +378,8 @@ int main() {
     test_time_format_seconds_uses_four_byte_fields();
     test_time_format_microseconds_round_trips_via_ntp64();
     test_mpls_labels_are_included_when_configured();
+    test_netflow9_header_and_sets();
+    test_packet_size_includes_header_and_reserves_two_records();
     std::puts("all ipfix tests passed");
     return 0;
 }

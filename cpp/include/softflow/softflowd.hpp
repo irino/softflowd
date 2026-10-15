@@ -739,22 +739,16 @@ struct ParsedPacket {
 // that failure is possible, which the original's plain `int` did not.)
 class PacketParser {
 public:
-    // icmp_typecode_only: when false (the default), mirrors the reference
-    // C softflowd's `if (caplen < sizeof(*icmp)) return;` check (sizeof
-    // struct icmp is 28 bytes on Linux/glibc; see <netinet/ip_icmp.h>) for
-    // both ICMPv4 and ICMPv6, even though only the first 2 bytes
-    // (type/code) are actually read -- matching the reference
-    // implementation byte-for-byte is the priority. On captures truncated
-    // to just past the ICMP header (small snaplen), this silently drops
-    // the type/code encoding and merges flows that would otherwise be
-    // told apart, exactly as the reference implementation does.
-    // --icmp-typecode-only relaxes this to the 2 bytes actually needed,
-    // for anyone who'd rather have more flows correctly told apart on
-    // such captures than match the reference implementation exactly.
+    // full_l4hdr_check: when false (the default), only the bytes that are
+    // read are required in the transport header: the ports of TCP, UDP,
+    // DCCP and SCTP, the TCP flags, and the ICMP/ICMPv6 type and code. When
+    // true (-f), the whole TCP, UDP, DCCP, ICMP or ICMPv6 header is
+    // required, as the reference C softflowd did before it relaxed this
+    // check. This follows the C implementation's default.
     explicit PacketParser(TrackLevel track_level,
-                          bool icmp_typecode_only = false)
+                          bool full_l4hdr_check = false)
         : track_level_(track_level),
-          icmp_typecode_only_(icmp_typecode_only) {}
+          full_l4hdr_check_(full_l4hdr_check) {}
 
     // Original: ipv4_to_flowrec() / ipv6_to_flowrec()
     // ip_payload is the IP packet with the data-link layer header already
@@ -776,7 +770,7 @@ private:
                           std::uint8_t protocol) const;
 
     TrackLevel track_level_;
-    bool icmp_typecode_only_;
+    bool full_l4hdr_check_;
 };
 
 // Original: the "decide addr[ndx] vs addr[ndx^1] ordering" step that
