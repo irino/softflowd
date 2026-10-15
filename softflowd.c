@@ -3701,6 +3701,10 @@ main (int argc, char **argv) {
     dest = &target.destinations[dest_idx];
     if (dest->sock != -1)
       close (dest->sock);
+#ifdef ENABLE_NTOPNG
+    if (dest->zmq.socket != NULL)
+      close_ntopng (&dest->zmq);
+#endif /* ENABLE_NTOPNG */
   }
 
   unlink (pidfile_path);

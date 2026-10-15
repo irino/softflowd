@@ -397,6 +397,8 @@ send_ipfix_bi (struct SENDPARAMETER sp);
 /* Protypes for ntopng.c */
 int
 connect_ntopng (const char *host, const char *port, struct ZMQ *zmq);
+void
+close_ntopng (struct ZMQ *zmq);
 int
 send_ntopng (struct SENDPARAMETER sp);
 #ifdef ENABLE_NTOPNG_JSON

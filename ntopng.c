@@ -44,6 +44,7 @@
 #define NTOPNG_MSG_VERSION 4
 #define NTOPNG_FLAG_IS_TLV (1 << 1)
 #define NTOPNG_MAX_TLV_SIZE 16384 /* ntopng accepts up to 128 KB */
+#define NTOPNG_LINGER_MS 3000     /* wait for the queued messages at exit */
 
 #define TLV_VERSION 1
 #define TLV_FORMAT_TLV 1
@@ -125,6 +126,22 @@ connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
   zmq->socket = pub_socket;
 
   return 0;
+}
+
+/*
+ * Close the ZMQ socket. zmq_ctx_destroy waits until the queued messages are
+ * sent, but at most for the linger time: without it the flows exported at
+ * shutdown are lost when the process exits.
+ */
+void
+close_ntopng (struct ZMQ *zmq) {
+  int linger = NTOPNG_LINGER_MS;
+
+  zmq_setsockopt (zmq->socket, ZMQ_LINGER, &linger, sizeof (linger));
+  zmq_close (zmq->socket);
+  zmq_ctx_destroy (zmq->context);
+  zmq->socket = NULL;
+  zmq->context = NULL;
 }
 
 static void
