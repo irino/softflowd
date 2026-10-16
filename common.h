@@ -89,18 +89,18 @@
 #include <endian.h>
 #endif
 
-/* Access to multi-byte packet fields that may be unaligned.
- * PKT_LOAD (dst, ptr) reads sizeof (dst) bytes at ptr into dst;
- * PKT_STORE (ptr, src) writes src to sizeof (src) bytes at ptr.
- * The default uses memcpy. ENABLE_DIRECT_COPIES selects the legacy direct
- * pointer casting, kept to check regressions against it; it needs __typeof__,
- * which is a GNU extension. */
+/* Copy a multi-byte object to or from a packet buffer that may be unaligned.
+ * MEMCPY (dst, src, obj) copies sizeof (obj) bytes from src to dst as
+ * memcpy (dst, src, sizeof (obj)) does; dst and src are pointers. obj is the
+ * object or the type being copied. It is used only for sizeof and __typeof__
+ * and is not evaluated. The default uses memcpy. ENABLE_DIRECT_COPIES selects
+ * the legacy direct pointer casting, kept to check regressions against it; it
+ * needs __typeof__, which is a GNU extension. */
 #ifndef ENABLE_DIRECT_COPIES
-#define PKT_LOAD(dst, ptr) memcpy (&(dst), (ptr), sizeof (dst))
-#define PKT_STORE(ptr, src) memcpy ((ptr), &(src), sizeof (src))
+#define MEMCPY(dst, src, obj) memcpy ((dst), (src), sizeof (obj))
 #else
-#define PKT_LOAD(dst, ptr) ((dst) = *(const __typeof__ (dst) *) (ptr))
-#define PKT_STORE(ptr, src) (*(__typeof__ (src) *) (ptr) = (src))
+#define MEMCPY(dst, src, obj) \
+  (*(__typeof__ (obj) *) (dst) = *(const __typeof__ (obj) *) (src))
 #endif
 
 /* The name of the program */

@@ -127,17 +127,17 @@ send_psamp (const u_char *pkt, int caplen, struct timeval tv,
 
   /* The fields are not naturally aligned in the packet buffer. */
   sequenceId = htobe64 (total_packets);
-  PKT_STORE (&packet[offset], sequenceId);
+  MEMCPY (&packet[offset], &sequenceId, sequenceId);
   offset += sizeof (sequenceId);
 
   conv_unix_to_ntp (tv, &ntptime);
   ntptime.second = htonl (ntptime.second);
   ntptime.fraction = htonl (ntptime.fraction);
-  PKT_STORE (&packet[offset], ntptime);
+  MEMCPY (&packet[offset], &ntptime, ntptime);
   offset += sizeof (ntptime);
 
   exportedOctets = htons (copysize);
-  PKT_STORE (&packet[offset], exportedOctets);
+  MEMCPY (&packet[offset], &exportedOctets, exportedOctets);
   offset += sizeof (exportedOctets);
 
   memcpy (&packet[offset], pkt, copysize);
@@ -195,14 +195,14 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   offset += sizeof (uint64_t);
 
   // observationTimeMicroseconds
-  PKT_LOAD (ntptime, &buf[offset]);
+  MEMCPY (&ntptime, &buf[offset], ntptime);
   offset += sizeof (struct ntp_time_t);
   ntptime.second = ntohl (ntptime.second);
   ntptime.fraction = ntohl (ntptime.fraction);
   conv_ntp_to_unix (ntptime, &pkthdr.ts);
 
   //sectionExportedOctets
-  PKT_LOAD (exportedOctets, &buf[offset]);
+  MEMCPY (&exportedOctets, &buf[offset], exportedOctets);
   pkthdr.caplen = pkthdr.len = ntohs (exportedOctets);
   offset += sizeof (exportedOctets);
   /* The frame section cannot be longer than what was received. */

@@ -935,8 +935,10 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
     /* UDP header also serves TCP, SCTP, DCCP:
      * all start with the source destination ports */
     /* ports are copied as they are on the wire */
-    PKT_LOAD (flow->port[ndx], pkt + offsetof (struct udphdr, uh_sport));
-    PKT_LOAD (flow->port[ndx ^ 1], pkt + offsetof (struct udphdr, uh_dport));
+    MEMCPY (&flow->port[ndx], pkt + offsetof (struct udphdr, uh_sport),
+            flow->port[ndx]);
+    MEMCPY (&flow->port[ndx ^ 1], pkt + offsetof (struct udphdr, uh_dport),
+            flow->port[ndx ^ 1]);
   }
 }
 
@@ -954,7 +956,7 @@ transport_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
  * @return IP header size in bytes, or a negative value on error (runt packet or
  * wrong IP version).
  */
-/* The head is not shared through PKT_LOAD: the default works on a copy of the
+/* The head is not shared through MEMCPY: the default works on a copy of the
  * header (ip.), the legacy one on a pointer into the packet (ip->). */
 static int
 ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
@@ -1001,7 +1003,7 @@ ipv4_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
  * @return Size of the IPv6 and extension headers in bytes, or a negative value
  * on error.
  */
-/* The head is not shared through PKT_LOAD: the default works on a copy of the
+/* The head is not shared through MEMCPY: the default works on a copy of the
  * header (ip6.), the legacy one on a pointer into the packet (ip6->). */
 static int
 ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
@@ -1059,7 +1061,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
       *isfrag = 1;
       if (remain < (int) sizeof (fh6))
         return (size); /* Runt */
-      PKT_LOAD (fh6, eh6);
+      MEMCPY (&fh6, eh6, fh6);
       if ((fh6.ip6f_offlg & IP6F_OFF_MASK) != 0)
         *isfirst = 0;
       nxt = fh6.ip6f_nxt;
@@ -1251,8 +1253,9 @@ process_packet (struct CB_CTXT *cb_ctxt,
 
   tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {
-    PKT_LOAD (tmp.mplsLabels[i],
-              frame + datalink_size + i * sizeof (tmp.mplsLabels[i]));
+    MEMCPY (&tmp.mplsLabels[i],
+            frame + datalink_size + i * sizeof (tmp.mplsLabels[i]),
+            tmp.mplsLabels[i]);
   }
 
   /* If a matching flow does not exist, create and insert one */
@@ -1953,7 +1956,9 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen,
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
     do {
-      PKT_LOAD (shim, pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim));
+      MEMCPY (&shim,
+              pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim),
+              shim);
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
     ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;

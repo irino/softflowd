@@ -861,8 +861,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
              : 0;
     if (j + need > maxflows) {
       param->records_sent += flowcount;
-      PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, flows),
-                 (u_int16_t) {htons (flowcount)});
+      MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, flows),
+              &(u_int16_t) {htons (flowcount)}, u_int16_t);
       if (send_multi_destinations (
             sp.target->num_destinations, sp.target->destinations,
             sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -876,8 +876,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
       memset (packet, 0, sizeof (packet));
       offset = build_flow_header (packet, version, param);
       if (version == 5)
-        PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, sequence_number),
-                   (u_int32_t) {htonl ((u_int32_t) *flows_exported)});
+        MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, sequence_number),
+                &(u_int32_t) {htonl ((u_int32_t) *flows_exported)}, u_int32_t);
     }
 
     /* NetFlow v1/v5 carry IPv4 only, as in the original implementation. */
@@ -902,8 +902,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
 
   if (j != 0) {
     param->records_sent += flowcount;
-    PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, flows),
-               (u_int16_t) {htons (flowcount)});
+    MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, flows),
+            &(u_int16_t) {htons (flowcount)}, u_int16_t);
     if (send_multi_destinations (
           sp.target->num_destinations, sp.target->destinations,
           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -2180,16 +2180,17 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
         /* Template-only packet; NFv9 sets flows count to 1 (preserving
          * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
         if (version == 10) {
-          PKT_STORE (packet + offsetof (struct IPFIX_HEADER, length),
-                     (u_int16_t) {htons (offset)});
-          PKT_STORE (packet + offsetof (struct IPFIX_HEADER, sequence_number),
-                     (u_int32_t) {htonl ((u_int32_t) (*records_sent &
-                                                      0x00000000ffffffff))});
+          MEMCPY (packet + offsetof (struct IPFIX_HEADER, length),
+                  &(u_int16_t) {htons (offset)}, u_int16_t);
+          MEMCPY (packet + offsetof (struct IPFIX_HEADER, sequence_number),
+                  &(u_int32_t) {htonl ((u_int32_t) (*records_sent &
+                                                    0x00000000ffffffff))},
+                  u_int32_t);
         } else {
-          PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, flows),
-                     (u_int16_t) {htons (1)});
-          PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
-                     (u_int32_t) {htonl (sequence++)});
+          MEMCPY (packet + offsetof (struct NETFLOW9_HEADER, flows),
+                  &(u_int16_t) {htons (1)}, u_int16_t);
+          MEMCPY (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
+                  &(u_int32_t) {htonl (sequence++)}, u_int32_t);
         }
         if (send_multi_destinations (target->num_destinations,
                                      target->destinations, 0, packet, offset,
@@ -2252,16 +2253,17 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
     }
     *records_sent += records;
     if (version == 10) {
-      PKT_STORE (packet + offsetof (struct IPFIX_HEADER, length),
-                 (u_int16_t) {htons (offset)});
-      PKT_STORE (packet + offsetof (struct IPFIX_HEADER, sequence_number),
-                 (u_int32_t) {htonl ((u_int32_t) (*records_sent &
-                                                  0x00000000ffffffff))});
+      MEMCPY (packet + offsetof (struct IPFIX_HEADER, length),
+              &(u_int16_t) {htons (offset)}, u_int16_t);
+      MEMCPY (packet + offsetof (struct IPFIX_HEADER, sequence_number),
+              &(u_int32_t) {htonl ((u_int32_t) (*records_sent &
+                                                0x00000000ffffffff))},
+              u_int32_t);
     } else {
-      PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, flows),
-                 (u_int16_t) {htons (records)});
-      PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
-                 (u_int32_t) {htonl (sequence++)});
+      MEMCPY (packet + offsetof (struct NETFLOW9_HEADER, flows),
+              &(u_int16_t) {htons (records)}, u_int16_t);
+      MEMCPY (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
+              &(u_int32_t) {htonl (sequence++)}, u_int32_t);
     }
 
     if (send_multi_destinations (target->num_destinations, target->destinations,
