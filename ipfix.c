@@ -158,18 +158,6 @@ struct IPFIX_FIELD_SPECIFIER_ENCODER {
 #define DEF_FIELD_ENC(ie, len, fn) {(ie), (len)}
 #endif
 
-/* Overlay of the packet headers (NETFLOW5/NETFLOW9/IPFIX) used to patch the
- * count, length and sequence number in place once a packet is complete, and by
- * the ENABLE_DIRECT_COPIES variant of build_flow_header(). The top-level
- * 'version' member is shared across all formats. */
-union FLOW_PACKET_HEADER {
-  u_int16_t version;
-  struct NETFLOW5_HEADER
-    nf5; /* NetFlow v1: only the first NETFLOW1_HEADER_SIZE octets */
-  struct NETFLOW9_HEADER nf9;
-  struct IPFIX_HEADER ipfix;
-};
-
 /**
  * @brief Write the packet header for the given export version at the start of
  * the packet.
@@ -182,23 +170,16 @@ union FLOW_PACKET_HEADER {
  * @param param   Tracking parameters (export time, boot time).
  * @return Size of the header in bytes.
  */
-/* Not shared through PKT_STORE: the default builds a struct and copies it
- * with memcpy, the legacy one writes member by member through a union. */
 static u_int
 build_flow_header (u_char *packet, u_int16_t version,
                    const struct FLOWTRACKPARAMETERS *param) {
   struct timeval now;
   u_int32_t sysUpTime;
-#ifdef ENABLE_DIRECT_COPIES /* legacy direct pointer casting */
-  union FLOW_PACKET_HEADER *h = (union FLOW_PACKET_HEADER *) packet;
-#endif
 
   SET_EXPORT_NOW (now, param);
 
   sysUpTime = timeval_sub_ms (&now, &param->system_boot_time);
 
-#ifndef ENABLE_DIRECT_COPIES /* default: build the header in a struct and copy \
-                                it with memcpy */
   switch (version) {
     case 1:
     case 5: {
@@ -237,46 +218,6 @@ build_flow_header (u_char *packet, u_int16_t version,
       return sizeof (hdr);
     }
   }
-#else  /* ENABLE_DIRECT_COPIES: legacy direct pointer casting */
-  h->version = htons (version);
-  switch (version) {
-    case 1:
-    case 5:
-      /* The NetFlow v1 header is exactly the first NETFLOW1_HEADER_SIZE octets of
-     * the v5 one (see union FLOW_PACKET_HEADER's comment), so this much is
-     * shared. */
-      h->nf5.flows = 0;
-      h->nf5.sysUpTime = htonl (sysUpTime);
-      h->nf5.export_time = htonl ((u_int32_t) now.tv_sec);
-      h->nf5.export_time_nanoseconds = htonl ((u_int32_t) now.tv_usec * 1000);
-      if (version == 1)
-        return NETFLOW1_HEADER_SIZE;
-      h->nf5.sequence_number = 0;
-      h->nf5.engine_type = 0;
-      h->nf5.engine_id = 0;
-      if (param->option.sample > 0) {
-        u_int16_t sampling_interval_raw =
-          (0x01 << 14) | (param->option.sample & 0x3FFF);
-        h->nf5.sampling_interval = htons (sampling_interval_raw);
-      } else {
-        h->nf5.sampling_interval = 0;
-      }
-      return sizeof (h->nf5);
-    case 9:
-      h->nf9.flows = 0;
-      h->nf9.sysUpTime = htonl (sysUpTime);
-      h->nf9.export_time = htonl ((u_int32_t) now.tv_sec);
-      h->nf9.sequence_number = 0;
-      h->nf9.observation_domain_id = 0;
-      return sizeof (h->nf9);
-    default: /* 10 = IPFIX */
-      h->ipfix.length = 0;
-      h->ipfix.export_time = htonl ((u_int32_t) now.tv_sec);
-      h->ipfix.sequence_number = 0;
-      h->ipfix.observation_domain_id = 0;
-      return sizeof (h->ipfix);
-  }
-#endif /* ENABLE_DIRECT_COPIES */
 }
 
 /** Packets until templates are sent again: -1 = not built yet, 0 or less = send
@@ -920,7 +861,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
              : 0;
     if (j + need > maxflows) {
       param->records_sent += flowcount;
-      ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
+      PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, flows),
+                 (u_int16_t) {htons (flowcount)});
       if (send_multi_destinations (
             sp.target->num_destinations, sp.target->destinations,
             sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -934,8 +876,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
       memset (packet, 0, sizeof (packet));
       offset = build_flow_header (packet, version, param);
       if (version == 5)
-        ((union FLOW_PACKET_HEADER *) packet)->nf5.sequence_number =
-          htonl ((u_int32_t) *flows_exported);
+        PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, sequence_number),
+                   (u_int32_t) {htonl ((u_int32_t) *flows_exported)});
     }
 
     /* NetFlow v1/v5 carry IPv4 only, as in the original implementation. */
@@ -960,7 +902,8 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
 
   if (j != 0) {
     param->records_sent += flowcount;
-    ((union FLOW_PACKET_HEADER *) packet)->nf5.flows = htons (flowcount);
+    PKT_STORE (packet + offsetof (struct NETFLOW5_HEADER, flows),
+               (u_int16_t) {htons (flowcount)});
     if (send_multi_destinations (
           sp.target->num_destinations, sp.target->destinations,
           sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
@@ -2208,7 +2151,6 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
   struct FLOWTRACKPARAMETERS *param = sp.param;
   int verbose_flag = sp.verbose_flag;
   struct IPFIX_SET_HEADER *dh;
-  union FLOW_PACKET_HEADER *h;
   u_int offset, last_af, i, j, num_packets, inc, last_valid, tmplindex;
   int8_t icmp_flag, last_icmp_flag;
   int r;
@@ -2230,7 +2172,6 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
   for (j = 0; j < (u_int) num_flows;) {
     memset (packet, 0, sizeof (packet));
     offset = build_flow_header (packet, version, param);
-    h = (union FLOW_PACKET_HEADER *) packet;
 
     if (ipfix_pkts_until_template <= 0) {
       ipfix_put_templates (packet, &offset, bi_flag, version, &sp);
@@ -2239,12 +2180,16 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
         /* Template-only packet; NFv9 sets flows count to 1 (preserving
          * 'nf9->flows = htons(++records)' behavior in ipfix.c). */
         if (version == 10) {
-          h->ipfix.length = htons (offset);
-          h->ipfix.sequence_number =
-            htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+          PKT_STORE (packet + offsetof (struct IPFIX_HEADER, length),
+                     (u_int16_t) {htons (offset)});
+          PKT_STORE (packet + offsetof (struct IPFIX_HEADER, sequence_number),
+                     (u_int32_t) {htonl ((u_int32_t) (*records_sent &
+                                                      0x00000000ffffffff))});
         } else {
-          h->nf9.flows = htons (1);
-          h->nf9.sequence_number = htonl (sequence++);
+          PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, flows),
+                     (u_int16_t) {htons (1)});
+          PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
+                     (u_int32_t) {htonl (sequence++)});
         }
         if (send_multi_destinations (target->num_destinations,
                                      target->destinations, 0, packet, offset,
@@ -2307,12 +2252,16 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
     }
     *records_sent += records;
     if (version == 10) {
-      h->ipfix.length = htons (offset);
-      h->ipfix.sequence_number =
-        htonl ((u_int32_t) (*records_sent & 0x00000000ffffffff));
+      PKT_STORE (packet + offsetof (struct IPFIX_HEADER, length),
+                 (u_int16_t) {htons (offset)});
+      PKT_STORE (packet + offsetof (struct IPFIX_HEADER, sequence_number),
+                 (u_int32_t) {htonl ((u_int32_t) (*records_sent &
+                                                  0x00000000ffffffff))});
     } else {
-      h->nf9.flows = htons (records);
-      h->nf9.sequence_number = htonl (sequence++);
+      PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, flows),
+                 (u_int16_t) {htons (records)});
+      PKT_STORE (packet + offsetof (struct NETFLOW9_HEADER, sequence_number),
+                 (u_int32_t) {htonl (sequence++)});
     }
 
     if (send_multi_destinations (target->num_destinations, target->destinations,
