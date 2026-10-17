@@ -821,6 +821,35 @@ ipfix_emit_group_enc (const struct IPFIX_FIELD_SPECIFIER_ENCODER *fields,
 /* ------------------------------------------------------------------ */
 
 /**
+ * @brief Complete a NetFlow v1 or v5 packet and send it.
+ *
+ * Writes the record count into the header, sends the packet to the
+ * destinations and updates the export counters.
+ *
+ * @param sp     Send parameters: target, tracking parameters and verbosity.
+ * @param packet Packet buffer holding the header and the records.
+ * @param offset Length of the packet.
+ * @param count  Number of records in the packet.
+ * @return 0 on success, -1 on error.
+ */
+static int
+send_fixed_packet (const struct SENDPARAMETER *sp, u_char *packet, u_int offset,
+                   u_int count) {
+  struct FLOWTRACKPARAMETERS *param = sp->param;
+
+  param->records_sent += count;
+  MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, flows),
+          &(u_int16_t) {htons (count)}, u_int16_t);
+  if (send_multi_destinations (sp->target->num_destinations,
+                               sp->target->destinations,
+                               sp->target->is_loadbalance, packet, offset,
+                               sp->verbose_flag) < 0)
+    return (-1);
+  param->flows_exported += count;
+  return (0);
+}
+
+/**
  * @brief Send flows as NetFlow v1 or v5 packets with 48-octet data records.
  *
  * Uses the same field-list logic as the v9/IPFIX exporter. IPv6 flows are
@@ -836,7 +865,6 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   struct FLOW **flows = sp.flows;
   int num_flows = sp.num_flows;
   struct FLOWTRACKPARAMETERS *param = sp.param;
-  int verbose_flag = sp.verbose_flag;
   u_char packet[NETFLOW5_MAXPACKET_SIZE];
   const struct IPFIX_FIELD_SPECIFIER_ENCODER *tail_fields =
     (version == 1) ? field_netflowv1_tail_enc : field_netflowv5_tail_enc;
@@ -844,14 +872,14 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
                          ? IPFIX_NFIELDS_ENC (field_netflowv1_tail_enc)
                          : IPFIX_NFIELDS_ENC (field_netflowv5_tail_enc);
   u_int maxflows = (version == 1) ? NETFLOW1_MAXFLOWS : NETFLOW5_MAXFLOWS;
-  u_int offset, j, i, k, num_packets, flowcount, need;
+  u_int offset, j, i, k, num_packets, need;
   u_int64_t *flows_exported = &param->flows_exported;
   struct IPFIX_CTX ctx = {.sp = &sp, .flow = NULL, .i = 0};
 
   if (version != 1 && version != 5)
     return (-1);
 
-  num_packets = offset = j = flowcount = 0;
+  num_packets = offset = j = 0;
   for (i = 0; i < (u_int) num_flows; i++) {
     /* Records this flow adds: IPv4 only, one per direction with data.
      * Flush first if they do not all fit, so that the two directions of
@@ -860,16 +888,9 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
              ? (flows[i]->octets[0] > 0) + (flows[i]->octets[1] > 0)
              : 0;
     if (j + need > maxflows) {
-      param->records_sent += flowcount;
-      MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, flows),
-              &(u_int16_t) {htons (flowcount)}, u_int16_t);
-      if (send_multi_destinations (
-            sp.target->num_destinations, sp.target->destinations,
-            sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+      if (send_fixed_packet (&sp, packet, offset, j) < 0)
         return (-1);
-      *flows_exported += j;
       j = 0;
-      flowcount = 0;
       num_packets++;
     }
     if (j == 0) {
@@ -896,19 +917,12 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
       offset =
         ipfix_emit_group_enc (tail_fields, tail_nfields, packet, offset, &ctx);
       j++;
-      flowcount++;
     }
   }
 
   if (j != 0) {
-    param->records_sent += flowcount;
-    MEMCPY (packet + offsetof (struct NETFLOW5_HEADER, flows),
-            &(u_int16_t) {htons (flowcount)}, u_int16_t);
-    if (send_multi_destinations (
-          sp.target->num_destinations, sp.target->destinations,
-          sp.target->is_loadbalance, packet, offset, verbose_flag) < 0)
+    if (send_fixed_packet (&sp, packet, offset, j) < 0)
       return (-1);
-    *flows_exported += j;
     num_packets++;
   }
 
