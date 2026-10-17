@@ -135,19 +135,20 @@ in one bucket, both at the time the statistics are printed.
 
 ## Source Layout
 
-The sources in the top-level directory are always built. compat/ holds
+The sources in the top-level directory are built by default. compat/ holds
 the sources that the default build does not need; they are kept for
 backward compatibility and for systems that lack the functions they
 provide.
 
-- `compat/netflow1.c`, `compat/netflow5.c`, `compat/netflow9.c`
-  Separate NetFlow v1, v5 and v9 exporters. By default ipfix.c exports
+- `compat/ipfix.c`, `compat/netflow1.c`, `compat/netflow5.c`, `compat/netflow9.c`
+  Separate NetFlow v1, v5 and v9 exporters. By default export.c exports
   NetFlow v1, v5 and v9 as well as IPFIX and none of these files are
-  built. With ./configure --enable-compat-export=static, netflow5.c
-  exports the fixed formats (v1 and v5) while ipfix.c exports the
-  template formats (v9 and IPFIX) using fixed templates and data
-  records. With --enable-compat-export=static-separate (or
-  --enable-legacy) all three are built and ipfix.c exports IPFIX only.
+  built. With ./configure --enable-compat-export=static, export.c is
+  replaced by compat/ipfix.c and netflow5.c: netflow5.c exports the
+  fixed formats (v1 and v5) while ipfix.c exports the template formats
+  (v9 and IPFIX) using fixed templates and data records. With
+  --enable-compat-export=static-separate (or --enable-legacy) all four
+  are built and ipfix.c exports IPFIX only.
   If both options are given, --enable-compat-export takes precedence.
 
 - `compat/bsd/strlcpy.c`, `compat/bsd/strlcat.c`, `compat/bsd/closefrom.c`

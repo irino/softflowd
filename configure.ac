@@ -82,7 +82,7 @@ AC_ARG_ENABLE(legacy,
               [legacy=$enableval],[legacy=])
 AC_ARG_ENABLE(compat-export,
               AS_HELP_STRING([--enable-compat-export=static|static-separate],
-                             [use the fixed-format NetFlow exporters instead of the default encoder-based exporter in ipfix.c: static (fixed templates and data records for v9/IPFIX in ipfix.c, v1/v5 in compat/netflow5.c) or static-separate (IPFIX in ipfix.c, v9, v5 and v1 in compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
+                             [use the fixed-format NetFlow exporters instead of the default encoder-based exporter in export.c: static (fixed templates and data records for v9/IPFIX in compat/ipfix.c, v1/v5 in compat/netflow5.c) or static-separate (IPFIX in compat/ipfix.c, v9, v5 and v1 in compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
               [compat_export=$enableval],[compat_export=])
 case "$compat_export" in
   ""|no) compat_export= ;;
@@ -257,9 +257,9 @@ dnl selects the encoder-based exporter; COMPAT_EXPORT is then not defined).
 dnl The sentinels are always defined so that comparisons against an
 dnl undefined COMPAT_EXPORT (evaluated as 0) are false by default.
 AC_DEFINE([COMPAT_EXPORT_STATIC], [1],
-          [sentinel value: fixed v9/IPFIX templates and data records in ipfix.c, v1/v5 in compat/netflow5.c])
+          [sentinel value: fixed v9/IPFIX templates and data records in compat/ipfix.c, v1/v5 in compat/netflow5.c])
 AC_DEFINE([COMPAT_EXPORT_STATIC_SEPARATE], [2],
-          [sentinel value: separate ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c])
+          [sentinel value: separate compat/ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c])
 case "$compat_export" in
   static) AC_DEFINE([COMPAT_EXPORT], [COMPAT_EXPORT_STATIC],
                     [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above (not defined by default)]) ;;

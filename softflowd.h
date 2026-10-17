@@ -381,7 +381,8 @@ flow_cb (u_char *user_data, const struct pcap_pkthdr *phdr,
          const u_char *pkt);
 
 /* Prototypes for functions to send NetFlow/IPFIX packets. Each is defined
- * exactly once in a build: in ipfix.c or in compat/netflow*.c, depending
+ * exactly once in a build: in export.c or in compat/ipfix.c and
+ * compat/netflow*.c, depending
  * on --enable-compat-export (see the Source Layout section of README). */
 int
 send_netflow_v1 (struct SENDPARAMETER sp);
