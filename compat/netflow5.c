@@ -197,10 +197,6 @@ send_netflow_v5_v1 (struct SENDPARAMETER sp, u_int16_t version) {
 
   *flows_exported += j;
   param->packets_sent += num_packets;
-#ifdef ENABLE_PTHREAD
-  if (use_thread)
-    free (sp.flows);
-#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
 

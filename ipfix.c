@@ -927,10 +927,6 @@ send_fixed_flow (struct SENDPARAMETER sp, u_int16_t version) {
   }
 
   param->packets_sent += num_packets;
-#ifdef ENABLE_PTHREAD
-  if (use_thread)
-    free (sp.flows);
-#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
 
@@ -2292,10 +2288,6 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
 
   *flows_exported += j;
   param->packets_sent += num_packets;
-#ifdef ENABLE_PTHREAD
-  if (use_thread)
-    free (flows);
-#endif /* ENABLE_PTHREAD */
   return (num_packets);
 }
 #if COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE

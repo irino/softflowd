@@ -232,11 +232,10 @@ typedef int (netflow_send_func_t) (struct SENDPARAMETER);
  * (void *(*)(void *)), and it owns a deep copy of both the flows and
  * the SENDPARAMETER referencing them, so the sending thread never
  * touches memory the main thread may concurrently reuse via
- * flow_put(). owned_flows duplicates the pointers already in
- * sp.flows: every netflow_send_func_t frees sp.flows itself (just the
- * array, not what it points to) when use_thread is set, so the
- * individual flow copies are tracked and freed separately here,
- * after that call returns. */
+ * flow_put(). sp.flows points at owned_flows: the export function only
+ * reads it, and threaded_send alone frees the array and the flow copies
+ * after that call returns, so no return path of an export function can
+ * leak them. */
 struct THREADED_SENDPARAMETER {
   struct SENDPARAMETER sp;
   netflow_send_func_t *func;
@@ -1568,12 +1567,10 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target,
         struct THREADED_SENDPARAMETER *tsp = malloc (sizeof (*tsp));
 
         tsp->sp = sp;
-        /* sp.flows is freed by func() itself (see threaded_send's
-         * comment above); owned_flows is this wrapper's own copy of
-         * the same pointers, used only to free the flow copies below
-         * once func() has returned. */
-        tsp->sp.flows = calloc (num_expired, sizeof (*tsp->sp.flows));
+        /* sp.flows is the array of copies made below; threaded_send
+         * frees it, see the comment above. */
         tsp->owned_flows = calloc (num_expired, sizeof (*tsp->owned_flows));
+        tsp->sp.flows = tsp->owned_flows;
         for (i = 0; i < num_expired; i++) {
           /* Deep copy: expired_flows[i] is about to be handed back to
            * flow_put() below and may be reused for a new flow before
@@ -1582,7 +1579,6 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target,
            * above), so a plain struct copy is a complete copy. */
           tsp->owned_flows[i] = malloc (sizeof (*tsp->owned_flows[i]));
           *tsp->owned_flows[i] = *expired_flows[i];
-          tsp->sp.flows[i] = tsp->owned_flows[i];
         }
         tsp->num_flows = num_expired;
         tsp->func = func;

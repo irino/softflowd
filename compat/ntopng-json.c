@@ -199,10 +199,5 @@ send_ntopng_json (struct SENDPARAMETER sp) {
   sp.param->records_sent += flow;
   sp.param->packets_sent += packets;
 
-#ifdef ENABLE_PTHREAD
-  if (use_thread)
-    free (sp.flows);
-#endif /* ENABLE_PTHREAD */
-
   return packets;
 }
