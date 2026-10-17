@@ -15,7 +15,7 @@ if ENABLE_NTOPNG_JSON
   NTOPNG_JSON_SOURCES = compat/ntopng-json.c
 endif
 softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h psamp.h\
-	freelist.c softflowd.c log.c $(NETFLOW5_SOURCE) ipfix.c psamp.c\
+	freelist.c softflowd.c log.c $(NETFLOW5_SOURCE) export.c psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES) $(NTOPNG_JSON_SOURCES)
 softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON) $(XXHASH_LIBS)
