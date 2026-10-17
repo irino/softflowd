@@ -86,10 +86,6 @@ conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
   tv->tv_usec = (uint32_t) ((double) ntp.fraction * 1.0e6 / (double) (1LL << 32));
 }
 
-/* IPFIX flowDirection (IANA IE 61, RFC 7011): Use MAC match (Src=Egress,
- * Dst=Ingress) if configured with ethernet tracking; otherwise fall back to
- * array index i. */
-
 /**
  * @brief Value of the IPFIX flowDirection element (IANA IE 61, RFC 7011).
  *
@@ -102,7 +98,7 @@ conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv) {
  * @return IPFIX_FLOWDIRECTION_EGRESS if the source MAC of endpoint i matches
  * the direction MAC, IPFIX_FLOWDIRECTION_INGRESS if its destination MAC does.
  */
-static u_int8_t
+u_int8_t
 ipfix_flow_direction (const struct FLOW *flow, int i,
                       const struct FLOWTRACKPARAMETERS *param) {
   if (param->direction_mac_set && param->track_level >= TRACK_FULL_VLAN_ETHER) {
@@ -114,14 +110,6 @@ ipfix_flow_direction (const struct FLOW *flow, int i,
   return ((u_int8_t) i);
 }
 
-/* Determines flow template (v4/icmpv4/v6/icmpv6) index;
- * used to select from their TMPLMAX template arrays. */
-enum { TMPLV4,
-       TMPLICMPV4,
-       TMPLV6,
-       TMPLICMPV6,
-       TMPLMAX };
-
 /**
  * @brief Select which of the TMPLMAX templates a flow uses (IPv4, ICMPv4, IPv6
  * or ICMPv6).
@@ -129,7 +117,7 @@ enum { TMPLV4,
  * @param flow Flow.
  * @return TMPLV4, TMPLICMPV4, TMPLV6 or TMPLICMPV6.
  */
-static u_int
+u_int
 ipfix_flow_to_template_index (const struct FLOW *flow) {
   if (flow->af == AF_INET)
     return (flow->protocol == IPPROTO_ICMP) ? TMPLICMPV4 : TMPLV4;
@@ -137,20 +125,6 @@ ipfix_flow_to_template_index (const struct FLOW *flow) {
     return (flow->protocol == IPPROTO_ICMPV6) ? TMPLICMPV6 : TMPLV6;
   return TMPLV4;
 }
-
-/* DEF_FIELD_ENC(ie, len, fn): Defines one entry of a field table: the IPFIX IE,
- * its length and the encoder function (fn) that writes its value. The encoder
- * functions are defined before the tables. compat/ipfix.c keeps the same
- * tables without the encoders. */
-struct EXPORT_CTX;
-typedef void (*export_encoder_t) (u_char *dst, u_int16_t length,
-                                  const struct EXPORT_CTX *ctx);
-struct EXPORT_FIELD_SPECIFIER_ENCODER {
-  struct IPFIX_FIELD_SPECIFIER field;
-  export_encoder_t encoder;
-};
-#define EXPORT_FIELD_TABLE_TYPE struct EXPORT_FIELD_SPECIFIER_ENCODER
-#define DEF_FIELD_ENC(ie, len, fn) {{(ie), (len)}, (fn)}
 
 /**
  * @brief Write the packet header for the given export version at the start of
@@ -242,6 +216,21 @@ valuate_icmp (const struct FLOW *flow) {
     return flow->protocol == IPPROTO_ICMPV6;
   return 0;
 }
+
+#ifndef COMPAT_EXPORT
+/* DEF_FIELD_ENC(ie, len, fn): Defines one entry of a field table: the IPFIX IE,
+ * its length and the encoder function (fn) that writes its value. The encoder
+ * functions are defined before the tables. compat/ipfix.c keeps the same
+ * tables without the encoders. */
+struct EXPORT_CTX;
+typedef void (*export_encoder_t) (u_char *dst, u_int16_t length,
+                                  const struct EXPORT_CTX *ctx);
+struct EXPORT_FIELD_SPECIFIER_ENCODER {
+  struct IPFIX_FIELD_SPECIFIER field;
+  export_encoder_t encoder;
+};
+#define EXPORT_FIELD_TABLE_TYPE struct EXPORT_FIELD_SPECIFIER_ENCODER
+#define DEF_FIELD_ENC(ie, len, fn) {{(ie), (len)}, (fn)}
 
 /* Merged NetFlow v1/v5/v9/IPFIX exporter (default, encoder-based):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as
@@ -1356,7 +1345,7 @@ ipfix_memcpy_template (u_char *packet, u_int *offset,
  * @param version  Export version.
  * @return Number of records written, or -1 if the buffer is too small.
  */
-static int
+int
 ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int len, const struct SENDPARAMETER *sp,
                        u_int *len_used, u_int8_t bi_flag,
@@ -1401,7 +1390,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
  * @param bi_flag IPFIX_BIFLAG_ON for biflow export.
  * @param version Export version: 9 or 10.
  */
-static void
+void
 ipfix_init_exporter (const struct SENDPARAMETER *sp,
                      u_int8_t bi_flag, u_int16_t version) {
   ipfix_init_templates (sp->param, bi_flag, version);
@@ -1417,7 +1406,7 @@ ipfix_init_exporter (const struct SENDPARAMETER *sp,
  * @param version Export version: 9 or 10.
  * @param sp      Send parameters; the option values are taken from sp->param.
  */
-static void
+void
 ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
                      u_int16_t version,
                      const struct SENDPARAMETER *sp) {
@@ -1428,6 +1417,19 @@ ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
                            sp->param->max_num_label);
   ipfix_send_option (packet, offset, version, sp);
 }
+
+/**
+ * @brief Set ID of the data set that uses a template.
+ *
+ * @param tmplindex TMPLV4, TMPLICMPV4, TMPLV6 or TMPLICMPV6.
+ * @return Template ID in network byte order.
+ */
+u_int16_t
+ipfix_template_set_id (u_int tmplindex) {
+  return templates[tmplindex].h.r.template_id;
+}
+
+#endif /* COMPAT_EXPORT */
 
 /**
  * @brief Send flows as NetFlow v9 or IPFIX packets.
@@ -1522,7 +1524,7 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
         }
         dh = (struct IPFIX_SET_HEADER *) (packet + offset);
         tmplindex = ipfix_flow_to_template_index (flows[i + j]);
-        dh->set_id = templates[tmplindex].h.r.template_id;
+        dh->set_id = ipfix_template_set_id (tmplindex);
         last_af = flows[i + j]->af;
         last_icmp_flag = icmp_flag;
         last_valid = offset;
@@ -1581,8 +1583,12 @@ send_ipfix_flows (struct SENDPARAMETER sp, u_int8_t bi_flag,
   param->packets_sent += num_packets;
   return (num_packets);
 }
+#if COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE
 /**
  * @brief Send expired flows as NetFlow v9 packets.
+ *
+ * Not defined for --enable-compat-export=static-separate, where
+ * compat/netflow9.c does this.
  *
  *
  * @param sp Send parameters: flows, target, interface index, tracking
@@ -1593,6 +1599,7 @@ int
 send_netflow_v9 (struct SENDPARAMETER sp) {
   return send_ipfix_flows (sp, 0, 9);
 }
+#endif /* COMPAT_EXPORT != COMPAT_EXPORT_STATIC_SEPARATE */
 
 /**
  * @brief Send expired flows as IPFIX packets.

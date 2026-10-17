@@ -207,4 +207,33 @@ void
 conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
 void
 conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv);
+/* Determines flow template (v4/icmpv4/v6/icmpv6) index;
+ * used to select from their TMPLMAX template arrays. */
+enum { TMPLV4,
+       TMPLICMPV4,
+       TMPLV6,
+       TMPLICMPV6,
+       TMPLMAX };
+
+/* Functions shared by the exporters in export.c and compat/ipfix.c. */
+u_int8_t
+ipfix_flow_direction (const struct FLOW *flow, int i,
+                      const struct FLOWTRACKPARAMETERS *param);
+u_int
+ipfix_flow_to_template_index (const struct FLOW *flow);
+
+/* Hooks called by send_ipfix_flows() in export.c; each exporter (encoder-based
+ * in export.c, fixed-format in compat/ipfix.c) implements them. */
+void
+ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
+                     u_int16_t version);
+void
+ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
+                     u_int16_t version, const struct SENDPARAMETER *sp);
+int
+ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet, u_int len,
+                       const struct SENDPARAMETER *sp, u_int *len_used,
+                       u_int8_t bi_flag, u_int16_t version);
+u_int16_t
+ipfix_template_set_id (u_int tmplindex);
 #endif /* _IPFIX_H */
