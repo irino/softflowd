@@ -146,10 +146,6 @@
 #define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE 1428
 #define IPFIX_mplsLabelStackSection_SIZE 3
 
-/* Upper limits of the field arrays in the templated exporter */
-#define IPFIX_MAXFIELDS 32
-#define IPFIX_MAXBIFIELDS 8
-
 struct IPFIX_HEADER {
   u_int16_t version, length;
   u_int32_t export_time; /* in seconds */
