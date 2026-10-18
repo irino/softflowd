@@ -1,0 +1,20 @@
+#!/bin/sh
+# Reject a commit whose staged changes are not clang-formatted.
+# Only the changed lines are checked (git clang-format), so the existing
+# code that does not match .clang-format does not block commits.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Fix and re-stage with:  git clang-format --staged  (then git add -u)
+
+command -v git-clang-format >/dev/null 2>&1 || {
+  echo "pre-commit: git-clang-format not found (install clang-format)" >&2
+  exit 1
+}
+
+out=$(git clang-format --staged --diff --extensions c,h 2>&1)
+case "$out" in
+  *"no modified files to format"* | *"did not modify any files"* | "") exit 0 ;;
+esac
+echo "pre-commit: staged changes are not clang-formatted:" >&2
+echo "$out" >&2
+echo "Run: git clang-format --staged   (then git add -u and commit again)" >&2
+exit 1
