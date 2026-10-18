@@ -24,7 +24,6 @@
 
 #include "common.h"
 #include "log.h"
-#include "treetype.h"
 #include "softflowd.h"
 #include "netflow.h"
 #include "export_common.h"

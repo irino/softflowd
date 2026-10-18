@@ -26,11 +26,9 @@
 #include "ipfix.h"
 #include "ipfix_fields.h"
 #include "common.h"
-#include "log.h"
 #include "netflow.h"
 #include "psamp.h"
 #include "softflowd.h"
-#include "treetype.h"
 
 #define EXPORT_NFIELDS_ENC(a) \
   (sizeof (a) / sizeof (struct EXPORT_FIELD_SPECIFIER_ENCODER))

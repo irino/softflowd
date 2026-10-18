@@ -25,7 +25,7 @@
 #ifndef _IPFIX_H
 #define _IPFIX_H
 
-#include "softflowd.h"
+#include "common.h"
 
 #define IPFIX_TEMPLATE_SET_ID 2
 #define IPFIX_OPTION_TEMPLATE_SET_ID 3

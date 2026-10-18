@@ -23,8 +23,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "common.h"
-#include "log.h"
-#include "treetype.h"
 #include "softflowd.h"
 #include "netflow.h"
 

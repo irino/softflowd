@@ -25,7 +25,6 @@
 #ifndef _PSAMP_H
 #define _PSAMP_H
 
-#include "common.h"
 #include "softflowd.h"
 
 /** @name IPFIX information element IDs used by the PSAMP record

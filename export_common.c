@@ -27,9 +27,7 @@
 #include "common.h"
 #include "log.h"
 #include "netflow.h"
-#include "psamp.h"
 #include "softflowd.h"
-#include "treetype.h"
 
 /**
  * @brief Fill field specifiers of a template from a field table (also used by

@@ -25,14 +25,11 @@
 
 #include "export_common.h"
 #include "ipfix.h"
+#include "ipfix_fields.h"
 #include "common.h"
-#include "log.h"
 #include "netflow.h"
 #include "psamp.h"
 #include "softflowd.h"
-#include "treetype.h"
-
-#include "ipfix_fields.h"
 
 /* COMPAT_EXPORT (static or static-separate): Encodes the data records with
  * fixed templates and the static send path. */
