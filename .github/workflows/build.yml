@@ -32,9 +32,10 @@ jobs:
         id: image
         run: sh .github/scripts/pull-image.sh "${{ matrix.image }}"
 
-      # Every --enable-compat-export variant is built in the same job (out of
-      # tree) instead of one job each, so an image is pulled once.  All
-      # variants are tried even if one of them fails.
+      # Every --enable-compat-export variant, each without and with
+      # --enable-ifname, is built in the same job (out of tree) instead of one
+      # job each, so an image is pulled once.  All builds are tried even if one
+      # of them fails.
       - name: Build with warnings
         run: |
           docker run --rm -e LIBBSD="${{ matrix.libbsd }}" \
@@ -56,6 +57,12 @@ jobs:
       matrix:
         compat_export: [default, static, static-separate]
         libbsd: [without, with]
+        ifname: [without]
+        include:
+          # --enable-ifname adds the interface name to the v9/IPFIX records.
+          - {compat_export: default, libbsd: without, ifname: with}
+          - {compat_export: static, libbsd: without, ifname: with}
+          - {compat_export: static-separate, libbsd: without, ifname: with}
     env:
       # Pre-existing, unrelated issues must not fail this job: alignment
       # warnings from casting raw packet bytes to struct ip/icmp/etc. in
@@ -87,6 +94,7 @@ jobs:
           autoreconf -if
           ./configure ${{ matrix.compat_export != 'default' && format('--enable-compat-export={0}', matrix.compat_export) || '' }} \
             --${{ matrix.libbsd }}-libbsd \
+            ${{ matrix.ifname == 'with' && '--enable-ifname' || '' }} \
             CFLAGS="-g -O0 -fsanitize=address,undefined -fno-omit-frame-pointer"
           make
 
@@ -94,7 +102,7 @@ jobs:
         run: |
           set -e
           for v in 1 5 9 10; do
-            echo "== NetFlow/IPFIX version $v (compat-export=${{ matrix.compat_export }}, ${{ matrix.libbsd }} libbsd) =="
+            echo "== NetFlow/IPFIX version $v (compat-export=${{ matrix.compat_export }}, ${{ matrix.libbsd }} libbsd, ${{ matrix.ifname }} ifname) =="
             ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v "$v"
           done
           echo "== bidirectional IPFIX (-b, version 10) =="
