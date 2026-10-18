@@ -1,6 +1,5 @@
 /*
- * Copyright 2002 Damien Miller <djm@mindrot.org> All rights reserved.
- * Copyright 2012 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
+ * Copyright 2026 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions

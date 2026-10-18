@@ -1,6 +1,5 @@
 /*
- * Copyright 2002 Damien Miller <djm@mindrot.org> All rights reserved.
- * Copyright 2012 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
+ * Copyright 2026 Hitoshi Irino <irino@sfc.wide.ad.jp> All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -570,39 +569,40 @@ send_netflow_v5 (struct SENDPARAMETER sp) {
 
 /** A NetFlow v9 / IPFIX template (struct IPFIX_SOFTFLOWD_TEMPLATE) together
  * with the encoders used to fill its data records. */
-struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER {
-  struct IPFIX_SOFTFLOWD_TEMPLATE t; /**< Template as sent, in network byte order */
+struct EXPORT_TEMPLATE {
+  /** Template as sent, in network byte order. */
+  struct IPFIX_SOFTFLOWD_TEMPLATE t;
+  /** Encoders of the fields of a data record. */
+  struct EXPORT_FIELD_SPECIFIER_ENCODER hr[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];
+  /** Encoders of the reverse-direction fields; t.bi_count of them are used. */
   struct EXPORT_FIELD_SPECIFIER_ENCODER
-    hr[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS]; /**< Per-record encoders */
-  u_int hr_count;                          /**< Number of entries in hr[] */
-  struct EXPORT_FIELD_SPECIFIER_ENCODER
-    hbi[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS]; /**< Encoders of the reverse-direction fields */
-  u_int hbi_count;                             /**< Number of entries in hbi[] */
+    hbi[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS];
+  u_int hr_count; /**< Number of entries of hr[] in use */
 };
 
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
-static struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER templates[TMPLMAX];
+static struct EXPORT_TEMPLATE templates[TMPLMAX];
 
 /* Emits NFv9/IPFIX Options Templates and Data Records using
  * export_emit_group_enc(). Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to
  * avoid duplicate padded declarations. */
-struct IPFIX_OPTION_TEMPLATE {
-  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE
-    tmpl; /**< Options template as sent on the wire */
-  /* Host-order copies for the Data Record -- see IPFIX_SOFTFLOWD_TEMPLATE_ENCODER.hr[]. */
+struct EXPORT_OPTION_TEMPLATE {
+  /** Options template as sent on the wire. */
+  struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;
+  /* Host-order copies for the Data Record -- see EXPORT_TEMPLATE.hr[]. */
+  /** Encoders of the scope fields. */
   struct EXPORT_FIELD_SPECIFIER_ENCODER
-    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS]; /**< Encoders of the
-                                                            scope fields */
-  u_int hs_count;                                      /**< Number of entries in hs[] */
+    hs[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
+  /** Encoders of the option fields. */
   struct EXPORT_FIELD_SPECIFIER_ENCODER
-    hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS]; /**< Encoders of the option
-                                                       fields */
-  u_int hr_count;                                 /**< Number of entries in hr[] */
-  u_int16_t total_len;                            /**< Bytes of tmpl.h+s+r actually in use */
+    hr[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
+  u_int hs_count;      /**< Number of entries in hs[] */
+  u_int hr_count;      /**< Number of entries in hr[] */
+  u_int16_t total_len; /**< Bytes of tmpl.h+s+r actually in use */
 };
 
 /** The options template and data record, built once by ipfix_init_option(). */
-static struct IPFIX_OPTION_TEMPLATE option_template;
+static struct EXPORT_OPTION_TEMPLATE option_template;
 /** Non-zero once option_template has been built. */
 static int option_initialized = 0;
 
@@ -732,7 +732,7 @@ ipfix_send_option (u_char *packet, u_int *offset, u_int16_t version,
  * @return Sum of the lengths of the added fields.
  */
 static u_int
-ipfix_init_template_fields (struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl, u_int *index,
+ipfix_init_template_fields (struct EXPORT_TEMPLATE *tmpl, u_int *index,
                             const struct EXPORT_FIELD_SPECIFIER_ENCODER *src,
                             u_int field_number, int bi_flag) {
   u_int i, length = 0;
@@ -751,9 +751,7 @@ ipfix_init_template_fields (struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl, u_int
     }
     length += src[i].field.length;
   }
-  if (bi_flag)
-    tmpl->hbi_count = *index + i;
-  else
+  if (!bi_flag)
     tmpl->hr_count = *index + i;
   *index += i;
   return length;
@@ -772,7 +770,7 @@ ipfix_init_template_fields (struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl, u_int
  */
 static u_int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
-                          struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl, u_int *index,
+                          struct EXPORT_TEMPLATE *tmpl, u_int *index,
                           u_int16_t version) {
   /* Absolute (calendar) timestamps are IPFIX-only
    * NetFlow v9 always uses the relative sysUpTime form. */
@@ -805,7 +803,7 @@ ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
  */
 static void
 ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
-                           struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl,
+                           struct EXPORT_TEMPLATE *tmpl,
                            u_int template_id, u_int8_t v6_flag,
                            u_int8_t icmp_flag, u_int8_t bi_flag,
                            u_int16_t version) {
@@ -932,7 +930,7 @@ ipfix_init_templates (struct FLOWTRACKPARAMETERS *param,
  */
 static void
 ipfix_memcpy_template (u_char *packet, u_int *offset,
-                       struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl, u_int8_t bi_flag,
+                       struct EXPORT_TEMPLATE *tmpl, u_int8_t bi_flag,
                        u_int8_t max_num_label) {
   u_int i, size = ntohs (tmpl->t.h.c.length) -
                   tmpl->t.bi_count * sizeof (struct IPFIX_VENDOR_FIELD_SPECIFIER) -
@@ -976,7 +974,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
                        u_int *len_used, u_int8_t bi_flag,
                        u_int16_t version) {
   u_int tmplindex = ipfix_flow_to_template_index (flow);
-  struct IPFIX_SOFTFLOWD_TEMPLATE_ENCODER *tmpl = &templates[tmplindex];
+  struct EXPORT_TEMPLATE *tmpl = &templates[tmplindex];
   u_int offset = 0, nflows = 0, k;
   u_int frecnum = bi_flag ? 1 : 2;
   struct EXPORT_CTX ctx = {.sp = sp, .flow = flow, .i = 0};
@@ -994,7 +992,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
     if (bi_flag && ctx.i == 0) {
       struct EXPORT_CTX bictx = ctx;
       bictx.i = 1; /* reverse direction */
-      offset = export_emit_group_enc (tmpl->hbi, tmpl->hbi_count, packet, offset,
+      offset = export_emit_group_enc (tmpl->hbi, tmpl->t.bi_count, packet, offset,
                                       &bictx);
     }
     for (k = 0; k < sp->param->max_num_label; k++) {
