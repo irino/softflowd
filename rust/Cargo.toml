@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 pcap = "2.0.0"
 clap = { version = "4.5", features = ["derive"] }
-nix = { version = "0.29.0", features = ["socket", "signal", "user", "net"] }
+nix = { version = "0.29.0", features = ["socket", "signal", "user", "net", "fs", "process"] }
 byteorder = "1.5.0"
 log = "0.4.22"
 env_logger = "0.11.5"

@@ -10,8 +10,10 @@ const IPFIX_TEMPLATE_HEADER_LEN: u16 = 4;
 const IPFIX_FIELD_SPEC_LEN: u16 = 4;
 
 const IPFIX_SOFTFLOWD_V4_TEMPLATE_ID: u16 = 1024;
+#[allow(dead_code)]
 const IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID: u16 = 1025;
 const IPFIX_SOFTFLOWD_V6_TEMPLATE_ID: u16 = 2048;
+#[allow(dead_code)]
 const IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID: u16 = 2049;
 const IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID: u16 = 256;
 
@@ -33,6 +35,7 @@ const IPFIX_FLOW_START_NANOSECONDS: u16 = 156;
 const IPFIX_FLOW_END_NANOSECONDS: u16 = 157;
 const IPFIX_FLOW_DIRECTION: u16 = 61;
 const IPFIX_FLOW_END_REASON: u16 = 136;
+#[allow(dead_code)]
 const IPFIX_MPLS_LABEL_STACK_SECTION: u16 = 70;
 const IPFIX_SOURCE_TRANSPORT_PORT: u16 = 7;
 const IPFIX_DESTINATION_TRANSPORT_PORT: u16 = 11;
@@ -42,9 +45,17 @@ const IPFIX_IP_VERSION: u16 = 60;
 const IPFIX_IP_CLASS_OF_SERVICE: u16 = 5;
 const IPFIX_SYSTEM_INIT_TIME_MILLISECONDS: u16 = 160;
 
+const REVERSE_PEN: u32 = 29305;
+
 static mut PKTS_UNTIL_TEMPLATE: i32 = -1;
 
-fn write_templates(packet: &mut Vec<u8>, time_format: u8) {
+pub fn resend_template() {
+    unsafe {
+        PKTS_UNTIL_TEMPLATE = 0;
+    }
+}
+
+fn write_templates(packet: &mut Vec<u8>, time_format: u8, bidirection: bool) {
     let (start_ie, end_ie, time_len) = match time_format {
         b'm' => (IPFIX_FLOW_START_MILLISECONDS, IPFIX_FLOW_END_MILLISECONDS, 8u16),
         b'M' => (IPFIX_FLOW_START_MICROSECONDS, IPFIX_FLOW_END_MICROSECONDS, 8u16),
@@ -90,28 +101,52 @@ fn write_templates(packet: &mut Vec<u8>, time_format: u8) {
         (IPFIX_IP_VERSION, 1),
     ];
 
-    let v4_len = IPFIX_TEMPLATE_HEADER_LEN + (v4_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN);
-    let v6_len = IPFIX_TEMPLATE_HEADER_LEN + (v6_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN);
+    let bi_fields: [(u16, u16); 4] = [
+        (IPFIX_OCTET_DELTA_COUNT | 0x8000, 4),
+        (IPFIX_PACKET_DELTA_COUNT | 0x8000, 4),
+        (IPFIX_IP_CLASS_OF_SERVICE | 0x8000, 1),
+        (IPFIX_TCP_CONTROL_BITS | 0x8000, 1),
+    ];
+
+    let bi_len = if bidirection { bi_fields.len() as u16 * (IPFIX_FIELD_SPEC_LEN + 4) } else { 0 };
+    let v4_len = IPFIX_TEMPLATE_HEADER_LEN + (v4_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN) + bi_len;
+    let v6_len = IPFIX_TEMPLATE_HEADER_LEN + (v6_fields.len() as u16 * IPFIX_FIELD_SPEC_LEN) + bi_len;
     let total_set_len = IPFIX_SET_HEADER_LEN + v4_len + v6_len;
 
     // Template Set Header
     packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
     packet.extend_from_slice(&total_set_len.to_be_bytes());
 
+    let field_count = (v4_fields.len() + if bidirection { bi_fields.len() } else { 0 }) as u16;
+
     // 1. IPv4 Template
     packet.extend_from_slice(&IPFIX_SOFTFLOWD_V4_TEMPLATE_ID.to_be_bytes());
-    packet.extend_from_slice(&(v4_fields.len() as u16).to_be_bytes());
+    packet.extend_from_slice(&field_count.to_be_bytes());
     for &(id, len) in &v4_fields {
         packet.extend_from_slice(&id.to_be_bytes());
         packet.extend_from_slice(&len.to_be_bytes());
     }
+    if bidirection {
+        for &(id, len) in &bi_fields {
+            packet.extend_from_slice(&id.to_be_bytes());
+            packet.extend_from_slice(&len.to_be_bytes());
+            packet.extend_from_slice(&REVERSE_PEN.to_be_bytes());
+        }
+    }
 
     // 2. IPv6 Template
     packet.extend_from_slice(&IPFIX_SOFTFLOWD_V6_TEMPLATE_ID.to_be_bytes());
-    packet.extend_from_slice(&(v6_fields.len() as u16).to_be_bytes());
+    packet.extend_from_slice(&field_count.to_be_bytes());
     for &(id, len) in &v6_fields {
         packet.extend_from_slice(&id.to_be_bytes());
         packet.extend_from_slice(&len.to_be_bytes());
+    }
+    if bidirection {
+        for &(id, len) in &bi_fields {
+            packet.extend_from_slice(&id.to_be_bytes());
+            packet.extend_from_slice(&len.to_be_bytes());
+            packet.extend_from_slice(&REVERSE_PEN.to_be_bytes());
+        }
     }
 }
 
@@ -246,7 +281,7 @@ pub fn send_ipfix(sp: SendParameter) -> i32 {
         packet.extend_from_slice(&(sp.param.records_sent as u32).to_be_bytes()); // Sequence
         packet.extend_from_slice(&0u32.to_be_bytes()); // Observation Domain ID
 
-        write_templates(&mut packet, sp.param.time_format);
+        write_templates(&mut packet, sp.param.time_format, sp.param.bidirection);
         write_option_template(&mut packet);
         write_option_data(&mut packet, &sp.param.system_boot_time, sp.param);
 
@@ -261,12 +296,13 @@ pub fn send_ipfix(sp: SendParameter) -> i32 {
         packet.clear();
     }
 
+    let max_dir = if sp.param.bidirection { 1 } else { 2 };
     for flow in target_flows {
         let is_v6 = flow.key.af == 10;
         let flow_template_id = if is_v6 { IPFIX_SOFTFLOWD_V6_TEMPLATE_ID } else { IPFIX_SOFTFLOWD_V4_TEMPLATE_ID };
 
-        for dir in 0..2 {
-            if flow.octets[dir] == 0 {
+        for dir in 0..max_dir {
+            if !sp.param.bidirection && flow.octets[dir] == 0 {
                 continue;
             }
 
@@ -393,29 +429,17 @@ pub fn send_ipfix(sp: SendParameter) -> i32 {
             packet.push(flow.tos[dir]);
             packet.push(if is_v6 { 6 } else { 4 });
 
-            flows_in_packet += 1;
-        }
-    }
-            // Write flow direction
-            let dir_val = get_flow_direction(flow, &sp.param);
-            packet.push(dir_val);
-
-            // Write MPLS labels
-            if flow.key.mpls_label_depth > 0 {
-                let depth = flow.key.mpls_label_depth as usize;
-                // IPFIX mplsLabelStackSection format: 1 octet for number of labels + labels
-                packet.push(depth as u8);
-                for i in 0..depth {
-                    let label = flow.key.mpls_labels[i];
-                    packet.extend_from_slice(&label.to_be_bytes());
-                }
-            } else {
-                packet.push(0); // 0 labels
+            if sp.param.bidirection {
+                packet.extend_from_slice(&flow.octets[1].to_be_bytes());
+                packet.extend_from_slice(&flow.packets[1].to_be_bytes());
+                packet.push(flow.tos[1]);
+                packet.push(flow.tcp_flags[1]);
             }
 
             flows_in_packet += 1;
         }
     }
+
 
     if flows_in_packet > 0 {
         // Close last flowset

@@ -133,6 +133,8 @@ fn test_pcap_file_reading() {
         caplen,
         len,
         TrackLevel::Full,
+        0,
+        false,
         timestamp,
     ).expect("Failed to parse packet");
 
@@ -172,6 +174,8 @@ fn make_dummy_flow() -> Flow {
         tcp_flags: [0x02, 0x10], // SYN, ACK
         tos: [0x10, 0x00],
         ip6_flowlabel: [0, 0],
+        src_mac: [0; 6],
+        dst_mac: [0; 6],
         flow_end_reason: 3, // End of flow
         key,
         expiry_key: None,
@@ -257,3 +261,125 @@ fn test_exporter_ipfix() {
     let version = BigEndian::read_u16(&packet[0..2]);
     assert_eq!(version, 10);
 }
+
+#[test]
+fn test_exporter_ipfix_biflow() {
+    let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+    let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
+
+    let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+    send_socket.connect(recv_addr).expect("Failed to connect to receiver socket");
+
+    let targets = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Udp(send_socket),
+            arg: recv_addr.to_string(),
+        }],
+        version: 10,
+        is_loadbalance: false,
+    };
+
+    let flow = make_dummy_flow();
+    let flow_refs = vec![&flow];
+    let mut param = FlowTrackParameters::default();
+    param.bidirection = true;
+    param.system_boot_time = TimeVal { tv_sec: 1599999900, tv_usec: 0 };
+    param.adjust_time = true;
+    param.last_packet_time = TimeVal { tv_sec: 1600000010, tv_usec: 0 };
+
+    let sp = SendParameter {
+        flows: &flow_refs,
+        target: &targets,
+        ifidx: 1,
+        param: &mut param,
+        verbose: false,
+    };
+
+    let count = send_flows(sp);
+    assert!(count > 0, "send_flows returned error or 0 packets");
+
+    let mut buf = [0u8; 2048];
+    recv_socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive IPFIX biflow packet");
+    assert!(received_len >= 16);
+    let version = BigEndian::read_u16(&buf[0..2]);
+    assert_eq!(version, 10);
+}
+
+#[test]
+fn test_packet_parser_dlt_ppp() {
+    // DLT_PPP packet with IPv4
+    // 5 bytes PPP header: e.g. [0xff, 0x03, 0x00, 0x00, 0x21] + IPv4 header (20 bytes) + UDP (8 bytes)
+    let mut ppp_packet = vec![0xff, 0x03, 0x00, 0x00, 0x21]; // proto 0x0021 = IPv4
+    // IPv4 header
+    let ip_header: [u8; 20] = [
+        0x45, 0x00, 0x00, 0x28, // v4, ihl=5, total_len=40
+        0x12, 0x34, 0x00, 0x00, // id, flags
+        0x40, 0x11, 0x00, 0x00, // ttl=64, proto=UDP(17), chksum
+        192, 168, 1, 10,
+        192, 168, 1, 20,
+    ];
+    ppp_packet.extend_from_slice(&ip_header);
+    // UDP header (8 bytes)
+    let udp_header: [u8; 8] = [
+        0x10, 0x00, // sport 4096
+        0x20, 0x00, // dport 8192
+        0x00, 0x14, // len 20
+        0x00, 0x00,
+    ];
+    ppp_packet.extend_from_slice(&udp_header);
+
+    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 0 };
+    let parsed = parse_packet(
+        rsoftflowd::packet_parser::DLT_PPP,
+        &ppp_packet,
+        ppp_packet.len() as u32,
+        ppp_packet.len() as u32,
+        TrackLevel::Full,
+        0,
+        false,
+        timestamp,
+    ).expect("Failed to parse DLT_PPP packet");
+
+    assert_eq!(parsed.af, 2);
+    assert_eq!(parsed.protocol, 17);
+    assert_eq!(parsed.src_port, 4096);
+    assert_eq!(parsed.dst_port, 8192);
+}
+
+#[test]
+fn test_psamp_exporter() {
+    let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+    let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
+
+    let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+    send_socket.connect(recv_addr).expect("Failed to connect to receiver socket");
+
+    let targets = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Udp(send_socket),
+            arg: recv_addr.to_string(),
+        }],
+        version: 10,
+        is_loadbalance: false,
+    };
+
+    let dummy_packet = [0x45; 64];
+    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 500 };
+    let sent = rsoftflowd::exporter::psamp::send_psamp(
+        &dummy_packet,
+        64,
+        timestamp,
+        &targets,
+        1,
+    );
+    assert!(sent >= 0);
+
+    let mut buf = [0u8; 2048];
+    recv_socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive PSAMP packet");
+    assert!(received_len >= 16);
+    let version = BigEndian::read_u16(&buf[0..2]);
+    assert_eq!(version, 10);
+}
+

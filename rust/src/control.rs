@@ -15,6 +15,8 @@ pub enum ControlCommand {
     StartGather { resp: Sender<String> },
     StopGather { resp: Sender<String> },
     SendTemplate { resp: Sender<String> },
+    Timeouts { resp: Sender<String> },
+    Help { resp: Sender<String> },
 }
 
 pub fn start_control_server(
@@ -49,6 +51,8 @@ pub fn start_control_server(
                                 "start-gather" => ControlCommand::StartGather { resp: tx },
                                 "stop-gather" => ControlCommand::StopGather { resp: tx },
                                 "send-template" => ControlCommand::SendTemplate { resp: tx },
+                                "timeouts" => ControlCommand::Timeouts { resp: tx },
+                                "help" => ControlCommand::Help { resp: tx },
                                 _ => {
                                     let _ = (&stream).write_all(format!("Unknown control command \"{}\"\n", cmd_str).as_bytes());
                                     return;
@@ -123,6 +127,8 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
     let mut out = String::new();
     let p = &tracker.param;
 
+    let start_time_str = format_time(p.system_boot_time.tv_sec);
+    out.push_str(&format!("Accumulated statistics since {} UTC:\n", start_time_str));
     out.push_str(&format!("Number of active flows: {}\n", tracker.flows.len()));
     out.push_str(&format!("Packets processed: {}\n", p.total_packets));
     if p.non_sampled_packets > 0 {
@@ -140,6 +146,23 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
         "Flows exported: {} ({} records) in {} packets ({} failures)\n",
         p.flows_exported, p.records_sent, p.packets_sent, p.flows_dropped
     ));
+
+    if tracker.flow_lookup != crate::common::FlowLookupMode::Tree {
+        let size_kb = (tracker.nbuckets as usize * 32) / 1024;
+        let size_str = if size_kb > 0 {
+            format!("{} KiB", size_kb)
+        } else {
+            format!("{} B", tracker.nbuckets * 32)
+        };
+        out.push_str(&format!(
+            "Flow table: {}, {} buckets ({}), {} in use, max depth 1, {} collisions\n",
+            tracker.flow_lookup.name(),
+            tracker.nbuckets,
+            size_str,
+            tracker.flows.len(),
+            p.expired_collision
+        ));
+    }
     out.push_str("\n");
 
     if p.flows_expired > 0 {
@@ -171,6 +194,9 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
         out.push_str(&format!("over 2 GiB = {:9}\n", p.expired_overbytes));
         out.push_str(&format!("  maxflows = {:9}\n", p.expired_maxflows));
         out.push_str(&format!("   flushed = {:9}\n", p.expired_flush));
+        if tracker.flow_lookup == crate::common::FlowLookupMode::Hash {
+            out.push_str(&format!(" collision = {:9}\n", p.expired_collision));
+        }
         out.push_str("\n");
 
         out.push_str("Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
@@ -181,7 +207,7 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
                     6 => "tcp",
                     17 => "udp",
                     58 => "ipv6-icmp",
-                    _ => "unknown",
+                    _ => "Unknown",
                 };
                 let proto_str = format!("{} ({})", proto_name, i);
                 out.push_str(&format!(
@@ -197,6 +223,31 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
     }
 
     out
+}
+
+pub fn render_timeouts(tracker: &FlowTracker) -> String {
+    let p = &tracker.param;
+    let mut out = String::new();
+    out.push_str(&format!(
+        "  tcp = {}   tcp.rst = {}   tcp.fin = {}\n",
+        p.tcp_timeout, p.tcp_rst_timeout, p.tcp_fin_timeout
+    ));
+    out.push_str(&format!(
+        "  udp = {}      icmp = {}   general = {}\n",
+        p.udp_timeout, p.icmp_timeout, p.general_timeout
+    ));
+    out.push_str(&format!(
+        "  maxlife = {}   expint = {}\n",
+        p.maximum_lifetime, p.expiry_interval
+    ));
+    out
+}
+
+pub fn render_help() -> &'static str {
+    "Valid control words are:\n\
+\tdebug+ debug- delete-all dump-flows exit expire-all\n\
+\tshutdown start-gather statistics stop-gather timeouts\n\
+\tsend-template\n"
 }
 
 pub fn render_dump_flows(tracker: &FlowTracker) -> String {

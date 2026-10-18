@@ -6,12 +6,27 @@ use clap::Parser;
 use nix::sys::signal::{self, SigAction, SigHandler, Signal};
 
 use rsoftflowd::common::{
-    FlowTracker, Flow, FlowKey, TimeVal, ExpiryReason, ExpiryKey, TrackLevel
+    FlowTracker, Flow, FlowKey, TimeVal, ExpiryReason, ExpiryKey, TrackLevel, FlowLookupMode
 };
 use rsoftflowd::opts::RsoftflowdArgs;
 use rsoftflowd::packet_parser::{parse_packet, ParsedPacket};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
-use rsoftflowd::control::{ControlCommand, start_control_server, render_statistics, render_dump_flows};
+use rsoftflowd::control::{
+    ControlCommand, start_control_server, render_statistics, render_dump_flows,
+    render_timeouts, render_help
+};
+
+fn parse_interface_spec(s: &str) -> (u16, String) {
+    if let Some((idx_str, name)) = s.split_once(':') {
+        if !idx_str.is_empty() {
+            if let Ok(idx) = idx_str.parse::<u16>() {
+                return (idx, name.to_string());
+            }
+        }
+        return (0, name.to_string());
+    }
+    (0, s.to_string())
+}
 
 fn parse_duration(s: &str) -> Option<i32> {
     let mut val = 0;
@@ -120,7 +135,7 @@ fn register_signals() {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = RsoftflowdArgs::parse();
 
     // 1. Logging setup
@@ -166,10 +181,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let track_level = TrackLevel::from_str(&args.track_level)
         .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
+    let (mut user_ifidx, capture_dev) = if let Some(ref if_spec) = args.interface {
+        let (idx, name) = parse_interface_spec(if_spec);
+        (idx, Some(name))
+    } else {
+        (0, None)
+    };
+    if user_ifidx == 0 {
+        user_ifidx = 1;
+    }
+
     let mut tracker = FlowTracker::new(args.max_flows);
     tracker.param.track_level = track_level;
     tracker.param.sample_rate = args.sampling_rate;
-    if let Some(ref ifname) = args.interface {
+    if let Some(ref ifname) = capture_dev {
         tracker.param.interface_name = ifname.clone();
     }
     if let Some(ref exp_ip_str) = args.exporter_ip {
@@ -178,6 +203,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     apply_timeouts(&mut tracker, &args.timeouts);
+
+    if let Some(mode) = FlowLookupMode::from_str(&args.flow_lookup) {
+        tracker.flow_lookup = mode;
+    } else {
+        log::error!("Invalid flow lookup mode: {}", args.flow_lookup);
+        std::process::exit(1);
+    }
 
     if let Some(ref mac_str) = args.direction_mac {
         if let Some(mac) = parse_mac_address(mac_str) {
@@ -206,7 +238,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 4. Resolve and setup Netflow Exporter Targets
-    let version = args.netflow_version.parse::<u16>().unwrap_or(5);
+    let is_psamp = args.netflow_version.to_lowercase() == "psamp";
+    let version = if is_psamp {
+        10
+    } else {
+        args.netflow_version.parse::<u16>().unwrap_or(5)
+    };
+    tracker.param.is_psamp = is_psamp;
+    let want_v6 = args.always_v6 || version == 9 || version == 10;
+
     let mut targets = NetflowTarget {
         destinations: Vec::new(),
         version,
@@ -303,6 +343,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    let max_num_label = tracker.param.max_num_label;
+    let full_l4hdr = args.full_transport_header_check;
+
     if let Some(ref file_path) = args.pcap_file {
         let mut capture = pcap::Capture::from_file(file_path)?;
         if let Some(ref filter) = bpf_filter {
@@ -328,7 +371,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
 
-                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, tracker.param.max_num_label, timestamp) {
+                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, max_num_label, full_l4hdr, timestamp) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
@@ -344,13 +387,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             log::debug!("Packet capture thread exited.");
         });
-    } else if let Some(ref dev_name) = args.interface {
+    } else if let Some(ref dev_name) = capture_dev {
         let snaplen = args.capture_length.unwrap_or(256) as i32;
         let mut builder = pcap::Capture::from_device(dev_name.as_str())?
             .snaplen(snaplen)
-            .promisc(!args.no_promisc); // -N オプションを反映
+            .promisc(!args.no_promisc);
 
-        // -B オプションを反映
         if let Some(buf_size) = args.buffer_size {
             builder = builder.buffer_size(buf_size as i32);
         } else {
@@ -380,12 +422,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
 
-                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, tracker.param.max_num_label, timestamp) {
+                        if let Some(parsed) = parse_packet(linktype, &raw_packet.data, caplen, len, track_level, max_num_label, full_l4hdr, timestamp) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
                     Err(_) => {
-                        // In live capture, timeout is normal, loop again
                         continue;
                     }
                 }
@@ -401,13 +442,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 8. Main Event Loop
     log::info!("rsoftflowd started. Version: {}", version);
     let mut last_expiry_scan = Instant::now();
+    let mut stop_gather = false;
+    let pid = std::process::id();
+    let prefix = format!("softflowd[{}]: ", pid);
 
     loop {
         // Handle signals
         if GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
             log::info!("Shutting down gracefully...");
-            // Expire and flush all active flows
-            flush_all_flows(&mut tracker, &targets);
+            flush_all_flows(&mut tracker, &targets, user_ifidx);
             break;
         }
 
@@ -416,46 +459,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match cmd {
                 ControlCommand::Statistics { resp } => {
                     let stats_str = render_statistics(&tracker);
-                    let _ = resp.send(stats_str);
+                    let _ = resp.send(format!("{}{}", prefix, stats_str));
                 }
                 ControlCommand::DumpFlows { resp } => {
                     let dump_str = render_dump_flows(&tracker);
-                    let _ = resp.send(dump_str);
+                    let _ = resp.send(format!("{}Dumping flow data:\n{}", prefix, dump_str));
                 }
                 ControlCommand::Shutdown { resp } => {
                     log::info!("Shutdown command received.");
                     GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
-                    let _ = resp.send("softflowd: Shutting down gracefully...\n".to_string());
+                    let _ = resp.send(format!("{}Shutting down gracefully...\n", prefix));
                 }
                 ControlCommand::ExpireAll { resp } => {
-                    let count = expire_all_flows(&mut tracker, &targets);
-                    let _ = resp.send(format!("softflowd: Expired {} flows.\n", count));
+                    let count = expire_all_flows(&mut tracker, &targets, user_ifidx);
+                    let _ = resp.send(format!("{}Expired {} flows.\n", prefix, count));
                 }
                 ControlCommand::DeleteAll { resp } => {
                     let count = tracker.flows.len();
                     tracker.flows.clear();
                     tracker.expiries.clear();
-                    let _ = resp.send(format!("softflowd: Deleted {} flows.\n", count));
+                    tracker.flow_slots.clear();
+                    let _ = resp.send(format!("{}Deleted {} flows.\n", prefix, count));
                 }
                 ControlCommand::Exit { resp } => {
                     log::info!("Exit command received.");
-                    let _ = resp.send("softflowd: Exiting now...\n".to_string());
+                    let _ = resp.send(format!("{}Exiting now...\n", prefix));
+                    if let Some(ref path) = ctl_path {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    if let Some(ref path) = pidfile_path {
+                        let _ = std::fs::remove_file(path);
+                    }
                     std::process::exit(0);
                 }
                 ControlCommand::DebugPlus { resp } => {
-                    let _ = resp.send("softflowd: Debug level increased (not implemented).\n".to_string());
+                    let _ = resp.send(format!("{}Debug level increased.\n", prefix));
                 }
                 ControlCommand::DebugMinus { resp } => {
-                    let _ = resp.send("softflowd: Debug level decreased (not implemented).\n".to_string());
+                    let _ = resp.send(format!("{}Debug level decreased.\n", prefix));
                 }
                 ControlCommand::StartGather { resp } => {
-                    let _ = resp.send("softflowd: Data collection resumed.\n".to_string());
+                    stop_gather = false;
+                    let _ = resp.send(format!("{}Data collection resumed.\n", prefix));
                 }
                 ControlCommand::StopGather { resp } => {
-                    let _ = resp.send("softflowd: Data collection stopped.\n".to_string());
+                    stop_gather = true;
+                    let _ = resp.send(format!("{}Data collection stopped.\n", prefix));
                 }
                 ControlCommand::SendTemplate { resp } => {
-                    let _ = resp.send("softflowd: Template will be sent at next export.\n".to_string());
+                    rsoftflowd::exporter::ipfix::resend_template();
+                    let _ = resp.send(format!("{}Template will be sent at next flow export\n", prefix));
+                }
+                ControlCommand::Timeouts { resp } => {
+                    let timeouts_str = render_timeouts(&tracker);
+                    let _ = resp.send(format!("{}Printing timeouts:\n{}", prefix, timeouts_str));
+                }
+                ControlCommand::Help { resp } => {
+                    let _ = resp.send(render_help().to_string());
                 }
             }
         }
@@ -466,10 +526,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match packet_rx.try_recv() {
                 Ok(parsed) => {
-                    process_parsed_packet(&mut tracker, parsed);
+                    if !stop_gather {
+                        process_parsed_packet(&mut tracker, parsed, want_v6, &targets, user_ifidx);
+                    }
                     packets_processed_this_loop += 1;
                     if packets_processed_this_loop > 1000 {
-                        // Return to check commands/timers
                         break;
                     }
                 }
@@ -486,7 +547,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Periodic flow expiry checks
         let scan_interval = Duration::from_secs(tracker.param.expiry_interval.max(1) as u64);
         if last_expiry_scan.elapsed() >= scan_interval {
-            scan_expiries(&mut tracker, &targets, false);
+            scan_expiries(&mut tracker, &targets, false, user_ifidx);
             last_expiry_scan = Instant::now();
         }
 
@@ -498,10 +559,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // In offline PCAP file mode, if the packet channel is empty and thread has finished, we exit!
         if (pcap_file_mode && channel_disconnected) || GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
             log::info!("Shutting down. Processing remaining flows.");
-            flush_all_flows(&mut tracker, &targets);
+            flush_all_flows(&mut tracker, &targets, user_ifidx);
             // Print stats to stdout before exit as C softflowd does
             let final_stats = render_statistics(&tracker);
-            println!("{}", final_stats);
+            print!("{}", final_stats);
             break;
         }
     }
@@ -525,7 +586,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::process::exit(0);
 }
 
-fn process_parsed_packet(tracker: &mut FlowTracker, parsed: ParsedPacket) {
+fn process_parsed_packet(
+    tracker: &mut FlowTracker,
+    parsed: ParsedPacket,
+    want_v6: bool,
+    targets: &NetflowTarget,
+    ifidx: u16,
+) {
+    if !want_v6 && parsed.af == 10 {
+        tracker.param.non_ip_packets += 1;
+        return;
+    }
+
     if tracker.param.total_packets == 0 {
         tracker.param.system_boot_time = parsed.timestamp;
     }
@@ -552,6 +624,19 @@ fn process_parsed_packet(tracker: &mut FlowTracker, parsed: ParsedPacket) {
     let timeval_packet = parsed.timestamp;
     tracker.param.last_packet_time = timeval_packet;
 
+    // PSAMP mode: export immediately
+    if tracker.param.is_psamp {
+        let dummy_pkt = [0u8; 128]; // When raw packet buffer isn't passed directly
+        rsoftflowd::exporter::psamp::send_psamp(
+            &dummy_pkt,
+            parsed.length.min(128),
+            parsed.timestamp,
+            targets,
+            tracker.param.total_packets,
+        );
+        return;
+    }
+
     // Fragment packets count
     if parsed.is_frag {
         tracker.param.frag_packets += 1;
@@ -571,6 +656,34 @@ fn process_parsed_packet(tracker: &mut FlowTracker, parsed: ParsedPacket) {
         &parsed.mpls_labels,
         tracker.param.track_level,
     );
+
+    // Hash lookup mode: expire resident flow on collision
+    if tracker.flow_lookup == FlowLookupMode::Hash {
+        let slot = key.hash_index(tracker.nbuckets);
+        if let Some(resident_key) = tracker.flow_slots.get(&slot).cloned() {
+            if resident_key != key {
+                if let Some(mut resident_flow) = tracker.flows.remove(&resident_key) {
+                    if let Some(exp_key) = resident_flow.expiry_key {
+                        tracker.expiries.remove(&exp_key);
+                    }
+                    resident_flow.expiry_reason = ExpiryReason::Collision;
+                    resident_flow.flow_end_reason = 2; // Lack of resources
+                    tracker.param.flows_force_expired += 1;
+                    accumulate_stats(tracker, &resident_flow);
+                    let flow_refs = vec![&resident_flow];
+                    let sp = SendParameter {
+                        flows: &flow_refs,
+                        target: targets,
+                        ifidx,
+                        param: &mut tracker.param,
+                        verbose: false,
+                    };
+                    let _ = send_flows(sp);
+                }
+            }
+        }
+        tracker.flow_slots.insert(slot, key.clone());
+    }
 
     // Get or create flow
     if !tracker.flows.contains_key(&key) {
@@ -733,10 +846,11 @@ fn accumulate_stats(tracker: &mut FlowTracker, flow: &Flow) {
         ExpiryReason::OverBytes => tracker.param.expired_overbytes += 1,
         ExpiryReason::Overflows => tracker.param.expired_maxflows += 1,
         ExpiryReason::Flush => tracker.param.expired_flush += 1,
+        ExpiryReason::Collision => tracker.param.expired_collision += 1,
     }
 }
 
-fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: bool) -> usize {
+fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: bool, ifidx: u16) -> usize {
     log::debug!("Starting expiry scan: mode {}", if force_all { 1 } else { 0 });
 
     let now_sec = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -792,7 +906,7 @@ fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: 
         let sp = SendParameter {
             flows: &flow_refs,
             target: targets,
-            ifidx: 1, // Default index
+            ifidx,
             param: &mut tracker.param,
             verbose: true,
         };
@@ -802,10 +916,10 @@ fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: 
     count
 }
 
-fn expire_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget) -> usize {
-    scan_expiries(tracker, targets, true)
+fn expire_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget, ifidx: u16) -> usize {
+    scan_expiries(tracker, targets, true, ifidx)
 }
 
-fn flush_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget) {
-    expire_all_flows(tracker, targets);
+fn flush_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget, ifidx: u16) {
+    expire_all_flows(tracker, targets, ifidx);
 }

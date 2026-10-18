@@ -135,6 +135,13 @@ impl FlowKey {
 
         (key, ndx)
     }
+
+    pub fn hash_index(&self, nbuckets: u32) -> u32 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        (hasher.finish() as u32) & (nbuckets.saturating_sub(1))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -149,6 +156,7 @@ pub enum ExpiryReason {
     OverBytes = 7,
     Overflows = 8,
     Flush = 9,
+    Collision = 10,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -246,6 +254,7 @@ pub struct FlowTrackParameters {
     pub expired_overbytes: u64,
     pub expired_maxflows: u64,
     pub expired_flush: u64,
+    pub expired_collision: u64,
 
     // Options
     pub sample_rate: u32,
@@ -311,6 +320,7 @@ impl Default for FlowTrackParameters {
             expired_overbytes: 0,
             expired_maxflows: 0,
             expired_flush: 0,
+            expired_collision: 0,
             sample_rate: 0,
             metering_process_id: std::process::id(),
             interface_name: String::new(),
@@ -330,20 +340,57 @@ impl Default for FlowTrackParameters {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowLookupMode {
+    Tree,
+    HashTree,
+    Hash,
+}
+
+impl FlowLookupMode {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "tree" => Some(FlowLookupMode::Tree),
+            "hash-tree" => Some(FlowLookupMode::HashTree),
+            "hash" => Some(FlowLookupMode::Hash),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            FlowLookupMode::Tree => "tree",
+            FlowLookupMode::HashTree => "hash-tree",
+            FlowLookupMode::Hash => "hash",
+        }
+    }
+}
+
 pub struct FlowTracker {
     pub flows: HashMap<FlowKey, Flow>,
     pub expiries: BTreeMap<ExpiryKey, FlowKey>,
     pub param: FlowTrackParameters,
+    pub flow_lookup: FlowLookupMode,
+    pub flow_slots: HashMap<u32, FlowKey>,
+    pub nbuckets: u32,
 }
 
 impl FlowTracker {
     pub fn new(max_flows: u32) -> Self {
         let mut param = FlowTrackParameters::default();
         param.max_flows = max_flows;
+        // Compute nbuckets as power of two >= max_flows
+        let mut nbuckets = 1024u32;
+        while nbuckets < max_flows && nbuckets < (1 << 24) {
+            nbuckets <<= 1;
+        }
         FlowTracker {
             flows: HashMap::new(),
             expiries: BTreeMap::new(),
             param,
+            flow_lookup: FlowLookupMode::HashTree,
+            flow_slots: HashMap::new(),
+            nbuckets,
         }
     }
 }

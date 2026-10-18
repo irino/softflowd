@@ -49,6 +49,7 @@ pub fn parse_packet(
     orig_len: u32,
     track_level: TrackLevel,
     max_mpls_label: u8,
+    full_l4hdr_check: bool,
     timestamp: TimeVal,
 ) -> Option<ParsedPacket> {
     let caplen = caplen as usize;
@@ -161,6 +162,20 @@ pub fn parse_packet(
             if protocol == 0x0800 {
                 af = 2;
             } else if protocol == 0x86dd {
+                af = 10;
+            } else {
+                return None;
+            }
+        }
+        DLT_PPP => {
+            if caplen < 5 {
+                return None;
+            }
+            let protocol = u16::from_be_bytes([pkt[3], pkt[4]]);
+            offset = 5;
+            if protocol == 0x0021 {
+                af = 2;
+            } else if protocol == 0x0057 {
                 af = 10;
             } else {
                 return None;
@@ -280,20 +295,23 @@ pub fn parse_packet(
         let remain = caplen.saturating_sub(next_header_offset);
         match protocol {
             IPPROTO_TCP => {
-                if remain >= 20 {
+                let min_len = if full_l4hdr_check { 20 } else { 14 };
+                if remain >= min_len {
                     src_port = u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
                     dst_port = u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
                     tcp_flags = pkt[next_header_offset + 13];
                 }
             }
             IPPROTO_UDP => {
-                if remain >= 8 {
+                let min_len = if full_l4hdr_check { 8 } else { 4 };
+                if remain >= min_len {
                     src_port = u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
                     dst_port = u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
                 }
             }
             IPPROTO_ICMP => {
-                if remain >= 2 {
+                let min_len = if full_l4hdr_check { 8 } else { 2 };
+                if remain >= min_len {
                     let icmp_type = pkt[next_header_offset] as u16;
                     let icmp_code = pkt[next_header_offset + 1] as u16;
                     src_port = 0;
@@ -302,7 +320,8 @@ pub fn parse_packet(
                 }
             }
             IPPROTO_ICMPV6 => {
-                if remain >= 2 {
+                let min_len = if full_l4hdr_check { 8 } else { 2 };
+                if remain >= min_len {
                     let icmp_type = pkt[next_header_offset] as u16;
                     let icmp_code = pkt[next_header_offset + 1] as u16;
                     src_port = 0;

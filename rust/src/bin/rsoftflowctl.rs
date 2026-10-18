@@ -3,7 +3,7 @@ use rsoftflowd::opts::RsoftflowctlArgs;
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = RsoftflowctlArgs::parse();
 
     let mut stream = match UnixStream::connect(&args.ctlsock) {

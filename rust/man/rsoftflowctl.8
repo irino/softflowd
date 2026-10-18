@@ -4,12 +4,12 @@
 .SH NAME
 rsoftflowctl \- Control rsoftflowd daemon rewritten in Rust
 .SH SYNOPSIS
-\fBrsoftflowctl\fR [\fB\-c \fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fICOMMAND\fR> 
+\fBrsoftflowctl\fR [\fB\-c\fR|\fB\-\-control\-socket\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fICOMMAND\fR> 
 .SH DESCRIPTION
 rsoftflowctl is a remote control program used to control a running rsoftflowd daemon.
 .SH OPTIONS
 .TP
-\fB\-c\fR \fI<CTLSOCK>\fR [default: /var/run/softflowd.ctl]
+\fB\-c\fR, \fB\-\-control\-socket\fR \fI<CTLSOCK>\fR [default: /var/run/softflowd.ctl]
 Specify control socket path
 .TP
 \fB\-h\fR, \fB\-\-help\fR
