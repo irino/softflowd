@@ -7,6 +7,8 @@ if COMPAT_EXPORT_IS_STATIC_SEPARATE
 endif
 if COMPAT_EXPORT_IS_ENABLED
   STATIC_SOURCES = compat/ipfix.c compat/netflow5.c
+else
+  EXPORT_SOURCES = export.c
 endif
 if ENABLE_NTOPNG
   NTOPNG_SOURCES = ntopng.c
@@ -14,8 +16,8 @@ endif
 if ENABLE_NTOPNG_JSON
   NTOPNG_JSON_SOURCES = compat/ntopng-json.c
 endif
-softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h ipfix_fields.h psamp.h\
-	freelist.c softflowd.c log.c export.c $(STATIC_SOURCES) psamp.c\
+softflowd_SOURCES = freelist.h log.h softflowd.h netflow.h ipfix.h ipfix_fields.h export_common.h psamp.h\
+	freelist.c softflowd.c log.c export_common.c $(EXPORT_SOURCES) $(STATIC_SOURCES) psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES) $(NTOPNG_JSON_SOURCES)
 softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON) $(XXHASH_LIBS)

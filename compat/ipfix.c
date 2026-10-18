@@ -23,6 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "export_common.h"
 #include "ipfix.h"
 #include "common.h"
 #include "log.h"

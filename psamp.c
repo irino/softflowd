@@ -24,6 +24,7 @@
 
 #include "common.h"
 #include "log.h"
+#include "export_common.h"
 #include "ipfix.h"
 #include "psamp.h"
 #include <pcap.h>

@@ -46,6 +46,7 @@
 #include "common.h"
 #include "convtime.h"
 #include "freelist.h"
+#include "export_common.h"
 #include "ipfix.h"
 #include "log.h"
 #include "netflow.h"

@@ -32,18 +32,6 @@
 #define IPFIX_MIN_RECORD_SET_ID 256
 #define IPFIX_PORT 4739
 
-#define IPFIX_BIFLAG_OFF 0
-#define IPFIX_BIFLAG_ON 1
-
-/* Template IDs and template re-send interval (packets); shared with NetFlow v9
- */
-#define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID 1024
-#define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID 1025
-#define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID 2048
-#define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID 2049
-#define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID 256
-#define IPFIX_DEFAULT_TEMPLATE_INTERVAL 16
-
 /* Option template scope types (same values in NetFlow v9 and IPFIX) */
 #define IPFIX_OPTION_SCOPE_SYSTEM 1
 #define IPFIX_OPTION_SCOPE_INTERFACE 2
@@ -143,7 +131,6 @@
 #define IPFIX_FLOWDIRECTION_INGRESS 0x00
 #define IPFIX_FLOWDIRECTION_EGRESS 0x01
 
-#define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE 1428
 #define IPFIX_mplsLabelStackSection_SIZE 3
 
 struct IPFIX_HEADER {
@@ -187,49 +174,4 @@ struct IPFIX_VENDOR_FIELD_SPECIFIER {
 } __packed;
 #define REVERSE_PEN 29305
 
-struct ntp_time_t {
-  uint32_t second;
-  uint32_t fraction;
-};
-
-/* Force a resend of the flow template. */
-void
-ipfix_resend_template (void);
-int
-ipfix_init_fields (struct IPFIX_FIELD_SPECIFIER *dst, u_int *index,
-                   const struct IPFIX_FIELD_SPECIFIER *src,
-                   u_int field_number);
-void
-conv_unix_to_ntp (struct timeval tv, struct ntp_time_t *ntp);
-void
-conv_ntp_to_unix (struct ntp_time_t ntp, struct timeval *tv);
-/* Determines flow template (v4/icmpv4/v6/icmpv6) index;
- * used to select from their TMPLMAX template arrays. */
-enum { TMPLV4,
-       TMPLICMPV4,
-       TMPLV6,
-       TMPLICMPV6,
-       TMPLMAX };
-
-/* Functions shared by the exporters in export.c and compat/ipfix.c. */
-u_int8_t
-ipfix_flow_direction (const struct FLOW *flow, int i,
-                      const struct FLOWTRACKPARAMETERS *param);
-u_int
-ipfix_flow_to_template_index (const struct FLOW *flow);
-
-/* Hooks called by send_ipfix_flows() in export.c; each exporter (encoder-based
- * in export.c, fixed-format in compat/ipfix.c) implements them. */
-void
-ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
-                     u_int16_t version);
-void
-ipfix_put_templates (u_char *packet, u_int *offset, u_int8_t bi_flag,
-                     u_int16_t version, const struct SENDPARAMETER *sp);
-int
-ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet, u_int len,
-                       const struct SENDPARAMETER *sp, u_int *len_used,
-                       u_int8_t bi_flag, u_int16_t version);
-u_int16_t
-ipfix_template_set_id (u_int tmplindex);
 #endif /* _IPFIX_H */

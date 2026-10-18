@@ -27,6 +27,7 @@
 #include "treetype.h"
 #include "softflowd.h"
 #include "netflow.h"
+#include "export_common.h"
 #include "ipfix.h"
 
 /* Legacy (--enable-compat-export=static-separate) NetFlow v9 exporter limits */

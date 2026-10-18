@@ -135,7 +135,8 @@ in one bucket, both at the time the statistics are printed.
 
 ## Source Layout
 
-The sources in the top-level directory are always built. compat/ holds
+The sources in the top-level directory are always built, except export.c
+which compat/ipfix.c and compat/netflow5.c replace (see below). compat/ holds
 the sources that the default build does not need; they are kept for
 backward compatibility and for systems that lack the functions they
 provide.
@@ -143,11 +144,11 @@ provide.
 - `compat/ipfix.c`, `compat/netflow1.c`, `compat/netflow5.c`, `compat/netflow9.c`
   Separate NetFlow v1, v5 and v9 exporters. By default export.c exports
   NetFlow v1, v5 and v9 as well as IPFIX and none of these files are
-  built. With ./configure --enable-compat-export=static, the encoder-based
-  exporters in export.c are left out and netflow5.c exports the fixed
-  formats (v1 and v5), while ipfix.c exports the template formats (v9 and
-  IPFIX) using fixed templates and data records; export.c still provides
-  the packet framing shared with ipfix.c. With
+  built. With ./configure --enable-compat-export=static, export.c is
+  replaced by these: netflow5.c exports the fixed formats (v1 and v5),
+  while ipfix.c exports the template formats (v9 and IPFIX) using fixed
+  templates and data records; export_common.c still provides the packet
+  framing shared with ipfix.c. With
   --enable-compat-export=static-separate (or --enable-legacy) all four
   are built and ipfix.c exports IPFIX only.
   If both options are given, --enable-compat-export takes precedence.
