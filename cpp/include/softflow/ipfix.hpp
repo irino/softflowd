@@ -24,6 +24,8 @@
 #include <string>
 
 #include <algorithm>
+#include <array>
+#include <optional>
 #include <chrono>
 #include <cstdint>
 #include <span>
@@ -64,6 +66,18 @@ inline constexpr std::size_t kIpfixMaxPacketSize = 1428;
 // Milliseconds/Microseconds/Nanoseconds remain available via -A.
 enum class IpfixTimeFormat { SysUpTime, Seconds, Milliseconds, Microseconds, Nanoseconds };
 
+// Original: option.exporterAddr (-e), the address reported in the exporter
+// address fields of the IPFIX options record. The first IPv4 and the first
+// IPv6 address that -e resolves to; an absent address is reported as zero.
+struct ExporterAddresses {
+  std::optional<std::array<std::uint8_t, 4>> v4;
+  std::optional<std::array<std::uint8_t, 16>> v6;
+};
+
+// Resolves a host name or an address with getaddrinfo (). Returns no
+// addresses when it cannot be resolved.
+ExporterAddresses resolve_exporter_addresses (const std::string &host);
+
 // Original: the `version` argument of send_ipfix_flows(). NetFlow v9 and
 // IPFIX share the templates, the data records and the packet framing; they
 // differ in the message header, the Set IDs of the template and options
@@ -86,23 +100,37 @@ public:
     // direction's octet/packet/TCP-flags counts carried in Reverse
     // Information Elements (RFC 5103's IANA-assigned Reverse PEN, 29305)
     // alongside the forward direction's ordinary fields.
-    explicit IpfixExporter(std::uint32_t observation_domain_id = 0,
-                            std::uint8_t mpls_label_count = 0,
-                            IpfixTimeFormat time_format = IpfixTimeFormat::SysUpTime,
-                            bool biflow = false, TimePoint boot_time = TimePoint{},
-                            std::chrono::system_clock::time_point boot_wall_time = {},
-                            MessageVersion version = MessageVersion::Ipfix,
-                            std::uint32_t if_index = 0,
-                            std::uint32_t sampling_rate = 0)
-        : observation_domain_id_(observation_domain_id),
-          mpls_label_count_(std::min<std::uint8_t>(mpls_label_count, 10)),
-          time_format_(version == MessageVersion::Ipfix
-                           ? time_format
-                           : IpfixTimeFormat::SysUpTime),
-          biflow_(biflow && version == MessageVersion::Ipfix),
-          boot_time_(boot_time), boot_wall_time_(boot_wall_time),
-          version_(version),
-          if_index_(if_index), sampling_rate_(sampling_rate) {}
+  explicit IpfixExporter (std::uint32_t observation_domain_id = 0,
+                          std::uint8_t mpls_label_count = 0,
+                          IpfixTimeFormat time_format = IpfixTimeFormat::SysUpTime,
+                          bool biflow = false, TimePoint boot_time = TimePoint{},
+                          std::chrono::system_clock::time_point boot_wall_time = {},
+                          MessageVersion version = MessageVersion::Ipfix,
+                          std::uint32_t if_index = 0,
+                          std::uint32_t sampling_rate = 0,
+                          TrackLevel track_level = TrackLevel::IpProtoPort)
+      : observation_domain_id_ (observation_domain_id),
+        mpls_label_count_ (std::min<std::uint8_t> (mpls_label_count, 10)),
+        time_format_ (version == MessageVersion::Ipfix
+                        ? time_format
+                        : IpfixTimeFormat::SysUpTime),
+        biflow_ (biflow && version == MessageVersion::Ipfix),
+        boot_time_ (boot_time), boot_wall_time_ (boot_wall_time),
+        version_ (version),
+        if_index_ (if_index), sampling_rate_ (sampling_rate),
+        track_level_ (track_level) {
+  }
+
+  // Original: -H, flowDirection from the direction MAC. Only meaningful
+  // when the flows carry Ethernet addresses (-T ether).
+  void
+  set_direction_mac (const std::array<std::uint8_t, 6> &mac) {
+    direction_mac_ = mac;
+  }
+
+    void set_exporter_addresses (const ExporterAddresses &addresses) {
+        exporter_addresses_ = addresses;
+    }
 
     // Original: ipfix_resend_template() -- send the templates again with the
     // next export packet.
@@ -126,9 +154,17 @@ public:
     // monotonic Clock (see softflowd.hpp), converting one to an epoch
     // time requires knowing how the monotonic "now" and the wall-clock
     // "wall_now" relate at the moment of export.
+    //
+    // Original: send_ipfix_flows()'s template-only packet. When
+    // template_only_packets is not null (-l with several destinations), the
+    // templates and the options record are sent in a packet of their own,
+    // ahead of the data packet, and the index of that packet in the result
+    // is added to *template_only_packets: it has to reach every
+    // destination, whereas the other packets are balanced among them.
     std::vector<std::vector<std::uint8_t>>
-    build_packets(std::span<const ExportRecord> records, TimePoint now,
-                  std::chrono::system_clock::time_point wall_now);
+    build_packets (std::span<const ExportRecord> records, TimePoint now,
+                   std::chrono::system_clock::time_point wall_now,
+                   std::vector<std::size_t> *template_only_packets = nullptr);
 
     std::uint32_t sequence() const noexcept { return sequence_; }
 
@@ -153,7 +189,10 @@ private:
     MessageVersion version_;
     std::uint32_t if_index_;      // NetFlow v9 options scope (-i if_ndx:dev)
     std::uint32_t sampling_rate_; // -s
-    std::uint32_t v9_sequence_{1}; // NetFlow v9 counts packets, from 1
+    TrackLevel track_level_;      // -T: VLAN and Ethernet fields
+    ExporterAddresses exporter_addresses_;
+    std::optional<std::array<std::uint8_t, 6>> direction_mac_;
+    std::uint32_t v9_sequence_{1};  // NetFlow v9 counts packets, from 1
     std::uint32_t sequence_{0}; // count of Data Records sent so far
     std::uint32_t packets_since_template_{0};
 };

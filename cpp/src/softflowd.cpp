@@ -45,7 +45,16 @@
 #include <stdexcept>
 
 #include <poll.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#ifdef __linux__
+#include <net/if_arp.h>
+#else
+#include <net/if_dl.h>
+#include <net/if_types.h>
+#endif
 #include <sys/un.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -792,11 +801,18 @@ PacketParser::parse_transport (
 
 FlowKey
 make_flow_key (const ParsedPacket &packet, TrackLevel track_level,
-               std::array<std::uint16_t, 2> vlanid) {
+               std::array<std::uint16_t, 2> vlanid,
+               std::array<std::array<std::uint8_t, 6>, 2> ethermac) {
   const std::uint8_t tos = track_level >= TrackLevel::FullTos ? packet.tos : 0;
+  if (track_level < TrackLevel::FullVlan) {
+    vlanid = {0, 0};
+  }
+  if (track_level < TrackLevel::FullVlanEther) {
+    ethermac = {};
+  }
   return FlowKey::make_canonical (packet.src, packet.dst, packet.src_port,
                                   packet.dst_port, packet.protocol, tos,
-                                  vlanid);
+                                  vlanid, ethermac);
 }
 
 // =======================================================================
@@ -1147,13 +1163,15 @@ ExportDestinationSet::send_packet (const std::vector<std::uint8_t> &packet,
     // Original: -l. Successive *export packets* (not individual flow
     // records within a packet) rotate through the configured
     // destinations.
-    destinations_[next_index_].send_packet (packet);
-    next_index_ = (next_index_ + 1) % destinations_.size();
+    destinations_[sent_ % destinations_.size()].send_packet (packet);
   } else {
     for (const auto &destination : destinations_) {
       destination.send_packet (packet);
     }
   }
+  // Original: send_multi_destinations() counts every packet, so a packet
+  // that went to all destinations also advances the rotation.
+  ++sent_;
 }
 
 }  // namespace softflow
@@ -1300,6 +1318,7 @@ struct DaemonConfig {
   std::chrono::seconds boot_time_reinit{0};              // -I (0 = disabled)
   bool gauge_clock = false;                              // -g
   bool full_l4hdr_check = false;                         // -f
+  std::optional<std::array<std::uint8_t, 6>> direction_mac;  // -H
 
   std::string bpf_filter;  // trailing bpf_expression
 
@@ -1592,7 +1611,7 @@ write_framed_packets (const std::string &path,
 class ExportPipeline {
 public:
   ExportPipeline (const DaemonConfig &config, softflow::TimePoint boot_time)
-      : format_ (config.export_format) {
+      : format_ (config.export_format), gauge_clock_ (config.gauge_clock) {
     const auto transport_kind = [&] {
       switch (config.transport) {
         case TransportProtocol::Udp:
@@ -1654,8 +1673,15 @@ public:
                         format_ == ExportFormat::Netflow9
                           ? softflow::MessageVersion::NetFlow9
                           : softflow::MessageVersion::Ipfix,
-                        /*if_index=*/0,
-                        config.sampling_rate);
+                        /*if_index=*/0, config.sampling_rate, config.track_level);
+        if (config.direction_mac.has_value() &&
+            config.track_level >= softflow::TrackLevel::FullVlanEther) {
+          ipfix_->set_direction_mac (*config.direction_mac);
+        }
+        if (!config.source_address.empty()) {
+          ipfix_->set_exporter_addresses (
+            softflow::resolve_exporter_addresses (config.source_address));
+        }
         break;
       case ExportFormat::Psamp:
         psamp_.emplace (/*observation_domain_id=*/0,
@@ -1726,6 +1752,16 @@ public:
     std::uint64_t failures = 0;
   };
 
+  std::clock_t
+  export_clocks () const {
+    return export_clocks_;
+  }
+
+  unsigned long
+  export_calls () const {
+    return export_calls_;
+  }
+
   ExportOutcome
   export_flows (const std::vector<softflow::ExportRecord> &records,
                 softflow::TimePoint now,
@@ -1733,7 +1769,22 @@ public:
     if (records.empty() || !wants_flows()) {
       return {};
     }
+    // Original: -g also reports the CPU clocks spent in the export function.
+    struct ExportClock {
+      bool enabled;
+      std::clock_t &total;
+      unsigned long &calls;
+      std::clock_t start;
+      ~ExportClock() {
+        if (enabled) {
+          total += std::clock() - start;
+          ++calls;
+        }
+      }
+    } export_clock{gauge_clock_, export_clocks_, export_calls_,
+                   gauge_clock_ ? std::clock() : 0};
     std::vector<std::vector<std::uint8_t>> packets;
+    std::vector<std::size_t> template_only;
     switch (format_) {
       case ExportFormat::Netflow1:
         packets = netflow1_->build_packets (records, now, wall_now);
@@ -1743,13 +1794,17 @@ public:
         break;
       case ExportFormat::Netflow9:
       case ExportFormat::Ipfix:
-        packets = ipfix_->build_packets (records, now, wall_now);
+        // Original: with -l and several destinations the templates go to
+        // all of them in a packet of their own.
+        packets = ipfix_->build_packets (
+          records, now, wall_now,
+          load_balance_ && destinations_.size() > 1 ? &template_only : nullptr);
         break;
       case ExportFormat::Psamp:
       case ExportFormat::None:
         break;
     }
-    dispatch (packets);
+    dispatch (packets, template_only);
     // Original: NetFlow v1/v5/v9 and IPFIX (non-biflow) each split a
     // single (bidirectional) internal flow into up to two exported
     // records -- one per direction that actually carried traffic
@@ -1802,12 +1857,17 @@ public:
 
 private:
   void
-  dispatch (const std::vector<std::vector<std::uint8_t>> &packets) {
+  dispatch (const std::vector<std::vector<std::uint8_t>> &packets,
+            const std::vector<std::size_t> &to_all_destinations = {}) {
     if (packets.empty()) {
       return;
     }
-    for (const auto &packet : packets) {
-      destinations_.send_packet (packet, load_balance_);
+    for (std::size_t i = 0; i < packets.size(); ++i) {
+      // A template-only packet goes to every destination even with -l.
+      const bool to_all =
+        std::find (to_all_destinations.begin(), to_all_destinations.end(), i) !=
+        to_all_destinations.end();
+      destinations_.send_packet (packets[i], load_balance_ && !to_all);
     }
     if (!export_out_.empty()) {
       write_framed_packets (export_out_, packets, /*append=*/true);
@@ -1815,6 +1875,9 @@ private:
   }
 
   ExportFormat format_;
+  bool gauge_clock_;
+  std::clock_t export_clocks_ = 0;
+  unsigned long export_calls_ = 0;
   std::string export_out_;
   softflow::ExportDestinationSet destinations_;
   bool load_balance_ = false;
@@ -1886,6 +1949,9 @@ struct FrameClassification {
   softflow::AddressFamily af;
   std::size_t ip_offset;                   // bytes to skip, from the start of ip_bytes, to reach the IP header
   std::vector<std::uint32_t> mpls_labels;  // outermost label first; empty if not MPLS-encapsulated
+  std::size_t vlan_size = 0;               // 4 for an 802.1Q tagged Ethernet frame
+  std::uint16_t vlanid = 0;
+  std::array<std::array<std::uint8_t, 6>, 2> ethermac{};  // source, destination
 };
 
 // Shared by run_pcap_file() and run_live_capture(): classifies one
@@ -1900,13 +1966,34 @@ classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_k
     if (pkt.data.size() < 14) {
       return std::nullopt;
     }
-    const std::uint16_t ethertype =
+    FrameClassification frame;
+    // Original: ether_to_flowrec() -- the frame's source and destination.
+    std::copy_n (pkt.data.begin() + 6, 6, frame.ethermac[0].begin());
+    std::copy_n (pkt.data.begin(), 6, frame.ethermac[1].begin());
+    std::uint16_t ethertype =
       static_cast<std::uint16_t> ((pkt.data[12] << 8) | pkt.data[13]);
+    if (ethertype == 0x8100) {
+      // Original: datalink_check() reads the 802.1Q tag, keeps the VID
+      // without the PCP and DEI bits, and looks at the encapsulated type.
+      if (pkt.data.size() < 18) {
+        return std::nullopt;
+      }
+      frame.vlanid =
+        static_cast<std::uint16_t> (((pkt.data[14] << 8) | pkt.data[15]) & 0xFFF);
+      frame.vlan_size = 4;
+      ethertype =
+        static_cast<std::uint16_t> ((pkt.data[16] << 8) | pkt.data[17]);
+    }
+    ip_bytes = ip_bytes.subspan (std::min (frame.vlan_size, ip_bytes.size()));
     if (ethertype == 0x0800) {
-      return FrameClassification{AddressFamily::IPv4, 0, {}};
+      frame.af = AddressFamily::IPv4;
+      frame.ip_offset = frame.vlan_size;
+      return frame;
     }
     if (ethertype == 0x86dd) {
-      return FrameClassification{AddressFamily::IPv6, 0, {}};
+      frame.af = AddressFamily::IPv6;
+      frame.ip_offset = frame.vlan_size;
+      return frame;
     }
     if (ethertype == 0x8847 || ethertype == 0x8848) {
       std::size_t consumed = 0;
@@ -1914,15 +2001,14 @@ classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_k
       if (!shim_entries.has_value() || consumed >= ip_bytes.size()) {
         return std::nullopt;
       }
-      std::vector<std::uint32_t> labels;
-      labels.reserve (shim_entries->size());
+      frame.mpls_labels.reserve (shim_entries->size());
       for (const auto &entry : *shim_entries) {
-        labels.push_back (entry.section);
+        frame.mpls_labels.push_back (entry.section);
       }
-      const AddressFamily af = (ip_bytes[consumed] >> 4) == 6
-                                 ? AddressFamily::IPv6
-                                 : AddressFamily::IPv4;
-      return FrameClassification{af, consumed, std::move (labels)};
+      frame.af = (ip_bytes[consumed] >> 4) == 6 ? AddressFamily::IPv6
+                                                : AddressFamily::IPv4;
+      frame.ip_offset = frame.vlan_size + consumed;
+      return frame;
     }
     return std::nullopt;  // not an IP (or MPLS-encapsulated IP) frame
   }
@@ -1931,7 +2017,7 @@ classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_k
   }
   const AddressFamily af =
     (ip_bytes[0] >> 4) == 6 ? AddressFamily::IPv6 : AddressFamily::IPv4;
-  return FrameClassification{af, 0, {}};
+  return FrameClassification{af, 0, {}, 0, 0, {}};
 }
 
 // =======================================================================
@@ -2046,8 +2132,7 @@ format_address (const softflow::IpAddress &addr);
 // debug log line (-D).
 std::string
 format_flow_brief (std::uint64_t flow_seq,
-                   const softflow::FlowKey &key,
-                   const softflow::Flow &flow) {
+                   const softflow::FlowKey &key) {
   char buf[256];
   std::snprintf (
     buf, sizeof (buf),
@@ -2056,8 +2141,8 @@ format_flow_brief (std::uint64_t flow_seq,
     format_address (key.addr()[0]).c_str(), key.port()[0],
     format_address (key.addr()[1]).c_str(), key.port()[1],
     static_cast<unsigned> (key.protocol()), key.vlanid()[0], key.vlanid()[1],
-    format_ethermac (flow.ethermac[0]).c_str(),
-    format_ethermac (flow.ethermac[1]).c_str());
+    format_ethermac (key.ethermac()[0]).c_str(),
+    format_ethermac (key.ethermac()[1]).c_str());
   return buf;
 }
 
@@ -2102,8 +2187,8 @@ format_flow (const softflow::FlowKey &key,
     format_time (last_wall).c_str(), static_cast<long long> (last_ms),
     flow.tcp_flags[0], flow.tcp_flags[1], flow.ip6_flowlabel_a,
     flow.ip6_flowlabel_b, key.vlanid()[0], key.vlanid()[1],
-    format_ethermac (flow.ethermac[0]).c_str(),
-    format_ethermac (flow.ethermac[1]).c_str());
+    format_ethermac (key.ethermac()[0]).c_str(),
+    format_ethermac (key.ethermac()[1]).c_str());
   return buf;
 }
 
@@ -2339,7 +2424,8 @@ run_pcap_file (const DaemonConfig &config) {
         *parsed, pkt->original_length, effective_time));
     }
 
-    const auto key = make_flow_key (*parsed, parser.track_level());
+    const auto key = make_flow_key (*parsed, parser.track_level(),
+                                    {frame->vlanid, 0}, frame->ethermac);
     const std::uint8_t direction = (key.addr()[0] == parsed->src) ? 0 : 1;
     // Original: `tmp.octets[ndx] = phdr->len - datalink_size;` --
     // octet counts exclude the L2 (e.g. Ethernet) header. Using the
@@ -2347,14 +2433,14 @@ run_pcap_file (const DaemonConfig &config) {
     // L2 header size (e.g. +14 bytes/packet for Ethernet).
     const std::size_t size_before = table.size();
     Flow &flow = table.record_packet (key, effective_time, pkt->wall_timestamp,
-                                      direction, pkt->original_length - skip,
+                                      direction, pkt->original_length - skip - frame->vlan_size,
                                       parsed->tcp_flags, parsed->tos);
     // Original: `if (verbose_flag) logit(LOG_DEBUG, "ADD FLOW %s", ...)`
     // in process_packet(), logged only when a *new* flow entry is
     // created (not on every packet belonging to an existing flow).
     if (config.debug && table.size() != size_before) {
       std::fprintf (stderr, "ADD FLOW %s\n",
-                    format_flow_brief (flow.flow_seq, key, flow).c_str());
+                    format_flow_brief (flow.flow_seq, key).c_str());
     }
     // Original: -x. Only actually stored (and later exported) when
     // requested, capped both by -x's own argument and by the IPFIX/
@@ -2416,6 +2502,9 @@ run_pcap_file (const DaemonConfig &config) {
   if (config.gauge_clock) {
     std::printf ("cpu clocks: %ld\n",
                  static_cast<long> (std::clock() - cpu_start));
+    std::printf ("cpu clocks (export): %ld (%lu calls)\n",
+                 static_cast<long> (exporter.export_clocks()),
+                 exporter.export_calls());
   }
   return 0;
 }
@@ -2844,16 +2933,17 @@ run_live_capture (const DaemonConfig &config) {
             *parsed, pkt->original_length, pkt->timestamp));
         }
 
-        const auto key = make_flow_key (*parsed, parser.track_level());
+        const auto key = make_flow_key (*parsed, parser.track_level(),
+                                        {frame->vlanid, 0}, frame->ethermac);
         const std::uint8_t direction =
           (key.addr()[0] == parsed->src) ? 0 : 1;
         const std::size_t size_before = table.size();
         Flow &flow = table.record_packet (
           key, pkt->timestamp, pkt->wall_timestamp, direction,
-          pkt->original_length - skip, parsed->tcp_flags, parsed->tos);
+          pkt->original_length - skip - frame->vlan_size, parsed->tcp_flags, parsed->tos);
         if (config.debug && table.size() != size_before) {
           std::fprintf (stderr, "ADD FLOW %s\n",
-                        format_flow_brief (flow.flow_seq, key, flow).c_str());
+                        format_flow_brief (flow.flow_seq, key).c_str());
         }
         if (config.mpls_labels > 0 && !frame->mpls_labels.empty()) {
           const std::size_t keep = std::min<std::size_t> (
@@ -2994,11 +3084,70 @@ run_live_capture (const DaemonConfig &config) {
   return 0;
 }
 
+// Original: parse_mac_address(). "xx:xx:xx:xx:xx:xx" or "xx-xx-xx-xx-xx-xx".
+bool
+parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac) {
+  unsigned int b[6];
+  if (std::sscanf (str, "%2x:%2x:%2x:%2x:%2x:%2x", &b[0], &b[1], &b[2], &b[3],
+                   &b[4], &b[5]) != 6 &&
+      std::sscanf (str, "%2x-%2x-%2x-%2x-%2x-%2x", &b[0], &b[1], &b[2], &b[3],
+                   &b[4], &b[5]) != 6) {
+    return false;
+  }
+  for (std::size_t i = 0; i < 6; ++i) {
+    mac[i] = static_cast<std::uint8_t> (b[i]);
+  }
+  return true;
+}
+
+// Original: get_interface_mac(). The Ethernet address of a capture
+// interface, used as the direction MAC when -H is not given.
+std::optional<std::array<std::uint8_t, 6>>
+get_interface_mac (const std::string &ifname) {
+  std::array<std::uint8_t, 6> mac{};
+#ifdef __linux__
+  const int fd = socket (AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    return std::nullopt;
+  }
+  struct ifreq ifr {};
+  std::strncpy (ifr.ifr_name, ifname.c_str(), IFNAMSIZ - 1);
+  const bool ok = ioctl (fd, SIOCGIFHWADDR, &ifr) == 0 &&
+                  ifr.ifr_hwaddr.sa_family == ARPHRD_ETHER;
+  ::close (fd);
+  if (!ok) {
+    return std::nullopt;
+  }
+  std::memcpy (mac.data(), ifr.ifr_hwaddr.sa_data, 6);
+  return mac;
+#else
+  struct ifaddrs *list = nullptr;
+  if (getifaddrs (&list) != 0) {
+    return std::nullopt;
+  }
+  bool found = false;
+  for (const struct ifaddrs *p = list; p != nullptr; p = p->ifa_next) {
+    if (p->ifa_addr == nullptr || p->ifa_addr->sa_family != AF_LINK ||
+        ifname != p->ifa_name) {
+      continue;
+    }
+    const auto *sdl = reinterpret_cast<const struct sockaddr_dl *> (p->ifa_addr);
+    if (sdl->sdl_alen == 6) {
+      std::memcpy (mac.data(), LLADDR (sdl), 6);
+      found = true;
+      break;
+    }
+  }
+  freeifaddrs (list);
+  return found ? std::optional (mac) : std::nullopt;
+#endif
+}
+
 void
 print_usage (const char *argv0) {
   std::fprintf (
     stderr,
-    "usage: %s [-6dDfhNbal] [-L hoplimit] [-T track_level] [-c ctl_sock]\n"
+    "usage: %s [-6dDfhNbal] [-H direction_mac] [-L hoplimit] [-T track_level] [-c ctl_sock]\n"
     "               [-i [if_ndx:]interface] [-m max_flows (1 or more)] [-n host:port]\n"
     "               [-p pidfile] [-r pcap_file] [-t timeout_name=seconds]\n"
     "               [-v netflow_version] [-P transport_protocol]\n"
@@ -3058,13 +3207,46 @@ main (int argc, char **argv) {
     kOptNoExpirySecondGranularity,
   };
   static const struct option long_options[] = {
+    {"track-ipv6", no_argument, nullptr, '6'},
+    {"adjust-time", no_argument, nullptr, 'a'},
+    {"absolute-time", required_argument, nullptr, 'A'},
+    {"bidirectional", no_argument, nullptr, 'b'},
+    {"pcap-buffer-size", required_argument, nullptr, 'B'},
+    {"control-socket", required_argument, nullptr, 'c'},
+    {"snaplen", required_argument, nullptr, 'C'},
+    {"foreground", no_argument, nullptr, 'd'},
+    {"debug", no_argument, nullptr, 'D'},
+    {"exporter-ip", required_argument, nullptr, 'e'},
+    {"full-transport-header-check", no_argument, nullptr, 'f'},
+    {"gauge-cpu-clock", no_argument, nullptr, 'g'},
+    {"help", no_argument, nullptr, 'h'},
+    {"direction-mac", required_argument, nullptr, 'H'},
+    {"interface", required_argument, nullptr, 'i'},
+    {"reinit-interval", required_argument, nullptr, 'I'},
+    {"load-balance", no_argument, nullptr, 'l'},
+    {"hoplimit", required_argument, nullptr, 'L'},
+    {"max-flows", required_argument, nullptr, 'm'},
+    {"netflow-dest", required_argument, nullptr, 'n'},
+    {"no-promisc", no_argument, nullptr, 'N'},
+    {"pidfile", required_argument, nullptr, 'p'},
+    {"export-protocol", required_argument, nullptr, 'P'},
+    {"read", required_argument, nullptr, 'r'},
+    {"psamp-port", required_argument, nullptr, 'R'},
+    {"sampling-rate", required_argument, nullptr, 's'},
+    {"send-interface", required_argument, nullptr, 'S'},
+    {"timeout", required_argument, nullptr, 't'},
+    {"track", required_argument, nullptr, 'T'},
+    {"netflow-version", required_argument, nullptr, 'v'},
+    {"mpls-labels", required_argument, nullptr, 'x'},
+    // Additions of the C++ version.
     {"backend", required_argument, nullptr, kOptBackend},
     {"export-out", required_argument, nullptr, kOptExportOut},
     {"max-runtime", required_argument, nullptr, kOptMaxRuntime},
     {"icmp-typecode-only", no_argument, nullptr, kOptIcmpTypecodeOnly},
-    {"full-transport-header-check", no_argument, nullptr, 'f'},
-    {"expiry-second-granularity", no_argument, nullptr, kOptExpirySecondGranularity},
-    {"no-expiry-second-granularity", no_argument, nullptr, kOptNoExpirySecondGranularity},
+    {"expiry-second-granularity", no_argument, nullptr,
+     kOptExpirySecondGranularity},
+    {"no-expiry-second-granularity", no_argument, nullptr,
+     kOptNoExpirySecondGranularity},
     {nullptr, 0, nullptr, 0},
   };
 
@@ -3077,7 +3259,7 @@ main (int argc, char **argv) {
   try {
     while ((opt = getopt_long (
               fargc, fargv,
-              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bfalI:g",
+              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bfalI:gH:",
               long_options, nullptr)) != -1) {
       switch (opt) {
         case kOptBackend:
@@ -3264,6 +3446,15 @@ main (int argc, char **argv) {
         case 'g':
           config.gauge_clock = true;
           break;
+        case 'H': {
+          std::array<std::uint8_t, 6> mac;
+          if (!parse_mac_address (optarg, mac)) {
+            std::fprintf (stderr, "Invalid MAC address %s\n", optarg);
+            return 1;
+          }
+          config.direction_mac = mac;
+          break;
+        }
         case '?':
         default:
           print_usage (argv[0]);
@@ -3336,6 +3527,27 @@ main (int argc, char **argv) {
     if (!config.no_daemonize) {
       softflow::daemonize();
       pidfile.emplace (config.pidfile);
+    }
+    // Original: with ethernet tracking and no -H, the MAC address of the
+    // capture interface is the direction MAC.
+    if (config.track_level >= softflow::TrackLevel::FullVlanEther &&
+        !config.direction_mac.has_value() && !config.interface.empty()) {
+      config.direction_mac = get_interface_mac (config.interface);
+      if (config.debug) {
+        if (config.direction_mac.has_value()) {
+          const auto &m = *config.direction_mac;
+          std::fprintf (stderr,
+                        "Auto-detected direction MAC "
+                        "%02x:%02x:%02x:%02x:%02x:%02x from interface %s\n",
+                        m[0], m[1], m[2], m[3], m[4], m[5],
+                        config.interface.c_str());
+        } else {
+          std::fprintf (stderr,
+                        "Could not auto-detect MAC address of %s; "
+                        "flowDirection will use canonical ordering\n",
+                        config.interface.c_str());
+        }
+      }
     }
     return run_live_capture (config);
   } catch (const std::exception &e) {

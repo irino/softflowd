@@ -140,32 +140,37 @@ public:
     // unnormalized FlowKey cannot exist. The implementation is a small pure
     // function that fits comfortably in the header, just as softflowd.h
     // itself had no corresponding .c file.
-    static FlowKey make_canonical(IpAddress addr_a, IpAddress addr_b,
-                                   std::uint16_t port_a, std::uint16_t port_b,
-                                   std::uint8_t protocol, std::uint8_t tos,
-                                   std::array<std::uint16_t, 2> vlanid) {
-        FlowKey key;
-        // Original used a hand-written memcmp-based comparison for the same
-        // normalization. std::array's operator< is a guaranteed
-        // element-wise lexicographic comparison, which is both clearer in
-        // intent and has no possibility of an out-of-bounds read.
-        const bool a_is_lower =
-            (addr_a.bytes < addr_b.bytes) ||
-            (addr_a.bytes == addr_b.bytes && port_a <= port_b);
+  static FlowKey
+  make_canonical (IpAddress addr_a, IpAddress addr_b,
+                  std::uint16_t port_a, std::uint16_t port_b,
+                  std::uint8_t protocol, std::uint8_t tos,
+                  std::array<std::uint16_t, 2> vlanid,
+                  std::array<std::array<std::uint8_t, 6>, 2>
+                    ethermac = {}) {
+    FlowKey key;
+    // Original used a hand-written memcmp-based comparison for the same
+    // normalization. std::array's operator< is a guaranteed
+    // element-wise lexicographic comparison, which is both clearer in
+    // intent and has no possibility of an out-of-bounds read.
+    const bool a_is_lower =
+      (addr_a.bytes < addr_b.bytes) ||
+      (addr_a.bytes == addr_b.bytes && port_a <= port_b);
 
-        if (a_is_lower) {
-            key.addr_ = {addr_a, addr_b};
-            key.port_ = {port_a, port_b};
-            key.vlanid_ = vlanid;
-        } else {
-            key.addr_ = {addr_b, addr_a};
-            key.port_ = {port_b, port_a};
-            key.vlanid_ = {vlanid[1], vlanid[0]};
-        }
-        key.protocol_ = protocol;
-        key.tos_ = tos;
-        return key;
+    if (a_is_lower) {
+      key.addr_ = {addr_a, addr_b};
+      key.port_ = {port_a, port_b};
+      key.vlanid_ = vlanid;
+      key.ethermac_ = ethermac;
+    } else {
+      key.addr_ = {addr_b, addr_a};
+      key.port_ = {port_b, port_a};
+      key.vlanid_ = {vlanid[1], vlanid[0]};
+      key.ethermac_ = {ethermac[1], ethermac[0]};
     }
+    key.protocol_ = protocol;
+    key.tos_ = tos;
+    return key;
+  }
 
     const std::array<IpAddress, 2>& addr() const noexcept { return addr_; }
     const std::array<std::uint16_t, 2>& port() const noexcept { return port_; }
@@ -173,6 +178,10 @@ public:
     std::uint8_t tos() const noexcept { return tos_; }
     const std::array<std::uint16_t, 2>& vlanid() const noexcept {
         return vlanid_;
+    }
+    const std::array<std::array<std::uint8_t, 6>, 2> &
+    ethermac () const noexcept {
+      return ethermac_;
     }
 
     // Defaulted <=> gives both operator== (used by the hash-based backend)
@@ -197,6 +206,7 @@ private:
     std::array<IpAddress, 2> addr_{};
     std::array<std::uint16_t, 2> port_{};
     std::array<std::uint16_t, 2> vlanid_{};
+    std::array<std::array<std::uint8_t, 6>, 2> ethermac_{};
     std::uint8_t protocol_{0};
     std::uint8_t tos_{0};
 };
@@ -379,6 +389,11 @@ struct std::hash<softflow::FlowKey> {
         }
         for (auto v : k.vlanid()) {
             mix(std::hash<std::uint16_t>{}(v));
+        }
+        for (const auto &mac : k.ethermac()) {
+          for (auto b : mac) {
+            mix (std::hash<std::uint8_t>{}(b));
+          }
         }
         mix(std::hash<std::uint8_t>{}(k.tos()));
         return h;
@@ -776,8 +791,13 @@ private:
 // Original: the "decide addr[ndx] vs addr[ndx^1] ordering" step that
 // preceded FlowKey construction (a memcmp inside ipv4_to_flowrec) is now
 // just a call into FlowKey::make_canonical from a ParsedPacket.
-FlowKey make_flow_key(const ParsedPacket& packet, TrackLevel track_level,
-                      std::array<std::uint16_t, 2> vlanid = {0, 0});
+// vlanid and ethermac are those of the packet's source (index 0) and
+// destination (index 1); they are part of the flow only at the tracking
+// levels that ask for them (-T vlan and -T ether).
+FlowKey
+make_flow_key (const ParsedPacket &packet, TrackLevel track_level,
+               std::array<std::uint16_t, 2> vlanid = {0, 0},
+               std::array<std::array<std::uint8_t, 6>, 2> ethermac = {});
 
 // ---------------------------------------------------------------------
 // PcapHandle (original: softflowd.c's main(), where pcap_t* was managed
@@ -1001,7 +1021,7 @@ public:
 
 private:
     std::vector<ExportDestination> destinations_;
-    std::size_t next_index_{0};
+    std::uint64_t sent_ = 0;
 };
 
 } // namespace softflow

@@ -118,6 +118,104 @@ void test_packet_size_includes_header_and_reserves_two_records() {
     }
 }
 
+void test_exporter_address_is_reported_in_the_options_record() {
+    const auto boot = Clock::now();
+    IpfixExporter exporter;
+    ExporterAddresses addresses;
+    addresses.v4 = std::array<std::uint8_t, 4>{192, 0, 2, 7};
+    exporter.set_exporter_addresses(addresses);
+    const auto record = make_record(boot, 1, false);
+    const auto packets = exporter.build_packets(
+        std::span<const ExportRecord>(&record, 1), boot + 2s,
+        std::chrono::system_clock::time_point(1700000000s));
+    const std::array<std::uint8_t, 4> needle{192, 0, 2, 7};
+    std::size_t found = 0;
+    const auto& pkt = packets[0];
+    for (std::size_t i = 0; i + 4 <= pkt.size(); ++i) {
+        if (std::equal(needle.begin(), needle.end(), pkt.begin() + static_cast<std::ptrdiff_t>(i))) ++found;
+    }
+    // exporterIPv4Address and originalExporterIPv4Address
+    assert(found == 2);
+}
+
+void
+test_template_only_packet_is_reported_separately () {
+  const auto boot = Clock::now();
+  const auto record = make_record (boot, 1, false);
+  const auto wall = std::chrono::system_clock::time_point (1700000000s);
+  for (const auto version :
+       {MessageVersion::Ipfix, MessageVersion::NetFlow9}) {
+    IpfixExporter exporter (0, 0, IpfixTimeFormat::SysUpTime, false, boot,
+                            {}, version);
+    std::vector<std::size_t> template_only;
+    auto packets = exporter.build_packets (
+      std::span<const ExportRecord> (&record, 1), boot + 2s, wall,
+      &template_only);
+    // The first packet has only the templates; the data packet has none.
+    assert (packets.size() == 2);
+    assert (template_only.size() == 1 && template_only[0] == 0);
+    const std::size_t header = version == MessageVersion::Ipfix ? 16 : 20;
+    assert (read_u16 (packets[0], header) ==
+            (version == MessageVersion::Ipfix ? 2 : 0));
+    assert (read_u16 (packets[1], header) == 1024);
+    if (version == MessageVersion::NetFlow9) {
+      assert (read_u16 (packets[0], 2) == 1);  // count
+      assert (read_u32 (packets[0], 12) == 1);
+      assert (read_u32 (packets[1], 12) == 2);
+    }
+    // Without the argument the templates stay in the data packet.
+    IpfixExporter plain (0, 0, IpfixTimeFormat::SysUpTime, false, boot, {},
+                         version);
+    assert (plain.build_packets (std::span<const ExportRecord> (&record, 1),
+                                 boot + 2s, wall)
+              .size() == 1);
+  }
+}
+
+void
+test_vlan_and_ether_fields_follow_the_tracking_level () {
+  const auto boot = Clock::now();
+  const auto a = make_v4 (10, 0, 0, 1);
+  const auto b = make_v4 (10, 1, 0, 1);
+  const std::array<std::array<std::uint8_t, 6>, 2> macs = {
+    std::array<std::uint8_t, 6>{2, 0, 0, 0, 0, 0xA1},
+    std::array<std::uint8_t, 6>{2, 0, 0, 0, 0, 0xB2}};
+  const auto key = FlowKey::make_canonical (a, b, 2000, 80, 6, 0, {7, 9}, macs);
+  Flow flow;
+  flow.flow_start = boot;
+  flow.flow_last = boot + 1s;
+  flow.octets = {100, 0};
+  flow.packets = {1, 0};
+  const ExportRecord record{key, flow};
+  const auto wall = std::chrono::system_clock::time_point (1700000000s);
+
+  std::size_t base_len = 0;
+  for (const auto level : {TrackLevel::IpProtoPort, TrackLevel::FullVlan,
+                           TrackLevel::FullVlanEther}) {
+    IpfixExporter exporter (0, 0, IpfixTimeFormat::SysUpTime, false, boot,
+                            {}, MessageVersion::Ipfix, 0, 0, level);
+    const auto pkts = exporter.build_packets (
+      std::span<const ExportRecord> (&record, 1), boot + 2s, wall);
+    const auto &pkt = pkts[0];
+    const auto has = [&] (const std::array<std::uint8_t, 6> &mac) {
+      for (std::size_t i = 0; i + 6 <= pkt.size(); ++i) {
+        if (std::equal (mac.begin(), mac.end(),
+                        pkt.begin() + static_cast<std::ptrdiff_t> (i)))
+          return true;
+      }
+      return false;
+    };
+    // sourceMacAddress is the sender's, postDestinationMacAddress the
+    // receiver's.
+    const bool ether = level == TrackLevel::FullVlanEther;
+    assert (has (macs[0]) == ether && has (macs[1]) == ether);
+    // The packet also carries the templates, which grow with the fields.
+    if (level != TrackLevel::IpProtoPort)
+      assert (pkt.size() > base_len);
+    base_len = pkt.size();
+  }
+}
+
 void test_header_version_and_length() {
     const auto boot = Clock::now();
     IpfixExporter exporter;
@@ -379,6 +477,9 @@ int main() {
     test_time_format_microseconds_round_trips_via_ntp64();
     test_mpls_labels_are_included_when_configured();
     test_netflow9_header_and_sets();
+    test_exporter_address_is_reported_in_the_options_record();
+    test_template_only_packet_is_reported_separately();
+    test_vlan_and_ether_fields_follow_the_tracking_level();
     test_packet_size_includes_header_and_reserves_two_records();
     std::puts("all ipfix tests passed");
     return 0;
