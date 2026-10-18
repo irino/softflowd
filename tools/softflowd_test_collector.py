@@ -119,7 +119,7 @@ Options:
     --bench-max-runs N        : hyperfine runs at most N times (like bench -M)
     --callgrind               : Also profile each daemon with callgrind and report the total
                               instruction count (Ir) and the Ir spent in the exporter
-                              sources (ipfix.c, netflow*.c, psamp.c).  Needs valgrind and
+                              sources (export*.c, ipfix.c, netflow*.c, psamp.c).  Needs valgrind and
                               callgrind_annotate; about 50x slower than a normal run
     --callgrind-top N         : Print the N most expensive functions of each profile
                               (default: 0; the profiles are saved as BENCH_CSV.callgrind/)
@@ -158,7 +158,7 @@ For each (pcap, build variant, version) combination:
   5. With -p, also runs `perf stat` once per combination.
   6. With -C, also runs callgrind once per combination and records the total
      instruction count (Ir) and the self Ir spent in the exporter sources
-     (ipfix.c, netflow*.c, psamp.c).
+     (export*.c, ipfix.c, netflow*.c, psamp.c).
   7. With -g, also runs the binary once per combination with -g and records
      the "cpu clocks" and "cpu clocks (export)" counters in OUTFILE.gauge.csv.
 
@@ -251,7 +251,7 @@ def copy_binaries(src_dir: str, daemon_dest: str,
         shutil.copy2(os.path.join(src_dir, "softflowctl"), ctl_dest)
 
 
-EXPORTER_SRC = re.compile(r"(ipfix|netflow[0-9]+|psamp)\.c:")
+EXPORTER_SRC = re.compile(r"(export|export_common|ipfix|netflow[0-9]+|psamp)\.c:")
 
 
 def warm_page_cache(path: str) -> None:
@@ -276,8 +276,8 @@ def callgrind_profile(cmd: Sequence[str], cg_dir: str, tag: str,
                       topn: int) -> Optional[Tuple[int, int, List[str]]]:
     """Profile cmd with callgrind; files are written to cg_dir as tag.*.
 
-    Returns (total Ir, self Ir in the exporter sources ipfix.c / netflow*.c /
-    psamp.c, the first topn lines of the profile) or None if callgrind
+    Returns (total Ir, self Ir in the exporter sources export*.c / ipfix.c /
+    netflow*.c / psamp.c, the first topn lines of the profile) or None if callgrind
     produced no output.
     """
     out = os.path.join(cg_dir, tag + ".out")

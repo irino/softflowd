@@ -28,7 +28,8 @@
 /*
  * Definitions of softflowd shared by the exporters: the code common to them
  * (export_common.c), the encoder-based exporter (export.c) and the fixed-format
- * exporters (compat/*.c). The values defined by the RFCs are in ipfix.h.
+ * exporters (the files in compat/). The values defined by the RFCs are in
+ * ipfix.h.
  */
 
 #include "ipfix.h"

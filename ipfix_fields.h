@@ -55,7 +55,6 @@ static export_encoder_fn
   enc_ifidx32,
   enc_flowDirection,
   enc_flowEndReason,
-  enc_interfaceName,
   enc_sourceTransportPort,
   enc_destinationTransportPort,
   enc_protocolIdentifier,
@@ -86,6 +85,9 @@ static export_encoder_fn
   enc_nf9OptionScopeInterface,
   enc_samplingInterval,
   enc_samplingAlgorithm;
+#ifdef ENABLE_IFNAME
+static export_encoder_fn enc_interfaceName;
+#endif
 
 /* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
  */
