@@ -253,21 +253,23 @@ AC_CHECK_SIZEOF(long long int, 8)
 
 dnl compat_export was already determined above from
 dnl --enable-compat-export or --enable-legacy (default: empty, which
-dnl selects the encoder-based exporter; COMPAT_EXPORT is then not defined).
-dnl The sentinels are always defined so that comparisons against an
-dnl undefined COMPAT_EXPORT (evaluated as 0) are false by default.
+dnl selects the encoder-based exporter; COMPAT_EXPORT is then 0).
+dnl COMPAT_EXPORT and the sentinels are always defined so that they can be
+dnl compared in #if without relying on an undefined macro (-Wundef).
 AC_DEFINE([COMPAT_EXPORT_STATIC], [1],
           [sentinel value: fixed v9/IPFIX templates and data records in compat/ipfix.c, v1/v5 in compat/netflow5.c])
 AC_DEFINE([COMPAT_EXPORT_STATIC_SEPARATE], [2],
           [sentinel value: separate compat/ipfix.c, compat/netflow9.c, compat/netflow5.c and compat/netflow1.c])
 case "$compat_export" in
   static) AC_DEFINE([COMPAT_EXPORT], [COMPAT_EXPORT_STATIC],
-                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above (not defined by default)]) ;;
+                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above, or 0 for the encoder-based exporter]) ;;
   static-separate)
           AC_DEFINE([COMPAT_EXPORT], [COMPAT_EXPORT_STATIC_SEPARATE],
-                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above (not defined by default)])
+                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above, or 0 for the encoder-based exporter])
           STATIC_SEPARATE_OBJECTS='compat/netflow9.$(OBJEXT) compat/netflow1.$(OBJEXT)'
           AC_SUBST([STATIC_SEPARATE_OBJECTS]) ;;
+  *)      AC_DEFINE([COMPAT_EXPORT], [0],
+                    [which compat export layout to build: one of the COMPAT_EXPORT_* sentinels above, or 0 for the encoder-based exporter]) ;;
 esac
 AM_CONDITIONAL([COMPAT_EXPORT_IS_ENABLED], [test -n "$compat_export"])
 AM_CONDITIONAL([COMPAT_EXPORT_IS_STATIC_SEPARATE], [test "x$compat_export" = xstatic-separate])

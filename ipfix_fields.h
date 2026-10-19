@@ -35,7 +35,7 @@
 #include "ipfix.h"
 #include "psamp.h"
 
-#ifdef COMPAT_EXPORT
+#if COMPAT_EXPORT
 #define IPFIX_FIELD_TABLE_TYPE struct IPFIX_FIELD_SPECIFIER
 #define DEF_FIELD_ENC(ie, len, fn) {(ie), (len)}
 #else
