@@ -60,7 +60,7 @@ Netflow5Exporter::build_packets (
   std::chrono::system_clock::time_point wall_now) {
   std::vector<std::vector<std::uint8_t>> packets;
 
-  // Original: send_fixed_flow() in ipfix.c. A flow adds one record per
+  // Original: send_fixed_flow() in export.c. A flow adds one record per
   // IPv4 direction that carried data; the two directions of one flow are
   // never split across packets, so the current packet is flushed first
   // when they do not both fit.

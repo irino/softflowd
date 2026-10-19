@@ -1809,7 +1809,7 @@ public:
     // single (bidirectional) internal flow into up to two exported
     // records -- one per direction that actually carried traffic
     // (softflowd.c's `if (flows[i]->octets[0] > 0) {...}` /
-    // `octets[1] > 0` in netflow5.c, mirrored by this project's own
+    // `octets[1] > 0` in compat/netflow5.c, mirrored by this project's own
     // flatten() helpers in netflow1.cpp/netflow5.cpp/netflow9.cpp/
     // ipfix.cpp). So "records sent" is *not* the same as the number
     // of input flows -- count directions with packets independently.
@@ -1822,13 +1822,14 @@ public:
     // send_packet() doesn't report per-destination failures -- so
     // failures is always 0 for now.
     //
-    // Original: netflow5.c's send_netflow_v5_v1() (used for both -v1
+    // Original: compat/netflow5.c's send_netflow_v5_v1() (used for both -v1
     // and -v5) increments *both* `flows_exported` and `records_sent`
     // via the *same* per-record `j++` -- i.e. for those two formats,
     // "flows exported" and "records sent" are identical counts, not
     // flows-before-splitting vs records-after.
     //
-    // netflow9.c and ipfix.c do NOT follow this: their outer packing
+    // compat/netflow9.c's send_netflow_v9() and export_common.c's
+    // send_ipfix_flows() do NOT follow this: their outer packing
     // loop does `j += i;` where `i` is the index over the *original*
     // (pre-split) flows array, while `records_sent`/`nf9->flows`
     // separately accumulate the actual per-direction record count

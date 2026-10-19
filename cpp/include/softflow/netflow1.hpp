@@ -1,4 +1,4 @@
-// Original files: netflow1.c, netflow1.h
+// Original files: compat/netflow1.c, netflow.h
 //
 // NetFlow v1 is Cisco's original, pre-standardization export format: a
 // fixed 16-byte header followed by fixed 48-byte records (IPv4 only, no
@@ -29,7 +29,8 @@ inline constexpr std::size_t kNetflow1RecordSize = 48;
 
 // Original: the exporter logic embedded in softflowd.c's
 // send_netflow_v1() (in older revisions of softflowd; later revisions
-// moved per-version export into separate netflow1.c and similar files).
+// moved per-version export into separate compat/netflow1.c and similar
+// files).
 // This class owns none of the actual network I/O -- it only builds the
 // wire-format byte buffers, which the caller (softflowd.cpp's main
 // export loop, in a later stage) is responsible for sending. Keeping

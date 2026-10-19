@@ -1,4 +1,4 @@
-// Original files: ipfix.c, ipfix.h
+// Original files: compat/ipfix.c, ipfix.h, export_common.h
 //
 // IPFIX (RFC 7011) is structurally very close to NetFlow v9 -- both are
 // template-based -- but differs in a few concrete ways this implementation
@@ -35,7 +35,8 @@
 
 namespace softflow {
 
-// Original: ipfix.c's IPFIX_SOFTFLOWD_{V4,ICMPV4,V6,ICMPV6}_TEMPLATE_ID.
+// Original: export_common.h's
+// IPFIX_SOFTFLOWD_{V4,ICMPV4,V6,ICMPV6}_TEMPLATE_ID.
 // ICMP/ICMPv6 flows use a dedicated template (icmpTypeCode instead of a
 // source/destination port pair) and so get their own template IDs.
 inline constexpr std::uint16_t kIpfixTemplateIdV4 = 1024;
@@ -45,10 +46,12 @@ inline constexpr std::uint16_t kIpfixTemplateIdIcmpV6 = 2049;
 // Original: IPFIX_DEFAULT_TEMPLATE_INTERVAL.
 inline constexpr std::uint32_t kIpfixTemplateResendInterval = 16;
 // Original: IPFIX_SOFTFLOWD_MAX_PACKET_SIZE -- shared by NetFlow v9 and
-// IPFIX in send_ipfix_common() (the unified sender both versions actually
-// use in a default, non---enable-legacy build); NOT the smaller,
-// unused-by-default 512-byte buffer declared separately in netflow9.c's
-// own send_netflow_v9(), which only exists in --enable-legacy builds.
+// IPFIX in send_ipfix_flows() of export_common.c (the unified sender both
+// versions actually use, except in --enable-compat-export=static-separate
+// builds); NOT the smaller, unused-by-default 512-byte buffer
+// (NETFLOW9_SOFTFLOWD_MAX_PACKET_SIZE) declared separately in
+// compat/netflow9.c's own send_netflow_v9(), which only exists in
+// --enable-compat-export=static-separate (--enable-legacy) builds.
 inline constexpr std::size_t kIpfixMaxPacketSize = 1428;
 
 // Original: -A time_format. When absent (the default -- see softflowd.c's

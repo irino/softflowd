@@ -1,4 +1,4 @@
-// Original files: netflow5.c, netflow5.h
+// Original files: compat/netflow5.c, netflow.h
 //
 // NetFlow v5 extends v1 with a flow sequence number (so a collector can
 // detect lost export packets), engine type/id, and BGP-related fields
@@ -18,7 +18,7 @@
 
 namespace softflow {
 
-// Original: netflow5.c's NF5_MAXFLOWS. (1500 - 24-byte header) / 48-byte
+// Original: netflow.h's NETFLOW5_MAXFLOWS. (1500 - 24-byte header) / 48-byte
 // record = 30.75, rounded down.
 inline constexpr std::size_t kNetflow5MaxRecordsPerPacket = 30;
 inline constexpr std::size_t kNetflow5HeaderSize = 24;

@@ -44,10 +44,11 @@ finish_set (ByteWriter &writer, std::size_t set_start,
 }
 
 // Original: memcpy_template() and the Options Template/Data writes in
-// send_ipfix_common()'s "Refresh template headers" block never apply the
-// 4-byte padding logic -- that only appears later, scoped to the
-// per-flow DATA Set loop. A Template/Options Set's length is therefore
-// its raw (frequently non-multiple-of-4) byte count.
+// compat/ipfix.c's ipfix_put_templates() (called from send_ipfix_flows() in
+// export_common.c) never apply the 4-byte padding logic -- that only
+// appears later, scoped to the per-flow DATA Set loop. A Template/Options
+// Set's length is therefore its raw (frequently non-multiple-of-4) byte
+// count.
 void
 finish_set_unpadded (ByteWriter &writer, std::size_t set_start) {
   const std::size_t raw_length = writer.size() - set_start;
@@ -97,7 +98,7 @@ epoch_us_to_ntp64 (std::uint64_t epoch_us_value) {
   return (static_cast<std::uint64_t> (ntp_seconds) << 32) | ntp_fraction;
 }
 
-// Original: netflow9.c/legacy softflowd's uptime-relative encoding --
+// Original: compat/netflow9.c/legacy softflowd's uptime-relative encoding --
 // milliseconds elapsed between `boot_time` and `t`. Shared with
 // Netflow9Exporter's identically-named helper in netflow9.cpp; kept as a
 // separate copy here since the two files don't share a private header.
@@ -118,10 +119,11 @@ struct TimeFieldPair {
   FieldSpec end_field;
 };
 
-// Original: ipfix.c's field_timesec/field_timemsec/field_timeusec/
+// Original: ipfix_fields.h's field_timesec/field_timemsec/field_timeusec/
 // field_timensec/field_timesysup all declare the Start field before the
-// End field (and copy_data_time() writes dt->u32.start before
-// dt->u32.end, i.e. the same order) -- start-then-end, not end-then-start.
+// End field (and compat/ipfix.c's copy_data_time() writes dt->u32.start
+// before dt->u32.end, i.e. the same order) -- start-then-end, not
+// end-then-start.
 TimeFieldPair
 time_field_pair (IpfixTimeFormat format) {
   switch (format) {
@@ -173,7 +175,7 @@ write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_ti
 // rationale; duplicated here rather than shared, matching this project's
 // per-file boundaries (netflow9.cpp and ipfix.cpp intentionally don't
 // share an implementation file, mirroring the original's separate
-// netflow9.c/ipfix.c).
+// compat/netflow9.c and compat/ipfix.c).
 // Original: field_vlan and field_ether of the flow template. -T vlan adds the
 // VLAN IDs and -T ether adds the Ethernet addresses as well. The fields are
 // those of the flow endpoint that sends (vlanId and sourceMacAddress) and of
@@ -269,7 +271,7 @@ struct DirectionalRecord {
 // source/destination port pair). Unlike an earlier version of this file,
 // records are kept in ONE list, in original per-flow order (both
 // directions of a given flow adjacent, flows in expiry order) --
-// matching send_ipfix_common()'s single interleaved pass over `flows[]`,
+// matching send_ipfix_flows()'s single interleaved pass over `flows[]`,
 // where Sets are opened/closed based on whichever (address family,
 // ICMP-ness) each flow's *next* record happens to have, not grouped
 // ahead of time. Pre-grouping by family/ICMP-ness (as an earlier version
@@ -790,7 +792,7 @@ resolve_exporter_addresses (const std::string &host) {
 
 void
 IpfixExporter::write_template_set (ByteWriter &writer) const {
-  // Original: each entry in `templates[]` (ipfix.c) is a self-contained
+  // Original: each entry in `templates[]` (compat/ipfix.c) is a self-contained
   // struct with its OWN Set header (IPFIX_SET_HEADER, Set ID 2) baked
   // in, and memcpy_template() copies each one out individually -- so on
   // the wire, four separate Template Sets are sent (one per template),
@@ -841,7 +843,7 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     // Field order must exactly match write_v4_record()/write_v6_record()/
     // write_v4_icmp_record()/write_v6_icmp_record(): address, time,
     // common, then transport (ordinary flows) or icmpTypeCode (ICMP
-    // flows) -- see ipfix.c's ipfix_init_template_unity().
+    // flows) -- see compat/ipfix.c's ipfix_init_template_unity().
     std::vector<FieldSpec> v4_fields = {
       {8, 4},
       {12, 4},  // sourceIPv4Address, destinationIPv4Address
@@ -1035,7 +1037,7 @@ IpfixExporter::build_packets (
     return is_icmp ? kIpfixTemplateIdIcmpV6 : kIpfixTemplateIdV6;
   };
 
-  // Original: send_ipfix_common()'s single interleaved pass over
+  // Original: send_ipfix_flows()'s single interleaved pass over
   // `flows[]`, opening a new Set only when the (address family,
   // ICMP-ness) of the next record differs from the currently-open Set
   // (or none is open yet), and budgeting packet space by byte count

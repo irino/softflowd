@@ -255,13 +255,13 @@ struct Flow {
     ExpiryReason reason{ExpiryReason::General};
 };
 
-// Original: NetFlow/IPFIX/PSAMP export code (in softflowd.c and the various
-// netflow*.c/ipfix.c/psamp.c files) worked directly off `struct FLOW`, which
-// carried both the key fields (addr/port/protocol/...) and the value fields
-// (octets/packets/...) together. Since this project splits those into
-// FlowKey and Flow, exporters need both -- ExportRecord is what
-// FlowTable::expire_flows()/force_expire_oldest() hand back, pairing a key
-// with its accumulated statistics at the moment the flow was expired.
+// Original: NetFlow/IPFIX/PSAMP export code (in softflowd.c, export.c,
+// export_common.c, psamp.c and the files in compat/) worked directly off
+// `struct FLOW`, which carried both the key fields (addr/port/protocol/...)
+// and the value fields (octets/packets/...) together. Since this project
+// splits those into FlowKey and Flow, exporters need both -- ExportRecord is
+// what FlowTable::expire_flows()/force_expire_oldest() hand back, pairing a
+// key with its accumulated statistics at the moment the flow was expired.
 struct ExportRecord {
     FlowKey key;
     Flow flow;
@@ -352,8 +352,8 @@ public:
     // Discards everything written after `new_size` bytes. Used to roll
     // back a Set/FlowSet header that was opened speculatively but turned
     // out to have no room for even a single record before a packet-size
-    // budget was reached -- see e.g. ipfix.c's `last_valid` rollback in
-    // send_ipfix_common().
+    // budget was reached -- see e.g. export_common.c's `last_valid`
+    // rollback in send_ipfix_flows().
     void truncate(std::size_t new_size) {
         if (new_size > buf_.size()) {
             throw std::out_of_range("ByteWriter::truncate: new_size exceeds current size");
