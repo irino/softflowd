@@ -112,22 +112,22 @@ void test_backend() {
 }
 
 void test_runtime_wrapper_dispatches_to_selected_backend() {
-    for (auto backend : {FlowIndexBackend::Hash, FlowIndexBackend::Tree}) {
-        FlowTableRuntime table(backend, 16);
-        assert(table.backend() == backend);
+  for (auto backend : {FlowLookup::HashTree, FlowLookup::Tree, FlowLookup::Hash}) {
+    FlowTableRuntime table (backend, 16);
+    assert (table.lookup() == backend);
 
-        const auto a = make_v4(172, 16, 0, 1);
-        const auto b = make_v4(172, 16, 0, 2);
-        const auto key = FlowKey::make_canonical(a, b, 4000, 80, 6, 0, {0, 0});
+    const auto a = make_v4 (172, 16, 0, 1);
+    const auto b = make_v4 (172, 16, 0, 2);
+    const auto key = FlowKey::make_canonical (a, b, 4000, 80, 6, 0, {0, 0});
 
-        const auto t0 = Clock::now();
-        table.record_packet(key, t0, std::chrono::system_clock::now(), 0, 500, 0x02, 0);  // SYN
-        assert(table.size() == 1);
+    const auto t0 = Clock::now();
+    table.record_packet (key, t0, std::chrono::system_clock::now(), 0, 500, 0x02, 0);  // SYN
+    assert (table.size() == 1);
 
-        auto expired = table.expire_flows(t0 + 3601s);
-        assert(expired.size() == 1);
-        assert(expired[0].flow.octets[0] == 500);
-    }
+    auto expired = table.expire_flows (t0 + 3601s);
+    assert (expired.size() == 1);
+    assert (expired[0].flow.octets[0] == 500);
+  }
 }
 
 // New: verifies compute_expiry()'s protocol/TCP-state branching (ported
@@ -246,11 +246,47 @@ void test_statistics_accumulate() {
 
 } // namespace
 
+// Original: -F hash. With a single slot every new flow evicts the resident
+// one, which is exported as expired by collision.
+void
+test_collision_mode_evicts_the_resident_flow () {
+  FlowTable<FlowIndexBackend::Hash> table (16);
+  table.enable_collision_mode (1);
+  const auto a = make_v4 (192, 168, 0, 1);
+  const auto key1 = FlowKey::make_canonical (a, make_v4 (1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+  const auto key2 = FlowKey::make_canonical (a, make_v4 (2, 2, 2, 2), 1001, 53, 17, 0, {0, 0});
+  const auto t0 = Clock::now();
+  const auto wall = std::chrono::system_clock::now();
+
+  table.record_packet (key1, t0, wall, 0, 100, 0, 0);
+  table.record_packet (key1, t0 + 1s, wall, 0, 100, 0, 0);  // a hit
+  assert (table.size() == 1 && table.stats().expired_collision == 0);
+
+  table.record_packet (key2, t0 + 2s, wall, 0, 50, 0, 0);
+  assert (table.size() == 1);  // key1 left the table
+
+  const auto collided = table.expire_collisions();
+  assert (collided.size() == 1 && collided[0].key == key1);
+  assert (collided[0].flow.octets[0] == 200);
+  assert (collided[0].flow.flow_end_reason == 0x05);  // lackOfResource
+  assert (table.stats().expired_collision == 1);
+  assert (table.stats().flows_expired == 1);
+  assert (table.expire_collisions().empty());
+
+  // The flow of key1 starts again as a new flow.
+  table.record_packet (key1, t0 + 3s, wall, 0, 10, 0, 0);
+  assert (table.expire_collisions().size() == 1);  // key2 was evicted
+  // expire_flows() hands out what is left, collision flows first.
+  assert (table.expire_flows (t0 + 4s, true).size() == 1);
+  assert (table.usage().buckets == 1);
+}
+
 int main() {
     test_canonical_key_is_symmetric();
     test_backend<FlowIndexBackend::Hash>();
     test_backend<FlowIndexBackend::Tree>();
     test_runtime_wrapper_dispatches_to_selected_backend();
+    test_collision_mode_evicts_the_resident_flow();
     test_expiry_reason_branching<FlowIndexBackend::Hash>();
     test_expiry_reason_branching<FlowIndexBackend::Tree>();
     test_force_expire_marks_overflows_reason<FlowIndexBackend::Hash>();

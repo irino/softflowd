@@ -221,7 +221,17 @@ private:
 // Original: softflowd.h's R_GENERAL .. R_FLUSH expiry-reason enum, used to
 // classify why a flow was removed from the table for statistics purposes.
 enum class ExpiryReason : std::uint8_t {
-    General, Tcp, TcpRst, TcpFin, Udp, Icmp, MaxLife, OverBytes, OverFlows, Flush
+  General,
+  Tcp,
+  TcpRst,
+  TcpFin,
+  Udp,
+  Icmp,
+  MaxLife,
+  OverBytes,
+  OverFlows,
+  Flush,
+  Collision
 };
 
 struct Flow {
@@ -448,6 +458,39 @@ enum class FlowIndexBackend {
     Tree, // std::map<FlowKey, Flow>           -- a genuine red-black tree
 };
 
+// Original: enum FLOW_LOOKUP, selected with -F/--flow-lookup.
+//   Tree     -- an ordered map (FlowIndexBackend::Tree).
+//   HashTree -- a hash table that keeps colliding flows (the default;
+//               FlowIndexBackend::Hash).
+//   Hash     -- a hash table with one slot per bucket (FlowIndexBackend::Hash
+//               plus collision mode): a flow that hashes to a slot that is
+//               taken evicts the resident flow, which is exported as
+//               expired by collision.
+enum class FlowLookup { Tree,
+                        HashTree,
+                        Hash };
+
+constexpr const char *
+flow_lookup_name (FlowLookup lookup) noexcept {
+  switch (lookup) {
+    case FlowLookup::HashTree:
+      return "hash-tree";
+    case FlowLookup::Hash:
+      return "hash";
+    default:
+      return "tree";
+  }
+}
+
+// Original: flow_table_usage(). How the active flows are spread over the
+// buckets of the flow table.
+struct FlowTableUsage {
+  std::size_t buckets{0};
+  std::size_t bytes{0};
+  std::size_t used{0};
+  std::size_t max_depth{0};
+};
+
 // Original: struct FLOWTRACKPARAMETERS' timeout fields. Plain `int` (in
 // seconds) is replaced with std::chrono::seconds so that passing a value in
 // the wrong unit (e.g. milliseconds by mistake) becomes a compile error
@@ -533,6 +576,7 @@ struct FlowTableStats {
     std::uint64_t expired_overbytes{0};
     std::uint64_t expired_maxflows{0};
     std::uint64_t expired_flush{0};
+    std::uint64_t expired_collision{0};
 };
 
 // Original: struct FLOWTRACK as a whole, plus the functionality of
@@ -600,6 +644,21 @@ public:
     // flows with the nearest expiry first (i.e. the least recently active).
     std::vector<ExportRecord> force_expire_oldest(std::size_t count);
 
+    // Original: -F hash. Gives the table one slot per bucket (a power of
+    // two, at least `buckets`); only the std::unordered_map backend has it.
+    // A flow that finds its slot taken evicts the resident one.
+    void
+    enable_collision_mode (std::size_t buckets);
+
+    // Original: the flows with expires_at == 0 and R_COLLISION: the flows
+    // that were evicted by a collision, to be exported now.
+    std::vector<ExportRecord>
+    expire_collisions ();
+
+    // Original: flow_table_usage().
+    FlowTableUsage
+    usage () const;
+
     // Original: softflowctl(8)'s dump-flows command. Returns a copy of
     // every currently tracked flow *without* removing or expiring any of
     // them (unlike expire_flows()/force_expire_oldest()) -- purely a
@@ -632,6 +691,8 @@ private:
     void record_expiry_stats(const Flow& flow, std::uint8_t protocol,
                               ExpiryReason reason_override, bool override_reason);
     void reschedule_expiry(const FlowKey& key, TimePoint new_expiry);
+    void
+    forget_slot (const FlowKey &key);
 
     std::size_t max_flows_;
     TrackLevel track_level_;
@@ -658,6 +719,11 @@ private:
     // standard library's map family), so holding on to them here is safe.
     std::unordered_map<FlowKey, std::multimap<TimePoint, FlowKey>::iterator>
         expiry_lookup_;
+
+    // Collision mode (-F hash): the resident flow of every slot, and the
+    // evicted flows that wait to be exported.
+    std::vector<std::optional<FlowKey>> slots_;
+    std::vector<ExportRecord> collided_;
 };
 
 // Explicit instantiation declarations: tells any translation unit that
@@ -683,17 +749,29 @@ extern template class FlowTable<FlowIndexBackend::Tree>;
 // are introduced by this wrapper.
 class FlowTableRuntime {
 public:
-    FlowTableRuntime(FlowIndexBackend backend, std::size_t max_flows,
-                      TrackLevel track_level = TrackLevel::IpProtoPort,
-                      FlowTimeouts timeouts = {});
+  FlowTableRuntime (FlowLookup lookup, std::size_t max_flows,
+                    TrackLevel track_level = TrackLevel::IpProtoPort,
+                    FlowTimeouts timeouts = {});
 
-    Flow& record_packet(const FlowKey& key, TimePoint now,
-                         std::chrono::system_clock::time_point wall_now,
-                         std::uint8_t direction, std::uint64_t octet_delta,
-                         std::uint8_t tcp_flags, std::uint8_t tos);
-    std::vector<ExportRecord> expire_flows(TimePoint now, bool flush_all = false);
-    std::vector<ExportRecord> force_expire_oldest(std::size_t count);
-    std::vector<ExportRecord> snapshot() const;
+  Flow &
+  record_packet (const FlowKey &key, TimePoint now,
+                 std::chrono::system_clock::time_point wall_now,
+                 std::uint8_t direction, std::uint64_t octet_delta,
+                 std::uint8_t tcp_flags, std::uint8_t tos);
+  std::vector<ExportRecord>
+  expire_flows (TimePoint now, bool flush_all = false);
+  std::vector<ExportRecord>
+  force_expire_oldest (std::size_t count);
+  std::vector<ExportRecord>
+  expire_collisions ();
+  std::vector<ExportRecord>
+  snapshot () const;
+  FlowTableUsage
+  usage () const;
+  FlowLookup
+  lookup () const noexcept {
+    return lookup_;
+  }
 
     const FlowTimeouts& timeouts() const noexcept;
 
@@ -706,9 +784,10 @@ public:
     FlowIndexBackend backend() const noexcept;
 
 private:
-    std::variant<FlowTable<FlowIndexBackend::Hash>,
-                 FlowTable<FlowIndexBackend::Tree>>
-        table_;
+  FlowLookup lookup_;
+  std::variant<FlowTable<FlowIndexBackend::Hash>,
+               FlowTable<FlowIndexBackend::Tree>>
+    table_;
 };
 
 // ---------------------------------------------------------------------

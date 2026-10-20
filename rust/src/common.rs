@@ -393,4 +393,43 @@ impl FlowTracker {
             nbuckets,
         }
     }
+
+    pub fn set_flow_lookup(&mut self, mode: FlowLookupMode) {
+        self.flow_lookup = mode;
+        let mut want = self.param.max_flows as u64;
+        if mode == FlowLookupMode::Hash {
+            want *= 2;
+        }
+        let mut nbuckets = 1u64;
+        if mode == FlowLookupMode::Tree {
+            nbuckets = 1;
+        } else {
+            while nbuckets < want && nbuckets < (1 << 24) {
+                nbuckets <<= 1;
+            }
+        }
+        self.nbuckets = nbuckets as u32;
+    }
+
+    pub fn table_usage(&self) -> (u32, u32) {
+        if self.flow_lookup == FlowLookupMode::Hash {
+            let used = self.flow_slots.values().filter(|k| self.flows.contains_key(*k)).count() as u32;
+            let maxdepth = if used > 0 { 1 } else { 0 };
+            (used, maxdepth)
+        } else if self.flow_lookup == FlowLookupMode::Tree {
+            let used = self.flows.len() as u32;
+            let maxdepth = used;
+            (used, maxdepth)
+        } else {
+            // HashTree
+            let mut counts = HashMap::new();
+            for key in self.flows.keys() {
+                let bucket = key.hash_index(self.nbuckets);
+                *counts.entry(bucket).or_insert(0usize) += 1;
+            }
+            let used = counts.len() as u32;
+            let maxdepth = counts.values().cloned().max().unwrap_or(0) as u32;
+            (used, maxdepth)
+        }
+    }
 }

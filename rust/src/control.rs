@@ -123,7 +123,7 @@ pub fn format_flow(flow: &Flow) -> String {
     )
 }
 
-pub fn render_statistics(tracker: &FlowTracker) -> String {
+pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u64)>) -> String {
     let mut out = String::new();
     let p = &tracker.param;
 
@@ -154,15 +154,24 @@ pub fn render_statistics(tracker: &FlowTracker) -> String {
         } else {
             format!("{} B", tracker.nbuckets * 32)
         };
+        let (used, maxdepth) = tracker.table_usage();
         out.push_str(&format!(
-            "Flow table: {}, {} buckets ({}), {} in use, max depth 1, {} collisions\n",
+            "Flow table: {}, {} buckets ({}), {} in use, max depth {}, {} collisions\n",
             tracker.flow_lookup.name(),
             tracker.nbuckets,
             size_str,
-            tracker.flows.len(),
+            used,
+            maxdepth,
             p.expired_collision
         ));
     }
+
+    if let Some((recv, drop, ifdrop)) = pcap_stats {
+        out.push_str(&format!("Packets received by libpcap: {}\n", recv));
+        out.push_str(&format!("Packets dropped by libpcap: {}\n", drop));
+        out.push_str(&format!("Packets dropped by interface: {}\n", ifdrop));
+    }
+
     out.push_str("\n");
 
     if p.flows_expired > 0 {

@@ -2,15 +2,15 @@
 .el .ds Aq '
 .TH rsoftflowctl 8  "rsoftflowctl 0.1.0" 
 .SH NAME
-rsoftflowctl \- Control rsoftflowd daemon rewritten in Rust
+rsoftflowctl \- Control rsoftflowd daemon
 .SH SYNOPSIS
-\fBrsoftflowctl\fR [\fB\-c\fR|\fB\-\-control\-socket\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fICOMMAND\fR> 
+\fBrsoftflowctl\fR [\fB\-c\fR|\fB\-\-control\-socket\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIcommand\fR> 
 .SH DESCRIPTION
-rsoftflowctl is a remote control program used to control a running rsoftflowd daemon.
+rsoftflowctl is a remote control program used to control a running rsoftflowd daemon via a Unix domain socket.
 .SH OPTIONS
 .TP
-\fB\-c\fR, \fB\-\-control\-socket\fR \fI<CTLSOCK>\fR [default: /var/run/softflowd.ctl]
-Specify control socket path
+\fB\-c\fR, \fB\-\-control\-socket\fR \fI<ctlsock>\fR [default: /var/run/softflowd.ctl]
+Specify control socket path (default: /var/run/softflowd.ctl)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
@@ -18,7 +18,7 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 \fB\-V\fR, \fB\-\-version\fR
 Print version
 .TP
-<\fICOMMAND\fR>
+<\fIcommand\fR>
 The command to send to softflowd (e.g. statistics, dump\-flows, shutdown, expire\-all)
 .SH VERSION
 v0.1.0

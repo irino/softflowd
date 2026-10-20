@@ -9,7 +9,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = match UnixStream::connect(&args.ctlsock) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("rsoftflowctl: ctl connect(\"{}\") error: {}", args.ctlsock, e);
+            eprintln!("ctl connect(\"{}\") error: {}", args.ctlsock, e);
             std::process::exit(1);
         }
     };

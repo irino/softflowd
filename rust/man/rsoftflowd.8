@@ -4,92 +4,162 @@
 .SH NAME
 rsoftflowd \- Traffic flow monitoring daemon rewritten in Rust
 .SH SYNOPSIS
-\fBrsoftflowd\fR [\fB\-i\fR|\fB\-\-interface\fR] [\fB\-r\fR|\fB\-\-read\fR] [\fB\-p\fR|\fB\-\-pidfile\fR] [\fB\-c\fR|\fB\-\-control\-socket\fR] [\fB\-m\fR|\fB\-\-max\-flows\fR] [\fB\-t\fR|\fB\-\-timeout\fR] [\fB\-d\fR|\fB\-\-foreground\fR] [\fB\-D\fR|\fB\-\-debug\fR] [\fB\-v\fR|\fB\-\-netflow\-version\fR] [\fB\-n\fR|\fB\-\-netflow\-dest\fR] [\fB\-L\fR|\fB\-\-hoplimit\fR] [\fB\-T\fR|\fB\-\-track\fR] [\fB\-P\fR|\fB\-\-export\-protocol\fR] [\fB\-s\fR|\fB\-\-sampling\-rate\fR] [\fB\-C\fR|\fB\-\-snaplen\fR] [\fB\-S\fR|\fB\-\-send\-interface\fR] [\fB\-e\fR|\fB\-\-exporter\-ip\fR] [\fB\-f\fR|\fB\-\-full\-transport\-header\-check\fR] [\fB\-F\fR|\fB\-\-flow\-lookup\fR] [\fB\-l\fR|\fB\-\-load\-balance\fR] [\fB\-6\fR|\fB\-\-track\-ipv6\fR] [\fB\-H\fR|\fB\-\-direction\-mac\fR] [\fB\-A\fR|\fB\-\-absolute\-time\fR] [\fB\-B\fR|\fB\-\-pcap\-buffer\-size\fR] [\fB\-b\fR|\fB\-\-bidirectional\fR] [\fB\-R\fR|\fB\-\-psamp\-port\fR] [\fB\-M\fR|\fB\-\-multithread\fR] [\fB\-N\fR|\fB\-\-no\-promisc\fR] [\fB\-x\fR|\fB\-\-mpls\-labels\fR] [\fB\-I\fR|\fB\-\-reinit\-interval\fR] [\fB\-g\fR|\fB\-\-gauge\-cpu\-clock\fR] [\fB\-a\fR|\fB\-\-adjust\-time\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIBPF_EXPRESSION\fR] 
+\fBrsoftflowd\fR [\fB\-i\fR|\fB\-\-interface\fR] [\fB\-r\fR|\fB\-\-read\fR] [\fB\-p\fR|\fB\-\-pidfile\fR] [\fB\-c\fR|\fB\-\-control\-socket\fR] [\fB\-m\fR|\fB\-\-max\-flows\fR] [\fB\-t\fR|\fB\-\-timeout\fR] [\fB\-d\fR|\fB\-\-foreground\fR] [\fB\-D\fR|\fB\-\-debug\fR] [\fB\-v\fR|\fB\-\-netflow\-version\fR] [\fB\-n\fR|\fB\-\-netflow\-dest\fR] [\fB\-L\fR|\fB\-\-hoplimit\fR] [\fB\-T\fR|\fB\-\-track\fR] [\fB\-P\fR|\fB\-\-export\-protocol\fR] [\fB\-s\fR|\fB\-\-sampling\-rate\fR] [\fB\-C\fR|\fB\-\-snaplen\fR] [\fB\-S\fR|\fB\-\-send\-interface\fR] [\fB\-e\fR|\fB\-\-exporter\-ip\fR] [\fB\-f\fR|\fB\-\-full\-transport\-header\-check\fR] [\fB\-F\fR|\fB\-\-flow\-lookup\fR] [\fB\-l\fR|\fB\-\-load\-balance\fR] [\fB\-6\fR|\fB\-\-track\-ipv6\fR] [\fB\-H\fR|\fB\-\-direction\-mac\fR] [\fB\-A\fR|\fB\-\-absolute\-time\fR] [\fB\-B\fR|\fB\-\-pcap\-buffer\-size\fR] [\fB\-b\fR|\fB\-\-bidirectional\fR] [\fB\-R\fR|\fB\-\-psamp\-port\fR] [\fB\-M\fR|\fB\-\-multithread\fR] [\fB\-N\fR|\fB\-\-no\-promisc\fR] [\fB\-x\fR|\fB\-\-mpls\-labels\fR] [\fB\-I\fR|\fB\-\-reinit\-interval\fR] [\fB\-g\fR|\fB\-\-gauge\-cpu\-clock\fR] [\fB\-a\fR|\fB\-\-adjust\-time\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] [\fIbpf_program\fR] 
 .SH DESCRIPTION
 rsoftflowd is a software implementation of a flow\-based network traffic monitor.
 It reads network traffic and gathers information about active traffic flows. 
 A \*(Aqtraffic flow\*(Aq is communication between two IP addresses or (if the 
 overlying protocol is TCP or UDP) address/port tuples.
-.PP
-It is a Rust rewrite/port of softflowd.
 .SH OPTIONS
 .TP
-\fB\-i\fR, \fB\-\-interface\fR \fI<INTERFACE>\fR
-Specify a network interface on which to listen ([idx:]interface)
+\fB\-i\fR, \fB\-\-interface\fR \fI<[idx:]interface>\fR
+Specify interface to listen on ([idx:]interface)
 .TP
-\fB\-r\fR, \fB\-\-read\fR \fI<PCAP_FILE>\fR
-Specify a pcap packet capture file to read from
+\fB\-r\fR, \fB\-\-read\fR \fI<pcap_file>\fR
+Specify packet capture file to read
 .TP
-\fB\-p\fR, \fB\-\-pidfile\fR \fI<PIDFILE>\fR
-Specify PID file location (default: /var/run/softflowd.pid)
+\fB\-p\fR, \fB\-\-pidfile\fR \fI<pidfile>\fR
+Record pid in specified file (default: /var/run/softflowd.pid)
 .TP
-\fB\-c\fR, \fB\-\-control\-socket\fR \fI<CTLSOCK>\fR
-Specify control socket path (default: /var/run/softflowd.ctl)
+\fB\-c\fR, \fB\-\-control\-socket\fR \fI<socketfile>\fR
+Location of control socket (default: /var/run/softflowd.ctl)
 .TP
-\fB\-m\fR, \fB\-\-max\-flows\fR \fI<MAX_FLOWS>\fR [default: 8192]
-Specify max flows to track concurrently
+\fB\-m\fR, \fB\-\-max\-flows\fR \fI<max_flows>\fR [default: 8192]
+Specify maximum number of flows to track (1 or more, default 8192)
 .TP
-\fB\-t\fR, \fB\-\-timeout\fR \fI<TIMEOUTS>\fR
-Set timeout (timeout_name=time) e.g., tcp=3600
+\fB\-t\fR, \fB\-\-timeout\fR \fI<timeout=time>\fR
+Specify named timeout (timeout=time)
 .TP
 \fB\-d\fR, \fB\-\-foreground\fR
-Do not fork and daemonise
+Don\*(Aqt daemonise (run in foreground)
 .TP
 \fB\-D\fR, \fB\-\-debug\fR
-Debug mode (implies \-d and verbose logging)
+Debug mode: foreground + verbosity + track v6 flows
 .TP
-\fB\-v\fR, \fB\-\-netflow\-version\fR \fI<NETFLOW_VERSION>\fR [default: 5]
-Netflow export version (1, 5, 9, 10, psamp)
+\fB\-v\fR, \fB\-\-netflow\-version\fR \fI<version>\fR [default: 5]
+NetFlow export packet version (1|5|9|10|psamp)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+1
+.IP \(bu 2
+5
+.IP \(bu 2
+9
+.IP \(bu 2
+10
+.IP \(bu 2
+psamp
+.RE
 .TP
-\fB\-n\fR, \fB\-\-netflow\-dest\fR \fI<COLLECTOR>\fR
-Specify collector address (host:port) or comma\-separated list
+\fB\-n\fR, \fB\-\-netflow\-dest\fR \fI<host:port>\fR
+Send Cisco NetFlow(tm)\-compatible packets to host:port
 .TP
-\fB\-L\fR, \fB\-\-hoplimit\fR \fI<HOPLIMIT>\fR
-Set the IPv4 TTL or IPv6 Hop Limit
+\fB\-L\fR, \fB\-\-hoplimit\fR \fI<hoplimit>\fR
+Set TTL/hoplimit for export datagrams
 .TP
-\fB\-T\fR, \fB\-\-track\fR \fI<TRACK_LEVEL>\fR [default: full]
-Specify flow track level (ip, proto, full, vlan, ether)
+\fB\-T\fR, \fB\-\-track\fR \fI<level>\fR [default: full]
+Set flow tracking level (default: full)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+full
+.IP \(bu 2
+port
+.IP \(bu 2
+proto
+.IP \(bu 2
+ip
+.IP \(bu 2
+vlan
+.IP \(bu 2
+ether
+.RE
 .TP
-\fB\-P\fR, \fB\-\-export\-protocol\fR \fI<TRANSPORT_PROTOCOL>\fR [default: udp]
-Transport protocol for exporting (udp, tcp)
+\fB\-P\fR, \fB\-\-export\-protocol\fR \fI<protocol>\fR [default: udp]
+Specify transport layer protocol for exporting packets
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+udp
+.IP \(bu 2
+tcp
+.IP \(bu 2
+sctp
+.RE
 .TP
-\fB\-s\fR, \fB\-\-sampling\-rate\fR \fI<SAMPLING_RATE>\fR [default: 0]
-Specify periodical sampling rate
+\fB\-s\fR, \fB\-\-sampling\-rate\fR \fI<rate>\fR [default: 0]
+Specify periodical sampling rate (denominator)
 .TP
-\fB\-C\fR, \fB\-\-snaplen\fR \fI<CAPTURE_LENGTH>\fR
+\fB\-C\fR, \fB\-\-snaplen\fR \fI<capture_length>\fR
 Specify length for packet capture (snaplen)
 .TP
-\fB\-S\fR, \fB\-\-send\-interface\fR \fI<SEND_INTERFACE>\fR
+\fB\-S\fR, \fB\-\-send\-interface\fR \fI<send_interface_name>\fR
 Specify send interface name (Linux only)
 .TP
-\fB\-e\fR, \fB\-\-exporter\-ip\fR \fI<EXPORTER_IP>\fR
-Specify exporter IP address
+\fB\-e\fR, \fB\-\-exporter\-ip\fR \fI<address>\fR
+Specify Exporter IP (IPv4 or IPv6) address
 .TP
 \fB\-f\fR, \fB\-\-full\-transport\-header\-check\fR
-Require the whole TCP/UDP/ICMP header instead of only the fields used
+Require the whole TCP/UDP/ICMP header instead of only the fields used (ports, TCP flags, ICMP type/code)
 .TP
-\fB\-F\fR, \fB\-\-flow\-lookup\fR \fI<FLOW_LOOKUP>\fR [default: hash\-tree]
+\fB\-F\fR, \fB\-\-flow\-lookup\fR \fI<mode>\fR [default: hash\-tree]
 Flow table lookup: tree, hash\-tree (default) or hash
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+tree
+.IP \(bu 2
+hash\-tree
+.IP \(bu 2
+hash
+.RE
 .TP
 \fB\-l\fR, \fB\-\-load\-balance\fR
 Load balancing mode for multiple destinations
 .TP
 \fB\-6\fR, \fB\-\-track\-ipv6\fR
-Track IPv6 flows, regardless of NetFlow export protocol support
+Track IPv6 flows, regardless of whether selected NetFlow export protocol supports it
 .TP
-\fB\-H\fR, \fB\-\-direction\-mac\fR \fI<DIRECTION_MAC>\fR
+\fB\-H\fR, \fB\-\-direction\-mac\fR \fI<MAC>\fR
 Specify MAC Address to determine direction (requires \-T ether)
 .TP
-\fB\-A\fR, \fB\-\-absolute\-time\fR \fI<TIME_FORMAT>\fR
-Specify absolute time format for exporting records (sec|milli|micro|nano)
+\fB\-A\fR, \fB\-\-absolute\-time\fR \fI<format>\fR
+Specify absolute time format for exporting records
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+sec
+.IP \(bu 2
+milli
+.IP \(bu 2
+micro
+.IP \(bu 2
+nano
+.RE
 .TP
-\fB\-B\fR, \fB\-\-pcap\-buffer\-size\fR \fI<BUFFER_SIZE>\fR
+\fB\-B\fR, \fB\-\-pcap\-buffer\-size\fR \fI<bytes>\fR
 Libpcap buffer size in bytes
 .TP
 \fB\-b\fR, \fB\-\-bidirectional\fR
 Bidirectional mode in IPFIX (\-b work with \-v 10)
 .TP
-\fB\-R\fR, \fB\-\-psamp\-port\fR \fI<RECV_PORT>\fR
+\fB\-R\fR, \fB\-\-psamp\-port\fR \fI<receive_port>\fR
 Specify port number for PSAMP receive mode
 .TP
 \fB\-M\fR, \fB\-\-multithread\fR
@@ -98,17 +168,17 @@ Enable multithread
 \fB\-N\fR, \fB\-\-no\-promisc\fR
 Disable promiscuous mode
 .TP
-\fB\-x\fR, \fB\-\-mpls\-labels\fR \fI<MAX_NUM_LABEL>\fR
-Specify number of MPLS labels
+\fB\-x\fR, \fB\-\-mpls\-labels\fR \fI<labels>\fR
+Specify number of MPLS labels (1 to 10)
 .TP
-\fB\-I\fR, \fB\-\-reinit\-interval\fR \fI<BOOT_TIME_REINIT>\fR
+\fB\-I\fR, \fB\-\-reinit\-interval\fR \fI<seconds>\fR
 Specify seconds for reinitialize boot time
 .TP
 \fB\-g\fR, \fB\-\-gauge\-cpu\-clock\fR
-Gauge cpu clock for benchmark
+Gauge cpu clock (total and export) for benchmark
 .TP
 \fB\-a\fR, \fB\-\-adjust\-time\fR
-Adjust time to packet time
+Adjusting time for reading pcap file (\-a work with \-r)
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help (see a summary with \*(Aq\-h\*(Aq)
@@ -116,7 +186,7 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 \fB\-V\fR, \fB\-\-version\fR
 Print version
 .TP
-[\fIBPF_EXPRESSION\fR]
+[\fIbpf_program\fR]
 BPF filter expression
 .SH VERSION
 v0.1.0

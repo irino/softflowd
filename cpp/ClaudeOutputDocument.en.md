@@ -219,9 +219,29 @@ any of the original's single-letter flags:
 
 | Option | Meaning |
 |---|---|
-| `--backend=hash\|tree` | Flow-tracking data structure (Stage 1's feature) |
 | `--export-out=PATH` | Also write export packets to a file, each prefixed with a 4-byte big-endian length |
 | `--max-runtime=SECONDS` | Shut down automatically after SECONDS (mainly for testing/demos) |
+
+### Options that follow the C version
+
+The short options of the original have the long names of the C version
+(`--max-flows`, `--timeout`, ...; see `softflowd -h`). These follow the C
+version's current behavior:
+
+| Option | Meaning |
+|---|---|
+| `-F`, `--flow-lookup tree\|hash\|hash-tree` | Flow table: `tree` is a `std::map`, `hash-tree` (the default) a `std::unordered_map` that keeps colliding flows, `hash` has one slot per bucket and exports the flow that a collision evicts. Replaces `--backend` |
+| `-f`, `--full-transport-header-check` | Require the whole transport header; by default only the bytes that are read are required (`--icmp-typecode-only` is accepted and does nothing) |
+| `-H`, `--direction-mac` | MAC address that decides flowDirection (with `-T ether`; the capture interface's address by default) |
+| `-M`, `--multithread` | Export from another thread and, in a live capture, process packets in another thread |
+| `-m`, `-x` | `-m` is 1 or more and `-x` is 1 to 10 |
+
+`-T vlan` and `-T ether` track 802.1Q VLAN IDs and Ethernet addresses and
+export them as vlanId, postVlanId, sourceMacAddress and
+postDestinationMacAddress. NetFlow v9 is exported by the IPFIX exporter, as in
+the C version, so there is no separate `netflow9` file. NetFlow v1 packets
+hold at most 24 records. With `-l` and several destinations the templates are
+sent to all of them in a packet of their own.
 
 ### `-a` (adjusting pcap file timestamps)
 
@@ -254,11 +274,10 @@ kept as-is:
 include/softflow/
   netflow1.hpp   NetFlow v1 (fixed-length records, no templates)
   netflow5.hpp   NetFlow v5 (adds a flow_sequence counter)
-  netflow9.hpp   NetFlow v9 (RFC 3954, template-based)
-  ipfix.hpp      IPFIX (RFC 7011, absolute timestamps)
+  ipfix.hpp      IPFIX (RFC 7011, absolute timestamps) and NetFlow v9 (RFC 3954)
   psamp.hpp      PSAMP (RFC 5477, per-packet sampling, IPFIX framing)
 src/
-  netflow1.cpp / netflow5.cpp / netflow9.cpp / ipfix.cpp / psamp.cpp
+  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
 ```
 
 Each exporter builds actual wire-format byte buffers from the list of
@@ -359,8 +378,8 @@ softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
 softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
 ```
 
-The `softflowd_cpp` executable can switch backends at run time via
-`--backend=hash` / `--backend=tree` (see below).
+The `softflowd_cpp` executable can switch the flow table at run time via
+`-F hash-tree` / `-F tree` / `-F hash` (see below).
 
 ## Building
 
@@ -377,8 +396,8 @@ AddressSanitizer / UndefinedBehaviorSanitizer are enabled automatically.
 # Process a pcap file and print statistics (-r, same as the original)
 ./build/softflowd_cpp -r path/to/capture.pcap
 
-# Use the red-black tree (std::map) backend (this project's own extension)
-./build/softflowd_cpp -r path/to/capture.pcap --backend=tree
+# Use the red-black tree (std::map) flow table
+./build/softflowd_cpp -r path/to/capture.pcap -F tree
 
 # Actually export NetFlow v5 to a collector (same as the original)
 ./build/softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
@@ -432,8 +451,7 @@ include/softflow/
                         (original: softflowctl itself)
   netflow1.hpp            NetFlow v1 (original: netflow1.h)
   netflow5.hpp            NetFlow v5 (original: netflow5.h)
-  netflow9.hpp             NetFlow v9 + MPLS label fields (original: netflow9.h)
-  ipfix.hpp                 IPFIX + MPLS/biflow (RFC 5103)/all 4 absolute time
+  ipfix.hpp                 IPFIX and NetFlow v9 + MPLS/biflow (RFC 5103)/all 4 absolute time
                         formats (original: ipfix.h)
   psamp.hpp                  PSAMP + PsampReceiver (the -R receive-mode
                         decoder; original: psamp.h)
@@ -444,10 +462,10 @@ src/
   daemon.cpp                (original: daemon.c)
   softflowctl.cpp            Control protocol implementation + softflowctl_cpp's
                         own main() (original: softflowctl.c)
-  netflow1.cpp / netflow5.cpp / netflow9.cpp / ipfix.cpp / psamp.cpp
+  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
-  test_netflow1.cpp / test_netflow5.cpp / test_netflow9.cpp
+  test_netflow1.cpp / test_netflow5.cpp
   test_ipfix.cpp           Includes biflow / absolute-time-format / MPLS tests
   test_psamp.cpp           Includes PsampReceiver round-trip tests
   test_daemon.cpp          Tests for PidFile/SignalPipe

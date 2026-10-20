@@ -76,7 +76,7 @@ target_compile_definitions(softflowctl_lib PRIVATE SOFTFLOW_NO_MAIN)
 # wire-protocol helpers.
 add_executable(softflowd+ ${SOFTFLOW_LOGIC_SOURCES})
 target_include_directories(softflowd+ PRIVATE include)
-target_link_libraries(softflowd+ PRIVATE ${PCAP_LIBRARY} softflowctl_lib)
+target_link_libraries(softflowd+ PRIVATE ${PCAP_LIBRARY} softflowctl_lib Threads::Threads)
 
 # The standalone softflowctl+ client tool (original: softflowctl.c):
 # src/softflowctl.cpp compiled directly, with its own main() included.

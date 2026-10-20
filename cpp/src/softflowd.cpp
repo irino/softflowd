@@ -36,6 +36,13 @@
 #include "softflow/softflowctl.hpp"
 
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <exception>
+#include <functional>
+#include <mutex>
+#include <thread>
+#include <utility>
 #include <cctype>
 #include <cerrno>
 #include <climits>
@@ -225,6 +232,29 @@ FlowTable<Backend>::record_packet (const FlowKey &key, TimePoint now,
     throw std::out_of_range ("direction must be 0 or 1");
   }
 
+  if (!slots_.empty()) {
+    // Original: flow_table_insert() in hash mode. The slot of the flow is
+    // taken by another flow: that one is evicted and exported as expired
+    // by collision.
+    auto &slot = slots_[std::hash<FlowKey>{}(key) & (slots_.size() - 1)];
+    if (slot.has_value() && *slot != key) {
+      const FlowKey victim_key = *slot;
+      if (auto victim_it = flows_.find (victim_key); victim_it != flows_.end()) {
+        Flow victim = std::move (victim_it->second);
+        flows_.erase (victim_it);
+        if (auto lookup_it = expiry_lookup_.find (victim_key);
+            lookup_it != expiry_lookup_.end()) {
+          expiry_index_.erase (lookup_it->second);
+          expiry_lookup_.erase (lookup_it);
+        }
+        victim.reason = ExpiryReason::Collision;
+        victim.flow_end_reason = 0x05;  // lackOfResource
+        collided_.push_back (ExportRecord{victim_key, std::move (victim)});
+      }
+    }
+    slot = key;
+  }
+
   auto [it, inserted] = flows_.try_emplace (key);
   Flow &flow = it->second;
 
@@ -356,13 +386,19 @@ FlowTable<Backend>::record_expiry_stats (const Flow &flow,
     case ExpiryReason::Flush:
       stats_.expired_flush += 1;
       break;
+    case ExpiryReason::Collision:
+      stats_.expired_collision += 1;
+      break;
   }
 }
 
 template <FlowIndexBackend Backend>
 std::vector<ExportRecord>
 FlowTable<Backend>::expire_flows (TimePoint now, bool flush_all) {
+  // Original: the flows that were evicted by a collision have expires_at 0,
+  // so they are the first to expire.
   std::vector<ExportRecord> expired;
+  std::vector<ExportRecord> collided = expire_collisions();
 
   auto it = expiry_index_.begin();
   while (it != expiry_index_.end() && (flush_all || it->first <= now)) {
@@ -374,13 +410,16 @@ FlowTable<Backend>::expire_flows (TimePoint now, bool flush_all) {
                            ExpiryReason::Flush, flush_all);
       expired.push_back (ExportRecord{key, flow_it->second});
       flows_.erase (flow_it);
+      forget_slot (key);
     }
     expiry_lookup_.erase (key);
     it = expiry_index_.erase (it);  // erase() returns the next valid iterator
   }
 
   stats_.flows_expired += expired.size();
-  return expired;
+  collided.insert (collided.end(), std::make_move_iterator (expired.begin()),
+                   std::make_move_iterator (expired.end()));
+  return collided;
 }
 
 template <FlowIndexBackend Backend>
@@ -399,6 +438,7 @@ FlowTable<Backend>::force_expire_oldest (std::size_t count) {
                            ExpiryReason::OverFlows, true);
       expired.push_back (ExportRecord{key, flow_it->second});
       flows_.erase (flow_it);
+      forget_slot (key);
     }
     expiry_lookup_.erase (key);
     it = expiry_index_.erase (it);
@@ -409,6 +449,79 @@ FlowTable<Backend>::force_expire_oldest (std::size_t count) {
   stats_.flows_expired += expired.size();
   stats_.flows_force_expired += expired.size();
   return expired;
+}
+
+template <FlowIndexBackend Backend>
+void
+FlowTable<Backend>::enable_collision_mode (std::size_t buckets) {
+  if constexpr (Backend != FlowIndexBackend::Hash) {
+    (void) buckets;
+    throw std::logic_error ("collision mode needs the hash backend");
+  } else {
+    // Original: flow_table_init(). A power of two, capped at 2^24.
+    constexpr std::size_t kMaxBuckets = std::size_t{1} << 24;
+    std::size_t n = 1;
+    while (n < buckets && n < kMaxBuckets) {
+      n <<= 1;
+    }
+    slots_.assign (n, std::nullopt);
+  }
+}
+
+template <FlowIndexBackend Backend>
+void
+FlowTable<Backend>::forget_slot (const FlowKey &key) {
+  if (slots_.empty()) {
+    return;
+  }
+  auto &slot = slots_[std::hash<FlowKey>{}(key) & (slots_.size() - 1)];
+  if (slot.has_value() && *slot == key) {
+    slot.reset();
+  }
+}
+
+template <FlowIndexBackend Backend>
+std::vector<ExportRecord>
+FlowTable<Backend>::expire_collisions() {
+  std::vector<ExportRecord> out;
+  out.swap (collided_);
+  for (const auto &record : out) {
+    record_expiry_stats (record.flow, record.key.protocol(),
+                         ExpiryReason::Collision, true);
+  }
+  stats_.flows_expired += out.size();
+  return out;
+}
+
+template <FlowIndexBackend Backend>
+FlowTableUsage
+FlowTable<Backend>::usage() const {
+  // Original: flow_table_usage().
+  FlowTableUsage u;
+  if (!slots_.empty()) {
+    u.buckets = slots_.size();
+    u.bytes = u.buckets * sizeof (void *);
+    for (const auto &slot : slots_) {
+      u.used += slot.has_value() ? std::size_t{1} : std::size_t{0};
+    }
+    u.max_depth = u.used != 0 ? 1 : 0;
+    return u;
+  }
+  if constexpr (Backend == FlowIndexBackend::Hash) {
+    u.buckets = flows_.bucket_count();
+    u.bytes = u.buckets * sizeof (void *);
+    for (std::size_t i = 0; i < u.buckets; ++i) {
+      const std::size_t depth = flows_.bucket_size (i);
+      u.used += depth != 0 ? std::size_t{1} : std::size_t{0};
+      u.max_depth = std::max (u.max_depth, depth);
+    }
+  } else {
+    u.buckets = 1;
+    u.bytes = sizeof (void *);
+    u.used = flows_.empty() ? 0 : 1;
+    u.max_depth = flows_.size();
+  }
+  return u;
 }
 
 template <FlowIndexBackend Backend>
@@ -443,22 +556,40 @@ template class FlowTable<FlowIndexBackend::Tree>;
 // FlowTableRuntime
 // =======================================================================
 
-FlowTableRuntime::FlowTableRuntime (FlowIndexBackend backend,
-                                    std::size_t max_flows,
+FlowTableRuntime::FlowTableRuntime (FlowLookup lookup, std::size_t max_flows,
                                     TrackLevel track_level,
                                     FlowTimeouts timeouts)
-    : table_ ([&] () -> std::variant<FlowTable<FlowIndexBackend::Hash>,
+    : lookup_ (lookup),
+      table_ ([&] () -> std::variant<FlowTable<FlowIndexBackend::Hash>,
                                      FlowTable<FlowIndexBackend::Tree>> {
-        switch (backend) {
-          case FlowIndexBackend::Hash:
+        switch (lookup) {
+          case FlowLookup::HashTree:
             return FlowTable<FlowIndexBackend::Hash> (max_flows, track_level,
                                                       timeouts);
-          case FlowIndexBackend::Tree:
+          case FlowLookup::Hash: {
+            FlowTable<FlowIndexBackend::Hash> table (max_flows, track_level,
+                                                     timeouts);
+            // Original: twice max_flows slots in hash mode.
+            table.enable_collision_mode (max_flows * 2);
+            return table;
+          }
+          case FlowLookup::Tree:
             return FlowTable<FlowIndexBackend::Tree> (max_flows, track_level,
                                                       timeouts);
         }
-        throw std::invalid_argument ("unknown FlowIndexBackend");
+        throw std::invalid_argument ("unknown FlowLookup");
       }()) {
+}
+
+std::vector<ExportRecord>
+FlowTableRuntime::expire_collisions() {
+  return std::visit ([] (auto &table) { return table.expire_collisions(); },
+                     table_);
+}
+
+FlowTableUsage
+FlowTableRuntime::usage() const {
+  return std::visit ([] (const auto &table) { return table.usage(); }, table_);
 }
 
 Flow &
@@ -1318,12 +1449,13 @@ struct DaemonConfig {
   std::chrono::seconds boot_time_reinit{0};              // -I (0 = disabled)
   bool gauge_clock = false;                              // -g
   bool full_l4hdr_check = false;                         // -f
+  bool multithread = false;                              // -M
   std::optional<std::array<std::uint8_t, 6>> direction_mac;  // -H
 
   std::string bpf_filter;  // trailing bpf_expression
 
   // --- This project's own additions (not part of the original grammar) ---
-  softflow::FlowIndexBackend backend = softflow::FlowIndexBackend::Hash;  // --backend=hash|tree
+  softflow::FlowLookup flow_lookup = softflow::FlowLookup::HashTree;      // -F
   std::string export_out;                                                 // --export-out=PATH
   std::optional<std::chrono::seconds> max_runtime;                        // --max-runtime=SECONDS
 };
@@ -1597,6 +1729,89 @@ write_framed_packets (const std::string &path,
   }
 }
 
+// Original: pcap_memcpy () and process_packet_loop () with -M. The capture
+// loop hands one packet at a time to another thread, which does the flow
+// tracking, and waits for it to be finished with the previous packet first.
+// The packet is copied because libpcap reuses its buffer.
+class PacketProcessor {
+public:
+  explicit PacketProcessor (
+    std::function<void (const softflow::CapturedPacket &)> process)
+      : process_ (std::move (process)), thread_ ([this] { run(); }) {
+  }
+
+  PacketProcessor (const PacketProcessor &) = delete;
+  PacketProcessor &
+  operator= (const PacketProcessor &) = delete;
+
+  ~PacketProcessor() {
+    {
+      std::lock_guard<std::mutex> lock (mutex_);
+      stop_ = true;
+    }
+    cv_.notify_all();
+    thread_.join();
+  }
+
+  void
+  submit (const softflow::CapturedPacket &pkt) {
+    std::unique_lock<std::mutex> lock (mutex_);
+    idle_cv_.wait (lock, [&] { return !ready_; });
+    rethrow();
+    storage_.assign (pkt.data.begin(), pkt.data.end());
+    packet_ = pkt;
+    packet_.data = std::span<const std::uint8_t> (storage_);
+    ready_ = true;
+    cv_.notify_one();
+  }
+
+  // Original: wait_for_packet_loop_idle (). What the processing thread
+  // shares with the main thread may be used again after this returns.
+  void
+  wait_idle () {
+    std::unique_lock<std::mutex> lock (mutex_);
+    idle_cv_.wait (lock, [&] { return !ready_; });
+    rethrow();
+  }
+
+private:
+  void
+  rethrow () {
+    if (error_) {
+      std::rethrow_exception (std::exchange (error_, nullptr));
+    }
+  }
+
+  void
+  run () {
+    std::unique_lock<std::mutex> lock (mutex_);
+    for (;;) {
+      cv_.wait (lock, [&] { return ready_ || stop_; });
+      if (!ready_) {
+        return;
+      }
+      try {
+        process_ (packet_);
+      } catch (...) {
+        error_ = std::current_exception();
+      }
+      ready_ = false;
+      idle_cv_.notify_all();
+    }
+  }
+
+  std::function<void (const softflow::CapturedPacket &)> process_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::condition_variable idle_cv_;
+  std::vector<std::uint8_t> storage_;
+  softflow::CapturedPacket packet_{};
+  std::exception_ptr error_;
+  bool ready_ = false;
+  bool stop_ = false;
+  std::thread thread_;  // last: it starts using the members above
+};
+
 // =======================================================================
 // ExportPipeline (original: softflowd.c's per-destination NetFlow/IPFIX/
 // PSAMP state and send_multi_destinations())
@@ -1611,7 +1826,8 @@ write_framed_packets (const std::string &path,
 class ExportPipeline {
 public:
   ExportPipeline (const DaemonConfig &config, softflow::TimePoint boot_time)
-      : format_ (config.export_format), gauge_clock_ (config.gauge_clock) {
+      : format_ (config.export_format), gauge_clock_ (config.gauge_clock),
+        multithread_ (config.multithread) {
     const auto transport_kind = [&] {
       switch (config.transport) {
         case TransportProtocol::Udp:
@@ -1697,6 +1913,46 @@ public:
   // Original: with no -n, softflowd runs in "statistics gathering
   // mode only" -- flows are still tracked and expired, but no export
   // packets are built or sent at all.
+  ExportPipeline (const ExportPipeline &) = delete;
+  ExportPipeline &
+  operator= (const ExportPipeline &) = delete;
+
+  ~ExportPipeline() {
+    // Original: wait_for_export_threads () before the process exits.
+    if (worker_.joinable()) {
+      {
+        std::lock_guard<std::mutex> lock (queue_mutex_);
+        stop_ = true;
+      }
+      queue_cv_.notify_all();
+      worker_.join();
+    }
+  }
+
+  // Original: wait_for_export_threads (). Blocks until every export that
+  // was queued by -M has been sent.
+  void
+  wait_idle () {
+    std::unique_lock<std::mutex> lock (queue_mutex_);
+    idle_cv_.wait (lock, [&] { return queue_.empty() && !busy_; });
+  }
+
+  // Moves what the export thread has sent since the last call into the
+  // statistics of the flow table; a no-op without -M.
+  template <typename Table>
+  void
+  sync_stats (Table &table) {
+    ExportOutcome o;
+    {
+      std::lock_guard<std::mutex> lock (queue_mutex_);
+      o = async_outcome_;
+      async_outcome_ = {};
+    }
+    if (o.flows != 0 || o.records != 0 || o.packets != 0 || o.failures != 0) {
+      table.record_export_stats (o.flows, o.records, o.packets, o.failures);
+    }
+  }
+
   bool
   has_sink () const noexcept {
     return !destinations_.empty() || !export_out_.empty();
@@ -1719,6 +1975,7 @@ public:
   // whether anything happened.
   bool
   resend_template () {
+    std::lock_guard<std::mutex> state_lock (state_mutex_);
     if (ipfix_.has_value()) {
       ipfix_->force_template_resend();
       return true;
@@ -1734,6 +1991,7 @@ public:
   reinit_boot_time (softflow::TimePoint now,
                     std::chrono::system_clock::time_point wall_now =
                       std::chrono::system_clock::now()) {
+    std::lock_guard<std::mutex> state_lock (state_mutex_);
     if (netflow1_.has_value())
       netflow1_->set_boot_time (now);
     if (netflow5_.has_value())
@@ -1762,10 +2020,64 @@ public:
     return export_calls_;
   }
 
+  // Original: with -M the expired flows are copied and sent by another
+  // thread. A single export thread keeps the packets, and so the sequence
+  // numbers, in order. The outcome is then reported later, by sync_stats ().
   ExportOutcome
   export_flows (const std::vector<softflow::ExportRecord> &records,
                 softflow::TimePoint now,
                 std::chrono::system_clock::time_point wall_now) {
+    if (!multithread_) {
+      return export_now (records, now, wall_now);
+    }
+    if (records.empty() || !wants_flows()) {
+      return {};
+    }
+    {
+      std::lock_guard<std::mutex> lock (queue_mutex_);
+      if (!worker_.joinable()) {
+        worker_ = std::thread ([this] { export_thread(); });
+      }
+      queue_.push_back (Job{records, now, wall_now});
+    }
+    queue_cv_.notify_one();
+    return {};
+  }
+
+  struct Job {
+    std::vector<softflow::ExportRecord> records;
+    softflow::TimePoint now;
+    std::chrono::system_clock::time_point wall_now;
+  };
+
+  void
+  export_thread () {
+    std::unique_lock<std::mutex> lock (queue_mutex_);
+    for (;;) {
+      queue_cv_.wait (lock, [&] { return stop_ || !queue_.empty(); });
+      if (queue_.empty()) {
+        return;  // stopped and drained
+      }
+      Job job = std::move (queue_.front());
+      queue_.pop_front();
+      busy_ = true;
+      lock.unlock();
+      const ExportOutcome o = export_now (job.records, job.now, job.wall_now);
+      lock.lock();
+      async_outcome_.flows += o.flows;
+      async_outcome_.records += o.records;
+      async_outcome_.packets += o.packets;
+      async_outcome_.failures += o.failures;
+      busy_ = false;
+      idle_cv_.notify_all();
+    }
+  }
+
+  ExportOutcome
+  export_now (const std::vector<softflow::ExportRecord> &records,
+              softflow::TimePoint now,
+              std::chrono::system_clock::time_point wall_now) {
+    std::lock_guard<std::mutex> state_lock (state_mutex_);
     if (records.empty() || !wants_flows()) {
       return {};
     }
@@ -1877,9 +2189,22 @@ private:
 
   ExportFormat format_;
   bool gauge_clock_;
+  bool multithread_;
   std::clock_t export_clocks_ = 0;
   unsigned long export_calls_ = 0;
   std::string export_out_;
+
+  // -M: the queue of the export thread. state_mutex_ protects the exporters
+  // against the template and boot time requests of the main thread.
+  std::mutex state_mutex_;
+  std::mutex queue_mutex_;
+  std::condition_variable queue_cv_;
+  std::condition_variable idle_cv_;
+  std::deque<Job> queue_;
+  ExportOutcome async_outcome_;
+  bool stop_ = false;
+  bool busy_ = false;
+  std::thread worker_;
   softflow::ExportDestinationSet destinations_;
   bool load_balance_ = false;
   std::optional<softflow::Netflow1Exporter> netflow1_;
@@ -2027,6 +2352,8 @@ classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_k
 // run_pcap_file() below. Formatting intentionally mirrors the C version.
 void
 print_statistics (const softflow::FlowTableStats &s, std::size_t active_flows,
+                  softflow::FlowLookup lookup,
+                  const softflow::FlowTableUsage &usage,
                   std::FILE *out, const softflow::PcapHandle &handle) {
   std::fprintf (out, "Number of active flows: %zu\n", active_flows);
   std::fprintf (out, "Packets processed: %llu\n",
@@ -2047,6 +2374,22 @@ print_statistics (const softflow::FlowTableStats &s, std::size_t active_flows,
                 static_cast<unsigned long long> (s.records_sent),
                 static_cast<unsigned long long> (s.packets_sent),
                 static_cast<unsigned long long> (s.flows_dropped));
+
+  if (lookup != softflow::FlowLookup::Tree) {
+    // Original: "Flow table: ..." of statistics().
+    char size[32];
+    if (usage.bytes < 1024) {
+      std::snprintf (size, sizeof (size), "%zu B", usage.bytes);
+    } else {
+      std::snprintf (size, sizeof (size), "%zu KiB", usage.bytes / 1024);
+    }
+    std::fprintf (out,
+                  "Flow table: %s, %zu buckets (%s), %zu in use, "
+                  "max depth %zu, %llu collisions\n",
+                  softflow::flow_lookup_name (lookup), usage.buckets, size,
+                  usage.used, usage.max_depth,
+                  static_cast<unsigned long long> (s.expired_collision));
+  }
 
   if (auto ps = handle.stats(); ps.has_value()) {
     std::fprintf (out, "Packets received by libpcap: %u\n", ps->ps_recv);
@@ -2086,6 +2429,10 @@ print_statistics (const softflow::FlowTableStats &s, std::size_t active_flows,
                 static_cast<unsigned long long> (s.expired_maxflows));
   std::fprintf (out, "   flushed = %9llu\n",
                 static_cast<unsigned long long> (s.expired_flush));
+  if (lookup == softflow::FlowLookup::Hash) {
+    std::fprintf (out, "collision = %9llu\n",
+                  static_cast<unsigned long long> (s.expired_collision));
+  }
 
   std::fprintf (out, "\n");
   std::fprintf (out, "Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
@@ -2266,7 +2613,7 @@ run_pcap_file (const DaemonConfig &config) {
   const std::size_t skip = datalink_header_len (dl_kind);
 
   PacketParser parser (config.track_level, config.full_l4hdr_check);
-  FlowTableRuntime table (config.backend, config.max_flows, config.track_level,
+  FlowTableRuntime table (config.flow_lookup, config.max_flows, config.track_level,
                           config.timeouts);
   const TimePoint boot_time = Clock::now();
   ExportPipeline exporter (config, boot_time);
@@ -2308,6 +2655,17 @@ run_pcap_file (const DaemonConfig &config) {
   // flows. No time-based expiry happens mid-file.
   std::uint64_t batch_packets = 0;
   const auto force_expire_over_max = [&] () {
+    // Original: check_expired() also expires the flows that were evicted by
+    // a collision, which are due at once.
+    if (auto collided = table.expire_collisions(); !collided.empty()) {
+      const auto outcome =
+        config.adjust_pcap_time
+          ? exporter.export_flows (collided, last_packet_mono, last_packet_wall)
+          : exporter.export_flows (collided, last_packet_mono,
+                                   std::chrono::system_clock::now());
+      table.record_export_stats (outcome.flows, outcome.records,
+                                 outcome.packets, outcome.failures);
+    }
     if (table.size() <= table.max_flows()) {
       return;
     }
@@ -2394,31 +2752,11 @@ run_pcap_file (const DaemonConfig &config) {
       time_base_mono + std::chrono::duration_cast<Clock::duration> (
                          pkt->wall_timestamp - time_base_wall);
 
-    // Original: -a (adjust_time). softflowd.c's next_expire()/
-    // check_expired() use ft->param.last_packet_time (the replay
-    // clock) instead of gettimeofday() (this process's real wall
-    // clock) as "now" when deciding whether a flow is due for expiry.
-    // Without -a, reading a file happens in a tiny fraction of the
-    // real time the capture spans, so idle timeouts essentially never
-    // fire mid-file -- flows just accumulate until EOF (matching the
-    // no-op default below). With -a, timeouts are evaluated against
-    // the packets' own recorded times, so flows can idle out (and get
-    // exported) while the file is still being read, same as the
-    // original.
-    if (config.adjust_pcap_time) {
-      log_expiry_debug_start (config.debug, kCeExpireForced);
-      const auto idle = table.expire_flows (effective_time);
-      log_expiry_debug_queued (config.debug, idle);
-      if (!idle.empty()) {
-        const auto outcome = exporter.export_flows (
-          idle, effective_time, pkt->wall_timestamp);
-        table.record_export_stats (outcome.flows, outcome.records,
-                                   outcome.packets, outcome.failures);
-        log_expiry_debug_sent (config.debug,
-                               static_cast<int> (outcome.packets));
-      }
-      log_expiry_debug_expired (config.debug, idle);
-    }
+    // Original: when a capture file is read, check_expired() runs with
+    // CE_EXPIRE_FORCED only, so no flow is expired for being idle mid-file,
+    // with or without -a: flows accumulate until EOF, apart from the forced
+    // eviction at max_flows (force_expire_over_max below). -a only makes the
+    // export and boot times follow the packets' own times.
 
     if (config.export_format == ExportFormat::Psamp) {
       pending_samples.push_back (make_sampled_packet (
@@ -2499,7 +2837,10 @@ run_pcap_file (const DaemonConfig &config) {
   // file *always* forces foreground mode and this condition is always
   // true, with or without -d. run_pcap_file() here only ever runs for
   // -r, so the equivalent is: always print.
-  print_statistics (table.stats(), table.size(), stdout, handle);
+  exporter.wait_idle();
+  exporter.sync_stats (table);
+  print_statistics (table.stats(), table.size(), table.lookup(), table.usage(),
+                    stdout, handle);
   if (config.gauge_clock) {
     std::printf ("cpu clocks: %ld\n",
                  static_cast<long> (std::clock() - cpu_start));
@@ -2609,6 +2950,7 @@ handle_control_command (const std::string &command,
            " flows (no export)";
   }
   if (command == kStatistics) {
+    exporter.sync_stats (table);
     const auto &stats = table.stats();
     return "OK tracked=" + std::to_string (table.size()) +
            " max_flows=" + std::to_string (table.max_flows()) +
@@ -2616,8 +2958,7 @@ handle_control_command (const std::string &command,
            " flows_expired=" + std::to_string (stats.flows_expired) +
            " flows_force_expired=" +
            std::to_string (stats.flows_force_expired) +
-           " backend=" +
-           (table.backend() == FlowIndexBackend::Hash ? "hash" : "tree") +
+           " flow_lookup=" + flow_lookup_name (table.lookup()) +
            " capturing=" + (state.capturing ? "yes" : "no") +
            " debug_level=" + std::to_string (state.debug_level);
   }
@@ -2689,7 +3030,7 @@ run_live_capture (const DaemonConfig &config) {
   const std::size_t skip = datalink_header_len (dl_kind);
 
   PacketParser parser (config.track_level, config.full_l4hdr_check);
-  FlowTableRuntime table (config.backend, config.max_flows, config.track_level,
+  FlowTableRuntime table (config.flow_lookup, config.max_flows, config.track_level,
                           config.timeouts);
   const TimePoint boot_time = Clock::now();
   const auto start_time = boot_time;
@@ -2820,6 +3161,80 @@ run_live_capture (const DaemonConfig &config) {
                format_name (config.export_format),
                track_level_name (config.track_level));
 
+  // The flow tracking of one captured packet. With -M it runs in another
+  // thread (see PacketProcessor); the main loop waits for it before it uses
+  // the table, the exporter or the samples.
+  const auto process_packet = [&] (const softflow::CapturedPacket &pkt) {
+    if (pkt.data.size() <= skip) {
+      return;
+    }
+    const auto ip_bytes = pkt.data.subspan (skip);
+
+    const auto frame = classify_frame (pkt, dl_kind, ip_bytes);
+    if (!frame.has_value()) {
+      return;
+    }
+    if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      return;
+    }
+
+    auto parsed =
+      parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
+    if (!parsed.has_value()) {
+      return;
+    }
+
+    if (config.sampling_rate > 1) {
+      if ((sample_counter++ % config.sampling_rate) != 0) {
+        return;
+      }
+    }
+
+    if (config.export_format == ExportFormat::Psamp) {
+      pending_samples.push_back (make_sampled_packet (
+        *parsed, pkt.original_length, pkt.timestamp));
+    }
+
+    const auto key = make_flow_key (*parsed, parser.track_level(),
+                                    {frame->vlanid, 0}, frame->ethermac);
+    const std::uint8_t direction =
+      (key.addr()[0] == parsed->src) ? 0 : 1;
+    const std::size_t size_before = table.size();
+    Flow &flow = table.record_packet (
+      key, pkt.timestamp, pkt.wall_timestamp, direction,
+      pkt.original_length - skip - frame->vlan_size, parsed->tcp_flags, parsed->tos);
+    if (config.debug && table.size() != size_before) {
+      std::fprintf (stderr, "ADD FLOW %s\n",
+                    format_flow_brief (flow.flow_seq, key).c_str());
+    }
+    if (config.mpls_labels > 0 && !frame->mpls_labels.empty()) {
+      const std::size_t keep = std::min<std::size_t> (
+        {frame->mpls_labels.size(),
+         static_cast<std::size_t> (config.mpls_labels), 10});
+      flow.mpls_labels.assign (
+        frame->mpls_labels.begin(),
+        frame->mpls_labels.begin() + static_cast<std::ptrdiff_t> (keep));
+    }
+
+    if (table.size() > table.max_flows()) {
+      log_expiry_debug_start (config.debug, kCeExpireForced);
+      const auto forced = table.force_expire_oldest (
+        table.size() - table.max_flows());
+      log_expiry_debug_queued (config.debug, forced);
+      const auto outcome = exporter.export_flows (
+        forced, pkt.timestamp, std::chrono::system_clock::now());
+      table.record_export_stats (outcome.flows, outcome.records,
+                                 outcome.packets, outcome.failures);
+      log_expiry_debug_sent (config.debug,
+                             static_cast<int> (outcome.packets));
+      log_expiry_debug_expired (config.debug, forced);
+    }
+  };
+  std::optional<PacketProcessor> processor;
+  if (config.multithread) {
+    processor.emplace (process_packet);
+  }
+
   while (!state.shutting_down && !state.immediate_exit) {
     struct pollfd fds[4];
     fds[0] = {signals.read_fd(), POLLIN, 0};
@@ -2831,6 +3246,9 @@ run_live_capture (const DaemonConfig &config) {
     const int ready = poll (fds, 4, 1000 /* ms */);
     if (ready < 0 && errno != EINTR) {
       throw std::runtime_error ("poll() failed");
+    }
+    if (processor.has_value()) {
+      processor->wait_idle();
     }
 
     for (int sig : signals.drain()) {
@@ -2904,70 +3322,14 @@ run_live_capture (const DaemonConfig &config) {
         if (!pkt.has_value()) {
           break;
         }
-        if (pkt->data.size() <= skip) {
-          continue;
+        if (processor.has_value()) {
+          processor->submit (*pkt);
+        } else {
+          process_packet (*pkt);
         }
-        const auto ip_bytes = pkt->data.subspan (skip);
-
-        const auto frame = classify_frame (*pkt, dl_kind, ip_bytes);
-        if (!frame.has_value()) {
-          continue;
-        }
-        if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
-          continue;
-        }
-
-        auto parsed =
-          parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
-        if (!parsed.has_value()) {
-          continue;
-        }
-
-        if (config.sampling_rate > 1) {
-          if ((sample_counter++ % config.sampling_rate) != 0) {
-            continue;
-          }
-        }
-
-        if (config.export_format == ExportFormat::Psamp) {
-          pending_samples.push_back (make_sampled_packet (
-            *parsed, pkt->original_length, pkt->timestamp));
-        }
-
-        const auto key = make_flow_key (*parsed, parser.track_level(),
-                                        {frame->vlanid, 0}, frame->ethermac);
-        const std::uint8_t direction =
-          (key.addr()[0] == parsed->src) ? 0 : 1;
-        const std::size_t size_before = table.size();
-        Flow &flow = table.record_packet (
-          key, pkt->timestamp, pkt->wall_timestamp, direction,
-          pkt->original_length - skip - frame->vlan_size, parsed->tcp_flags, parsed->tos);
-        if (config.debug && table.size() != size_before) {
-          std::fprintf (stderr, "ADD FLOW %s\n",
-                        format_flow_brief (flow.flow_seq, key).c_str());
-        }
-        if (config.mpls_labels > 0 && !frame->mpls_labels.empty()) {
-          const std::size_t keep = std::min<std::size_t> (
-            {frame->mpls_labels.size(),
-             static_cast<std::size_t> (config.mpls_labels), 10});
-          flow.mpls_labels.assign (
-            frame->mpls_labels.begin(),
-            frame->mpls_labels.begin() + static_cast<std::ptrdiff_t> (keep));
-        }
-
-        if (table.size() > table.max_flows()) {
-          log_expiry_debug_start (config.debug, kCeExpireForced);
-          const auto forced = table.force_expire_oldest (
-            table.size() - table.max_flows());
-          log_expiry_debug_queued (config.debug, forced);
-          const auto outcome = exporter.export_flows (
-            forced, pkt->timestamp, std::chrono::system_clock::now());
-          table.record_export_stats (outcome.flows, outcome.records,
-                                     outcome.packets, outcome.failures);
-          log_expiry_debug_sent (config.debug,
-                                 static_cast<int> (outcome.packets));
-          log_expiry_debug_expired (config.debug, forced);
-        }
+      }
+      if (processor.has_value()) {
+        processor->wait_idle();
       }
     }
 
@@ -3148,7 +3510,7 @@ void
 print_usage (const char *argv0) {
   std::fprintf (
     stderr,
-    "usage: %s [-6dDfhNbal] [-H direction_mac] [-L hoplimit] [-T track_level] [-c ctl_sock]\n"
+    "usage: %s [-6dDfhMNbal] [-F tree|hash|hash-tree] [-H direction_mac] [-L hoplimit] [-T track_level] [-c ctl_sock]\n"
     "               [-i [if_ndx:]interface] [-m max_flows (1 or more)] [-n host:port]\n"
     "               [-p pidfile] [-r pcap_file] [-t timeout_name=seconds]\n"
     "               [-v netflow_version] [-P transport_protocol]\n"
@@ -3164,7 +3526,6 @@ print_usage (const char *argv0) {
     "encoding); -R (PSAMP receive mode) is not implemented.\n"
     "\n"
     "This project's own additions (not part of the original softflowd):\n"
-    "  --backend=hash|tree   flow-tracking data structure (default: hash)\n"
     "  --export-out=PATH     additionally write export packets to a file,\n"
     "                        each length-prefixed with 4 big-endian bytes\n"
     "  --max-runtime=SECONDS shut down automatically after SECONDS (testing)\n",
@@ -3200,8 +3561,7 @@ main (int argc, char **argv) {
   // softflowd's short-option grammar continues to work unmodified;
   // getopt_long() simply also accepts these long forms alongside them.
   enum {
-    kOptBackend = 1000,
-    kOptExportOut,
+    kOptExportOut = 1000,
     kOptMaxRuntime,
     kOptIcmpTypecodeOnly,
     kOptExpirySecondGranularity,
@@ -3219,6 +3579,7 @@ main (int argc, char **argv) {
     {"debug", no_argument, nullptr, 'D'},
     {"exporter-ip", required_argument, nullptr, 'e'},
     {"full-transport-header-check", no_argument, nullptr, 'f'},
+    {"flow-lookup", required_argument, nullptr, 'F'},
     {"gauge-cpu-clock", no_argument, nullptr, 'g'},
     {"help", no_argument, nullptr, 'h'},
     {"direction-mac", required_argument, nullptr, 'H'},
@@ -3227,6 +3588,7 @@ main (int argc, char **argv) {
     {"load-balance", no_argument, nullptr, 'l'},
     {"hoplimit", required_argument, nullptr, 'L'},
     {"max-flows", required_argument, nullptr, 'm'},
+    {"multithread", no_argument, nullptr, 'M'},
     {"netflow-dest", required_argument, nullptr, 'n'},
     {"no-promisc", no_argument, nullptr, 'N'},
     {"pidfile", required_argument, nullptr, 'p'},
@@ -3240,7 +3602,6 @@ main (int argc, char **argv) {
     {"netflow-version", required_argument, nullptr, 'v'},
     {"mpls-labels", required_argument, nullptr, 'x'},
     // Additions of the C++ version.
-    {"backend", required_argument, nullptr, kOptBackend},
     {"export-out", required_argument, nullptr, kOptExportOut},
     {"max-runtime", required_argument, nullptr, kOptMaxRuntime},
     {"icmp-typecode-only", no_argument, nullptr, kOptIcmpTypecodeOnly},
@@ -3260,16 +3621,19 @@ main (int argc, char **argv) {
   try {
     while ((opt = getopt_long (
               fargc, fargv,
-              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bfalI:gH:",
+              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bfF:alI:gH:M",
               long_options, nullptr)) != -1) {
       switch (opt) {
-        case kOptBackend:
-          if (std::string (optarg) == "hash") {
-            config.backend = softflow::FlowIndexBackend::Hash;
-          } else if (std::string (optarg) == "tree") {
-            config.backend = softflow::FlowIndexBackend::Tree;
+        case 'F':
+          // Original: -F flow-lookup, tree | hash | hash-tree.
+          if (std::string (optarg) == "tree") {
+            config.flow_lookup = softflow::FlowLookup::Tree;
+          } else if (std::string (optarg) == "hash") {
+            config.flow_lookup = softflow::FlowLookup::Hash;
+          } else if (std::string (optarg) == "hash-tree") {
+            config.flow_lookup = softflow::FlowLookup::HashTree;
           } else {
-            std::fprintf (stderr, "Unknown --backend value: %s\n", optarg);
+            std::fprintf (stderr, "Invalid flow lookup %s\n\n", optarg);
             print_usage (argv[0]);
             return 1;
           }
@@ -3287,6 +3651,9 @@ main (int argc, char **argv) {
           break;
         case 'f':
           config.full_l4hdr_check = true;
+          break;
+        case 'M':
+          config.multithread = true;
           break;
         case kOptExpirySecondGranularity:
           // See FlowTimeouts::second_granularity's comment. This is
@@ -3509,11 +3876,11 @@ main (int argc, char **argv) {
   if (config.debug) {
     std::printf (
       "[softflowd] debug: interface=%s pcap_file=%s max_flows=%zu "
-      "track_level=%s version=%s destinations=%zu backend=%s\n",
+      "track_level=%s version=%s destinations=%zu flow_lookup=%s\n",
       config.interface.c_str(), config.pcap_file.c_str(),
       config.max_flows, track_level_name (config.track_level),
       format_name (config.export_format), config.destinations.size(),
-      config.backend == softflow::FlowIndexBackend::Hash ? "hash" : "tree");
+      softflow::flow_lookup_name (config.flow_lookup));
   }
 
   try {

@@ -197,9 +197,28 @@ Stage 4の時点では以下は簡略化/未実装でしたが、**Stage 5で全
 
 | オプション | 意味 |
 |---|---|
-| `--backend=hash\|tree` | フロー管理のデータ構造選択(既存Stage 1の機能) |
 | `--export-out=PATH` | エクスポートパケットを追加でファイルにも書き出す(4バイトビッグエンディアン長さ付き) |
 | `--max-runtime=SECONDS` | 指定秒数後に自動終了(主にテスト・デモ用) |
+
+### C言語版に合わせたオプション
+
+元のショートオプションにはC言語版と同じ長いオプション名があります
+(`--max-flows`、`--timeout`など。`softflowd -h`参照)。次はC言語版の現在の動作に
+合わせています。
+
+| オプション | 意味 |
+|---|---|
+| `-F`, `--flow-lookup tree\|hash\|hash-tree` | フロー表の選択。`tree`は`std::map`、`hash-tree`(デフォルト)は衝突したフローを保持する`std::unordered_map`、`hash`はバケットごとに1スロットで、衝突で追い出されたフローをexportする。`--backend`の後継 |
+| `-f`, `--full-transport-header-check` | トランスポートヘッダ全体を要求する。デフォルトでは読むバイトだけを要求する(`--icmp-typecode-only`は受け付けるが何もしない) |
+| `-H`, `--direction-mac` | flowDirectionを決めるMACアドレス(`-T ether`時。デフォルトはキャプチャインターフェースのアドレス) |
+| `-M`, `--multithread` | exportを別スレッドで行い、ライブキャプチャではパケット処理も別スレッドで行う |
+| `-m`, `-x` | `-m`は1以上、`-x`は1〜10 |
+
+`-T vlan`と`-T ether`は802.1Q VLAN IDとEthernetアドレスを追跡し、vlanId、
+postVlanId、sourceMacAddress、postDestinationMacAddressとしてexportします。
+NetFlow v9はC言語版と同じくIPFIX exporterで出力するため、`netflow9`のファイルは
+ありません。NetFlow v1のパケットは最大24レコードです。`-l`で宛先が複数のとき、
+テンプレートは専用のパケットで全宛先へ送られます。
 
 ### `-a`(pcapファイルのタイムスタンプ調整)
 
@@ -229,11 +248,10 @@ Stage 1/2と異なり、Stage 3のファイル(`netflow1`/`netflow5`/`netflow9`/
 include/softflow/
   netflow1.hpp   NetFlow v1(固定長レコード、テンプレートなし)
   netflow5.hpp   NetFlow v5(flow_sequence付き)
-  netflow9.hpp   NetFlow v9(RFC 3954、テンプレートベース)
-  ipfix.hpp      IPFIX(RFC 7011、絶対時刻フィールド)
+  ipfix.hpp      IPFIXとNetFlow v9(RFC 7011、RFC 3954)
   psamp.hpp      PSAMP(RFC 5477、パケット単位サンプリング、IPFIXフレーミング)
 src/
-  netflow1.cpp / netflow5.cpp / netflow9.cpp / ipfix.cpp / psamp.cpp
+  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
 ```
 
 各エクスポータは`FlowTable::expire_flows()`/`force_expire_oldest()`が返す
@@ -325,8 +343,8 @@ softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
 softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
 ```
 
-`softflowd_cpp`実行ファイルは`--backend=hash`/`--backend=tree`オプションで
-実行時に切り替えられます(下記参照)。
+`softflowd_cpp`実行ファイルは`-F hash-tree`/`-F tree`/`-F hash`オプションで
+フロー表を実行時に切り替えられます(下記参照)。
 
 ## ビルド方法
 
@@ -343,8 +361,8 @@ UndefinedBehaviorSanitizer が自動で有効になります。
 # pcapファイルを処理し、統計を表示(-r、元softflowdと同じ書式)
 ./build/softflowd_cpp -r path/to/capture.pcap
 
-# 赤黒木(std::map)バックエンドを使う(このプロジェクト独自の拡張)
-./build/softflowd_cpp -r path/to/capture.pcap --backend=tree
+# 赤黒木(std::map)のフロー表を使う
+./build/softflowd_cpp -r path/to/capture.pcap -F tree
 
 # NetFlow v5をコレクタに実際に送信(元softflowdと同じ書式)
 ./build/softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
@@ -395,8 +413,7 @@ include/softflow/
   softflowctl.hpp       制御プロトコル定義 / ControlClient(元 softflowctl本体)
   netflow1.hpp           NetFlow v1(元 netflow1.h)
   netflow5.hpp           NetFlow v5(元 netflow5.h)
-  netflow9.hpp           NetFlow v9 + MPLSラベルフィールド(元 netflow9.h)
-  ipfix.hpp               IPFIX + MPLS/biflow(RFC 5103)/絶対時刻4形式(元 ipfix.h)
+  ipfix.hpp               IPFIXとNetFlow v9 + MPLS/biflow(RFC 5103)/絶対時刻4形式(元 ipfix.h)
   psamp.hpp                PSAMP + PsampReceiver(-R受信モード用デコーダ、元 psamp.h)
 src/
   softflowd.cpp           main() + 全実装 + ライブキャプチャイベントループ +
@@ -405,10 +422,10 @@ src/
   daemon.cpp               (元 daemon.c)
   softflowctl.cpp           制御プロトコル実装 + softflowctl_cpp本体の main()
                           (元 softflowctl.c)
-  netflow1.cpp / netflow5.cpp / netflow9.cpp / ipfix.cpp / psamp.cpp
+  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
-  test_netflow1.cpp / test_netflow5.cpp / test_netflow9.cpp
+  test_netflow1.cpp / test_netflow5.cpp
   test_ipfix.cpp          biflow/絶対時刻フォーマット/MPLSのテストを含む
   test_psamp.cpp          PsampReceiverの往復テストを含む
   test_daemon.cpp         PidFile/SignalPipeのテスト

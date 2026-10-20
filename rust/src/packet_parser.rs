@@ -9,6 +9,7 @@ pub const DLT_LINUX_SLL: i32 = 113;
 pub const DLT_RAW: i32 = 12;
 pub const DLT_NULL: i32 = 0;
 pub const DLT_LOOP: i32 = 108;
+pub const DLT_PFLOG: i32 = 117;
 
 const IPPROTO_TCP: u8 = 6;
 const IPPROTO_UDP: u8 = 17;
@@ -40,6 +41,7 @@ pub struct ParsedPacket {
     pub ip6_flowlabel: u32,
     pub length: u32,
     pub timestamp: TimeVal,
+    pub raw_packet: Vec<u8>,
 }
 
 pub fn parse_packet(
@@ -176,6 +178,24 @@ pub fn parse_packet(
             if protocol == 0x0021 {
                 af = 2;
             } else if protocol == 0x0057 {
+                af = 10;
+            } else {
+                return None;
+            }
+        }
+        DLT_PFLOG => {
+            if caplen < 48 {
+                return None;
+            }
+            let family = pkt[1];
+            offset = 48;
+            if caplen < offset + 1 {
+                return None;
+            }
+            let ip_ver = (pkt[offset] & 0xF0) >> 4;
+            if family == 2 || ip_ver == 4 {
+                af = 2;
+            } else if family == 24 || family == 28 || family == 10 || ip_ver == 6 {
                 af = 10;
             } else {
                 return None;
@@ -350,5 +370,6 @@ pub fn parse_packet(
         ip6_flowlabel,
         length: orig_len.saturating_sub(offset) as u32,
         timestamp,
+        raw_packet: pkt.to_vec(),
     })
 }

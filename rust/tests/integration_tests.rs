@@ -348,6 +348,47 @@ fn test_packet_parser_dlt_ppp() {
 }
 
 #[test]
+fn test_packet_parser_dlt_pflog() {
+    // DLT_PFLOG packet: 48 bytes pflog header + IPv4 header (20 bytes) + UDP (8 bytes)
+    let mut pflog_packet = vec![0; 48];
+    pflog_packet[1] = 2; // AF_INET = 2
+
+    let ip_header: [u8; 20] = [
+        0x45, 0x00, 0x00, 0x28,
+        0x12, 0x34, 0x00, 0x00,
+        0x40, 0x11, 0x00, 0x00,
+        10, 0, 0, 1,
+        10, 0, 0, 2,
+    ];
+    pflog_packet.extend_from_slice(&ip_header);
+
+    let udp_header: [u8; 8] = [
+        0x04, 0x00, // sport 1024
+        0x08, 0x00, // dport 2048
+        0x00, 0x14,
+        0x00, 0x00,
+    ];
+    pflog_packet.extend_from_slice(&udp_header);
+
+    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 0 };
+    let parsed = parse_packet(
+        rsoftflowd::packet_parser::DLT_PFLOG,
+        &pflog_packet,
+        pflog_packet.len() as u32,
+        pflog_packet.len() as u32,
+        TrackLevel::Full,
+        0,
+        false,
+        timestamp,
+    ).expect("Failed to parse DLT_PFLOG packet");
+
+    assert_eq!(parsed.af, 2);
+    assert_eq!(parsed.protocol, 17);
+    assert_eq!(parsed.src_port, 1024);
+    assert_eq!(parsed.dst_port, 2048);
+}
+
+#[test]
 fn test_psamp_exporter() {
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
     let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
@@ -383,3 +424,40 @@ fn test_psamp_exporter() {
     assert_eq!(version, 10);
 }
 
+#[test]
+fn test_control_rendering() {
+    let tracker = rsoftflowd::common::FlowTracker::new(1024);
+    let stats = rsoftflowd::control::render_statistics(&tracker, Some((100, 5, 2)));
+    assert!(stats.contains("Number of active flows:"));
+    assert!(stats.contains("Packets received by libpcap: 100"));
+    assert!(stats.contains("Packets dropped by libpcap: 5"));
+    assert!(stats.contains("Packets dropped by interface: 2"));
+
+    let timeouts = rsoftflowd::control::render_timeouts(&tracker);
+    assert!(timeouts.contains("tcp ="));
+
+    let help = rsoftflowd::control::render_help();
+    assert!(help.contains("Valid control words are:"));
+
+    let dump = rsoftflowd::control::render_dump_flows(&tracker);
+    assert_eq!(dump, "");
+}
+
+#[test]
+fn test_flow_lookup_modes() {
+    let mut tracker = rsoftflowd::common::FlowTracker::new(1024);
+    tracker.set_flow_lookup(rsoftflowd::common::FlowLookupMode::Tree);
+    assert_eq!(tracker.nbuckets, 1);
+    let (used, depth) = tracker.table_usage();
+    assert_eq!(used, 0);
+    assert_eq!(depth, 0);
+
+    tracker.set_flow_lookup(rsoftflowd::common::FlowLookupMode::HashTree);
+    assert!(tracker.nbuckets >= 1024);
+
+    tracker.set_flow_lookup(rsoftflowd::common::FlowLookupMode::Hash);
+    assert!(tracker.nbuckets >= 2048);
+
+    let stats = rsoftflowd::control::render_statistics(&tracker, Some((10, 0, 0)));
+    assert!(stats.contains("Flow table: hash"));
+}
