@@ -336,7 +336,7 @@ pub fn parse_packet(
                     let icmp_code = pkt[next_header_offset + 1] as u16;
                     src_port = 0;
                     // Encode ICMP type * 256 + code like Cisco
-                    dst_port = icmp_type << 8 | icmp_code;
+                    dst_port = (icmp_type << 8) | icmp_code;
                 }
             }
             IPPROTO_ICMPV6 => {
@@ -345,7 +345,7 @@ pub fn parse_packet(
                     let icmp_type = pkt[next_header_offset] as u16;
                     let icmp_code = pkt[next_header_offset + 1] as u16;
                     src_port = 0;
-                    dst_port = icmp_type << 8 | icmp_code;
+                    dst_port = (icmp_type << 8) | icmp_code;
                 }
             }
             _ => {}

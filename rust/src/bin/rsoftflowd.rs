@@ -946,9 +946,13 @@ fn accumulate_stats(tracker: &mut FlowTracker, flow: &Flow) {
 fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: bool, ifidx: u16) -> usize {
     log::debug!("Starting expiry scan: mode {}", if force_all { 1 } else { 0 });
 
-    let now_sec = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(d) => d.as_secs() as u32,
-        Err(_) => 0,
+    let now_sec = if tracker.param.adjust_time && tracker.param.last_packet_time.tv_sec > 0 {
+        tracker.param.last_packet_time.tv_sec as u32
+    } else {
+        match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as u32,
+            Err(_) => 0,
+        }
     };
 
     let mut expired_keys = Vec::new();
@@ -986,6 +990,10 @@ fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: 
             accumulate_stats(tracker, &flow);
             expired_flows.push(flow);
         }
+    }
+
+    if force_all {
+        expired_flows.sort_by_key(|f| f.flow_seq);
     }
 
     let count = expired_flows.len();

@@ -328,7 +328,7 @@ impl Default for FlowTrackParameters {
             direction_mac: None,
             direction_mac_set: false,
             bidirection: false,
-            time_format: b's',
+            time_format: 0,
             pcap_buffer_size: 0,
             gauge_clock: false,
             max_num_label: 0,
