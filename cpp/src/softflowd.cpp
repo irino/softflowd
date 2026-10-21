@@ -32,6 +32,7 @@
 #include "softflow/ipfix.hpp"
 #include "softflow/netflow1.hpp"
 #include "softflow/netflow5.hpp"
+#include "softflow/ntopng.hpp"
 #include "softflow/psamp.hpp"
 #include "softflow/softflowctl.hpp"
 
@@ -1337,7 +1338,8 @@ enum class ExportFormat { None,
                           Netflow5,
                           Netflow9,
                           Ipfix,
-                          Psamp };
+                          Psamp,
+                          Ntopng };
 
 enum class TransportProtocol { Udp,
                                Tcp,
@@ -1381,6 +1383,8 @@ format_name (ExportFormat format) {
       return "ipfix";
     case ExportFormat::Psamp:
       return "psamp";
+    case ExportFormat::Ntopng:
+      return "ntopng";
   }
   return "unknown";
 }
@@ -1444,7 +1448,7 @@ struct DaemonConfig {
   std::size_t buffer_bytes = 0;                          // -B (0 = let libpcap choose)
   bool bidirectional_ipfix = false;                      // -b (simplified; see README)
   int mpls_labels = 0;                                   // -x (implemented for -v 9/10)
-  std::optional<int> psamp_receive_port;                 // -R (implemented; -i only)
+  std::optional<int> psamp_receive_port;                 // -R (alone, or with -i, which is then read first)
   bool adjust_pcap_time = false;                         // -a
   std::chrono::seconds boot_time_reinit{0};              // -I (0 = disabled)
   bool gauge_clock = false;                              // -g
@@ -1582,8 +1586,16 @@ parse_netflow_version (const std::string &s) {
     return ExportFormat::Ipfix;
   if (s == "psamp")
     return ExportFormat::Psamp;
+  if (s == "ntopng") {
+#ifdef SOFTFLOW_HAVE_ZMQ
+    return ExportFormat::Ntopng;
+#else
+    throw std::invalid_argument (
+      "ntopng export is not built in (configure with -DSOFTFLOW_NTOPNG=ON)");
+#endif
+  }
   throw std::invalid_argument ("unknown NetFlow version '" + s +
-                               "' (expected 1, 5, 9, 10, or psamp)");
+                               "' (expected 1, 5, 9, 10, psamp, or ntopng)");
 }
 
 // Original: -P transport_protocol. Only udp is actually implemented in
@@ -1840,7 +1852,19 @@ public:
       return softflow::TransportKind::Udp;
     }();
 
-    for (const auto &[host, port] : config.destinations) {
+    if (format_ == ExportFormat::Ntopng) {
+      // Original: connect_ntopng () for every -n destination, in place of
+      // the datagram sockets.
+      ntopng_.emplace (config.track_level);
+#ifdef SOFTFLOW_HAVE_ZMQ
+      for (const auto &[host, port] : config.destinations) {
+        ntopng_sinks_.emplace_back (host, port);
+      }
+#endif
+    }
+    for (const auto &[host, port] : format_ == ExportFormat::Ntopng
+                                      ? decltype (config.destinations){}
+                                      : config.destinations) {
       try {
         destinations_.add (softflow::ExportDestination (
           host, port, transport_kind, config.ttl,
@@ -1900,9 +1924,9 @@ public:
         }
         break;
       case ExportFormat::Psamp:
-        psamp_.emplace (/*observation_domain_id=*/0,
-                        to_ipfix_time_format (config.time_format));
+        psamp_.emplace (/*observation_domain_id=*/0);
         break;
+      case ExportFormat::Ntopng:  // set up above
       case ExportFormat::None:
         break;
     }
@@ -1953,9 +1977,19 @@ public:
     }
   }
 
+  std::size_t
+  ntopng_sink_count () const noexcept {
+#ifdef SOFTFLOW_HAVE_ZMQ
+    return ntopng_sinks_.size();
+#else
+    return 0;
+#endif
+  }
+
   bool
   has_sink () const noexcept {
-    return !destinations_.empty() || !export_out_.empty();
+    return !destinations_.empty() || !export_out_.empty() ||
+           ntopng_sink_count() != 0;
   }
 
   bool
@@ -2073,6 +2107,27 @@ public:
     }
   }
 
+  // Original: send_ntopng (). Every message goes to every destination. As in
+  // the original the flows are not counted as exported, only the records
+  // and the messages are.
+  ExportOutcome
+  export_ntopng (const std::vector<softflow::ExportRecord> &records,
+                 softflow::TimePoint now,
+                 std::chrono::system_clock::time_point wall_now) {
+    const auto messages = ntopng_->build_messages (records, now, wall_now);
+    ExportOutcome outcome;
+    outcome.records = records.size();
+    outcome.packets = messages.size();
+#ifdef SOFTFLOW_HAVE_ZMQ
+    for (const auto &message : messages) {
+      for (auto &sink : ntopng_sinks_) {
+        sink.send (message);
+      }
+    }
+#endif
+    return outcome;
+  }
+
   ExportOutcome
   export_now (const std::vector<softflow::ExportRecord> &records,
               softflow::TimePoint now,
@@ -2095,6 +2150,9 @@ public:
       }
     } export_clock{gauge_clock_, export_clocks_, export_calls_,
                    gauge_clock_ ? std::clock() : 0};
+    if (format_ == ExportFormat::Ntopng) {
+      return export_ntopng (records, now, wall_now);
+    }
     std::vector<std::vector<std::uint8_t>> packets;
     std::vector<std::size_t> template_only;
     switch (format_) {
@@ -2113,6 +2171,7 @@ public:
           load_balance_ && destinations_.size() > 1 ? &template_only : nullptr);
         break;
       case ExportFormat::Psamp:
+      case ExportFormat::Ntopng:
       case ExportFormat::None:
         break;
     }
@@ -2157,15 +2216,18 @@ public:
     return ExportOutcome{flow_count, record_count, packets.size(), 0};
   }
 
+  // Original: send_psamp (). One message per sampled packet, sent at once.
+  // The template message goes to every destination, whatever -l says.
   void
-  export_samples (const std::vector<softflow::SampledPacket> &samples,
-                  softflow::TimePoint now,
-                  std::chrono::system_clock::time_point wall_now) {
-    if (samples.empty() || !wants_samples()) {
+  export_psamp (const softflow::PsampSample &sample, bool adjust_time) {
+    std::lock_guard<std::mutex> state_lock (state_mutex_);
+    if (!wants_samples()) {
       return;
     }
-    auto packets = psamp_->build_packets (samples, now, wall_now);
-    dispatch (packets);
+    std::vector<std::size_t> template_only;
+    const auto packets = psamp_->build_packets (
+      sample, std::chrono::system_clock::now(), adjust_time, &template_only);
+    dispatch (packets, template_only);
   }
 
 private:
@@ -2211,6 +2273,10 @@ private:
   std::optional<softflow::Netflow5Exporter> netflow5_;
   std::optional<softflow::IpfixExporter> ipfix_;
   std::optional<softflow::PsampExporter> psamp_;
+  std::optional<softflow::NtopngExporter> ntopng_;
+#ifdef SOFTFLOW_HAVE_ZMQ
+  std::vector<softflow::NtopngSink> ntopng_sinks_;
+#endif
 };
 
 // Original: -x number_of_mpls_labels. An MPLS-encapsulated frame (EtherType
@@ -2643,10 +2709,10 @@ run_pcap_file (const DaemonConfig &config) {
   TimePoint last_packet_mono{};
   std::chrono::system_clock::time_point last_packet_wall{};
 
-  std::vector<SampledPacket> pending_samples;
   std::uint64_t total = 0;
   std::uint64_t parsed_ok = 0;
-  std::uint32_t sample_counter = 0;
+  std::uint64_t sampled_total = 0;  // total_packets of the original
+  std::uint64_t non_sampled = 0;
 
   // Original: softflowd.c's main loop reads a capture file with
   // pcap_dispatch(pcap, max_flows, ...), so the table is checked only after
@@ -2691,16 +2757,34 @@ run_pcap_file (const DaemonConfig &config) {
     }
     ++batch_packets;
     ++total;
+    // Original: flow_cb (). -s is tested before the packet is counted, so
+    // the first packet is the first one that is kept; a packet that is not
+    // IP is taken back out of the count below.
+    if (config.sampling_rate > 1 &&
+        (sampled_total + non_sampled) % config.sampling_rate > 0) {
+      ++non_sampled;
+      continue;
+    }
+    ++sampled_total;
+    if (config.export_format == ExportFormat::Psamp) {
+      exporter.export_psamp (
+        PsampSample{pkt->data, pkt->wall_timestamp, sampled_total},
+        config.adjust_pcap_time);
+      continue;
+    }
     if (pkt->data.size() <= skip) {
+      --sampled_total;
       continue;
     }
     const auto ip_bytes = pkt->data.subspan (skip);
 
     const auto frame = classify_frame (*pkt, dl_kind, ip_bytes);
     if (!frame.has_value()) {
+      --sampled_total;
       continue;
     }
     if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      --sampled_total;
       continue;
     }
 
@@ -2709,19 +2793,6 @@ run_pcap_file (const DaemonConfig &config) {
       continue;
     }
     ++parsed_ok;
-
-    // Original: -s sampling_rate. A systematic 1-in-N sample: every
-    // Nth successfully parsed packet is processed, the rest are
-    // discarded outright (counts are not scaled up to compensate,
-    // matching the original's behavior).
-    if (config.sampling_rate > 1) {
-      // Original: `(total_packets + non_sampled_packets) % sample > 0`
-      // is tested before the packet is counted, so the first packet
-      // is the first one that is kept.
-      if ((sample_counter++ % config.sampling_rate) != 0) {
-        continue;
-      }
-    }
 
     // Original: softflowd.c's process_packet() *always* sources
     // flow->flow_start/flow->flow_last from phdr->ts (the pcap file's
@@ -2757,11 +2828,6 @@ run_pcap_file (const DaemonConfig &config) {
     // with or without -a: flows accumulate until EOF, apart from the forced
     // eviction at max_flows (force_expire_over_max below). -a only makes the
     // export and boot times follow the packets' own times.
-
-    if (config.export_format == ExportFormat::Psamp) {
-      pending_samples.push_back (make_sampled_packet (
-        *parsed, pkt->original_length, effective_time));
-    }
 
     const auto key = make_flow_key (*parsed, parser.track_level(),
                                     {frame->vlanid, 0}, frame->ethermac);
@@ -2828,7 +2894,6 @@ run_pcap_file (const DaemonConfig &config) {
                              eof_outcome.packets, eof_outcome.failures);
   log_expiry_debug_sent (config.debug, static_cast<int> (eof_outcome.packets));
   log_expiry_debug_expired (config.debug, expired);
-  exporter.export_samples (pending_samples, now, wall_now);
 
   // Original: `if (capfile != NULL && dontfork_flag) statistics(...)`.
   // dontfork_flag looks like it depends on -d, but softflowd.c's own
@@ -3015,16 +3080,22 @@ run_live_capture (const DaemonConfig &config) {
   // even under sustained traffic -- see the packet-draining loop below
   // for the other half of this responsiveness story (it also caps how
   // many packets it drains per poll() cycle).
-  PcapHandle handle = PcapHandle::open_live (
-    config.interface, config.snaplen, !config.no_promiscuous,
-    std::chrono::milliseconds (100), config.buffer_bytes);
-  if (!config.bpf_filter.empty()) {
-    handle.set_filter (config.bpf_filter);
+  // Original: with -R and without -i there is no capture at all, and the
+  // frames that are received are Ethernet frames (linktype = 1).
+  std::optional<PcapHandle> handle;
+  if (!config.interface.empty()) {
+    handle.emplace (PcapHandle::open_live (
+      config.interface, config.snaplen, !config.no_promiscuous,
+      std::chrono::milliseconds (100), config.buffer_bytes));
+    if (!config.bpf_filter.empty()) {
+      handle->set_filter (config.bpf_filter);
+    }
   }
-  const auto dl_kind = handle.datalink_kind();
+  const auto dl_kind =
+    handle.has_value() ? handle->datalink_kind() : DatalinkKind::Ethernet;
   if (dl_kind == DatalinkKind::Unsupported) {
     std::fprintf (stderr, "unsupported datalink type (pcap_datalink=%d)\n",
-                  handle.datalink());
+                  handle->datalink());
     return 1;
   }
   const std::size_t skip = datalink_header_len (dl_kind);
@@ -3077,7 +3148,6 @@ run_live_capture (const DaemonConfig &config) {
   // FlowTable::record_packet() exactly as if they'd been locally
   // captured.
   int psamp_fd = -1;
-  PsampReceiver psamp_receiver;
   struct PsampSocketGuard {
     int fd;
     ~PsampSocketGuard () {
@@ -3151,8 +3221,8 @@ run_live_capture (const DaemonConfig &config) {
   SignalPipe signals;
   ControlState state;
 
-  std::vector<SampledPacket> pending_samples;
-  std::uint32_t sample_counter = 0;
+  std::uint64_t sampled_total = 0;  // total_packets of the original
+  std::uint64_t non_sampled = 0;
   TimePoint last_expiry_check = Clock::now();
 
   std::printf ("[softflowd] listening on %s, control socket %s, version=%s, "
@@ -3165,16 +3235,31 @@ run_live_capture (const DaemonConfig &config) {
   // thread (see PacketProcessor); the main loop waits for it before it uses
   // the table, the exporter or the samples.
   const auto process_packet = [&] (const softflow::CapturedPacket &pkt) {
+    // Original: flow_cb (); see the replay loop.
+    if (config.sampling_rate > 1 &&
+        (sampled_total + non_sampled) % config.sampling_rate > 0) {
+      ++non_sampled;
+      return;
+    }
+    ++sampled_total;
+    if (config.export_format == ExportFormat::Psamp) {
+      exporter.export_psamp (
+        PsampSample{pkt.data, pkt.wall_timestamp, sampled_total}, false);
+      return;
+    }
     if (pkt.data.size() <= skip) {
+      --sampled_total;
       return;
     }
     const auto ip_bytes = pkt.data.subspan (skip);
 
     const auto frame = classify_frame (pkt, dl_kind, ip_bytes);
     if (!frame.has_value()) {
+      --sampled_total;
       return;
     }
     if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      --sampled_total;
       return;
     }
 
@@ -3182,17 +3267,6 @@ run_live_capture (const DaemonConfig &config) {
       parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
     if (!parsed.has_value()) {
       return;
-    }
-
-    if (config.sampling_rate > 1) {
-      if ((sample_counter++ % config.sampling_rate) != 0) {
-        return;
-      }
-    }
-
-    if (config.export_format == ExportFormat::Psamp) {
-      pending_samples.push_back (make_sampled_packet (
-        *parsed, pkt.original_length, pkt.timestamp));
     }
 
     const auto key = make_flow_key (*parsed, parser.track_level(),
@@ -3239,7 +3313,7 @@ run_live_capture (const DaemonConfig &config) {
     struct pollfd fds[4];
     fds[0] = {signals.read_fd(), POLLIN, 0};
     fds[1] = {ctl_fd, POLLIN, 0};
-    const int pcap_fd = handle.selectable_fd();
+    const int pcap_fd = handle.has_value() ? handle->selectable_fd() : -1;
     fds[2] = {pcap_fd >= 0 ? pcap_fd : -1, POLLIN, 0};
     fds[3] = {psamp_fd >= 0 ? psamp_fd : -1, POLLIN, 0};
 
@@ -3318,7 +3392,7 @@ run_live_capture (const DaemonConfig &config) {
             break;  // nothing more queued right now
           }
         }
-        auto pkt = handle.next_packet();
+        auto pkt = handle->next_packet();
         if (!pkt.has_value()) {
           break;
         }
@@ -3351,48 +3425,21 @@ run_live_capture (const DaemonConfig &config) {
         if (received <= 0) {
           break;  // no more datagrams queued right now
         }
-        // Original: hardening added while validating -R (Stage 7).
-        // Scoping received templates by sender address (rather
-        // than by template ID alone) prevents two different
-        // exporters that happen to reuse the same numeric
-        // template ID for two *different* record layouts from
-        // corrupting each other's decoded data -- template IDs
-        // are only required to be unique per exporter, not
-        // globally.
-        std::array<char, INET6_ADDRSTRLEN> addr_str{};
-        std::uint16_t sender_port = 0;
-        if (sender_addr.ss_family == AF_INET) {
-          const auto *sin = reinterpret_cast<struct sockaddr_in *> (&sender_addr);
-          inet_ntop (AF_INET, &sin->sin_addr, addr_str.data(), addr_str.size());
-          sender_port = ntohs (sin->sin_port);
-        } else if (sender_addr.ss_family == AF_INET6) {
-          const auto *sin6 = reinterpret_cast<struct sockaddr_in6 *> (&sender_addr);
-          inet_ntop (AF_INET6, &sin6->sin6_addr, addr_str.data(), addr_str.size());
-          sender_port = ntohs (sin6->sin6_port);
+        // Original: recv_psamp (). The frame of a message of softflowd is
+        // processed like a packet that was captured: it goes through the same
+        // sampling and flow tracking as one.
+        auto frame = decode_psamp_message (std::span<const std::uint8_t> (
+          buffer.data(), static_cast<std::size_t> (received)));
+        if (!frame.has_value()) {
+          continue;
         }
-        const std::string source_id =
-          std::string (addr_str.data()) + ":" + std::to_string (sender_port);
-
-        const auto received_at = Clock::now();
-        auto samples = psamp_receiver.decode_message (
-          std::span<const std::uint8_t> (buffer.data(),
-                                         static_cast<std::size_t> (received)),
-          received_at, source_id);
-        for (const auto &sample : samples) {
-          const std::uint8_t key_tos =
-            config.track_level >= softflow::TrackLevel::FullTos
-              ? sample.tos
-              : 0;
-          const auto key = FlowKey::make_canonical (
-            sample.src, sample.dst, sample.src_port, sample.dst_port,
-            sample.protocol, key_tos, {0, 0});
-          const std::uint8_t direction =
-            (key.addr()[0] == sample.src) ? 0 : 1;
-          table.record_packet (key, sample.observed_at,
-                               std::chrono::system_clock::now(),
-                               direction, sample.observed_length, 0,
-                               sample.tos);
+        if (processor.has_value()) {
+          processor->wait_idle();
         }
+        const CapturedPacket packet{
+          std::span<const std::uint8_t> (frame->frame), frame->original_length,
+          Clock::now(), frame->observed_at};
+        process_packet (packet);
       }
     }
 
@@ -3413,9 +3460,6 @@ run_live_capture (const DaemonConfig &config) {
                                  outcome.packets, outcome.failures);
       log_expiry_debug_sent (config.debug, static_cast<int> (outcome.packets));
       log_expiry_debug_expired (config.debug, due);
-      exporter.export_samples (pending_samples, now,
-                               std::chrono::system_clock::now());
-      pending_samples.clear();
       last_expiry_check = now;
     }
 
@@ -3439,7 +3483,6 @@ run_live_capture (const DaemonConfig &config) {
                                outcome.packets, outcome.failures);
     log_expiry_debug_sent (config.debug, static_cast<int> (outcome.packets));
     log_expiry_debug_expired (config.debug, expired);
-    exporter.export_samples (pending_samples, now, wall_now);
   }
 
   std::printf ("[softflowd] exiting (%s)\n",
@@ -3844,8 +3887,9 @@ main (int argc, char **argv) {
   }
   config.bpf_filter = bpf;
 
-  if (config.interface.empty() && config.pcap_file.empty()) {
-    std::fprintf (stderr, "%s: either -i or -r must be specified\n", argv[0]);
+  if (config.interface.empty() && config.pcap_file.empty() &&
+      !config.psamp_receive_port.has_value()) {
+    std::fprintf (stderr, "%s: either -i, -r or -R must be specified\n", argv[0]);
     print_usage (argv[0]);
     return 1;
   }
@@ -3855,8 +3899,8 @@ main (int argc, char **argv) {
   }
   if (config.psamp_receive_port.has_value() && !config.pcap_file.empty()) {
     std::fprintf (stderr,
-                  "%s: -R only has an effect with -i (live capture); "
-                  "ignored with -r\n",
+                  "%s: -R only has an effect with -i (live capture) or "
+                  "alone; ignored with -r\n",
                   argv[0]);
     config.psamp_receive_port.reset();
   }

@@ -49,6 +49,7 @@ set(SOFTFLOW_LOGIC_SOURCES
   src/netflow5.cpp
   src/ipfix.cpp
   src/psamp.cpp
+  src/ntopng.cpp
   src/daemon.cpp
 )
 
@@ -58,6 +59,16 @@ set(SOFTFLOW_LOGIC_SOURCES
 add_library(softflow_core OBJECT ${SOFTFLOW_LOGIC_SOURCES})
 target_include_directories(softflow_core PUBLIC include)
 target_link_libraries(softflow_core PUBLIC ${PCAP_LIBRARY})
+
+# Original: --enable-ntopng (default NO). Sends the flows to ntopng 6.0 or
+# later over ZeroMQ with -v ntopng.
+option(SOFTFLOW_NTOPNG "Enable flow sending to ntopng with ZeroMQ" OFF)
+if(SOFTFLOW_NTOPNG)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(ZMQ REQUIRED IMPORTED_TARGET libzmq)
+  target_compile_definitions(softflow_core PUBLIC SOFTFLOW_HAVE_ZMQ)
+  target_link_libraries(softflow_core PUBLIC PkgConfig::ZMQ)
+endif()
 target_compile_definitions(softflow_core PUBLIC SOFTFLOW_NO_MAIN)
 
 # softflowctl.cpp likewise contains both shared control-protocol wire
@@ -77,6 +88,10 @@ target_compile_definitions(softflowctl_lib PRIVATE SOFTFLOW_NO_MAIN)
 add_executable(softflowd+ ${SOFTFLOW_LOGIC_SOURCES})
 target_include_directories(softflowd+ PRIVATE include)
 target_link_libraries(softflowd+ PRIVATE ${PCAP_LIBRARY} softflowctl_lib Threads::Threads)
+if(SOFTFLOW_NTOPNG)
+  target_compile_definitions(softflowd+ PRIVATE SOFTFLOW_HAVE_ZMQ)
+  target_link_libraries(softflowd+ PRIVATE PkgConfig::ZMQ)
+endif()
 
 # The standalone softflowctl+ client tool (original: softflowctl.c):
 # src/softflowctl.cpp compiled directly, with its own main() included.
@@ -105,6 +120,10 @@ add_test(NAME netflow5 COMMAND test_netflow5)
 add_executable(test_ipfix tests/test_ipfix.cpp)
 target_link_libraries(test_ipfix PRIVATE softflow_core)
 add_test(NAME ipfix COMMAND test_ipfix)
+
+add_executable(test_ntopng tests/test_ntopng.cpp)
+target_link_libraries(test_ntopng PRIVATE softflow_core)
+add_test(NAME ntopng COMMAND test_ntopng)
 
 add_executable(test_psamp tests/test_psamp.cpp)
 target_link_libraries(test_psamp PRIVATE softflow_core)

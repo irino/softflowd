@@ -83,21 +83,6 @@ epoch_us (TimePoint now,
   return static_cast<std::uint64_t> (std::max<std::int64_t> (0, us.count()));
 }
 
-// Original: conv_unix_to_ntp(). -A micro/nano. RFC 7011 section 6.1.9
-// specifies these as the 64-bit NTP Timestamp format (RFC 5905): 32-bit
-// seconds since the NTP epoch (1900-01-01), plus a 32-bit binary fraction of
-// a second. The original rounds the fraction up with `tv_usec + 1`.
-std::uint64_t
-epoch_us_to_ntp64 (std::uint64_t epoch_us_value) {
-  constexpr std::uint64_t kNtpEpochOffsetSeconds = 2208988800ULL;  // 1900 -> 1970
-  const std::uint64_t seconds = epoch_us_value / 1000000;
-  const std::uint64_t usec = epoch_us_value % 1000000;
-  const auto ntp_seconds = static_cast<std::uint32_t> (seconds + kNtpEpochOffsetSeconds);
-  const auto ntp_fraction = static_cast<std::uint32_t> (
-    static_cast<double> (usec + 1) * 4294967296.0 * 1.0e-6);
-  return (static_cast<std::uint64_t> (ntp_seconds) << 32) | ntp_fraction;
-}
-
 // Original: compat/netflow9.c/legacy softflowd's uptime-relative encoding --
 // milliseconds elapsed between `boot_time` and `t`. Shared with
 // Netflow9Exporter's identically-named helper in netflow9.cpp; kept as a
@@ -165,8 +150,8 @@ write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_ti
       break;
     case IpfixTimeFormat::Microseconds:
     case IpfixTimeFormat::Nanoseconds:
-      writer.put_u64 (epoch_us_to_ntp64 (epoch_us (now, wall_now, first)));
-      writer.put_u64 (epoch_us_to_ntp64 (epoch_us (now, wall_now, last)));
+      writer.put_u64 (unix_us_to_ntp64 (epoch_us (now, wall_now, first)));
+      writer.put_u64 (unix_us_to_ntp64 (epoch_us (now, wall_now, last)));
       break;
   }
 }
@@ -1235,6 +1220,32 @@ IpfixExporter::build_packets (
   }
 
   return packets;
+}
+
+// Original: conv_unix_to_ntp(). -A micro/nano and PSAMP. RFC 7011 section
+// 6.1.9 specifies these as the 64-bit NTP Timestamp format (RFC 5905): 32-bit
+// seconds since the NTP epoch (1900-01-01), plus a 32-bit binary fraction of
+// a second. The original rounds the fraction up with `tv_usec + 1`.
+std::uint64_t
+unix_us_to_ntp64 (std::uint64_t epoch_us_value) {
+  constexpr std::uint64_t kNtpEpochOffsetSeconds = 2208988800ULL;  // 1900 -> 1970
+  const std::uint64_t seconds = epoch_us_value / 1000000;
+  const std::uint64_t usec = epoch_us_value % 1000000;
+  const auto ntp_seconds = static_cast<std::uint32_t> (seconds + kNtpEpochOffsetSeconds);
+  const auto ntp_fraction = static_cast<std::uint32_t> (
+    static_cast<double> (usec + 1) * 4294967296.0 * 1.0e-6);
+  return (static_cast<std::uint64_t> (ntp_seconds) << 32) | ntp_fraction;
+}
+
+// Original: conv_ntp_to_unix().
+std::uint64_t
+ntp64_to_unix_us (std::uint64_t ntp) {
+  constexpr std::uint64_t kNtpEpochOffsetSeconds = 2208988800ULL;
+  const auto seconds = static_cast<std::uint32_t> (ntp >> 32);
+  const auto fraction = static_cast<std::uint32_t> (ntp);
+  const auto usec = static_cast<std::uint32_t> (
+    static_cast<double> (fraction) * 1.0e6 / 4294967296.0);
+  return (static_cast<std::uint64_t> (seconds) - kNtpEpochOffsetSeconds) * 1000000 + usec;
 }
 
 }  // namespace softflow

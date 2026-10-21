@@ -1,22 +1,11 @@
 // Original files: psamp.c, psamp.h
 //
-// PSAMP (RFC 5477) reports individual *sampled packets*, not aggregated
-// flow statistics -- it reuses the IPFIX message framing (RFC 7011) but
-// with a different set of Information Elements describing one observed
-// packet at a time. This is a meaningfully different shape of input than
-// the ExportRecord (aggregated Flow + FlowKey) used by netflow1/5/9.hpp
-// and ipfix.hpp: PSAMP naturally consumes something closer to a
-// ParsedPacket (see softflowd.hpp) plus its capture timestamp and
-// on-the-wire length, taken directly from the packet-capture pipeline
-// rather than from FlowTable.
-//
-// Simplification note: full RFC 5477 defines Information Elements for
-// selector process identification, packet hashes, and raw packet content
-// that this implementation does not attempt to reproduce. The template
-// below reports a practically useful subset (timestamp, addresses, ports,
-// protocol, ToS, observed length) sufficient to demonstrate PSAMP's
-// per-packet (rather than per-flow) reporting model using genuine IPFIX
-// framing and Information Elements from the IANA registry.
+// PSAMP (RFC 5476, RFC 5477) reports individual packets rather than flows,
+// in the framing of IPFIX (RFC 7011). The message of softflowd carries one
+// captured packet: its position in the sequence of sampled packets, its
+// capture time, the number of octets of the frame that are exported and the
+// frame itself, in a record of fixed size so that every data message has the
+// size of a full export packet.
 #ifndef SOFTFLOW_PSAMP_HPP
 #define SOFTFLOW_PSAMP_HPP
 
@@ -24,8 +13,6 @@
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "softflow/ipfix.hpp"
@@ -33,136 +20,76 @@
 
 namespace softflow {
 
-// Original: psamp.c's per-packet sample record, built from the same
-// packet-parsing step that also feeds FlowTable::record_packet() (see
-// PacketParser in softflowd.hpp). Kept separate from ParsedPacket itself
-// since PSAMP additionally needs the capture timestamp and the packet's
-// on-the-wire length (ParsedPacket only describes header fields).
-struct SampledPacket {
-    IpAddress src;
-    IpAddress dst;
-    std::uint16_t src_port{0};
-    std::uint16_t dst_port{0};
-    std::uint8_t protocol{0};
-    std::uint8_t tos{0};
-    std::uint32_t observed_length{0}; // on-the-wire length of this one packet
-    TimePoint observed_at{};
+// Original: PSAMP_SOFTFLOWD_TEMPLATE_ID.
+inline constexpr std::uint16_t kPsampTemplateId = 3072;
+
+// Original: IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, the size of every data message,
+// and PSAMP_DATALINKFRAME_SIZE, what is left of it after the IPFIX header,
+// the set header and the fields that precede the frame section.
+inline constexpr std::size_t kPsampMessageSize = kIpfixMaxPacketSize;
+inline constexpr std::size_t kPsampFixedFieldsSize = 8 + 8 + 2;
+inline constexpr std::size_t kPsampFrameSectionSize =
+  kPsampMessageSize - 16 - 4 - kPsampFixedFieldsSize;
+
+// Original: IPFIX_DEFAULT_TEMPLATE_INTERVAL, in data messages.
+inline constexpr std::uint32_t kPsampTemplateResendInterval = 16;
+
+// One captured packet to be exported, starting at the link layer.
+struct PsampSample {
+  std::span<const std::uint8_t> frame;                // the captured bytes (caplen)
+  std::chrono::system_clock::time_point observed_at;  // capture time
+  std::uint64_t sequence_id{0};                       // number of sampled packets so far
 };
-
-// Original: the glue in softflowd.c that turned a just-parsed packet into
-// a PSAMP sample record for selectors configured to sample-and-report
-// (rather than only feed flow tracking).
-SampledPacket make_sampled_packet(const ParsedPacket& packet,
-                                   std::uint32_t observed_length,
-                                   TimePoint observed_at);
-
-inline constexpr std::uint16_t kPsampTemplateIdV4 = 512;
-inline constexpr std::uint16_t kPsampTemplateIdV6 = 513;
-inline constexpr std::size_t kPsampMaxV4RecordsPerSet = 25;
-inline constexpr std::size_t kPsampMaxV6RecordsPerSet = 15;
-inline constexpr std::uint32_t kPsampTemplateResendInterval = 20;
 
 class PsampExporter {
 public:
-    // As with IpfixExporter, no boot_time is needed: PSAMP records here
-    // carry an absolute observation time rather than a device-uptime-
-    // relative one. time_format corresponds to the same -A option
-    // IpfixExporter accepts (see ipfix.hpp's IpfixTimeFormat).
-    explicit PsampExporter(std::uint32_t observation_domain_id = 0,
-                            IpfixTimeFormat time_format = IpfixTimeFormat::Milliseconds)
-        : observation_domain_id_(observation_domain_id), time_format_(time_format) {}
+  explicit PsampExporter (std::uint32_t observation_domain_id = 0)
+      : observation_domain_id_ (observation_domain_id) {
+  }
 
-    // now/wall_now play the same role as in IpfixExporter::build_packets()
-    // -- converting each sample's monotonic observed_at into an absolute
-    // observationTimeMilliseconds value.
-    std::vector<std::vector<std::uint8_t>>
-    build_packets(std::span<const SampledPacket> samples, TimePoint now,
-                  std::chrono::system_clock::time_point wall_now);
+  // Original: send_psamp(). Returns the messages to send for one sampled
+  // packet: the template message when it is due (its index is added to
+  // *template_only_packets, as it goes to every destination) followed by
+  // the data message. adjust_time uses the capture time, and not the
+  // current time wall_now, as the export time.
+  std::vector<std::vector<std::uint8_t>>
+  build_packets (const PsampSample &sample,
+                 std::chrono::system_clock::time_point wall_now,
+                 bool adjust_time,
+                 std::vector<std::size_t> *template_only_packets = nullptr);
 
-    std::uint32_t sequence() const noexcept { return sequence_; }
-
-private:
-    void write_header(ByteWriter& writer, std::uint16_t message_length,
-                       std::chrono::system_clock::time_point wall_now) const;
-    void write_template_set(ByteWriter& writer) const;
-
-    std::uint32_t observation_domain_id_;
-    IpfixTimeFormat time_format_;
-    std::uint32_t sequence_{0};
-    std::uint32_t packets_since_template_{0};
-};
-
-// Original: -R receive_port. softflowd can act as a PSAMP *collector*,
-// receiving samples from another exporter (over UDP, in the same
-// IPFIX/PSAMP message framing PsampExporter produces) and feeding them
-// into local flow tracking as an alternative to -i/-r's own packet
-// capture.
-//
-// Simplification note: this decoder handles the general IPFIX Template
-// Set / Data Set structure (so it can, in principle, decode messages from
-// any well-formed IPFIX-framed PSAMP exporter, not only this project's
-// own PsampExporter), but only extracts the specific Information Elements
-// this project's own template uses semantically (addresses, ports,
-// protocol, ToS, observation time, and octetDeltaCount as a stand-in for
-// packet length -- see PsampExporter's own header comment on this
-// simplification). Fields it doesn't recognize are skipped over using
-// their declared length rather than causing a decode failure, so a
-// message with additional, unrecognized fields still decodes the fields
-// this project does understand.
-class PsampReceiver {
-public:
-    // Decodes one received UDP payload. `source_id` scopes this message's
-    // Template Set / Data Set to whichever exporter sent it -- typically
-    // the sender's address (and, since a NetFlow/IPFIX/PSAMP exporter
-    // normally sends every packet from the same bound source port for its
-    // whole lifetime, its port too), formatted as a string by the caller.
-    // Without this, two different exporters happening to both use, say,
-    // template ID 256 for two *different* record layouts (entirely
-    // possible: template IDs only need to be unique per exporter, not
-    // globally) would silently corrupt each other's decoded data. Pass an
-    // empty string if only ever receiving from a single known exporter
-    // and this scoping isn't needed.
-    //
-    // Returns any Data Records successfully decoded as SampledPacket
-    // values (in the order they appeared); returns an empty vector for a
-    // payload that isn't a recognizable IPFIX message, or one containing
-    // only Template Sets. Malformed input never throws -- a single
-    // corrupt or unrelated UDP datagram arriving on the receive port
-    // shouldn't be able to crash a long-running daemon.
-    std::vector<SampledPacket> decode_message(std::span<const std::uint8_t> data,
-                                                TimePoint received_at,
-                                                const std::string& source_id = "");
-
-    // Number of distinct (source, template ID) pairs currently being
-    // tracked -- exposed mainly for diagnostics/testing.
-    std::size_t template_count() const noexcept { return templates_.size(); }
+  // The IPFIX sequence number of the next message: the number of data
+  // messages built so far.
+  std::uint32_t
+  sequence () const noexcept {
+    return sequence_; }
 
 private:
-    struct FieldInfo {
-        std::uint16_t type;
-        std::uint16_t length;
-    };
-    struct TemplateKey {
-        std::string source_id;
-        std::uint16_t template_id;
+  void
+  write_header (ByteWriter &writer, std::uint16_t length,
+                std::chrono::system_clock::time_point export_time) const;
 
-        friend bool operator==(const TemplateKey&, const TemplateKey&) = default;
-    };
-    struct TemplateKeyHash {
-        std::size_t operator()(const TemplateKey& k) const noexcept {
-            return std::hash<std::string>{}(k.source_id) ^
-                   (std::hash<std::uint16_t>{}(k.template_id) << 1);
-        }
-    };
-
-    void decode_template_set(std::span<const std::uint8_t> set_body,
-                              const std::string& source_id);
-    std::optional<SampledPacket>
-    decode_record(std::span<const std::uint8_t> record,
-                   const std::vector<FieldInfo>& fields, TimePoint received_at);
-
-    std::unordered_map<TemplateKey, std::vector<FieldInfo>, TemplateKeyHash> templates_;
+  std::uint32_t observation_domain_id_;
+  std::uint32_t sequence_{0};
+  // Data messages until the template is sent again: -1 = never, 0 or less
+  // = with the next message.
+  int messages_until_template_{-1};
 };
+
+// A packet that was received in a PSAMP message of softflowd.
+struct PsampFrame {
+  std::vector<std::uint8_t> frame;
+  std::uint32_t original_length{0};  // sectionExportedOctets
+  std::chrono::system_clock::time_point observed_at;
+};
+
+// Original: recv_psamp(). Decodes one received UDP payload, which is fed to
+// flow tracking as if it had been captured. Only the data records that
+// softflowd itself exports are decoded: nullopt is returned for any other
+// set and for a message that is not IPFIX or is too short. The frame is cut
+// at what was received. Never throws.
+std::optional<PsampFrame>
+decode_psamp_message (std::span<const std::uint8_t> data);
 
 } // namespace softflow
 

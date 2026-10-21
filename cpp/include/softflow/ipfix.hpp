@@ -69,6 +69,14 @@ inline constexpr std::size_t kIpfixMaxPacketSize = 1428;
 // Milliseconds/Microseconds/Nanoseconds remain available via -A.
 enum class IpfixTimeFormat { SysUpTime, Seconds, Milliseconds, Microseconds, Nanoseconds };
 
+// Original: conv_unix_to_ntp() and conv_ntp_to_unix(): microseconds since the
+// Unix epoch from and to a 64-bit NTP timestamp (seconds since 1900 and a
+// binary fraction of a second).
+std::uint64_t
+unix_us_to_ntp64 (std::uint64_t epoch_us);
+std::uint64_t
+ntp64_to_unix_us (std::uint64_t ntp);
+
 // Original: option.exporterAddr (-e), the address reported in the exporter
 // address fields of the IPFIX options record. The first IPv4 and the first
 // IPv6 address that -e resolves to; an absent address is reported as zero.

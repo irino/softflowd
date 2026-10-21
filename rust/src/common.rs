@@ -206,6 +206,8 @@ impl Statistic {
 
 #[derive(Clone, Debug)]
 pub struct FlowTrackParameters {
+    pub full_l4hdr_check: bool,
+    pub num_flows: u32,
     pub max_flows: u32,
     pub next_flow_seq: u64,
     pub system_boot_time: TimeVal,
@@ -280,6 +282,8 @@ pub struct FlowTrackParameters {
 impl Default for FlowTrackParameters {
     fn default() -> Self {
         FlowTrackParameters {
+            full_l4hdr_check: false,
+            num_flows: 0,
             max_flows: 8192,
             next_flow_seq: 1,
             system_boot_time: TimeVal::zero(),
