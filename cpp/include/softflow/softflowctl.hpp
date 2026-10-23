@@ -23,6 +23,7 @@ inline constexpr const char* kDefaultControlSocketPath = "/var/run/softflowd.ctl
 inline constexpr const char* kDefaultPidFilePath = "/var/run/softflowd.pid";
 
 namespace control_commands {
+inline constexpr const char* kHelp = "help";                // list the valid control words
 inline constexpr const char* kShutdown = "shutdown";       // graceful exit: expire + export, then quit
 inline constexpr const char* kExit = "exit";                // immediate exit: no expiry/export
 inline constexpr const char* kExpireAll = "expire-all";     // force-expire every tracked flow now
@@ -62,6 +63,16 @@ std::string read_line(int fd);
 // correctly captures the whole thing, single-line or not.
 std::string read_until_eof(int fd);
 
+// Original: softflowd.c reads a command with fgets (buf, 64, ...), and
+// softflowctl.c copies the reply to stdout as it is. read_all() is the raw
+// reply (read_until_eof() without the stripped trailing newline), and
+// read_command() is false when the peer closed without sending anything.
+std::string read_all(int fd);
+bool read_command(int fd, std::string& command);
+
+// Writes `text` as it is (write_line() without the added newline).
+void write_all(int fd, const std::string& text);
+
 // Writes `line` followed by a single newline to a connected socket.
 void write_line(int fd, const std::string& line);
 
@@ -81,6 +92,9 @@ public:
 
     // Sends `command` and returns the daemon's single-line response.
     std::string send_command(const std::string& command);
+
+    // Same, but the reply as the daemon wrote it.
+    std::string send_command_raw(const std::string& command);
 
 private:
     int fd_{-1};

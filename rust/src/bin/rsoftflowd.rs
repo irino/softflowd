@@ -593,7 +593,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let _ = resp.send(format!("{}Data collection stopped.\n", prefix));
                 }
                 ControlCommand::SendTemplate { resp } => {
-                    rsoftflowd::exporter::ipfix::resend_template();
+                    rsoftflowd::exporter::export_common::ipfix_resend_template();
                     let _ = resp.send(format!("{}Template will be sent at next flow export\n", prefix));
                 }
                 ControlCommand::Timeouts { resp } => {

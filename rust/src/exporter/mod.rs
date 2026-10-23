@@ -1,11 +1,13 @@
 use std::net::{UdpSocket, TcpStream};
 use std::os::unix::io::{AsRawFd, RawFd};
 use crate::common::{Flow, FlowTrackParameters, TimeVal};
-pub mod netflow1;
-pub mod netflow5;
-pub mod netflow9;
-pub mod ipfix;
+
+pub mod export_common;
+pub mod export;
 pub mod psamp;
+
+pub use export::{send_flows, send_netflow_v1, send_netflow_v5, send_netflow_v9, send_ipfix, send_ipfix_bi};
+pub use export_common::ipfix_resend_template as resend_template;
 
 pub enum ExportSocket {
     Udp(UdpSocket),
@@ -72,16 +74,6 @@ pub struct SendParameter<'a> {
     pub ifidx: u16,
     pub param: &'a mut FlowTrackParameters,
     pub verbose: bool,
-}
-
-pub fn send_flows(sp: SendParameter) -> i32 {
-    match sp.target.version {
-        1 => netflow1::send_netflow_v1(sp),
-        5 => netflow5::send_netflow_v5(sp),
-        9 => netflow9::send_netflow_v9(sp),
-        10 => ipfix::send_ipfix(sp),
-        _ => -1,
-    }
 }
 
 pub fn get_active_now(param: &FlowTrackParameters) -> TimeVal {

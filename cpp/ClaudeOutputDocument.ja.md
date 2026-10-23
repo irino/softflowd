@@ -246,12 +246,15 @@ Stage 1/2と異なり、Stage 3のファイル(`netflow1`/`netflow5`/`netflow9`/
 
 ```
 include/softflow/
-  netflow1.hpp   NetFlow v1(固定長レコード、テンプレートなし)
-  netflow5.hpp   NetFlow v5(flow_sequence付き)
-  ipfix.hpp      IPFIXとNetFlow v9(RFC 7011、RFC 3954)
-  psamp.hpp      PSAMP(RFC 5477、パケット単位サンプリング、IPFIXフレーミング)
+  export.hpp         NetFlow v1(固定長レコード、テンプレートなし)、v5(flow_sequence付き)、
+                     v9(RFC 3954)、IPFIX(RFC 7011)のエクスポータ
+  export_common.hpp  共通処理: NTP時刻、uptime/epoch時刻、Setのパディング、
+                     -eのアドレス、テンプレートID
+  ipfix.hpp          IPFIXとNetFlow v9の型
+  netflow.hpp        NetFlow v1/v5のパケットサイズ
+  psamp.hpp          PSAMP(RFC 5477、パケット単位サンプリング、IPFIXフレーミング)
 src/
-  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
+  export.cpp / export_common.cpp / psamp.cpp
 ```
 
 各エクスポータは`FlowTable::expire_flows()`/`force_expire_oldest()`が返す
@@ -411,9 +414,12 @@ include/softflow/
                         (元 softflowd.h + common.h + freelist.h/treetype.h/sys-tree.h)
   daemon.hpp            PidFile / daemonize() / SignalPipe(元 daemon.h)
   softflowctl.hpp       制御プロトコル定義 / ControlClient(元 softflowctl本体)
-  netflow1.hpp           NetFlow v1(元 netflow1.h)
-  netflow5.hpp           NetFlow v5(元 netflow5.h)
-  ipfix.hpp               IPFIXとNetFlow v9 + MPLS/biflow(RFC 5103)/絶対時刻4形式(元 ipfix.h)
+  export.hpp             NetFlow v1/v5/v9とIPFIXのエクスポータ + MPLS/biflow(RFC 5103)/
+                        絶対時刻4形式(元 export.c)
+  export_common.hpp      NTP時刻、uptime/epoch時刻、Setのパディング、-eのアドレス、
+                        テンプレートID(元 export_common.h)
+  ipfix.hpp              IPFIXとNetFlow v9の型(元 ipfix.h)
+  netflow.hpp            NetFlow v1/v5のパケットサイズ(元 netflow.h)
   psamp.hpp                PSAMP + PsampReceiver(-R受信モード用デコーダ、元 psamp.h)
 src/
   softflowd.cpp           main() + 全実装 + ライブキャプチャイベントループ +
@@ -422,7 +428,7 @@ src/
   daemon.cpp               (元 daemon.c)
   softflowctl.cpp           制御プロトコル実装 + softflowctl_cpp本体の main()
                           (元 softflowctl.c)
-  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
+  export.cpp / export_common.cpp / psamp.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
   test_netflow1.cpp / test_netflow5.cpp

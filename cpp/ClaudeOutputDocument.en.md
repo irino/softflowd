@@ -272,12 +272,16 @@ kept as-is:
 
 ```
 include/softflow/
-  netflow1.hpp   NetFlow v1 (fixed-length records, no templates)
-  netflow5.hpp   NetFlow v5 (adds a flow_sequence counter)
-  ipfix.hpp      IPFIX (RFC 7011, absolute timestamps) and NetFlow v9 (RFC 3954)
-  psamp.hpp      PSAMP (RFC 5477, per-packet sampling, IPFIX framing)
+  export.hpp         The exporters of NetFlow v1 (fixed-length records, no templates),
+                     v5 (adds a flow_sequence counter), v9 (RFC 3954) and
+                     IPFIX (RFC 7011, absolute timestamps)
+  export_common.hpp  What they share: NTP time, uptime/epoch time, Set padding,
+                     the address of -e, template IDs
+  ipfix.hpp          The types of IPFIX and NetFlow v9
+  netflow.hpp        The sizes of the NetFlow v1 and v5 packets
+  psamp.hpp          PSAMP (RFC 5477, per-packet sampling, IPFIX framing)
 src/
-  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
+  export.cpp / export_common.cpp / psamp.cpp
 ```
 
 Each exporter builds actual wire-format byte buffers from the list of
@@ -449,10 +453,12 @@ include/softflow/
   daemon.hpp             PidFile / daemonize() / SignalPipe (original: daemon.h)
   softflowctl.hpp        Control protocol definitions / ControlClient
                         (original: softflowctl itself)
-  netflow1.hpp            NetFlow v1 (original: netflow1.h)
-  netflow5.hpp            NetFlow v5 (original: netflow5.h)
-  ipfix.hpp                 IPFIX and NetFlow v9 + MPLS/biflow (RFC 5103)/all 4 absolute time
-                        formats (original: ipfix.h)
+  export.hpp              Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow (RFC 5103)/
+                        all 4 absolute time formats (original: export.c)
+  export_common.hpp       NTP time, uptime/epoch time, Set padding, -e address, template IDs
+                        (original: export_common.h)
+  ipfix.hpp               Types of IPFIX and NetFlow v9 (original: ipfix.h)
+  netflow.hpp             Sizes of the NetFlow v1/v5 packets (original: netflow.h)
   psamp.hpp                  PSAMP + PsampReceiver (the -R receive-mode
                         decoder; original: psamp.h)
 src/
@@ -462,7 +468,7 @@ src/
   daemon.cpp                (original: daemon.c)
   softflowctl.cpp            Control protocol implementation + softflowctl_cpp's
                         own main() (original: softflowctl.c)
-  netflow1.cpp / netflow5.cpp / ipfix.cpp / psamp.cpp
+  export.cpp / export_common.cpp / psamp.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
   test_netflow1.cpp / test_netflow5.cpp

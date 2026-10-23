@@ -67,6 +67,171 @@ void test_record_and_expire() {
     assert(expired[0].flow.octets[1] == 200);
 }
 
+// Original: flow->flow_seq = ft->param.next_flow_seq++, a counter of every
+// flow created, so a number is not used again after a flow has expired.
+template <FlowIndexBackend Backend>
+void test_flow_seq_is_a_counter() {
+    FlowTable<Backend> table(16);
+    const auto a = make_v4(192, 168, 0, 1);
+    const auto key1 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+    const auto key2 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 2), 1000, 53, 17, 0, {0, 0});
+    const auto key3 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 3), 1000, 53, 17, 0, {0, 0});
+
+    const auto t0 = Clock::now();
+    const auto wall = std::chrono::system_clock::now();
+    assert(table.record_packet(key1, t0, wall, 0, 10, 0, 0).flow_seq == 1);
+    assert(table.record_packet(key2, t0, wall, 0, 10, 0, 0).flow_seq == 2);
+    assert(table.expire_flows(t0 + 3601s).size() == 2);
+    assert(table.record_packet(key3, t0 + 3602s, wall, 0, 10, 0, 0).flow_seq == 3);
+    assert(table.record_packet(key3, t0 + 3603s, wall, 0, 10, 0, 0).flow_seq == 3);
+}
+
+// Original: delete_all_flows () drops the flows without exporting or counting
+// them, and dump-flows lists the flows in the order of their expiry events.
+template <FlowIndexBackend Backend>
+void test_delete_all_and_expiry_snapshot() {
+    FlowTable<Backend> table(16);
+    const auto a = make_v4(192, 168, 0, 1);
+    const auto key1 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+    const auto key2 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 2), 1000, 53, 6, 0, {0, 0});
+
+    const auto t0 = Clock::now();
+    const auto wall = std::chrono::system_clock::now();
+    table.record_packet(key1, t0, wall, 0, 10, 0, 0);       // UDP: 300 s
+    table.record_packet(key2, t0, wall, 0, 10, 0, 0);       // TCP: 3600 s
+    const auto entries = table.expiry_snapshot();
+    assert(entries.size() == 2);
+    assert(entries[0].record.flow.flow_seq == 1);
+    assert(entries[0].expires_at < entries[1].expires_at);
+
+    assert(table.delete_all() == 2);
+    assert(table.size() == 0);
+    assert(table.expiry_snapshot().empty());
+    assert(table.stats().flows_expired == 0);
+    assert(table.expire_flows(t0 + 7200s, /*flush_all=*/true).empty());
+}
+
+// Original: flow_table_init (). hash-tree has a power of two of buckets, at
+// least max_flows, one pointer each; tree has a single one.
+void test_usage_buckets_follow_max_flows() {
+    assert(FlowTable<FlowIndexBackend::Hash>(5).usage().buckets == 8);
+    assert(FlowTable<FlowIndexBackend::Hash>(5).usage().bytes == 8 * sizeof(void*));
+    assert(FlowTable<FlowIndexBackend::Hash>(8192).usage().buckets == 8192);
+    assert(FlowTable<FlowIndexBackend::Hash>(100000).usage().buckets == 131072);
+    assert(FlowTable<FlowIndexBackend::Tree>(100000).usage().buckets == 1);
+}
+
+// Original: next_expire (). The earliest expiry is moved up to a multiple of
+// expint, and the wait is that time plus 999 ms.
+template <FlowIndexBackend Backend>
+void test_next_expire_clusters_by_interval() {
+    FlowTable<Backend> table(16);
+    assert(table.next_expire(std::chrono::system_clock::time_point{}, 60s) == -1);
+
+    const auto key = FlowKey::make_canonical(make_v4(192, 168, 0, 1), make_v4(1, 1, 1, 1),
+                                             1000, 53, 17, 0, {0, 0});
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(key, Clock::now(), wall, 0, 10, 0, 0);  // UDP: 300 s
+
+    assert(table.next_expire(wall, 0s) == 999 + 300 * 1000);
+    assert(table.next_expire(wall, 1s) == 999 + 300 * 1000);
+    assert(table.next_expire(wall, 60s) == 999 + 320 * 1000);   // 1000000300 -> 1000000320
+    assert(table.next_expire(wall + 321s, 60s) == 0);           // 1000000320 < now
+    assert(table.next_expire(wall + 320s, 60s) == 999);         // not yet: the second is not over
+}
+
+// Original: check_expired () expires a flow when expires_at < the current
+// second, so it is due one second after the instant its expiry time names.
+template <FlowIndexBackend Backend>
+void test_flow_is_due_one_second_after_its_expiry_time() {
+    FlowTable<Backend> table(16);
+    const auto key = FlowKey::make_canonical(make_v4(192, 168, 0, 1), make_v4(1, 1, 1, 1),
+                                             1000, 53, 17, 0, {0, 0});
+    const auto t0 = Clock::now();
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(key, t0, wall, 0, 10, 0, 0);  // UDP: 300 s
+    assert(table.expire_flows(t0 + 300s).empty());
+    assert(table.expire_flows(t0 + 300s + 999ms).empty());
+    assert(table.expire_flows(t0 + 301s).size() == 1);
+}
+
+// Original: `exp = MIN (exp, flow_start.tv_sec + maximum_lifetime)`.
+void test_expiry_is_limited_by_the_maximum_lifetime() {
+    FlowTimeouts timeouts;
+    timeouts.udp = 300s;
+    timeouts.maximum_lifetime = 100s;
+    FlowTable<FlowIndexBackend::Hash> table(16, TrackLevel::IpProtoPort, timeouts);
+    const auto key = FlowKey::make_canonical(make_v4(192, 168, 0, 1), make_v4(1, 1, 1, 1),
+                                             1000, 53, 17, 0, {0, 0});
+    const auto t0 = Clock::now();
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(key, t0, wall, 0, 10, 0, 0);
+    const auto entries = table.expiry_snapshot();
+    assert(entries.size() == 1);
+    assert(expiry_epoch_seconds(entries[0].record.flow, entries[0].expires_at) == 1000000100);
+}
+
+// Original: expiry_compare () orders the expiry tree by expires_at and then by
+// the flow sequence, so flows that expire at the same second come out in the
+// order they were created, however they were updated.
+template <FlowIndexBackend Backend>
+void test_flows_with_the_same_expiry_leave_in_the_order_of_their_sequence() {
+    FlowTable<Backend> table(16);
+    const auto a = make_v4(192, 168, 0, 1);
+    const auto key1 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+    const auto key2 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 2), 1000, 53, 17, 0, {0, 0});
+    const auto t0 = Clock::now();
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(key1, t0, wall, 0, 10, 0, 0);
+    table.record_packet(key2, t0, wall, 0, 10, 0, 0);
+    table.record_packet(key2, t0 + 1s, wall + 1s, 0, 10, 0, 0);  // key2 is moved first
+    table.record_packet(key1, t0 + 1s, wall + 1s, 0, 10, 0, 0);
+    const auto expired = table.expire_flows(t0 + 7200s);
+    assert(expired.size() == 2);
+    assert(expired[0].flow.flow_seq == 1 && expired[1].flow.flow_seq == 2);
+}
+
+// Original: check_expired (CE_EXPIRE_FORCED), the check of a capture file,
+// expires only the flows with expires_at 0 (over their maximum lifetime or
+// over 2 GiB), and makes their reason R_MAXLIFE.
+void test_expire_urgent_takes_only_the_flows_that_are_due_at_once() {
+    FlowTimeouts timeouts;
+    timeouts.maximum_lifetime = 100s;
+    FlowTable<FlowIndexBackend::Hash> table(16, TrackLevel::IpProtoPort, timeouts);
+    const auto a = make_v4(192, 168, 0, 1);
+    const auto old_key = FlowKey::make_canonical(a, make_v4(1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+    const auto new_key = FlowKey::make_canonical(a, make_v4(1, 1, 1, 2), 1000, 53, 17, 0, {0, 0});
+    const auto t0 = Clock::now();
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(old_key, t0, wall, 0, 10, 0, 0);
+    table.record_packet(old_key, t0 + 101s, wall + 101s, 0, 10, 0, 0);  // over 100 s
+    table.record_packet(new_key, t0 + 101s, wall + 101s, 0, 10, 0, 0);
+    assert(table.expire_urgent().size() == 1);
+    assert(table.size() == 1);
+    assert(table.expire_urgent().empty());
+}
+
+// Original: force_expire () sets R_OVERFLOWS, but the scan that expires the
+// flow makes it R_MAXLIFE when it lived at least maximum_lifetime.
+void test_forced_flow_that_lived_the_maximum_lifetime_counts_as_maxlife() {
+    FlowTimeouts timeouts;
+    timeouts.maximum_lifetime = 100s;
+    FlowTable<FlowIndexBackend::Hash> table(1, TrackLevel::IpProtoPort, timeouts);
+    const auto a = make_v4(192, 168, 0, 1);
+    const auto key1 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 1), 1000, 53, 17, 0, {0, 0});
+    const auto key2 = FlowKey::make_canonical(a, make_v4(1, 1, 1, 2), 1000, 53, 17, 0, {0, 0});
+    const auto t0 = Clock::now();
+    const std::chrono::system_clock::time_point wall{1000000000s};
+    table.record_packet(key1, t0, wall, 0, 10, 0, 0);
+    table.record_packet(key1, t0 + 100s, wall + 100s, 0, 10, 0, 0);  // 100 s: MAXLIFE is >=
+    table.record_packet(key2, t0 + 100s, wall + 100s, 0, 10, 0, 0);
+    // key1 is already due at once (its expiry was made 0 by the update), so
+    // take the one that is not: key2 is the newer, key1 the older.
+    const auto forced = table.force_expire_oldest(1);
+    assert(forced.size() == 1);
+    assert(forced[0].flow.reason == ExpiryReason::MaxLife);
+}
+
 template <FlowIndexBackend Backend>
 void test_direction_out_of_range_throws() {
     FlowTable<Backend> table(16);
@@ -107,6 +272,8 @@ void test_force_expire_oldest_respects_order() {
 template <FlowIndexBackend Backend>
 void test_backend() {
     test_record_and_expire<Backend>();
+    test_flow_seq_is_a_counter<Backend>();
+    test_delete_all_and_expiry_snapshot<Backend>();
     test_direction_out_of_range_throws<Backend>();
     test_force_expire_oldest_respects_order<Backend>();
 }
@@ -283,6 +450,16 @@ test_collision_mode_evicts_the_resident_flow () {
 
 int main() {
     test_canonical_key_is_symmetric();
+    test_usage_buckets_follow_max_flows();
+    test_next_expire_clusters_by_interval<FlowIndexBackend::Hash>();
+    test_next_expire_clusters_by_interval<FlowIndexBackend::Tree>();
+    test_flow_is_due_one_second_after_its_expiry_time<FlowIndexBackend::Hash>();
+    test_flow_is_due_one_second_after_its_expiry_time<FlowIndexBackend::Tree>();
+    test_expiry_is_limited_by_the_maximum_lifetime();
+    test_flows_with_the_same_expiry_leave_in_the_order_of_their_sequence<FlowIndexBackend::Hash>();
+    test_flows_with_the_same_expiry_leave_in_the_order_of_their_sequence<FlowIndexBackend::Tree>();
+    test_expire_urgent_takes_only_the_flows_that_are_due_at_once();
+    test_forced_flow_that_lived_the_maximum_lifetime_counts_as_maxlife();
     test_backend<FlowIndexBackend::Hash>();
     test_backend<FlowIndexBackend::Tree>();
     test_runtime_wrapper_dispatches_to_selected_backend();

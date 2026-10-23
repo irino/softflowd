@@ -37,17 +37,16 @@ find_package(Threads REQUIRED)
 
 # src/softflowd.cpp mirrors the original softflowd.c: it contains the
 # FlowTable / PacketParser / PcapHandle implementations *and* main(), all in
-# one translation unit. netflow1.cpp / netflow5.cpp / netflow9.cpp /
-# ipfix.cpp / psamp.cpp / daemon.cpp are kept as separate files mirroring
+# one translation unit. export.cpp / export_common.cpp / psamp.cpp /
+# daemon.cpp are kept as separate files mirroring
 # the original project's own per-file boundaries (see README for the
 # rationale). softflowctl.cpp is compiled separately below, since -- like
 # the original -- it is its own standalone client program, not part of
 # softflowd's own logic.
 set(SOFTFLOW_LOGIC_SOURCES
   src/softflowd.cpp
-  src/netflow1.cpp
-  src/netflow5.cpp
-  src/ipfix.cpp
+  src/export_common.cpp
+  src/export.cpp
   src/psamp.cpp
   src/ntopng.cpp
   src/daemon.cpp

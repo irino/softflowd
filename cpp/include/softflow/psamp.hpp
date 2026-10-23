@@ -15,7 +15,7 @@
 #include <span>
 #include <vector>
 
-#include "softflow/ipfix.hpp"
+#include "softflow/export_common.hpp"
 #include "softflow/softflowd.hpp"
 
 namespace softflow {

@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cstdio>
 
-#include "softflow/netflow1.hpp"
+#include "softflow/export.hpp"
 
 using namespace softflow;
 using namespace std::chrono_literals;

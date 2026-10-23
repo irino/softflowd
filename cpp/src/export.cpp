@@ -1,97 +1,301 @@
-#include "softflow/ipfix.hpp"
+// Original files: export.c (and compat/ipfix.c)
+//
+// The exporters of NetFlow v1, v5, v9 and IPFIX. What they share is in
+// export_common.cpp, and PSAMP, like the C version, has a file of its own.
+#include "softflow/export.hpp"
 
-#include <netdb.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <cstring>
 #include <algorithm>
-#include <utility>
+#include <cstdio>
+#include <cstring>
 #include <unistd.h>  // getpid() -- see write_options_set()
+#include <utility>
 
 namespace softflow {
 
+// ---------------------------------------------------------------------------
+// NetFlow v1
+// ---------------------------------------------------------------------------
+
+void
+Netflow1Exporter::write_header (
+  ByteWriter &writer, std::uint16_t count, TimePoint now,
+  std::chrono::system_clock::time_point wall_now) const {
+  const auto unix_time = std::chrono::system_clock::to_time_t (wall_now);
+  const auto since_epoch = wall_now.time_since_epoch();
+  const auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds> (
+                       since_epoch % std::chrono::seconds (1))
+                       .count();
+
+  writer.put_u16 (1);  // version
+  writer.put_u16 (count);
+  writer.put_u32 (uptime_ms (boot_time_, now));
+  writer.put_u32 (static_cast<std::uint32_t> (unix_time));
+  writer.put_u32 (static_cast<std::uint32_t> (nsecs < 0 ? nsecs + 1'000'000'000
+                                                        : nsecs));
+}
+
+std::vector<std::vector<std::uint8_t>>
+Netflow1Exporter::build_packets (
+  std::span<const ExportRecord> records, TimePoint now,
+  std::chrono::system_clock::time_point wall_now) const {
+  std::vector<std::vector<std::uint8_t>> packets;
+
+  // Original: send_fixed_flow() in export.c. A flow adds one record per
+  // IPv4 direction that carried data; the two directions of one flow are
+  // never split across packets, so the current packet is flushed first
+  // when they do not both fit.
+  struct DirectionalRecord {
+    const IpAddress *src;
+    const IpAddress *dst;
+    std::uint16_t src_port;
+    std::uint16_t dst_port;
+    std::uint64_t octets;
+    std::uint64_t packets;
+    TimePoint first;
+    TimePoint last;
+    std::uint8_t protocol;
+    std::uint8_t tos;
+    std::uint8_t tcp_flags;
+  };
+
+  std::vector<DirectionalRecord> pending;
+
+  auto flush = [&] () {
+    if (pending.empty()) {
+      return;
+    }
+    ByteWriter writer;
+    write_header (writer, static_cast<std::uint16_t> (pending.size()), now,
+                  wall_now);
+    for (const auto &r : pending) {
+      // Original: struct NF1_FLOW, 48 bytes.
+      writer.put_ipv4 (*r.src);  // srcaddr
+      writer.put_ipv4 (*r.dst);  // dstaddr
+      writer.put_u32 (0);        // nexthop (not tracked)
+      writer.put_u16 (0);        // input ifIndex (not tracked)
+      writer.put_u16 (0);        // output ifIndex (not tracked)
+      writer.put_u32 (static_cast<std::uint32_t> (
+        std::min<std::uint64_t> (r.packets, 0xFFFFFFFFu)));  // dPkts
+      writer.put_u32 (static_cast<std::uint32_t> (
+        std::min<std::uint64_t> (r.octets, 0xFFFFFFFFu)));  // dOctets
+      writer.put_u32 (uptime_ms (boot_time_, r.first));     // First
+      writer.put_u32 (uptime_ms (boot_time_, r.last));      // Last
+      writer.put_u16 (r.src_port);
+      writer.put_u16 (r.dst_port);
+      writer.put_u16 (0);  // pad1
+      writer.put_u8 (r.protocol);
+      writer.put_u8 (r.tos);
+      writer.put_u8 (r.tcp_flags);
+      writer.put_u8 (0);   // pad2
+      writer.put_u32 (0);  // reserved
+      writer.put_u16 (0);  // reserved (total record size: 48 bytes)
+    }
+    auto bytes = writer.take();
+    if (debug_) {
+      // Original: send_multi_destinations() logs every packet length.
+      std::fprintf (stderr, "Sending flow packet len = %zu\n", bytes.size());
+    }
+    packets.push_back (std::move (bytes));
+    pending.clear();
+  };
+
+  for (const auto &record : records) {
+    const auto &key = record.key;
+    const auto &flow = record.flow;
+
+    // NetFlow v1 carries IPv4 only: one record per direction with data.
+    std::size_t need = 0;
+    for (std::size_t d = 0; d < 2; ++d) {
+      if (flow.octets[d] > 0 &&
+          key.addr()[d].family == AddressFamily::IPv4) {
+        ++need;
+      }
+    }
+    if (need == 0) {
+      continue;
+    }
+
+    if (pending.size() + need > kNetflow1MaxRecordsPerPacket) {
+      flush();
+    }
+
+    for (int dir = 0; dir < 2; ++dir) {
+      const auto d = static_cast<std::size_t> (dir);
+      if (flow.octets[d] == 0 ||
+          key.addr()[d].family != AddressFamily::IPv4) {
+        continue;  // no IPv4 traffic was seen in this direction
+      }
+      pending.push_back (DirectionalRecord{
+        &key.addr()[d],
+        &key.addr()[d ^ 1],
+        key.port()[d],
+        key.port()[d ^ 1],
+        flow.octets[d],
+        flow.packets[d],
+        flow.flow_start,
+        flow.flow_last,
+        key.protocol(),
+        flow.tos[d],
+        flow.tcp_flags[d],
+      });
+    }
+  }
+  flush();
+
+  return packets;
+}
+
+// ---------------------------------------------------------------------------
+// NetFlow v5
+// ---------------------------------------------------------------------------
+
 namespace {
 
-// RFC 5103's IANA-assigned Reverse Information Element Private Enterprise
-// Number. An enterprise-specific Information Element in a Template with
-// this PEN and the same IE number as a standard field represents "the
-// same field, but for the reverse direction of a biflow".
-constexpr std::uint32_t kReversePen = 29305;
-
-struct FieldSpec {
-  std::uint16_t type;
-  std::uint16_t length;
-  std::uint32_t enterprise = 0;  // 0 = standard IE; nonzero = enterprise-specific
+struct Netflow5DirectionalRecord {
+  const IpAddress *src;
+  const IpAddress *dst;
+  std::uint16_t src_port;
+  std::uint16_t dst_port;
+  std::uint64_t octets;
+  std::uint64_t packets;
+  TimePoint first;
+  TimePoint last;
+  std::uint8_t protocol;
+  std::uint8_t tos;
+  std::uint8_t tcp_flags;
 };
 
-// base_offset is the size of what precedes the writer's content in the
-// packet (the message header): the original pads the packet offset, not the
-// Set length, to a multiple of 4 -- which differs after an unpadded Set.
+}  // namespace
+
 void
-finish_set (ByteWriter &writer, std::size_t set_start,
-            std::size_t base_offset = 0) {
-  // Original: IPFIX Sets are padded to a 4-byte boundary the same way as
-  // NetFlow v9 FlowSets (RFC 7011 section 3.3.2), and the padding is
-  // likewise included in the Set's own Length field. This applies to
-  // DATA Sets only -- see finish_set_unpadded() for Template/Options
-  // Sets, which the original never pads.
-  const std::size_t raw_length = writer.size() - set_start;
-  const std::size_t pad = (4 - ((base_offset + writer.size()) % 4)) % 4;
-  for (std::size_t i = 0; i < pad; ++i) {
-    writer.put_u8 (0);
+Netflow5Exporter::write_header (
+  ByteWriter &writer, std::uint16_t count, TimePoint now,
+  std::chrono::system_clock::time_point wall_now) const {
+  const auto unix_time = std::chrono::system_clock::to_time_t (wall_now);
+  const auto since_epoch = wall_now.time_since_epoch();
+  auto nsecs = std::chrono::duration_cast<std::chrono::nanoseconds> (
+                 since_epoch % std::chrono::seconds (1))
+                 .count();
+  if (nsecs < 0) {
+    nsecs += 1'000'000'000;
   }
-  writer.patch_u16 (set_start + 2, static_cast<std::uint16_t> (raw_length + pad));
+
+  writer.put_u16 (5);  // version
+  writer.put_u16 (count);
+  writer.put_u32 (uptime_ms (boot_time_, now));
+  writer.put_u32 (static_cast<std::uint32_t> (unix_time));
+  writer.put_u32 (static_cast<std::uint32_t> (nsecs));
+  writer.put_u32 (flow_seq_);  // flow_sequence
+  writer.put_u8 (0);           // engine_type
+  writer.put_u8 (0);           // engine_id
+  writer.put_u16 (0);          // sampling_interval (no sampling configured)
 }
 
-// Original: memcpy_template() and the Options Template/Data writes in
-// compat/ipfix.c's ipfix_put_templates() (called from send_ipfix_flows() in
-// export_common.c) never apply the 4-byte padding logic -- that only
-// appears later, scoped to the per-flow DATA Set loop. A Template/Options
-// Set's length is therefore its raw (frequently non-multiple-of-4) byte
-// count.
-void
-finish_set_unpadded (ByteWriter &writer, std::size_t set_start) {
-  const std::size_t raw_length = writer.size() - set_start;
-  writer.patch_u16 (set_start + 2, static_cast<std::uint16_t> (raw_length));
+std::vector<std::vector<std::uint8_t>>
+Netflow5Exporter::build_packets (
+  std::span<const ExportRecord> records, TimePoint now,
+  std::chrono::system_clock::time_point wall_now) {
+  std::vector<std::vector<std::uint8_t>> packets;
+
+  // Original: send_fixed_flow() in export.c. A flow adds one record per
+  // IPv4 direction that carried data; the two directions of one flow are
+  // never split across packets, so the current packet is flushed first
+  // when they do not both fit.
+  std::vector<Netflow5DirectionalRecord> pending;
+
+  auto flush = [&] () {
+    if (pending.empty()) {
+      return;
+    }
+    ByteWriter writer;
+    write_header (writer, static_cast<std::uint16_t> (pending.size()), now,
+                  wall_now);
+    for (const auto &r : pending) {
+      // Original: struct NF5_FLOW, 48 bytes.
+      writer.put_ipv4 (*r.src);
+      writer.put_ipv4 (*r.dst);
+      writer.put_u32 (0);  // nexthop
+      writer.put_u16 (0);  // input ifIndex
+      writer.put_u16 (0);  // output ifIndex
+      writer.put_u32 (static_cast<std::uint32_t> (
+        std::min<std::uint64_t> (r.packets, 0xFFFFFFFFu)));
+      writer.put_u32 (static_cast<std::uint32_t> (
+        std::min<std::uint64_t> (r.octets, 0xFFFFFFFFu)));
+      writer.put_u32 (uptime_ms (boot_time_, r.first));
+      writer.put_u32 (uptime_ms (boot_time_, r.last));
+      writer.put_u16 (r.src_port);
+      writer.put_u16 (r.dst_port);
+      writer.put_u8 (0);  // pad1
+      writer.put_u8 (r.tcp_flags);
+      writer.put_u8 (r.protocol);
+      writer.put_u8 (r.tos);
+      writer.put_u16 (0);  // src_as (not tracked)
+      writer.put_u16 (0);  // dst_as (not tracked)
+      writer.put_u8 (0);   // src_mask (not tracked)
+      writer.put_u8 (0);   // dst_mask (not tracked)
+      writer.put_u16 (0);  // pad2
+    }
+    flow_seq_ += static_cast<std::uint32_t> (pending.size());
+    auto bytes = writer.take();
+    if (debug_) {
+      // Original: send_multi_destinations() logs every packet length.
+      std::fprintf (stderr, "Sending flow packet len = %zu\n", bytes.size());
+    }
+    packets.push_back (std::move (bytes));
+    pending.clear();
+  };
+
+  for (const auto &record : records) {
+    const auto &key = record.key;
+    const auto &flow = record.flow;
+
+    std::size_t need = 0;
+    for (std::size_t d = 0; d < 2; ++d) {
+      if (flow.octets[d] > 0 &&
+          key.addr()[d].family == AddressFamily::IPv4) {
+        ++need;
+      }
+    }
+    if (need == 0) {
+      continue;
+    }
+
+    if (pending.size() + need > kNetflow5MaxRecordsPerPacket) {
+      flush();
+    }
+
+    for (int dir = 0; dir < 2; ++dir) {
+      const auto d = static_cast<std::size_t> (dir);
+      if (flow.octets[d] == 0 ||
+          key.addr()[d].family != AddressFamily::IPv4) {
+        continue;  // NetFlow v5 doesn't do IPv6, matching the original
+      }
+      pending.push_back (Netflow5DirectionalRecord{
+        &key.addr()[d],
+        &key.addr()[d ^ 1],
+        key.port()[d],
+        key.port()[d ^ 1],
+        flow.octets[d],
+        flow.packets[d],
+        flow.flow_start,
+        flow.flow_last,
+        key.protocol(),
+        flow.tos[d],
+        flow.tcp_flags[d],
+      });
+    }
+  }
+  flush();
+
+  return packets;
 }
 
-// Converts a monotonic Clock timestamp `t` into an absolute
-// epoch-millisecond value, using the relationship between the monotonic
-// "now" and wall-clock "wall_now" supplied for this export call. This is
-// the only place in the codebase that bridges the two clocks -- Flow
-// itself never stores wall-clock time (see softflowd.hpp's rationale for
-// using a monotonic Clock throughout).
-std::uint64_t
-epoch_ms (TimePoint now,
-          std::chrono::system_clock::time_point wall_now,
-          TimePoint t) {
-  const auto age = now - t;  // how long ago `t` was, relative to `now`
-  const auto wall_t = wall_now - age;
-  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds> (
-    wall_t.time_since_epoch());
-  return static_cast<std::uint64_t> (std::max<std::int64_t> (0, ms.count()));
-}
+// ---------------------------------------------------------------------------
+// NetFlow v9 and IPFIX
+// ---------------------------------------------------------------------------
 
-// Epoch microseconds of `t`, like the struct timeval of the original.
-std::uint64_t
-epoch_us (TimePoint now,
-          std::chrono::system_clock::time_point wall_now,
-          TimePoint t) {
-  const auto wall_t = wall_now - (now - t);
-  const auto us = std::chrono::duration_cast<std::chrono::microseconds> (
-    wall_t.time_since_epoch());
-  return static_cast<std::uint64_t> (std::max<std::int64_t> (0, us.count()));
-}
+namespace {
 
-// Original: compat/netflow9.c/legacy softflowd's uptime-relative encoding --
-// milliseconds elapsed between `boot_time` and `t`. Shared with
-// Netflow9Exporter's identically-named helper in netflow9.cpp; kept as a
-// separate copy here since the two files don't share a private header.
-std::uint32_t
-uptime_ms (TimePoint boot_time, TimePoint t) {
-  return static_cast<std::uint32_t> (
-    std::chrono::duration_cast<std::chrono::milliseconds> (t - boot_time).count());
-}
 
 // Returns the (start, end) Information Element (type, length) pair for
 // the configured -A time_format, and writes the corresponding (start,
@@ -100,8 +304,8 @@ uptime_ms (TimePoint boot_time, TimePoint t) {
 // maintained switches) makes it structurally impossible for the template
 // to describe a different encoding than what's actually written.
 struct TimeFieldPair {
-  FieldSpec start_field;
-  FieldSpec end_field;
+  IpfixFieldSpec start_field;
+  IpfixFieldSpec end_field;
 };
 
 // Original: ipfix_fields.h's field_timesec/field_timemsec/field_timeusec/
@@ -131,8 +335,8 @@ write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_ti
                    TimePoint now, std::chrono::system_clock::time_point wall_now,
                    TimePoint first, TimePoint last) {
   if (format == IpfixTimeFormat::SysUpTime) {
-    writer.put_u32 (uptime_ms (boot_time, first));
-    writer.put_u32 (uptime_ms (boot_time, last));
+    writer.put_u32 (uptime_ms_unclamped (boot_time, first));
+    writer.put_u32 (uptime_ms_unclamped (boot_time, last));
     return;
   }
   const std::uint64_t start_ms = epoch_ms (now, wall_now, first);
@@ -156,11 +360,6 @@ write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_ti
   }
 }
 
-// Original: -x. See netflow9.cpp's identically-named helper for the
-// rationale; duplicated here rather than shared, matching this project's
-// per-file boundaries (netflow9.cpp and ipfix.cpp intentionally don't
-// share an implementation file, mirroring the original's separate
-// compat/netflow9.c and compat/ipfix.c).
 // Original: field_vlan and field_ether of the flow template. -T vlan adds the
 // VLAN IDs and -T ether adds the Ethernet addresses as well. The fields are
 // those of the flow endpoint that sends (vlanId and sourceMacAddress) and of
@@ -230,7 +429,7 @@ is_icmp_protocol (std::uint8_t protocol) {
   return protocol == kProtoIcmp || protocol == kProtoIcmpV6;
 }
 
-struct DirectionalRecord {
+struct IpfixDirectionalRecord {
   const IpAddress *src;
   const IpAddress *dst;
   std::uint16_t src_port;
@@ -289,7 +488,7 @@ flow_direction (const FlowKey &key, std::size_t i,
 
 void
 flatten (std::span<const ExportRecord> records,
-         std::vector<DirectionalRecord> &out,
+         std::vector<IpfixDirectionalRecord> &out,
          const std::optional<std::array<std::uint8_t, 6>> &direction_mac) {
   for (const auto &record : records) {
     const auto &key = record.key;
@@ -302,7 +501,7 @@ flatten (std::span<const ExportRecord> records,
       if (flow.octets[d] == 0) {
         continue;
       }
-      out.push_back (DirectionalRecord{
+      out.push_back (IpfixDirectionalRecord{
         &key.addr()[d],
         &key.addr()[static_cast<std::size_t> (dir ^ 1)],
         key.port()[d],
@@ -330,10 +529,10 @@ flatten (std::span<const ExportRecord> records,
 // address fields/timestamps and the transport-or-ICMP fields.
 //
 // ingressInterface/egressInterface are hardcoded to 0, matching this
-// project's existing convention in netflow1.cpp/netflow5.cpp (interface
-// index isn't tracked anywhere in this codebase).
+// project's existing convention in the NetFlow v1 and v5 exporters above
+// (interface index isn't tracked anywhere in this codebase).
 void
-write_common_fields (ByteWriter &writer, const DirectionalRecord &r) {
+write_common_fields (ByteWriter &writer, const IpfixDirectionalRecord &r) {
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.octets, 0xFFFFFFFFu)));  // octetDeltaCount
   writer.put_u32 (static_cast<std::uint32_t> (
@@ -345,7 +544,7 @@ write_common_fields (ByteWriter &writer, const DirectionalRecord &r) {
 }
 
 void
-write_v4_record (ByteWriter &writer, const DirectionalRecord &r,
+write_v4_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                  IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
                  TimePoint now, std::chrono::system_clock::time_point wall_now) {
   writer.put_ipv4 (*r.src);  // sourceIPv4Address
@@ -362,7 +561,7 @@ write_v4_record (ByteWriter &writer, const DirectionalRecord &r,
 }
 
 void
-write_v6_record (ByteWriter &writer, const DirectionalRecord &r,
+write_v6_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                  IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
                  TimePoint now, std::chrono::system_clock::time_point wall_now) {
   writer.put_ipv6 (*r.src);
@@ -384,7 +583,7 @@ write_v6_record (ByteWriter &writer, const DirectionalRecord &r,
 // PacketParser's ICMP handling in softflowd.cpp -- matching the original's
 // `di[i]->icmpTypeCode = flow->port[i ^ 1]`.
 void
-write_v4_icmp_record (ByteWriter &writer, const DirectionalRecord &r,
+write_v4_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                       IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
                       TimePoint now, std::chrono::system_clock::time_point wall_now) {
   writer.put_ipv4 (*r.src);
@@ -399,7 +598,7 @@ write_v4_icmp_record (ByteWriter &writer, const DirectionalRecord &r,
 }
 
 void
-write_v6_icmp_record (ByteWriter &writer, const DirectionalRecord &r,
+write_v6_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                       IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
                       TimePoint now, std::chrono::system_clock::time_point wall_now) {
   writer.put_ipv6 (*r.src);
@@ -612,7 +811,7 @@ IpfixExporter::write_header (
     // records and the sequence number counts packets.
     writer.put_u16 (9);  // version
     writer.put_u16 (length_or_count);
-    writer.put_u32 (uptime_ms (boot_time_, now));
+    writer.put_u32 (uptime_ms_unclamped (boot_time_, now));
     writer.put_u32 (static_cast<std::uint32_t> (export_time));
     writer.put_u32 (v9_sequence_);
     writer.put_u32 (observation_domain_id_);
@@ -678,10 +877,10 @@ IpfixExporter::write_options_set (ByteWriter &writer) const {
   // are relative to -- see time_field_pair()) plus sampling/exporter
   // metadata this project doesn't otherwise track (sent as zero/empty,
   // matching a default, unconfigured original).
-  static const std::vector<FieldSpec> kScopeFields = {
+  static const std::vector<IpfixFieldSpec> kScopeFields = {
     {143, 4},  // meteringProcessId
   };
-  static const std::vector<FieldSpec> kOptionFields = {
+  static const std::vector<IpfixFieldSpec> kOptionFields = {
     {160, 8},   // systemInitTimeMilliseconds
     {305, 4},   // samplingPacketInterval (PSAMP)
     {306, 4},   // samplingPacketSpace (PSAMP)
@@ -748,33 +947,6 @@ IpfixExporter::write_options_set (ByteWriter &writer) const {
   }
 }
 
-ExporterAddresses
-resolve_exporter_addresses (const std::string &host) {
-  // Original: getaddrinfo () on the -e argument; the first address of each
-  // family is the one that is reported.
-  ExporterAddresses out;
-  struct addrinfo hints{};
-  hints.ai_family = AF_UNSPEC;
-  hints.ai_socktype = SOCK_DGRAM;
-  struct addrinfo *list = nullptr;
-  if (getaddrinfo (host.c_str(), nullptr, &hints, &list) != 0) {
-    return out;
-  }
-  for (const struct addrinfo *rp = list; rp != nullptr; rp = rp->ai_next) {
-    if (rp->ai_family == AF_INET && !out.v4.has_value()) {
-      std::array<std::uint8_t, 4> a;
-      std::memcpy (a.data(), &reinterpret_cast<const sockaddr_in *> (rp->ai_addr)->sin_addr, 4);
-      out.v4 = a;
-    } else if (rp->ai_family == AF_INET6 && !out.v6.has_value()) {
-      std::array<std::uint8_t, 16> a;
-      std::memcpy (a.data(), &reinterpret_cast<const sockaddr_in6 *> (rp->ai_addr)->sin6_addr, 16);
-      out.v6 = a;
-    }
-  }
-  freeaddrinfo (list);
-  return out;
-}
-
 void
 IpfixExporter::write_template_set (ByteWriter &writer) const {
   // Original: each entry in `templates[]` (compat/ipfix.c) is a self-contained
@@ -785,7 +957,7 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
   // each to a 4-byte boundary and patches its own length, same as any
   // other Set.
   const auto write_template = [&] (std::uint16_t template_id,
-                                   std::span<const FieldSpec> fields) {
+                                   std::span<const IpfixFieldSpec> fields) {
     const std::size_t set_start = writer.size();
     // Set ID 2 identifies a Template Set (IPFIX; NetFlow v9 uses 0)
     writer.put_u16 (version_ == MessageVersion::Ipfix ? 2 : 0);
@@ -815,7 +987,7 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
   // ingressInterface, egressInterface, flowDirection, flowEndReason.
   // Shared by every non-biflow template between the timestamps and the
   // transport-or-ICMP fields; see write_common_fields().
-  static const std::vector<FieldSpec> kCommonFields = {
+  static const std::vector<IpfixFieldSpec> kCommonFields = {
     {1, 4},    // octetDeltaCount
     {2, 4},    // packetDeltaCount
     {10, 4},   // ingressInterface
@@ -829,11 +1001,11 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     // write_v4_icmp_record()/write_v6_icmp_record(): address, time,
     // common, then transport (ordinary flows) or icmpTypeCode (ICMP
     // flows) -- see compat/ipfix.c's ipfix_init_template_unity().
-    std::vector<FieldSpec> v4_fields = {
+    std::vector<IpfixFieldSpec> v4_fields = {
       {8, 4},
       {12, 4},  // sourceIPv4Address, destinationIPv4Address
     };
-    std::vector<FieldSpec> v6_fields = {
+    std::vector<IpfixFieldSpec> v6_fields = {
       {27, 16},
       {28, 16},  // sourceIPv6Address, destinationIPv6Address
     };
@@ -842,8 +1014,8 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
       fields->push_back (end_field);
       fields->insert (fields->end(), kCommonFields.begin(), kCommonFields.end());
     }
-    std::vector<FieldSpec> v4_icmp_fields = v4_fields;
-    std::vector<FieldSpec> v6_icmp_fields = v6_fields;
+    std::vector<IpfixFieldSpec> v4_icmp_fields = v4_fields;
+    std::vector<IpfixFieldSpec> v6_icmp_fields = v6_fields;
 
     v4_fields.push_back ({7, 2});   // sourceTransportPort
     v4_fields.push_back ({11, 2});  // destinationTransportPort
@@ -880,7 +1052,7 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
       }
     }
     for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
-      const FieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
+      const IpfixFieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
       for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
         fields->push_back (mpls);
       }
@@ -899,11 +1071,11 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     // ipClassOfService [field_bicommon], then EITHER reverse
     // tcpControlBits [field_bitransport] OR reverse icmpTypeCode
     // [field_biicmp4/6].
-    std::vector<FieldSpec> v4_fields = {
+    std::vector<IpfixFieldSpec> v4_fields = {
       {8, 4},
       {12, 4},  // sourceIPv4Address, destinationIPv4Address
     };
-    std::vector<FieldSpec> v6_fields = {
+    std::vector<IpfixFieldSpec> v6_fields = {
       {27, 16},
       {28, 16},  // sourceIPv6Address, destinationIPv6Address
     };
@@ -912,8 +1084,8 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
       fields->push_back (end_field);
       fields->insert (fields->end(), kCommonFields.begin(), kCommonFields.end());
     }
-    std::vector<FieldSpec> v4_icmp_fields = v4_fields;
-    std::vector<FieldSpec> v6_icmp_fields = v6_fields;
+    std::vector<IpfixFieldSpec> v4_icmp_fields = v4_fields;
+    std::vector<IpfixFieldSpec> v6_icmp_fields = v6_fields;
 
     v4_fields.push_back ({7, 2});
     v4_fields.push_back ({11, 2});
@@ -950,18 +1122,18 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
       }
     }
     for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
-      const FieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
+      const IpfixFieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
       for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
         fields->push_back (mpls);
       }
     }
 
-    const FieldSpec reverse_octets{1, 4, kReversePen};
-    const FieldSpec reverse_packets{2, 4, kReversePen};
-    const FieldSpec reverse_tos{5, 1, kReversePen};
-    const FieldSpec reverse_tcp_flags{6, 1, kReversePen};
-    const FieldSpec reverse_icmp4{32, 2, kReversePen};
-    const FieldSpec reverse_icmp6{139, 2, kReversePen};
+    const IpfixFieldSpec reverse_octets{1, 4, kIpfixReversePen};
+    const IpfixFieldSpec reverse_packets{2, 4, kIpfixReversePen};
+    const IpfixFieldSpec reverse_tos{5, 1, kIpfixReversePen};
+    const IpfixFieldSpec reverse_tcp_flags{6, 1, kIpfixReversePen};
+    const IpfixFieldSpec reverse_icmp4{32, 2, kIpfixReversePen};
+    const IpfixFieldSpec reverse_icmp6{139, 2, kIpfixReversePen};
     for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
       fields->push_back (reverse_octets);
       fields->push_back (reverse_packets);
@@ -1150,7 +1322,7 @@ IpfixExporter::build_packets (
   };
 
   if (!biflow_) {
-    std::vector<DirectionalRecord> all;
+    std::vector<IpfixDirectionalRecord> all;
     flatten (records, all, direction_mac_);
 
     const std::size_t sizes[2][2] = {
@@ -1162,11 +1334,11 @@ IpfixExporter::build_packets (
     };
     pack_interleaved (
       all,
-      [] (const DirectionalRecord &r) { return r.src->family == AddressFamily::IPv6; },
-      [] (const DirectionalRecord &r) { return is_icmp_protocol (r.protocol); },
+      [] (const IpfixDirectionalRecord &r) { return r.src->family == AddressFamily::IPv6; },
+      [] (const IpfixDirectionalRecord &r) { return is_icmp_protocol (r.protocol); },
       [&] (bool is_v6, bool is_icmp) { return sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
-      [] (const DirectionalRecord &r) -> std::size_t { return r.first_in_flow ? 2 : 0; },
-      [&] (ByteWriter &w, const DirectionalRecord &r, bool is_v6, bool is_icmp) {
+      [] (const IpfixDirectionalRecord &r) -> std::size_t { return r.first_in_flow ? 2 : 0; },
+      [&] (ByteWriter &w, const IpfixDirectionalRecord &r, bool is_v6, bool is_icmp) {
         if (!is_v6 && !is_icmp) {
           write_v4_record (w, r, time_format_, tail_, boot_time_, now,
                            wall_now);
@@ -1220,32 +1392,6 @@ IpfixExporter::build_packets (
   }
 
   return packets;
-}
-
-// Original: conv_unix_to_ntp(). -A micro/nano and PSAMP. RFC 7011 section
-// 6.1.9 specifies these as the 64-bit NTP Timestamp format (RFC 5905): 32-bit
-// seconds since the NTP epoch (1900-01-01), plus a 32-bit binary fraction of
-// a second. The original rounds the fraction up with `tv_usec + 1`.
-std::uint64_t
-unix_us_to_ntp64 (std::uint64_t epoch_us_value) {
-  constexpr std::uint64_t kNtpEpochOffsetSeconds = 2208988800ULL;  // 1900 -> 1970
-  const std::uint64_t seconds = epoch_us_value / 1000000;
-  const std::uint64_t usec = epoch_us_value % 1000000;
-  const auto ntp_seconds = static_cast<std::uint32_t> (seconds + kNtpEpochOffsetSeconds);
-  const auto ntp_fraction = static_cast<std::uint32_t> (
-    static_cast<double> (usec + 1) * 4294967296.0 * 1.0e-6);
-  return (static_cast<std::uint64_t> (ntp_seconds) << 32) | ntp_fraction;
-}
-
-// Original: conv_ntp_to_unix().
-std::uint64_t
-ntp64_to_unix_us (std::uint64_t ntp) {
-  constexpr std::uint64_t kNtpEpochOffsetSeconds = 2208988800ULL;
-  const auto seconds = static_cast<std::uint32_t> (ntp >> 32);
-  const auto fraction = static_cast<std::uint32_t> (ntp);
-  const auto usec = static_cast<std::uint32_t> (
-    static_cast<double> (fraction) * 1.0e6 / 4294967296.0);
-  return (static_cast<std::uint64_t> (seconds) - kNtpEpochOffsetSeconds) * 1000000 + usec;
 }
 
 }  // namespace softflow

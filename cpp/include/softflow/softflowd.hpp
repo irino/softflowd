@@ -110,7 +110,7 @@ struct IpAddress {
 // shim, TTL octet dropped -- stored verbatim rather than decomposed, so
 // it can be passed straight through to the IPFIX
 // mplsTopLabelStackSectionN field unchanged. See
-// softflowd.cpp's MplsShimEntry and ipfix.cpp's write_mpls_labels().
+// softflowd.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
 using MplsLabelStack = std::vector<std::uint32_t>;
 
 // ---------------------------------------------------------------------
@@ -276,6 +276,27 @@ struct ExportRecord {
     FlowKey key;
     Flow flow;
 };
+
+// Original: the EXPIRY event of a flow (expiry->expires_at), as dump-flows
+// shows it next to the flow.
+struct ExpiryEntry {
+    ExportRecord record;
+    TimePoint expires_at;
+};
+
+// Original: expiry->expires_at, a time_t. A flow that is over 2 GiB or over
+// its maximum lifetime has 0, which is due at once; any other flow has the
+// whole second of its expiry time.
+inline long long
+expiry_epoch_seconds (const Flow &flow, TimePoint expires_at) {
+    if (flow.reason == ExpiryReason::OverBytes || flow.reason == ExpiryReason::MaxLife) {
+        return 0;
+    }
+    const auto wall = flow.wall_last +
+                      std::chrono::duration_cast<std::chrono::system_clock::duration> (
+                          expires_at - flow.flow_last);
+    return std::chrono::duration_cast<std::chrono::seconds> (wall.time_since_epoch()).count();
+}
 
 // ---------------------------------------------------------------------
 // ByteWriter (a shared serialization helper used by netflow1.*,
@@ -639,6 +660,12 @@ public:
     // tagging each with ExpiryReason::Flush for statistics purposes.
     std::vector<ExportRecord> expire_flows(TimePoint now, bool flush_all = false);
 
+    // Original: check_expired (CE_EXPIRE_FORCED), which a capture file is
+    // checked with: only the flows that are due at once (expires_at 0) and
+    // those evicted by a collision.
+    std::vector<ExportRecord>
+    expire_urgent ();
+
     // Explicit forced eviction (original: softflowd.c's handling of
     // exceeding the configured maximum flow count with -m). Evicts the
     // flows with the nearest expiry first (i.e. the least recently active).
@@ -665,6 +692,25 @@ public:
     // read-only snapshot for diagnostic reporting.
     std::vector<ExportRecord> snapshot() const;
 
+    // Original: dump-flows walks the expiry tree, so this is the same flows
+    // in the order of their expiry events.
+    std::vector<ExpiryEntry>
+    expiry_snapshot () const;
+
+    // Original: next_expire (). Milliseconds until the flow table has to be
+    // checked again: 0 when a check is due, -1 when there is no flow. The
+    // earliest expiry is moved up to a multiple of `interval` seconds
+    // (clustering), which is what makes -t expint group the expiries.
+    int
+    next_expire (std::chrono::system_clock::time_point wall_now,
+                 std::chrono::seconds interval) const;
+
+    // Original: delete_all_flows (). Drops every flow, including those that
+    // wait to be exported after a collision, without export and without
+    // counting them. Returns the number of flows dropped.
+    std::size_t
+    delete_all ();
+
     std::size_t size() const noexcept { return flows_.size(); }
     std::size_t max_flows() const noexcept { return max_flows_; }
     const FlowTableStats& stats() const noexcept { return stats_; }
@@ -690,11 +736,23 @@ private:
         const Flow& flow, std::uint8_t protocol, AddressFamily af) const;
     void record_expiry_stats(const Flow& flow, std::uint8_t protocol,
                               ExpiryReason reason_override, bool override_reason);
-    void reschedule_expiry(const FlowKey& key, TimePoint new_expiry);
+    void reschedule_expiry(const FlowKey& key, std::uint64_t flow_seq, TimePoint new_expiry);
+
+    template <class Due>
+    std::vector<ExportRecord>
+    expire_while (Due due, bool flush_all);
+
+    // Original: check_expired () makes the reason of a flow that lived at
+    // least maximum_lifetime (whole seconds) R_MAXLIFE, whatever it was.
+    ExpiryReason
+    reason_at_expiry (const Flow &flow, ExpiryReason reason) const;
     void
     forget_slot (const FlowKey &key);
 
     std::size_t max_flows_;
+    // Original: ft->param.next_flow_seq, which starts at 1 and counts every
+    // flow ever created, not the flows being tracked.
+    std::uint64_t next_flow_seq_{1};
     TrackLevel track_level_;
     FlowTimeouts timeouts_;
     FlowTableStats stats_;
@@ -708,7 +766,11 @@ private:
     // (i.e. always tree-backed) regardless of the primary FlowMap backend,
     // because ordered iteration by time is fundamental to expiry
     // processing either way.
-    std::multimap<TimePoint, FlowKey> expiry_index_;
+    // Original: expiry_compare () orders the tree by expires_at and then by
+    // the flow sequence. A flow that is due at once (expires_at 0: over 2 GiB,
+    // over its maximum lifetime) is kept at TimePoint::min (), in front.
+    using ExpiryKey = std::pair<TimePoint, std::uint64_t>;
+    std::map<ExpiryKey, FlowKey> expiry_index_;
 
     // Auxiliary index used to look up a flow's current position in
     // expiry_index_ by FlowKey, so that rescheduling (extending a timeout
@@ -717,7 +779,7 @@ private:
     // or erasing *other* elements of a std::map/std::multimap never
     // invalidates the iterators to elements that remain (a guarantee of the
     // standard library's map family), so holding on to them here is safe.
-    std::unordered_map<FlowKey, std::multimap<TimePoint, FlowKey>::iterator>
+    std::unordered_map<FlowKey, std::map<ExpiryKey, FlowKey>::iterator>
         expiry_lookup_;
 
     // Collision mode (-F hash): the resident flow of every slot, and the
@@ -761,11 +823,20 @@ public:
   std::vector<ExportRecord>
   expire_flows (TimePoint now, bool flush_all = false);
   std::vector<ExportRecord>
+  expire_urgent ();
+  std::vector<ExportRecord>
   force_expire_oldest (std::size_t count);
   std::vector<ExportRecord>
   expire_collisions ();
   std::vector<ExportRecord>
   snapshot () const;
+  std::vector<ExpiryEntry>
+  expiry_snapshot () const;
+  int
+  next_expire (std::chrono::system_clock::time_point wall_now,
+               std::chrono::seconds interval) const;
+  std::size_t
+  delete_all ();
   FlowTableUsage
   usage () const;
   FlowLookup
@@ -990,6 +1061,13 @@ public:
     // Returns: a CapturedPacket if one was available; std::nullopt on a
     // read timeout (live capture) or EOF (offline file).
     std::optional<CapturedPacket> next_packet();
+
+    // Original: pcap_dispatch (pcap, max_packets, callback, ...). Hands the
+    // packets that libpcap has (those of one read for a live capture, at most
+    // max_packets) to `callback` and returns how many there were; -2 when the
+    // loop was ended by an exception of the callback, which is rethrown, and
+    // -1 on an error.
+    int dispatch(int max_packets, const std::function<void(const CapturedPacket&)>& callback);
 
 private:
     explicit PcapHandle(pcap_t* handle) : handle_(handle) {}
