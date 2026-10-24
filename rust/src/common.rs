@@ -277,6 +277,8 @@ pub struct FlowTrackParameters {
     pub adjust_time: bool,
     pub is_psamp: bool,
     pub last_packet_time: TimeVal,
+    pub export_clocks: i64,
+    pub export_calls: u64,
 }
 
 impl Default for FlowTrackParameters {
@@ -340,6 +342,8 @@ impl Default for FlowTrackParameters {
             adjust_time: false,
             is_psamp: false,
             last_packet_time: TimeVal::zero(),
+            export_clocks: 0,
+            export_calls: 0,
         }
     }
 }

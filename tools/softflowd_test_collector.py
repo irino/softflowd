@@ -1098,13 +1098,13 @@ def build_rust(output_dir: str) -> Tuple[Optional[str], Optional[str]]:
     if not os.path.exists(rust_dir):
         return None, None
 
-    res = run_command(["cargo", "build"], cwd=rust_dir)
+    res = run_command(["cargo", "build", "--release"], cwd=rust_dir)
     if res.returncode != 0:
-        print_yellow("Warning: cargo build failed for Rust version.")
+        print_yellow("Warning: cargo build --release failed for Rust version.")
         return None, None
 
-    rust_daemon = os.path.join(rust_dir, "target", "debug", "rsoftflowd")
-    rust_ctl = os.path.join(rust_dir, "target", "debug", "rsoftflowctl")
+    rust_daemon = os.path.join(rust_dir, "target", "release", "rsoftflowd")
+    rust_ctl = os.path.join(rust_dir, "target", "release", "rsoftflowctl")
 
     dest_daemon = os.path.join(output_dir, "rsoftflowd")
     dest_ctl = os.path.join(output_dir, "rsoftctl")

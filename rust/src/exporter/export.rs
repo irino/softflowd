@@ -13,9 +13,12 @@ use crate::exporter::{
         IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, IPFIX_SOFTFLOWD_V4_TEMPLATE_ID,
         IPFIX_SOFTFLOWD_V6_TEMPLATE_ID, IPFIX_TEMPLATE_SET_ID,
         NETFLOW9_TEMPLATE_SET_ID, REVERSE_PEN,
-        TMPLICMPV4, TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6,
+        TMPLICMPV4, TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6, valuate_icmp,
     },
 };
+
+const IPFIX_MPLS_TOP_LABEL_STACK_SECTION: u16 = 70;
+const IPFIX_MPLS_LABEL_STACK_SECTION_SIZE: usize = 3;
 
 pub struct ExportCtx<'a> {
     pub sp: &'a SendParameter<'a>,
@@ -306,6 +309,12 @@ fn emit_group(fields: &[FieldSpecEncoder], packet: &mut [u8], mut offset: usize,
 // -------------------------------------------------------------------
 
 fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
+    unsafe extern "C" {
+        fn clock() -> libc::clock_t;
+    }
+    let gauge_clock = sp.param.gauge_clock;
+    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+
     let tail_fields = if version == 1 { &FIELD_NETFLOWV1_TAIL[..] } else { &FIELD_NETFLOWV5_TAIL[..] };
     let maxflows = if version == 1 { 24 } else { 30 };
 
@@ -357,6 +366,13 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
     }
 
     sp.param.packets_sent += num_packets as u64;
+
+    if gauge_clock {
+        let elapsed = unsafe { clock() } - start;
+        sp.param.export_clocks += elapsed as i64;
+        sp.param.export_calls += 1;
+    }
+
     num_packets
 }
 
@@ -440,7 +456,7 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
 
         // Transport / ICMP
         if icmp {
-            let ie = if v6 { 179 } else { 176 };
+            let ie = if v6 { 139 } else { 32 };
             fields.push(FieldSpecEncoder { ie, length: 2, encoder: enc_icmpTypeCode });
             fields.push(FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier });
             fields.push(FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion });
@@ -488,7 +504,7 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
     [tmpls[0].clone(), tmpls[1].clone(), tmpls[2].clone(), tmpls[3].clone()]
 }
 
-fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_flag: bool, version: u16) {
+fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_flag: bool, version: u16, sp: &SendParameter) {
     let set_id = if version == 10 { IPFIX_TEMPLATE_SET_ID } else { NETFLOW9_TEMPLATE_SET_ID };
 
     for tmpl in tmpls {
@@ -498,7 +514,7 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder for set length
 
         packet.extend_from_slice(&tmpl.template_id.to_be_bytes());
-        let count = (tmpl.fields.len() + tmpl.bi_fields.len()) as u16;
+        let count = (tmpl.fields.len() + tmpl.bi_fields.len() + sp.param.max_num_label as usize) as u16;
         packet.extend_from_slice(&count.to_be_bytes());
 
         for f in &tmpl.fields {
@@ -512,6 +528,12 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
                 packet.extend_from_slice(&REVERSE_PEN.to_be_bytes());
             }
         }
+        for k in 0..sp.param.max_num_label as usize {
+            let ie = (IPFIX_MPLS_TOP_LABEL_STACK_SECTION + k as u16).to_be_bytes();
+            packet.extend_from_slice(&ie);
+            let len = (IPFIX_MPLS_LABEL_STACK_SECTION_SIZE as u16).to_be_bytes();
+            packet.extend_from_slice(&len);
+        }
 
         let set_len = (packet.len() - set_start) as u16;
         packet[len_offset..len_offset + 2].copy_from_slice(&set_len.to_be_bytes());
@@ -519,32 +541,48 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
 }
 
 pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
+    unsafe extern "C" {
+        fn clock() -> libc::clock_t;
+    }
+    let gauge_clock = sp.param.gauge_clock;
+    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+
     let tmpls = build_templates(sp.param, bi_flag, version);
-    let mut num_packets = 0;
-    let mut j = 0;
     let num_flows = sp.flows.len();
+    if version != 9 && version != 10 {
+        return -1;
+    }
 
     if get_pkts_until_template() <= 0 {
         set_pkts_until_template(0);
     }
 
-    let mut packet = Vec::with_capacity(IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
+    let mut num_packets = 0;
+    let mut j = 0;
+    static mut SEQUENCE: u32 = 1;
 
     while j < num_flows {
-        packet.clear();
+        let mut packet = Vec::with_capacity(IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
         let _ = export_build_flow_header(&mut packet, version, sp.param);
 
         if get_pkts_until_template() <= 0 {
-            put_templates(&mut packet, &tmpls, bi_flag, version);
+            put_templates(&mut packet, &tmpls, bi_flag, version, &sp);
             set_pkts_until_template(IPFIX_DEFAULT_TEMPLATE_INTERVAL);
 
             if sp.target.is_loadbalance && sp.target.destinations.len() > 1 {
-                // Send template-only packet to all destinations
-                let tmpl_len = packet.len() as u16;
+                let total_len = packet.len() as u16;
                 if version == 10 {
-                    packet[2..4].copy_from_slice(&tmpl_len.to_be_bytes());
+                    packet[2..4].copy_from_slice(&total_len.to_be_bytes());
+                    let seq = (sp.param.records_sent & 0xffffffff) as u32;
+                    packet[8..12].copy_from_slice(&seq.to_be_bytes());
                 } else {
                     packet[2..4].copy_from_slice(&1u16.to_be_bytes());
+                    let seq = unsafe {
+                        let s = SEQUENCE;
+                        SEQUENCE += 1;
+                        s
+                    };
+                    packet[12..16].copy_from_slice(&seq.to_be_bytes());
                 }
                 let mut sent = 0;
                 let _ = sp.target.send_multi_destinations(&packet, &mut sent);
@@ -553,88 +591,111 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
             }
         }
 
-        let mut current_set_start = 0;
-        let mut last_tmplindex: Option<usize> = None;
-        let mut records_in_packet = 0;
-        let mut i = 0;
+        let mut dh_offset: Option<usize> = None;
+        let mut last_af = 0u16;
+        let mut last_icmp_flag = -1i8;
+        let mut records = 0usize;
+        let mut last_valid = 0usize;
+        let mut i = 0usize;
 
         while i + j < num_flows {
             let flow = sp.flows[i + j];
-            let tmplindex = ipfix_flow_to_template_index(flow);
-            let tmpl = &tmpls[tmplindex];
+            let af = flow.key.af;
+            let icmp_flag = if valuate_icmp(flow) { 1 } else { 0 };
 
-            let rec_needed = if bi_flag { 1 } else { (flow.octets[0] > 0) as usize + (flow.octets[1] > 0) as usize };
-            if rec_needed == 0 {
-                i += 1;
-                continue;
-            }
-
-            let needed_space = 4 + rec_needed * tmpl.data_len;
-            if packet.len() + needed_space > IPFIX_SOFTFLOWD_MAX_PACKET_SIZE {
-                break;
-            }
-
-            if last_tmplindex != Some(tmplindex) {
-                // Close previous set if any
-                if let Some(_) = last_tmplindex {
-                    let set_len = (packet.len() - current_set_start) as u16;
-                    packet[current_set_start + 2..current_set_start + 4].copy_from_slice(&set_len.to_be_bytes());
+            if dh_offset.is_none() || af != last_af || icmp_flag != last_icmp_flag {
+                if let Some(dh_off) = dh_offset {
+                    let pad = (4 - (packet.len() % 4)) % 4;
+                    if pad > 0 {
+                        packet.resize(packet.len() + pad, 0);
+                    }
+                    let set_len = (packet.len() - dh_off) as u16;
+                    packet[dh_off + 2..dh_off + 4].copy_from_slice(&set_len.to_be_bytes());
                 }
 
-                current_set_start = packet.len();
-                packet.extend_from_slice(&tmpl.template_id.to_be_bytes());
-                packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder for set length
-                last_tmplindex = Some(tmplindex);
+                if packet.len() + 4 > IPFIX_SOFTFLOWD_MAX_PACKET_SIZE {
+                    dh_offset = None;
+                    break;
+                }
+
+                last_valid = packet.len();
+                let tmplindex = ipfix_flow_to_template_index(flow);
+                let tmpl = &tmpls[tmplindex];
+                let set_id = tmpl.template_id;
+                dh_offset = Some(packet.len());
+                packet.extend_from_slice(&set_id.to_be_bytes());
+                packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder
+                last_af = af;
+                last_icmp_flag = icmp_flag;
             }
 
+            let tmplindex = ipfix_flow_to_template_index(flow);
+            let tmpl = &tmpls[tmplindex];
             let frecnum = if bi_flag { 1 } else { 2 };
+            let mut flow_written = 0;
+            let mut flow_bytes = Vec::new();
+
             for dir in 0..frecnum {
                 if !bi_flag && flow.octets[dir] == 0 {
                     continue;
                 }
-
                 let ctx = ExportCtx { sp: &sp, flow, i: dir };
-                let old_len = packet.len();
-                packet.resize(old_len + tmpl.data_len, 0);
-
-                let mut off = emit_group(&tmpl.fields, &mut packet, old_len, &ctx);
+                let old_len = flow_bytes.len();
+                flow_bytes.resize(old_len + tmpl.data_len, 0);
+                let mut off = emit_group(&tmpl.fields, &mut flow_bytes, old_len, &ctx);
                 if bi_flag && dir == 0 {
                     let bictx = ExportCtx { sp: &sp, flow, i: 1 };
-                    off = emit_group(&tmpl.bi_fields, &mut packet, off, &bictx);
+                    off = emit_group(&tmpl.bi_fields, &mut flow_bytes, off, &bictx);
                 }
                 for k in 0..sp.param.max_num_label as usize {
                     let lbl_bytes = flow.key.mpls_labels[k].to_be_bytes();
-                    packet[off..off + 3].copy_from_slice(&lbl_bytes[1..4]);
+                    flow_bytes[off..off + 3].copy_from_slice(&lbl_bytes[1..4]);
                     off += 3;
                 }
-                records_in_packet += 1;
+                flow_written += 1;
             }
 
+            if flow_written == 0 || packet.len() + flow_bytes.len() > IPFIX_SOFTFLOWD_MAX_PACKET_SIZE {
+                if last_valid > 0 {
+                    packet.truncate(last_valid);
+                    dh_offset = None;
+                }
+                break;
+            }
+
+            packet.extend_from_slice(&flow_bytes);
+            records += flow_written;
+            if let Some(dh_off) = dh_offset {
+                let cur_len = u16::from_be_bytes([packet[dh_off + 2], packet[dh_off + 3]]) as usize;
+                let new_len = (cur_len + flow_bytes.len()) as u16;
+                packet[dh_off + 2..dh_off + 4].copy_from_slice(&new_len.to_be_bytes());
+            }
+            last_valid = 0;
             i += 1;
         }
 
-        if let Some(_) = last_tmplindex {
-            let set_len = (packet.len() - current_set_start) as u16;
-            packet[current_set_start + 2..current_set_start + 4].copy_from_slice(&set_len.to_be_bytes());
+        if let Some(dh_off) = dh_offset {
+            let pad = (4 - (packet.len() % 4)) % 4;
+            if pad > 0 {
+                packet.resize(packet.len() + pad, 0);
+            }
+            let set_len = (packet.len() - dh_off) as u16;
+            packet[dh_off + 2..dh_off + 4].copy_from_slice(&set_len.to_be_bytes());
         }
 
-        // Align packet to 4 bytes
-        let pad = (4 - (packet.len() % 4)) % 4;
-        if pad > 0 {
-            packet.resize(packet.len() + pad, 0);
-        }
-
-        sp.param.records_sent += records_in_packet;
-
+        sp.param.records_sent += records as u64;
+        let total_len = packet.len() as u16;
         if version == 10 {
-            let total_len = packet.len() as u16;
             packet[2..4].copy_from_slice(&total_len.to_be_bytes());
             let seq = (sp.param.records_sent & 0xffffffff) as u32;
             packet[8..12].copy_from_slice(&seq.to_be_bytes());
         } else {
-            let count = records_in_packet as u16;
-            packet[2..4].copy_from_slice(&count.to_be_bytes());
-            let seq = (sp.param.records_sent & 0xffffffff) as u32;
+            packet[2..4].copy_from_slice(&(records as u16).to_be_bytes());
+            let seq = unsafe {
+                let s = SEQUENCE;
+                SEQUENCE += 1;
+                s
+            };
             packet[12..16].copy_from_slice(&seq.to_be_bytes());
         }
 
@@ -650,6 +711,13 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
 
     sp.param.flows_exported += j as u64;
     sp.param.packets_sent += num_packets as u64;
+
+    if gauge_clock {
+        let elapsed = unsafe { clock() } - start;
+        sp.param.export_clocks += elapsed as i64;
+        sp.param.export_calls += 1;
+    }
+
     num_packets
 }
 
@@ -666,7 +734,13 @@ pub fn send_ipfix_bi(sp: SendParameter) -> i32 {
 }
 
 pub fn send_flows(sp: SendParameter) -> i32 {
-    match sp.target.version {
+    unsafe extern "C" {
+        fn clock() -> libc::clock_t;
+    }
+    let gauge_clock = sp.param.gauge_clock;
+    let param_ptr = sp.param as *mut FlowTrackParameters;
+    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+    let r = match sp.target.version {
         1 => send_netflow_v1(sp),
         5 => send_netflow_v5(sp),
         9 => send_netflow_v9(sp),
@@ -678,5 +752,13 @@ pub fn send_flows(sp: SendParameter) -> i32 {
             }
         }
         _ => -1,
+    };
+    if gauge_clock {
+        let elapsed = unsafe { clock() } - start;
+        unsafe {
+            (*param_ptr).export_clocks += elapsed as i64;
+            (*param_ptr).export_calls += 1;
+        }
     }
+    r
 }

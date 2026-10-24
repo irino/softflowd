@@ -191,7 +191,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // 2. Daemonize if requested
-    if !args.dont_fork && !args.debug {
+    if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
         log::info!("Daemonising softflowd...");
         if let Err(e) = nix::unistd::daemon(true, false) {
             log::error!("Failed to daemonise: {}", e);
@@ -220,6 +220,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 3. Setup Flow Tracker
+    unsafe extern "C" {
+        fn clock() -> libc::clock_t;
+    }
+    let boottime = unsafe { clock() };
     let track_level = TrackLevel::from_str(&args.track_level)
         .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
@@ -670,6 +674,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::remove_file(path);
     }
 
+    if tracker.param.gauge_clock {
+        unsafe extern "C" {
+            fn clock() -> libc::clock_t;
+        }
+        let total_clocks = unsafe { clock() } - boottime;
+        eprintln!("cpu clocks: {}", total_clocks);
+        eprintln!("cpu clocks (export): {} ({} calls)", tracker.param.export_clocks, tracker.param.export_calls);
+    }
+
     std::process::exit(0);
 }
 
@@ -990,10 +1003,6 @@ fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: 
             accumulate_stats(tracker, &flow);
             expired_flows.push(flow);
         }
-    }
-
-    if force_all {
-        expired_flows.sort_by_key(|f| f.flow_seq);
     }
 
     let count = expired_flows.len();
