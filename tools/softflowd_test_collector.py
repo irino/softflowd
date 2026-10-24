@@ -65,6 +65,10 @@ Options:
                               (--enable-ntopng --enable-ntopng-json).  Off by default
     --ntopng-bin PATH       : softflowd to check with --ntopng instead of building one (with
                               --skip-build softflowd-ntopng in the build directory is used)
+    --ntopng-cpp-bin PATH   : softflowd+ built with -DSOFTFLOW_NTOPNG=ON, whose -v ntopng messages
+                              --ntopng compares byte for byte with those of the C build (default:
+                              build one, or with --skip-build softflowd+-ntopng in the build
+                              directory; with --skip-cpp or if it is missing, not compared)
     --a PATH                : Explicit comparison source (A, reference) softflowd daemon binary
     --b PATH                : Explicit comparison target (B) softflowd daemon binary
     --ctl-a PATH            : Explicit comparison source (A) softflowctl binary
@@ -177,6 +181,7 @@ nfdump is not installed.
 
 import argparse
 import atexit
+import calendar
 import csv
 import datetime
 import hashlib
@@ -187,6 +192,7 @@ import re
 import select
 import shlex
 import shutil
+import signal
 import socket
 import statistics
 import struct
@@ -1153,7 +1159,7 @@ def test_cli_compatibility(a_bin: str, b_bin: str) -> bool:
         )
         # If the B daemon doesn't support -d / -D or similar, warn or handle gracefully depending on implementation
         if not missing_a and len(missing_b) > 0 and all(o in ["-d", "-D"] for o in missing_b):
-            print_yellow("    Warning: B daemon ({b_name}) help output omitted daemon background flags (-d/-D), continuing...")
+            print_yellow(f"    Warning: B daemon ({b_name}) help output omitted daemon background flags (-d/-D), continuing...")
         else:
             return False
 
@@ -2227,7 +2233,8 @@ def ntopng_check_messages(messages: List[List[bytes]], dialect: str,
     return total
 
 
-def ntopng_export(daemon: str, dialect: str, pcap: str) -> List[List[bytes]]:
+def ntopng_export(daemon: str, dialect: str, pcap: str,
+                   extra: Sequence[str] = ()) -> List[List[bytes]]:
     """Run daemon -v DIALECT on pcap and return the received ZMQ messages.
 
     A ZMQ PUB socket drops what it sends before the subscription is in place,
@@ -2243,7 +2250,7 @@ def ntopng_export(daemon: str, dialect: str, pcap: str) -> List[List[bytes]]:
     srv.listen(1)
     srv.settimeout(15)
     proc = subprocess.Popen([daemon, "-r", "-", "-n", f"127.0.0.1:{srv.getsockname()[1]}",
-                             "-v", dialect], stdin=subprocess.PIPE,
+                             "-v", dialect, *extra], stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     messages: List[List[bytes]] = []
     try:
@@ -2305,6 +2312,64 @@ def ntopng_resolve_daemon(args: argparse.Namespace, build_dir: str) -> Optional[
     return daemon
 
 
+def ntopng_resolve_cpp_daemon(args: argparse.Namespace, build_dir: str) -> Optional[str]:
+    """The softflowd+ built with -DSOFTFLOW_NTOPNG=ON, or None if there is none."""
+    if args.ntopng_cpp_bin:
+        return args.ntopng_cpp_bin
+    if args.skip_cpp:
+        return None
+    daemon = os.path.join(build_dir, "softflowd+-ntopng")
+    if args.skip_build:
+        return daemon if os.path.exists(daemon) else None
+    print("  -> Configuring and building C++ ntopng (-DSOFTFLOW_NTOPNG=ON)...")
+    out = os.path.join(SUITE_TMP_DIR, "build-cpp-ntopng")
+    if run_command(["cmake", "-S", os.path.join(PROJECT_ROOT, "cpp"), "-B", out,
+                    "-DSOFTFLOW_NTOPNG=ON"]).returncode != 0 \
+            or run_command(["cmake", "--build", out, "-j"]).returncode != 0:
+        print_yellow("Warning: the C++ version with ntopng support could not be built "
+                     "(libzmq is needed); it is not compared.")
+        return None
+    shutil.copy2(os.path.join(out, "softflowd+"), daemon)
+    return daemon
+
+
+# Options of the byte for byte comparison of -v ntopng.  -a is always given: without it
+# the absolute times depend on the wall clock, as for the other export versions.
+NTOPNG_PARITY_ARGS = [["-a"], ["-a", "-T", "ether"], ["-a", "-m", "5"], ["-a", "-s", "10"]]
+
+
+def ntopng_parity(daemon_a: str, daemon_b: str, pcaps: List[Tuple[str, str]]) -> bool:
+    """Compare the ZMQ messages of -v ntopng (TLV) of A and B byte for byte."""
+    ok = True
+    for extra in NTOPNG_PARITY_ARGS:
+        for label, pcap in pcaps:
+            text = f"{label} (-v ntopng {' '.join(extra)})"
+            try:
+                msgs_a = ntopng_export(daemon_a, "ntopng", pcap, extra)
+                msgs_b = ntopng_export(daemon_b, "ntopng", pcap, extra)
+            except (NtopngFailure, OSError, EOFError) as e:
+                print_red(f"    - {text}: FAILED: {e}")
+                ok = False
+                continue
+            if msgs_a == msgs_b:
+                print(f"    - {text}: MATCHED ({len(msgs_a)} messages, byte for byte)")
+                continue
+            ok = False
+            why = f"{len(msgs_a)} messages in A, {len(msgs_b)} in B"
+            for n, (x, y) in enumerate(zip(msgs_a, msgs_b)):
+                if x != y:
+                    why = f"message {n} differs"
+                    for k, (fx, fy) in enumerate(zip(x, y)):
+                        if fx != fy:
+                            first = next((i for i in range(min(len(fx), len(fy)))
+                                          if fx[i] != fy[i]), min(len(fx), len(fy)))
+                            why += f" in frame {k} at byte {first} ({len(fx)} / {len(fy)} bytes)"
+                            break
+                    break
+            print_red(f"    - {text}: FAILED: {why}")
+    return ok
+
+
 def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
     """compat --ntopng: check -v ntopng (TLV) and -v ntopng-json on the pcaps."""
     print_cyan("\n[ntopng] Verifying the ZMQ export for ntopng...")
@@ -2345,6 +2410,13 @@ def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
                 ok = False
             else:
                 print(f"    - {text}: MATCHED ({len(messages)} messages, {total} flows)")
+    # The C++ version has -v ntopng (TLV) only: its messages must be those of the C build.
+    cpp_daemon = ntopng_resolve_cpp_daemon(args, build_dir)
+    if cpp_daemon and os.path.exists(cpp_daemon):
+        print_cyan("  [ntopng] softflowd vs softflowd+: the messages, byte for byte")
+        ok = ntopng_parity(daemon, cpp_daemon, pcaps) and ok
+    else:
+        print_yellow("  [ntopng] softflowd+ with ntopng support not available: not compared")
     return ok
 
 
@@ -2705,6 +2777,195 @@ def parity_live(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
     return ok
 
 
+def parity_v5_header(datagram: bytes) -> Tuple[int, int]:
+    """(record count, unix_secs) of a NetFlow v5 datagram."""
+    _, count, _, secs, _ = struct.unpack(">HHIII", datagram[:16])
+    return count, secs
+
+
+def parity_expire_all_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str, pcap: str) -> bool:
+    """With -a, expire-all of a capture file that is being read (a FIFO) exports with the time of the
+    last packet that was read, not with the time of the clock."""
+    with open(pcap, "rb") as f:
+        data = f.read()
+    end = 24
+    for _ in range(5):                  # -m 5: one batch of exactly 5 packets
+        end += 16 + struct.unpack("<I", data[end + 8:end + 12])[0]
+    results = []
+    for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+        sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sink.bind(("127.0.0.1", 0))
+        sink.settimeout(3.0)
+        fifo, path = (os.path.join(SUITE_TMP_DIR, f"expall_{n}.{ext}") for ext in ("fifo", "ctl"))
+        for f in (fifo, path):
+            if os.path.exists(f):
+                os.remove(f)
+        os.mkfifo(fifo)
+        proc = subprocess.Popen([daemon, "-r", fifo, "-c", path, "-n", f"127.0.0.1:{sink.getsockname()[1]}",
+                                 "-v", "5", "-m", "5", "-a"],
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = "no reply"
+        with open(fifo, "wb") as w:
+            w.write(data[:24])          # the packets must come after the header has been read,
+            w.flush()                   # or libpcap keeps them in its buffer
+            for _ in range(100):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            w.write(data[24:end])
+            w.flush()
+            time.sleep(1.0)
+            r = subprocess.run([ctl, "-c", path, "expire-all"], capture_output=True, text=True, timeout=10)
+            reply = r.stdout.strip().split(": ", 1)[-1]
+            try:
+                result = (reply,) + parity_v5_header(sink.recv(65535))
+            except socket.timeout:
+                result = (reply, "no datagram")
+            subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        sink.close()
+        results.append(result)
+    if results[0] == results[1] and len(results[0]) == 3 and results[0][0].startswith("Expired 1"):
+        print_green(f"    - expire-all while reading a file (-a): MATCHED (export time {results[0][2]}, the last packet)")
+        return True
+    print_red(f"    - expire-all while reading a file (-a): DIFFERENT (A {results[0]}, B {results[1]})")
+    return False
+
+
+def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """The times of a live capture are those of libpcap, as phdr->ts in the original: (1) the packets that
+    are read together keep their time, and (2) with -a the time of the last packet is the current time, so
+    that no idle flow expires while no packet arrives, and statistics and expire-all show that time."""
+    ok = True
+    flt = "udp and dst port 41001"
+    paths = [os.path.join(SUITE_TMP_DIR, f"livetime_{n}.ctl") for n in "ab"]
+    ctls = (ctl_a, ctl_b)
+
+    def run(extra: List[str], body) -> List:
+        socks, procs = [], []
+        for n, daemon in enumerate((a_daemon, b_daemon)):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.bind(("127.0.0.1", 0))
+            s.settimeout(3.0)
+            socks.append(s)
+            if os.path.exists(paths[n]):
+                os.remove(paths[n])
+            procs.append(subprocess.Popen([daemon, "-d", "-c", paths[n], "-i", "lo", "-v", "5", "-n",
+                                           f"127.0.0.1:{s.getsockname()[1]}"] + extra + [flt],
+                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        for path in paths:
+            for _ in range(100):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+        time.sleep(1.5)
+        try:
+            return body(socks, procs)
+        finally:
+            for ctl, path in zip(ctls, paths):
+                subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+            for proc in procs:
+                try:
+                    proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+            for s in socks:
+                s.close()
+
+    def ctl_out(n: int, command: str) -> str:
+        return subprocess.run([ctls[n], "-c", paths[n], command], capture_output=True, text=True,
+                              timeout=10).stdout
+
+    def record(sock) -> Tuple[int, int, int]:
+        """(packets, first, last) of the flow of the test traffic in the next datagram."""
+        d = sock.recv(65535)
+        for i in range((len(d) - 24) // 48):
+            r = d[24 + 48 * i:24 + 48 * (i + 1)]
+            pkts = struct.unpack(">I", r[16:20])[0]
+            first, last = struct.unpack(">II", r[24:32])
+            if pkts:
+                return pkts, first, last
+        raise socket.timeout
+
+    # (1) two packets that are captured 1 s apart, and read together because the daemon was stopped
+    def stalled(socks, procs):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        for p in procs:
+            p.send_signal(signal.SIGSTOP)
+        time.sleep(0.3)
+        s.sendto(b"x" * 40, ("127.0.0.1", 41001))
+        time.sleep(1.0)
+        s.sendto(b"x" * 40, ("127.0.0.1", 41001))
+        time.sleep(0.3)
+        for p in procs:
+            p.send_signal(signal.SIGCONT)
+        time.sleep(1.0)
+        s.close()
+        out = []
+        for n in range(2):
+            ctl_out(n, "expire-all")
+            try:
+                pkts, first, last = record(socks[n])
+                out.append((pkts, last - first))
+            except socket.timeout:
+                out.append(None)
+        return out
+
+    try:
+        a, b = run([], stalled)
+        same = a and b and a[0] == b[0] == 2 and abs(a[1] - b[1]) <= 2 and a[1] >= 900
+        detail = f"duration A {a[1] if a else None} ms, B {b[1] if b else None} ms, 1000 ms between the packets"
+    except (OSError, subprocess.SubprocessError) as e:
+        same, detail = False, str(e)
+    if same:
+        print_green(f"    - live on lo, packets that are read together: MATCHED ({detail})")
+    else:
+        ok = False
+        print_red(f"    - live on lo, packets that are read together: DIFFERENT ({detail})")
+
+    # (2) -a: the time of the last packet is the current time
+    def adjusted(socks, procs):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(b"x" * 40, ("127.0.0.1", 41001))
+        sent = time.time()
+        s.close()
+        time.sleep(3.5)                 # idle for more than -t general=1 and expint=1
+        out = []
+        for n in range(2):
+            stat = ctl_out(n, "statistics")
+            since = re.search(r"since (\S+) UTC", stat)
+            expired = re.search(r"Flows expired: (\d+)", stat)
+            since_s = calendar.timegm(time.strptime(since.group(1), "%Y-%m-%dT%H:%M:%S")) if since else None
+            ctl_out(n, "expire-all")
+            try:
+                secs = parity_v5_header(socks[n].recv(65535))[1]
+            except socket.timeout:
+                secs = None
+            out.append((int(expired.group(1)) if expired else None,
+                        None if since_s is None else round(since_s - sent),
+                        None if secs is None else round(secs - sent)))
+        return out
+
+    try:
+        a, b = run(["-a", "-t", "general=1", "-t", "expint=1"], adjusted)
+        # a time of the packet that is cut to the second is 0 or 1 s before the time at which it was sent
+        same = all(x[0] == 0 and x[1] in (0, -1) and x[2] in (0, -1) for x in (a, b))
+        detail = (f"A: expired {a[0]} before expire-all, since {a[1]} s, export {a[2]} s; "
+                  f"B: expired {b[0]}, since {b[1]} s, export {b[2]} s")
+    except (OSError, subprocess.SubprocessError) as e:
+        same, detail = False, str(e)
+    if same:
+        print_green(f"    - live on lo, -a (statistics, idle, expire-all): MATCHED ({detail})")
+    else:
+        ok = False
+        print_red(f"    - live on lo, -a (statistics, idle, expire-all): DIFFERENT ({detail})")
+    return ok
+
+
 def parity_cli(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """-t is accepted or refused by A and B alike: the names, and the general timeout of 0."""
     ok = True
@@ -2734,8 +2995,10 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     ok = parity_multithread(b_daemon, pcaps) and ok
     if ctl_a and ctl_b and os.path.exists(ctl_a) and os.path.exists(ctl_b):
         ok = parity_control_replies(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
+        ok = parity_expire_all_time(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
         if parity_can_capture_lo():
             ok = parity_live(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_live_time(a_daemon, b_daemon, ctl_a, ctl_b) and ok
         else:
             print_yellow("    - live on lo: SKIPPED (needs root, to capture on lo)")
     else:
@@ -2852,7 +3115,9 @@ def compat_main():
         action="store_true",
         help="Also compare the --a/--b pair byte for byte, as the pair softflowd vs "
              "softflowd+ always is (step 5): exported datagrams, control socket replies, "
-             "the expiry lines of the debug log, -M and, as root, a live capture on lo"
+             "the expiry lines of the debug log, -M and, as root, a live capture on lo. "
+             "It also checks that a refactoring changes no output: --a is the softflowd+ "
+             "before and --b the softflowd+ after (their usage must be the same)"
     )
     parser.add_argument(
         "--skip-parity",
@@ -2871,6 +3136,13 @@ def compat_main():
         default=None,
         help="softflowd built with --enable-ntopng --enable-ntopng-json for --ntopng "
              "(default: build one, or with --skip-build use softflowd-ntopng)"
+    )
+    parser.add_argument(
+        "--ntopng-cpp-bin",
+        default=None,
+        help="softflowd+ built with -DSOFTFLOW_NTOPNG=ON for --ntopng, whose -v ntopng "
+             "messages are compared byte for byte with those of the C build "
+             "(default: build one, or with --skip-build use softflowd+-ntopng)"
     )
     parser.add_argument(
         "--a",
@@ -3054,6 +3326,8 @@ def compat_main():
                  or args.callgrind or args.perf)
     if args.ntopng_bin and not args.ntopng:
         parser.error("--ntopng-bin needs --ntopng")
+    if args.ntopng_cpp_bin and not args.ntopng:
+        parser.error("--ntopng-cpp-bin needs --ntopng")
     if (args.bench_pcap or args.bench_csv) and not measuring:
         parser.error("--bench-pcap and --bench-csv need --gauge-clock, --benchmark, "
                      "--callgrind and/or --perf")

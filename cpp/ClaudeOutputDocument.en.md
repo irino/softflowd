@@ -19,6 +19,80 @@ memory-safety practices described in
 | Stage 5 | Real implementations of MPLS (`-x`), all absolute time formats (`-A`), TCP/SCTP export (`-P`), IPFIX biflow (`-b`), and PSAMP receive mode (`-R`) | ✅ Done |
 | Stage 6 | Corrected the `softflowctl` command set to exactly match the real manual, plus multi-line response support | ✅ Done |
 | Stage 7 | Verified softflowctl's own CLI grammar (already correct) + hardened `-R`'s template bookkeeping to be scoped per sender | ✅ Done (partial; see below) |
+| Stage 8 | Followed the current C version: PSAMP and ntopng in the C format, control socket with `-r`, expiry interval, `-t icmp`, `-s`, snaplen, live capture in batches; byte for byte comparison with the C build | ✅ Done (open items below) |
+
+## Stage 8: following the current C version
+
+The C++ version was brought up to the current C version in small patches. The
+C build is the reference: `tools/softflowd_test_collector.py compat --a
+./softflowd --b ./cpp/build/softflowd+ --strict --psamp` compares the exported
+datagrams byte for byte, the control replies, the expiry lines of the `-D` log
+and the flows that a live capture on `lo` exports (Step 5). Not covered: the
+compatibility code of the C version (`--enable-legacy`,
+`--enable-compat-export`) and the JSON export for ntopng 5.x and earlier.
+The executables are `softflowd+` and `softflowctl+`.
+
+### PSAMP (replaces the PSAMP descriptions of Stages 3, 5 and 7)
+
+PSAMP uses the format of the C version. A message carries one captured packet:
+its position in the sequence of sampled packets, its capture time, the number
+of octets of the frame that are exported and the frame itself. Every data
+message has the size of a full export packet, the template ID is 3072 and the
+template is sent again after 16 data messages.
+
+`-R receive_port` works without `-i`: nothing is captured and the frames that
+are received are Ethernet frames. Only the data records that softflowd itself
+exports are decoded, so the per-sender template bookkeeping of Stage 7 no
+longer exists. The flows that are received take their times from the
+observation time of the messages, and with `-a` the first message is the boot
+time, as in the C version.
+
+### ntopng
+
+`-v ntopng` sends the flows in the TLV format of ntopng 6.0 and later (a
+36-octet header and the nDPI serializer format) over a ZeroMQ PUB socket that
+connects to the `-n` destination. The sink that sends the messages is built
+with `-DSOFTFLOW_NTOPNG=ON` and needs libzmq (found with pkg-config); the
+JSON format of ntopng 5.x and earlier is not implemented. As in the C version,
+the statistics line `Flows exported` stays 0 for ntopng.
+
+```sh
+cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-zmq -j
+/tmp/build-zmq/softflowd+ -i eth0 -v ntopng -n 127.0.0.1:5556
+```
+
+### Control socket while reading a file
+
+`-c` is accepted together with `-r`, so that `softflowctl+` can be used while
+softflowd waits for a FIFO or reads a file (the pcap file descriptor and the
+control socket are polled together at the batch boundaries). The replies, the
+usage and the exit codes of the control commands are the same as those of the C
+version.
+
+### Other changes
+
+| Item | Behavior |
+|---|---|
+| Timeouts | `-t icmp=` is accepted and `-t general=0` is rejected. `-t expint=` (default 60 s) clusters the expiry of flows into fewer, larger export packets |
+| Expiry | The order and the reasons of the expired flows, and the lines of the `-D` log, follow the C version; a flow table that holds more than `-m` flows is checked once per `max_flows` packets |
+| Live capture | The default snaplen is 96 bytes (160 when IPv6 flows are tracked; `-C` changes it). The capture handle is non-blocking and the packets are taken in units of `pcap_dispatch (max_flows)`. A snaplen of 65535 made libpcap drop many packets in a burst |
+| `-s` | The sampling rate is written into the sampling_interval of the NetFlow v5 header (it used to be 0) |
+| Flow sequence | `flow_seq` is a monotonic counter (it used to be the number of tracked flows, so numbers repeated) |
+| `-F hash`, `-F hash-tree` | The number of buckets and the capacity follow the C version: a power of two, at most 2^24 |
+
+### Known differences and open items
+
+- The `Flow table:` line (in use, max depth, collisions) differs, because the
+  hash function is another one.
+- With `-a`, a receiver of PSAMP exports the absolute times of the flows from
+  the wall clock, not from the last observation time as the C version does;
+  `-a` is not handled in the live loop yet.
+- Live capture was checked on `lo` only, not on a physical NIC or on BSD.
+  `--enable-ifname` and the interfaceName of the option records are not
+  implemented.
+- The number of export packets of a forced expiry in a live capture depends on
+  how libpcap hands over the packets (the C version varies between runs too)
+  and is not matched.
 
 ## Stage 7: softflowctl CLI grammar check + hardening -R's template bookkeeping
 
@@ -127,7 +201,7 @@ length, so it can decode more than just this project's own wire format).
 It's wired into the `-i` live-capture loop as a fourth polled file
 descriptor; received PSAMP samples are fed into
 `FlowTable::record_packet()` exactly like locally captured packets.
-Verified end-to-end between two `softflowd_cpp` instances (one exporting
+Verified end-to-end between two `softflowd+` instances (one exporting
 `-v psamp -n`, the other receiving via `-R`).
 
 ### An environment-specific issue found and fixed during development
@@ -164,10 +238,10 @@ unchanged.
 
 ```sh
 # Exactly the same invocations as the original softflowd
-softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
-softflowd_cpp -i eth0 -l -n 10.1.0.2:4432,10.1.0.3:4432
-softflowd_cpp -v 9 -i eth0 -n 224.0.1.20:4432 -L 64
-softflowd_cpp -i eth0 -p /var/run/sfd.pid.eth0 -c /var/run/sfd.ctl.eth0
+softflowd+ -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
+softflowd+ -i eth0 -l -n 10.1.0.2:4432,10.1.0.3:4432
+softflowd+ -v 9 -i eth0 -n 224.0.1.20:4432 -L 64
+softflowd+ -i eth0 -p /var/run/sfd.pid.eth0 -c /var/run/sfd.ctl.eth0
 ```
 
 Options implemented with the same meaning and syntax as the original:
@@ -255,10 +329,10 @@ returns.
 ### `main()` and softflowctl as separate executables
 
 As in the original, `softflowctl` is its own standalone executable
-(`softflowctl_cpp`). `softflowctl.cpp` contains both the shared
+(`softflowctl+`). `softflowctl.cpp` contains both the shared
 control-protocol helpers (`read_line`/`write_line`/`ControlClient`) and
-`softflowctl_cpp`'s own `main()` (guarded by `#ifndef SOFTFLOW_NO_MAIN`).
-`softflowd_cpp`'s control-socket *server* side lives in `softflowd.cpp`
+`softflowctl+`'s own `main()` (guarded by `#ifndef SOFTFLOW_NO_MAIN`).
+`softflowd+`'s control-socket *server* side lives in `softflowd.cpp`
 itself (matching the original, where `softflowd.c` owned the
 listening/accepting code), linking only against softflowctl.cpp's shared
 protocol helpers.
@@ -303,11 +377,11 @@ what makes them deterministically unit-testable without a real network.
   RFC 5477 defines for selector identification and packet hashes are
   omitted in favor of a practically useful subset (timestamp, addresses,
   ports, protocol, observed length)
-- Try it directly from the `softflowd_cpp` executable via
+- Try it directly from the `softflowd+` executable via
   `--export=netflow1|netflow5|netflow9|ipfix|psamp` (see below)
 
 ```sh
-./build/softflowd_cpp --export=netflow9 --export-out=out.bin path/to/capture.pcap
+./build/softflowd+ --export=netflow9 --export-out=out.bin path/to/capture.pcap
 ```
 
 The output file concatenates each export packet with a 4-byte big-endian
@@ -353,7 +427,7 @@ To avoid this, the `main()` inside `softflowd.cpp` is wrapped in
 `#ifndef SOFTFLOW_NO_MAIN`, and `CMakeLists.txt` compiles the same source
 file two different ways:
 
-- the `softflowd_cpp` executable: `softflowd.cpp` compiled as-is (`main()` included)
+- the `softflowd+` executable: `softflowd.cpp` compiled as-is (`main()` included)
 - `softflow_core` (an object library used only by the tests): `softflowd.cpp`
   compiled with `-DSOFTFLOW_NO_MAIN` (`main()` compiled out), so each test
   can supply its own `main()`
@@ -382,7 +456,7 @@ softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
 softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
 ```
 
-The `softflowd_cpp` executable can switch the flow table at run time via
+The `softflowd+` executable can switch the flow table at run time via
 `-F hash-tree` / `-F tree` / `-F hash` (see below).
 
 ## Building
@@ -398,18 +472,18 @@ AddressSanitizer / UndefinedBehaviorSanitizer are enabled automatically.
 
 ```sh
 # Process a pcap file and print statistics (-r, same as the original)
-./build/softflowd_cpp -r path/to/capture.pcap
+./build/softflowd+ -r path/to/capture.pcap
 
 # Use the red-black tree (std::map) flow table
-./build/softflowd_cpp -r path/to/capture.pcap -F tree
+./build/softflowd+ -r path/to/capture.pcap -F tree
 
 # Actually export NetFlow v5 to a collector (same as the original)
-./build/softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
+./build/softflowd+ -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
 
 # Live capture, controlled via softflowctl
-./build/softflowd_cpp -i eth0 -d -c /tmp/sf.ctl &
-./build/softflowctl_cpp -c /tmp/sf.ctl statistics
-./build/softflowctl_cpp -c /tmp/sf.ctl shutdown
+./build/softflowd+ -i eth0 -d -c /tmp/sf.ctl &
+./build/softflowctl+ -c /tmp/sf.ctl statistics
+./build/softflowctl+ -c /tmp/sf.ctl shutdown
 ```
 
 ## Memory-safety mapping (article principle -> where it's applied)
@@ -466,7 +540,7 @@ src/
                         event loop + the control-socket server + the PSAMP
                         receive socket (original: softflowd.c + freelist.c)
   daemon.cpp                (original: daemon.c)
-  softflowctl.cpp            Control protocol implementation + softflowctl_cpp's
+  softflowctl.cpp            Control protocol implementation + softflowctl+'s
                         own main() (original: softflowctl.c)
   export.cpp / export_common.cpp / psamp.cpp
 tests/
@@ -479,22 +553,16 @@ tests/
                         the server role, so no process needs to be spawned)
 ```
 
-Building produces two executables: `softflowd_cpp` (the daemon itself) and
-`softflowctl_cpp` (the control client).
+Building produces two executables: `softflowd+` (the daemon itself) and
+`softflowctl+` (the control client).
 
-## Next up (planned for Stage 7)
+## Open items
 
-- Broader live-capture test coverage (to keep catching environment-specific
-  issues like the libpcap-timeout unreliability discovered while building
-  Stage 5)
-- Hardening `-R`'s template bookkeeping (currently a single `PsampReceiver`
-  holds every template indefinitely; a production deployment might want
-  better handling of multiple concurrent exporters or template
-  redefinition)
-- Real-world SCTP testing (this project's development/test environment
-  doesn't have the SCTP kernel module available, so only the udp-fallback
-  path has actually been exercised)
-- Double-check `softflowctl`'s own command-line grammar (`-c ctl_sock
-  command`) more thoroughly against the original `softflowctl(8)`
-
-Let me know if you'd like to proceed to Stage 7 along these lines.
+- `-a` in the live loop (for PSAMP receive mode too): the last packet time as
+  the current time, as `-a` of the C version does
+- The error messages of the command line (`Invalid -t name.` and the usage)
+  as those of the C version; only the exit codes match now
+- A CI job with ZeroMQ (`-DSOFTFLOW_NTOPNG=ON`)
+- Live capture on a physical NIC and on BSD; `--enable-ifname`
+- Real-world SCTP testing (the development environment has no SCTP kernel
+  module, so only the udp fallback has been exercised)

@@ -2902,6 +2902,11 @@ struct ControlState {
   std::chrono::system_clock::time_point boot_wall = std::chrono::system_clock::now();
   // Original: ft->param.expiry_interval, shown by timeouts.
   std::chrono::seconds expiry_interval{0};
+  // Original: with -a (adjust_time), the time of the last packet is the
+  // current time of the expire-all command instead of gettimeofday ().
+  bool adjust_time = false;
+  softflow::TimePoint last_packet_mono{};
+  std::chrono::system_clock::time_point last_packet_wall{};
 };
 
 // The control socket of softflowctl(8) for a capture file; defined below
@@ -2968,9 +2973,16 @@ run_pcap_file (const DaemonConfig &config) {
   std::chrono::system_clock::time_point time_base_wall{};
 
   // Original: SET_EXPORT_NOW(). With -a the export time is the time of the
-  // last packet read from the file instead of this process's clock.
-  TimePoint last_packet_mono{};
-  std::chrono::system_clock::time_point last_packet_wall{};
+  // last packet read from the file instead of this process's clock. The
+  // control command expire-all uses it too, so it is kept in the control
+  // state (a local one when there is no control socket).
+  ControlState no_control;
+  ControlState &time_state =
+    control ? control_listener_state (*control) : no_control;
+  time_state.adjust_time = config.adjust_pcap_time;
+  TimePoint &last_packet_mono = time_state.last_packet_mono;
+  std::chrono::system_clock::time_point &last_packet_wall =
+    time_state.last_packet_wall;
 
   std::uint64_t total = 0;
   std::uint64_t parsed_ok = 0;
@@ -3328,12 +3340,14 @@ handle_control_command (const std::string &command,
     log_expiry_debug_start (debug, kCeExpireAll);
     // Original: the flows of a collision (expires_at 0) come first.
     auto expired = table.expire_collisions();
-    auto rest = table.expire_flows (Clock::now(), /*flush_all=*/true);
+    const auto now = state.adjust_time ? state.last_packet_mono : Clock::now();
+    const auto wall_now = state.adjust_time ? state.last_packet_wall
+                                            : std::chrono::system_clock::now();
+    auto rest = table.expire_flows (now, /*flush_all=*/true);
     expired.insert (expired.end(), std::make_move_iterator (rest.begin()),
                     std::make_move_iterator (rest.end()));
     log_expiry_debug_queued (debug, expired);
-    const auto outcome = exporter.export_flows (
-      expired, Clock::now(), std::chrono::system_clock::now());
+    const auto outcome = exporter.export_flows (expired, now, wall_now);
     table.record_export_stats (outcome.flows, outcome.records,
                                outcome.packets, outcome.failures);
     log_expiry_debug_sent (debug, static_cast<int> (outcome.packets),
@@ -3688,6 +3702,22 @@ run_live_capture (const DaemonConfig &config) {
                format_name (config.export_format),
                track_level_name (config.track_level));
 
+  // Original: with -a, flow_cb () records the time of the last packet in
+  // last_packet_time, which next_expire () and check_expired () use as the
+  // current time instead of gettimeofday ().
+  // The control command expire-all uses it too.
+  state.adjust_time = config.adjust_pcap_time;
+  TimePoint &last_packet_mono = state.last_packet_mono;
+  std::chrono::system_clock::time_point &last_packet_wall =
+    state.last_packet_wall;
+  const auto current_mono = [&] () {
+    return config.adjust_pcap_time ? last_packet_mono : Clock::now();
+  };
+  const auto current_wall = [&] () {
+    return config.adjust_pcap_time ? last_packet_wall
+                                   : std::chrono::system_clock::now();
+  };
+
   // The flow tracking of one captured packet. With -M it runs in another
   // thread (see PacketProcessor); the main loop waits for it before it uses
   // the table, the exporter or the samples.
@@ -3704,6 +3734,22 @@ run_live_capture (const DaemonConfig &config) {
         PsampSample{pkt.data, pkt.wall_timestamp, sampled_total}, false);
       return;
     }
+    // Original: the time of the last packet is recorded after the packet has
+    // been processed, whatever became of it (it is not for a sampled-out one
+    // or with -v psamp).
+    struct LastPacket {
+      bool adjust;
+      const softflow::CapturedPacket &pkt;
+      TimePoint &mono;
+      std::chrono::system_clock::time_point &wall;
+      ~LastPacket() {
+        if (adjust) {
+          mono = pkt.timestamp;
+          wall = pkt.wall_timestamp;
+        }
+      }
+    } last_packet{config.adjust_pcap_time, pkt, last_packet_mono,
+                  last_packet_wall};
     if (pkt.data.size() <= skip) {
       --sampled_total;
       return;
@@ -3753,6 +3799,29 @@ run_live_capture (const DaemonConfig &config) {
     processor.emplace (process_packet);
   }
 
+  // Original: flow_cb () takes the flow times from phdr->ts, the time that
+  // libpcap recorded for a packet (for a PSAMP message its
+  // observationTimeMicroseconds), and not from the time at which the packet is
+  // read. That time is mapped to this process's monotonic clock from one
+  // anchor, as the capture file replay does, and with -a the first packet or
+  // message is the boot time.
+  bool time_anchored = false;
+  TimePoint time_base_mono = boot_time;
+  auto time_base_wall = std::chrono::system_clock::now();
+  const auto packet_time = [&] (std::chrono::system_clock::time_point wall) {
+    if (!time_anchored) {
+      time_anchored = true;
+      if (config.adjust_pcap_time) {
+        time_base_mono = Clock::now();
+        time_base_wall = wall;
+        state.boot_wall = wall;
+        exporter.reinit_boot_time (time_base_mono, wall);
+      }
+    }
+    return time_base_mono +
+           std::chrono::duration_cast<Clock::duration> (wall - time_base_wall);
+  };
+
   while (!state.shutting_down && !state.immediate_exit) {
     struct pollfd fds[4];
     fds[0] = {signals.read_fd(), POLLIN, 0};
@@ -3767,7 +3836,7 @@ run_live_capture (const DaemonConfig &config) {
       processor->wait_idle();
     }
     int timeout_ms =
-      table.next_expire (std::chrono::system_clock::now(), config.expiry_interval);
+      table.next_expire (current_wall(), config.expiry_interval);
     if (config.max_runtime.has_value() && (timeout_ms < 0 || timeout_ms > 1000)) {
       timeout_ms = 1000;  // --max-runtime needs to look at the clock
     }
@@ -3819,7 +3888,9 @@ run_live_capture (const DaemonConfig &config) {
       // no packet.
       const int dispatched = handle->dispatch (
         static_cast<int> (std::min<std::size_t> (table.max_flows(), 0x7fffffff)),
-        [&] (const CapturedPacket &pkt) {
+        [&] (const CapturedPacket &captured) {
+          CapturedPacket pkt = captured;
+          pkt.timestamp = packet_time (captured.wall_timestamp);
           if (processor.has_value()) {
             processor->submit (pkt);
           } else {
@@ -3866,7 +3937,7 @@ run_live_capture (const DaemonConfig &config) {
         }
         const CapturedPacket packet{
           std::span<const std::uint8_t> (frame->frame), frame->original_length,
-          Clock::now(), frame->observed_at};
+          packet_time (frame->observed_at), frame->observed_at};
         process_packet (packet);
       }
     }
@@ -3874,14 +3945,13 @@ run_live_capture (const DaemonConfig &config) {
     // Original: the flow table is checked when the next expiry, clustered by
     // -t expint (a larger interval groups more flows into fewer, larger
     // export packets), has come, or when it holds more than max_flows.
-    const auto now = Clock::now();
+    const auto now = current_mono();
+    const auto wall_now = current_wall();
     if (table.size() > table.max_flows() ||
-        table.next_expire (std::chrono::system_clock::now(),
-                           config.expiry_interval) == 0) {
+        table.next_expire (wall_now, config.expiry_interval) == 0) {
       const auto scan = [&] (const std::vector<ExportRecord> &expired) {
         log_expiry_debug_queued (config.debug, expired);
-        const auto outcome = exporter.export_flows (
-          expired, now, std::chrono::system_clock::now());
+        const auto outcome = exporter.export_flows (expired, now, wall_now);
         table.record_export_stats (outcome.flows, outcome.records,
                                    outcome.packets, outcome.failures);
         log_expiry_debug_sent (config.debug, static_cast<int> (outcome.packets),
@@ -3905,7 +3975,7 @@ run_live_capture (const DaemonConfig &config) {
     }
 
     if (config.max_runtime.has_value() &&
-        now - start_time >= *config.max_runtime) {
+        Clock::now() - start_time >= *config.max_runtime) {
       state.shutting_down = true;
     }
   }
@@ -3914,8 +3984,8 @@ run_live_capture (const DaemonConfig &config) {
     // Original: "receipt of a SIGTERM or SIGINT will cause softflowd
     // to exit, after expiring all flows (and thus sending flow export
     // packets if -n was specified)".
-    const auto now = Clock::now();
-    const auto wall_now = std::chrono::system_clock::now();
+    const auto now = current_mono();
+    const auto wall_now = current_wall();
     log_expiry_debug_start (config.debug, kCeExpireAll);
     const auto expired = table.expire_flows (now, /*flush_all=*/true);
     log_expiry_debug_queued (config.debug, expired);
@@ -4005,11 +4075,14 @@ print_usage (const char *argv0) {
     "               [-x number_of_mpls_labels (1 to 10)] [-e exporter_ip_address]\n"
     "               [-B size_bytes] [bpf_expression]\n"
     "\n"
-    "Either -i or -r must be given. See softflowd(8) for full option\n"
+    "  -d, --foreground      Don't daemonise (run in foreground)\n"
+    "  -D, --debug           Debug mode: foreground + verbosity + track v6 flows\n"
+    "\n"
+    "One of -i, -r or -R must be given. See softflowd(8) for full option\n"
     "documentation; this project implements the same option grammar as\n"
     "the original softflowd. -P, -A, -x, and -b are fully implemented\n"
     "(see README for details, e.g. SCTP availability and biflow's\n"
-    "encoding); -R (PSAMP receive mode) is not implemented.\n"
+    "encoding).\n"
     "\n"
     "This project's own additions (not part of the original softflowd):\n"
     "  --export-out=PATH     additionally write export packets to a file,\n"

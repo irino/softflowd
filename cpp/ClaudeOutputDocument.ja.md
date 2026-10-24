@@ -17,6 +17,67 @@
 | Stage 5 | MPLS(`-x`)・絶対時刻全形式(`-A`)・TCP/SCTPエクスポート(`-P`)・IPFIX biflow(`-b`)・PSAMP受信モード(`-R`)の本実装 | ✅ 完了 |
 | Stage 6 | `softflowctl`コマンドセットを実マニュアルと完全一致させる修正 + 複数行レスポンス対応 | ✅ 完了 |
 | Stage 7 | `softflowctl`のCLI文法を照合(問題なしと確認)+ `-R`のテンプレート管理を送信元ごとに分離して堅牢化 | ✅ 完了(一部継続中) |
+| Stage 8 | C言語版の最新実装への追従: C版形式のPSAMP・ntopng、`-r` 中の制御ソケット、expiry interval、`-t icmp`、`-s`、snaplen、ライブのバッチ処理、C版とのバイト単位の比較 | ✅ 完了(未完了項目は末尾) |
+
+## Stage 8: C言語版の最新実装への追従
+
+C++版を、小さなパッチを重ねてC言語版の最新実装に追従させました。基準はC版のビルドです。
+`tools/softflowd_test_collector.py compat --a ./softflowd --b ./cpp/build/softflowd+ --strict --psamp`
+が、エクスポートされたデータグラムのバイト単位の一致、制御コマンドの応答、`-D`ログのexpire行、
+`lo`でのライブキャプチャがエクスポートするフローを比較します(Step 5)。対象外は、C版の互換コード
+(`--enable-legacy`、`--enable-compat-export`)とntopng 5.x以前向けのJSONエクスポートです。
+実行ファイルは`softflowd+`と`softflowctl+`です。
+
+### PSAMP(Stage 3・5・7のPSAMPの説明を置き換えます)
+
+PSAMPはC版の形式です。1つのメッセージが1つのキャプチャしたパケットを運びます。内容は、
+サンプルしたパケット列での位置、キャプチャ時刻、エクスポートするフレームのオクテット数、
+フレーム本体です。データメッセージはどれもエクスポートパケット1つ分の大きさで、テンプレートIDは3072、
+テンプレートはデータメッセージ16個ごとに再送します。
+
+`-R receive_port`は`-i`なしでも動きます。キャプチャは行わず、受信するフレームはEthernetフレームです。
+デコードするのはsoftflowd自身がエクスポートするデータレコードだけなので、Stage 7の送信元ごとの
+テンプレート管理はもうありません。受信したフローの時刻はメッセージのobservation timeから決まり、
+`-a`のときは最初のメッセージがboot timeになります(C版と同じ)。
+
+### ntopng
+
+`-v ntopng`は、ntopng 6.0以降のTLV形式(36オクテットのヘッダとnDPIシリアライザ形式)で、
+`-n`の宛先へ接続するZeroMQのPUBソケットからフローを送ります。メッセージを送る部分は
+`-DSOFTFLOW_NTOPNG=ON`でビルドされ、libzmq(pkg-configで検出)が必要です。ntopng 5.x以前のJSON形式は
+未実装です。C版と同じく、統計行の`Flows exported`はntopngでは0のままです。
+
+```sh
+cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-zmq -j
+/tmp/build-zmq/softflowd+ -i eth0 -v ntopng -n 127.0.0.1:5556
+```
+
+### ファイル読み込み中の制御ソケット
+
+`-c`を`-r`と一緒に指定でき、FIFOを待っている間やファイルを読んでいる間も`softflowctl+`が使えます
+(バッチの境目で、pcapのファイルディスクリプタと制御ソケットを一緒にpollします)。制御コマンドの
+応答、usage、終了コードはC版と同じです。
+
+### その他の変更
+
+| 項目 | 動作 |
+|---|---|
+| タイムアウト | `-t icmp=`を受け付け、`-t general=0`は拒否します。`-t expint=`(既定60秒)はフローのexpireをまとめ、少数の大きなエクスポートパケットにします |
+| expire | expireされるフローの順序と理由、`-D`ログの行はC版に合わせました。`-m`を超えるフローを持つ表は、`max_flows`パケットごとに確認します |
+| ライブキャプチャ | 既定のsnaplenは96バイト(IPv6フローを追跡するときは160。`-C`で変更)。キャプチャハンドルは非ブロッキングで、パケットは`pcap_dispatch (max_flows)`単位で取り込みます。snaplenが65535だとバーストでlibpcapが大量にdropしました |
+| `-s` | サンプリング率をNetFlow v5ヘッダのsampling_intervalに書きます(以前は常に0) |
+| flow sequence | `flow_seq`は単調増加するカウンタです(以前は追跡中のフロー数で、番号が重複しました) |
+| `-F hash`、`-F hash-tree` | バケット数と容量はC版に合わせました(2の冪、上限2^24) |
+
+### 既知の差と未完了の項目
+
+- `Flow table:`行(in use、max depth、collisions)は、ハッシュ関数が異なるため一致しません。
+- `-a`のとき、PSAMP受信側はフローの絶対時刻をwall clockから出力します。C版は直近のobservation time
+  を使います。ライブのループではまだ`-a`を扱っていません。
+- ライブキャプチャは`lo`でのみ確認しました。実NICとBSDは未確認です。`--enable-ifname`と
+  オプションレコードのinterfaceNameは未実装です。
+- ライブでの強制expireのエクスポートパケット数は、libpcapのパケットの渡し方で決まります
+  (C版も実行ごとにばらつきます)。一致は目指しません。
 
 ## Stage 7: softflowctlのCLI文法照合 + -Rのテンプレート管理堅牢化
 
@@ -112,7 +173,7 @@ TCPフラグをRFC 5103のReverse Information Element(Private Enterprise Number
 このプロジェクトが送信する形式以外もある程度デコード可能な設計です)。
 `-i`のライブキャプチャループに4つ目のpollディスクリプタとして統合し、
 受信したPSAMPサンプルを通常のパケットキャプチャと同様に`FlowTable::record_packet()`
-に投入します。実際に2つの`softflowd_cpp`インスタンス(送信側`-v psamp -n`、
+に投入します。実際に2つの`softflowd+`インスタンス(送信側`-v psamp -n`、
 受信側`-R`)間でend-to-end送受信・フロー追跡を確認済みです。
 
 ### 開発中に見つかった実環境依存の問題と修正
@@ -145,10 +206,10 @@ Stage 3までは独自の`--backend`/`--export`/`--live`等の長いオプショ
 
 ```sh
 # 元のsoftflowdと全く同じ書き方で動作します
-softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
-softflowd_cpp -i eth0 -l -n 10.1.0.2:4432,10.1.0.3:4432
-softflowd_cpp -v 9 -i eth0 -n 224.0.1.20:4432 -L 64
-softflowd_cpp -i eth0 -p /var/run/sfd.pid.eth0 -c /var/run/sfd.ctl.eth0
+softflowd+ -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
+softflowd+ -i eth0 -l -n 10.1.0.2:4432,10.1.0.3:4432
+softflowd+ -v 9 -i eth0 -n 224.0.1.20:4432 -L 64
+softflowd+ -i eth0 -p /var/run/sfd.pid.eth0 -c /var/run/sfd.ctl.eth0
 ```
 
 実装済みのオプション(元softflowdと同じ意味・書式):
@@ -230,10 +291,10 @@ NetFlow v9はC言語版と同じくIPFIX exporterで出力するため、`netflo
 
 ### `main()`と`softflowctl`の実行ファイル分離
 
-元プロジェクト同様、`softflowctl`は独立した実行ファイル(`softflowctl_cpp`)
+元プロジェクト同様、`softflowctl`は独立した実行ファイル(`softflowctl+`)
 です。`softflowctl.cpp`は制御プロトコルの共有ヘルパー(`read_line`/
-`write_line`/`ControlClient`)と、`softflowctl_cpp`自身の`main()`(`#ifndef
-SOFTFLOW_NO_MAIN`で保護)の両方を含みます。`softflowd_cpp`の制御ソケット
+`write_line`/`ControlClient`)と、`softflowctl+`自身の`main()`(`#ifndef
+SOFTFLOW_NO_MAIN`で保護)の両方を含みます。`softflowd+`の制御ソケット
 サーバー側は`softflowd.cpp`内に実装されており(元プロジェクトでも
 `softflowd.c`側がリスニング/acceptを担当していたため)、`softflowctl.cpp`が
 提供する共有プロトコルヘルパーだけをリンクします。
@@ -275,11 +336,11 @@ src/
   セレクタ識別子やパケットハッシュ等のフィールドは省略し、タイムスタンプ・
   アドレス・ポート・プロトコル・観測長という実用上有用な部分集合のみを
   エクスポートします
-- `softflowd_cpp`実行ファイルから`--export=netflow1|netflow5|netflow9|ipfix|psamp`
+- `softflowd+`実行ファイルから`--export=netflow1|netflow5|netflow9|ipfix|psamp`
   で実際に試せます(下記参照)
 
 ```sh
-./build/softflowd_cpp --export=netflow9 --export-out=out.bin path/to/capture.pcap
+./build/softflowd+ --export=netflow9 --export-out=out.bin path/to/capture.pcap
 ```
 
 出力ファイルは各パケットに4バイトのビッグエンディアン長さプレフィックスを
@@ -320,7 +381,7 @@ NetFlow/IPFIX自体の仕様には含まれません)。
 `#ifndef SOFTFLOW_NO_MAIN`で囲んであり、`CMakeLists.txt`は次のように
 同じソースファイルを2通りにビルドします:
 
-- `softflowd_cpp`実行ファイル: `softflowd.cpp`をそのままビルド(`main()`あり)
+- `softflowd+`実行ファイル: `softflowd.cpp`をそのままビルド(`main()`あり)
 - `softflow_core`(テスト用オブジェクトライブラリ): `-DSOFTFLOW_NO_MAIN`付きで
   `softflowd.cpp`をビルド(`main()`なし)。各テストが自分の`main()`を提供する
 
@@ -346,7 +407,7 @@ softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
 softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
 ```
 
-`softflowd_cpp`実行ファイルは`-F hash-tree`/`-F tree`/`-F hash`オプションで
+`softflowd+`実行ファイルは`-F hash-tree`/`-F tree`/`-F hash`オプションで
 フロー表を実行時に切り替えられます(下記参照)。
 
 ## ビルド方法
@@ -362,18 +423,18 @@ UndefinedBehaviorSanitizer が自動で有効になります。
 
 ```sh
 # pcapファイルを処理し、統計を表示(-r、元softflowdと同じ書式)
-./build/softflowd_cpp -r path/to/capture.pcap
+./build/softflowd+ -r path/to/capture.pcap
 
 # 赤黒木(std::map)のフロー表を使う
-./build/softflowd_cpp -r path/to/capture.pcap -F tree
+./build/softflowd+ -r path/to/capture.pcap -F tree
 
 # NetFlow v5をコレクタに実際に送信(元softflowdと同じ書式)
-./build/softflowd_cpp -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
+./build/softflowd+ -i eth0 -n 10.1.0.2:4432 -m 65536 -t udp=1m30s
 
 # ライブキャプチャ + softflowctlで制御
-./build/softflowd_cpp -i eth0 -d -c /tmp/sf.ctl &
-./build/softflowctl_cpp -c /tmp/sf.ctl statistics
-./build/softflowctl_cpp -c /tmp/sf.ctl shutdown
+./build/softflowd+ -i eth0 -d -c /tmp/sf.ctl &
+./build/softflowctl+ -c /tmp/sf.ctl statistics
+./build/softflowctl+ -c /tmp/sf.ctl shutdown
 ```
 
 ## メモリ安全性の対応表(記事の原則 → 適用箇所)
@@ -426,7 +487,7 @@ src/
                           制御ソケットサーバー + PSAMP受信ソケット統合
                           (元 softflowd.c + freelist.c)
   daemon.cpp               (元 daemon.c)
-  softflowctl.cpp           制御プロトコル実装 + softflowctl_cpp本体の main()
+  softflowctl.cpp           制御プロトコル実装 + softflowctl+本体の main()
                           (元 softflowctl.c)
   export.cpp / export_common.cpp / psamp.cpp
 tests/
@@ -439,20 +500,13 @@ tests/
                           OSプロセスを跨がない設計)
 ```
 
-ビルドすると`softflowd_cpp`(デーモン本体)と`softflowctl_cpp`(制御クライアント)
+ビルドすると`softflowd+`(デーモン本体)と`softflowctl+`(制御クライアント)
 の2つの実行ファイルが生成されます。
 
-## 次のステップ(Stage 7の予定)
+## 未完了の項目
 
-- ライブキャプチャのテストカバレッジ拡充(このプロジェクトの開発時に判明した、
-  仮想化/サンドボックス環境でのpcapタイムアウト非信頼性のような環境依存の
-  問題を継続的に検出できるようにする)
-- `-R`のテンプレート管理の堅牢化(現在は単一の`PsampReceiver`が全テンプレートを
-  無期限に保持する設計。実運用では複数エクスポータからの接続やテンプレートの
-  再定義への対応強化が考えられます)
-- SCTPの動作確認(このプロジェクトの開発・検証環境ではSCTPカーネルモジュールが
-  利用できず、フォールバック経路のみ確認済み。実SCTP環境での検証が望まれます)
-- `softflowctl`のコマンドライン引数(`-c ctl_sock command`)自体は元の
-  `softflowctl(8)`と一致しているか、より詳細な照合の余地があります
-
-続行のご指示があれば、この方針でStage 7に進みます。
+- ライブのループでの`-a`(PSAMP受信モードも含む): C版の`-a`のように、直近のパケット時刻を現在時刻にする
+- コマンドラインのエラーメッセージ(`Invalid -t name.`やusage)をC版に合わせる(現在は終了コードのみ一致)
+- ZeroMQ付きビルド(`-DSOFTFLOW_NTOPNG=ON`)のCIジョブ
+- 実NICとBSDでのライブキャプチャ、`--enable-ifname`
+- 実環境でのSCTPの確認(開発環境にSCTPのカーネルモジュールがなく、udpへのフォールバックだけを確認済み)
