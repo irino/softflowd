@@ -188,7 +188,11 @@ Netflow5Exporter::write_header (
   writer.put_u32 (flow_seq_);  // flow_sequence
   writer.put_u8 (0);           // engine_type
   writer.put_u8 (0);           // engine_id
-  writer.put_u16 (0);          // sampling_interval (no sampling configured)
+  // Original: sampling_interval is (mode 1 << 14) | (rate & 0x3FFF) when -s is
+  // above 1, and 0 otherwise.
+  writer.put_u16 (sampling_rate_ > 1
+                    ? static_cast<std::uint16_t> ((0x01 << 14) | (sampling_rate_ & 0x3FFF))
+                    : 0);
 }
 
 std::vector<std::vector<std::uint8_t>>

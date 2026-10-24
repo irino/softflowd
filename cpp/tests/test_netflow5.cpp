@@ -19,6 +19,30 @@ IpAddress make_v4(std::uint8_t a, std::uint8_t b, std::uint8_t c,
     return addr;
 }
 
+// Original: sampling_interval of the header is (mode 1 << 14) | (rate & 0x3FFF)
+// when -s is above 1, and 0 otherwise.
+void test_header_carries_the_sampling_rate() {
+    const auto boot = Clock::now();
+    const auto a = make_v4(10, 0, 0, 1);
+    const auto b = make_v4(10, 0, 0, 2);
+    const auto key = FlowKey::make_canonical(a, b, 1, 2, 6, 0, {0, 0});
+    Flow flow;
+    flow.flow_start = boot;
+    flow.flow_last = boot;
+    flow.octets = {100, 0};
+    flow.packets = {1, 0};
+    const ExportRecord record{key, flow};
+    const auto wall = std::chrono::system_clock::time_point(1700000000s);
+
+    for (const auto& [rate, field] : {std::pair<std::uint32_t, std::uint16_t>{0, 0},
+                                       {1, 0}, {10, 0x400a}, {100, 0x4064}, {20000, 0x4e20}}) {
+        Netflow5Exporter exporter(boot, false, rate);
+        const auto packets = exporter.build_packets(std::span<const ExportRecord>(&record, 1), boot, wall);
+        assert(packets.size() == 1);
+        assert(packets[0][22] == (field >> 8) && packets[0][23] == (field & 0xff));
+    }
+}
+
 void test_header_version_and_sequence_increments() {
     const auto boot = Clock::now();
     Netflow5Exporter exporter(boot);
@@ -78,6 +102,7 @@ void test_record_size_and_count() {
 } // namespace
 
 int main() {
+    test_header_carries_the_sampling_rate();
     test_header_version_and_sequence_increments();
     test_record_size_and_count();
     std::puts("all netflow5 tests passed");

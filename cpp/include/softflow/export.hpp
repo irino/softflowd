@@ -72,8 +72,12 @@ public:
     // (verbose_flag) behavior of logging "Sending v5 flow packet len =
     // %d" to stderr right before each UDP packet is handed off to
     // send_multi_destinations().
-    explicit Netflow5Exporter(TimePoint boot_time, bool debug = false)
-        : boot_time_(boot_time), debug_(debug) {}
+    //
+    // sampling_rate: -s. Above 1 it is put in the sampling_interval field of
+    // the header, with the sampling mode 1 (deterministic) in its top 2 bits.
+    explicit Netflow5Exporter(TimePoint boot_time, bool debug = false,
+                              std::uint32_t sampling_rate = 0)
+        : boot_time_(boot_time), debug_(debug), sampling_rate_(sampling_rate) {}
 
     void set_boot_time(TimePoint boot_time) noexcept { boot_time_ = boot_time; }
 
@@ -102,6 +106,7 @@ private:
     TimePoint boot_time_;
     std::uint32_t flow_seq_{0};
     bool debug_{false};
+    std::uint32_t sampling_rate_{0};
 };
 
 class IpfixExporter {

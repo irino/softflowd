@@ -1739,7 +1739,7 @@ parse_time_spec (const std::string &spec) {
 }
 
 // Original: -t timeout_name=time. Named timeouts are: general, tcp,
-// tcp.rst, tcp.fin, udp, maxlife, expint (see softflowd(8)'s "Timeouts"
+// tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see softflowd(8)'s "Timeouts"
 // section).
 void
 apply_timeout_option (DaemonConfig &config, const std::string &spec) {
@@ -1760,12 +1760,20 @@ apply_timeout_option (DaemonConfig &config, const std::string &spec) {
     config.timeouts.tcp_fin = value;
   } else if (name == "udp") {
     config.timeouts.udp = value;
+  } else if (name == "icmp") {
+    config.timeouts.icmp = value;
   } else if (name == "maxlife") {
     config.timeouts.maximum_lifetime = value;
   } else if (name == "expint") {
     config.expiry_interval = value;
   } else {
     throw std::invalid_argument ("unknown timeout name: " + name);
+  }
+
+  // Original: the general timeout may not be 0, as the check of an idle flow
+  // would then never find anything idle.
+  if (config.timeouts.general.count() == 0) {
+    throw std::invalid_argument ("\"general\" flow timeout must be greater than zero");
   }
 }
 
@@ -2116,7 +2124,7 @@ public:
         netflow1_.emplace (boot_time, config.debug);
         break;
       case ExportFormat::Netflow5:
-        netflow5_.emplace (boot_time, config.debug);
+        netflow5_.emplace (boot_time, config.debug, config.sampling_rate);
         break;
       case ExportFormat::Netflow9:
       case ExportFormat::Ipfix:
