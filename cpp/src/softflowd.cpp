@@ -1774,9 +1774,8 @@ convtime (const char *s) {
 
 // Original: set_timeout (). -t timeout_name=time. Named timeouts are:
 // general, tcp, tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see
-// softflowd(8)'s "Timeouts" section). The original keeps the time in an int,
-// which silently drops the upper bits of a longer one; such a time is
-// rejected here.
+// softflowd(8)'s "Timeouts" section). As in the original, the time is kept in
+// an int, so a longer one is rejected.
 void
 set_timeout (DaemonConfig &config, const char *to_spec) {
   const std::string spec = to_spec;

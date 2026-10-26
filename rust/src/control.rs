@@ -220,7 +220,7 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
                 };
                 let proto_str = format!("{} ({})", proto_name, i);
                 out.push_str(&format!(
-                    "  {:17}: {:14} {:12}   {:8.2}s {:10.2}s\n",
+                    "  {:>17}: {:14} {:12}   {:>8.2}s {:>10.2}s\n",
                     proto_str,
                     p.octets_pp[i],
                     p.packets_pp[i],

@@ -1071,7 +1071,7 @@ ipv6_to_flowrec (struct FLOW *flow, const u_int8_t *pkt,
   }
   flow->protocol = track_lv >= TRACK_IP_PROTO ? nxt : 0;
   flow->tos[*ndx] = track_lv >= TRACK_FULL
-                      ? (ntohl (ip6->ip6_flow) & ntohl (0x0ff00000)) >> 20
+                      ? (ntohl (ip6->ip6_flow) & 0x0ff00000) >> 20
                       : 0;
   return size;
 }
@@ -2295,9 +2295,11 @@ recvsock (uint16_t portnumber) {
   addr.sin_port = htons (portnumber);
   addr.sin_addr.s_addr = INADDR_ANY;
   if (bind (rsock, (struct sockaddr *) &addr, sizeof (addr)) < 0) {
-    perror ("bind");
+    fprintf (stderr, "bind to UDP port %u failed: %s\n", (unsigned) portnumber,
+             strerror (errno));
+    close (rsock);
     return -1;
-  };
+  }
   return rsock;
 }
 
@@ -2769,6 +2771,7 @@ die_usage (const char *fmt, ...) {
 static void
 set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
   char *name, *value;
+  long secs;
   int timeout;
 
   if ((name = strdup (to_spec)) == NULL) {
@@ -2779,10 +2782,12 @@ set_timeout (struct FLOWTRACK *ft, const char *to_spec) {
     die_usage ("Invalid -t option \"%s\".\n", name);
   }
   *(value - 1) = '\0';
-  timeout = convtime (value);
-  if (timeout < 0) {
+  secs = convtime (value);
+  /* The timeouts are kept in an int; a longer one must not be truncated. */
+  if (secs < 0 || secs > INT_MAX) {
     die_usage ("Invalid -t timeout.\n");
   }
+  timeout = (int) secs;
   if (strcmp (name, "tcp") == 0)
     ft->param.tcp_timeout = timeout;
   else if (strcmp (name, "tcp.rst") == 0)
@@ -3278,6 +3283,8 @@ main (int argc, char **argv) {
         if (recvport < 0 && recvport > 65535)
           recvport = IPFIX_PORT;
         rsock = recvsock ((uint16_t) recvport);
+        if (rsock < 0)
+          exit (1);
         break;
       case 's':
         flowtrack.param.option.sample = atoi (optarg);

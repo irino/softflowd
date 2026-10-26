@@ -214,8 +214,24 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Write PID file
     if let Some(ref path) = pidfile_path {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok(pid) = content.trim().parse::<i32>() {
+                if pid > 0 {
+                    let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
+                    if res.is_ok() || res.err() == Some(nix::errno::Errno::EPERM) {
+                        eprintln!("Already running under pid {}", pid);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
         if let Err(e) = std::fs::write(path, format!("{}\n", std::process::id())) {
-            log::warn!("Could not write PID file {}: {}", path, e);
+            if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
+                eprintln!("Couldn't open pidfile {}: {}", path, e);
+                std::process::exit(1);
+            } else {
+                log::warn!("Could not write PID file {}: {}", path, e);
+            }
         }
     }
 
