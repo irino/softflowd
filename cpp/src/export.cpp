@@ -72,8 +72,8 @@ Netflow1Exporter::build_packets (
       writer.put_ipv4 (*r.src);  // srcaddr
       writer.put_ipv4 (*r.dst);  // dstaddr
       writer.put_u32 (0);        // nexthop (not tracked)
-      writer.put_u16 (0);        // input ifIndex (not tracked)
-      writer.put_u16 (0);        // output ifIndex (not tracked)
+      writer.put_u16 (if_index_);  // input ifIndex
+      writer.put_u16 (if_index_);  // output ifIndex
       writer.put_u32 (static_cast<std::uint32_t> (
         std::min<std::uint64_t> (r.packets, 0xFFFFFFFFu)));  // dPkts
       writer.put_u32 (static_cast<std::uint32_t> (
@@ -219,8 +219,8 @@ Netflow5Exporter::build_packets (
       writer.put_ipv4 (*r.src);
       writer.put_ipv4 (*r.dst);
       writer.put_u32 (0);  // nexthop
-      writer.put_u16 (0);  // input ifIndex
-      writer.put_u16 (0);  // output ifIndex
+      writer.put_u16 (if_index_);  // input ifIndex
+      writer.put_u16 (if_index_);  // output ifIndex
       writer.put_u32 (static_cast<std::uint32_t> (
         std::min<std::uint64_t> (r.packets, 0xFFFFFFFFu)));
       writer.put_u32 (static_cast<std::uint32_t> (
@@ -378,6 +378,7 @@ struct L2Fields {
 struct TailFormat {
   std::uint8_t mpls_label_count;
   TrackLevel track_level;
+  std::uint32_t if_index;  // ingressInterface and egressInterface
 };
 
 std::size_t
@@ -532,17 +533,17 @@ flatten (std::span<const ExportRecord> records,
 // identically regardless of address family or ICMP-ness, between the
 // address fields/timestamps and the transport-or-ICMP fields.
 //
-// ingressInterface/egressInterface are hardcoded to 0, matching this
-// project's existing convention in the NetFlow v1 and v5 exporters above
-// (interface index isn't tracked anywhere in this codebase).
+// ingressInterface/egressInterface are the index of -i idx:interface (0 when
+// there is none, as for a capture file).
 void
-write_common_fields (ByteWriter &writer, const IpfixDirectionalRecord &r) {
+write_common_fields (ByteWriter &writer, const IpfixDirectionalRecord &r,
+                     std::uint32_t if_index) {
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.octets, 0xFFFFFFFFu)));  // octetDeltaCount
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.packets, 0xFFFFFFFFu)));  // packetDeltaCount
-  writer.put_u32 (0);                                    // ingressInterface
-  writer.put_u32 (0);                                    // egressInterface
+  writer.put_u32 (if_index);                             // ingressInterface
+  writer.put_u32 (if_index);                             // egressInterface
   writer.put_u8 (r.direction);                           // flowDirection
   writer.put_u8 (r.flow_end_reason);                     // flowEndReason
 }
@@ -554,7 +555,7 @@ write_v4_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   writer.put_ipv4 (*r.src);  // sourceIPv4Address
   writer.put_ipv4 (*r.dst);  // destinationIPv4Address
   write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  write_common_fields (writer, r);
+  write_common_fields (writer, r, tail.if_index);
   writer.put_u16 (r.src_port);  // sourceTransportPort
   writer.put_u16 (r.dst_port);  // destinationTransportPort
   writer.put_u8 (r.protocol);   // protocolIdentifier
@@ -571,7 +572,7 @@ write_v6_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   writer.put_ipv6 (*r.src);
   writer.put_ipv6 (*r.dst);
   write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  write_common_fields (writer, r);
+  write_common_fields (writer, r, tail.if_index);
   writer.put_u16 (r.src_port);
   writer.put_u16 (r.dst_port);
   writer.put_u8 (r.protocol);
@@ -593,7 +594,7 @@ write_v4_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   writer.put_ipv4 (*r.src);
   writer.put_ipv4 (*r.dst);
   write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  write_common_fields (writer, r);
+  write_common_fields (writer, r, tail.if_index);
   writer.put_u16 (r.dst_port);  // icmpTypeCode
   writer.put_u8 (r.protocol);   // protocolIdentifier
   writer.put_u8 (4);            // ipVersion
@@ -608,7 +609,7 @@ write_v6_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   writer.put_ipv6 (*r.src);
   writer.put_ipv6 (*r.dst);
   write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  write_common_fields (writer, r);
+  write_common_fields (writer, r, tail.if_index);
   writer.put_u16 (r.dst_port);
   writer.put_u8 (r.protocol);
   writer.put_u8 (6);
@@ -712,8 +713,8 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
     std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (0);  // ingressInterface
-  writer.put_u32 (0);  // egressInterface
+  writer.put_u32 (tail.if_index);  // ingressInterface
+  writer.put_u32 (tail.if_index);  // egressInterface
   writer.put_u8 (r.direction);  // flowDirection of endpoint 0; see doc comment above
   writer.put_u8 (r.flow_end_reason);
   writer.put_u16 (r.src_port);
@@ -1181,7 +1182,7 @@ IpfixExporter::build_packets (
   std::chrono::system_clock::time_point wall_now,
   std::vector<std::size_t> *template_only_packets) {
   std::vector<std::vector<std::uint8_t>> packets;
-  const TailFormat tail_{mpls_label_count_, track_level_};
+  const TailFormat tail_{mpls_label_count_, track_level_, if_index_};
 
   // The record-count bookkeeping (data_records_in_packet, used only for
   // RFC 7011's "Sequence Number counts Data Records" rule) and the

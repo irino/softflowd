@@ -68,12 +68,24 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
 | `-s` | サンプリング率をNetFlow v5ヘッダのsampling_intervalに書きます(以前は常に0) |
 | flow sequence | `flow_seq`は単調増加するカウンタです(以前は追跡中のフロー数で、番号が重複しました) |
 | `-F hash`、`-F hash-tree` | バケット数と容量はC版に合わせました(2の冪、上限2^24) |
+| ライブのフロー時刻 | フローの時刻は、パケットを読んだ時刻ではなく、libpcapのタイムスタンプ(`phdr->ts`)です。`-a`のときは最初のパケットがboot timeになり、直近のパケットの時刻が現在時刻になります(pollの待ち時間、expire、終了時のexpire、`expire-all`)。C版と同じです |
+| コマンドラインのエラー | メッセージ、usage(C版の本文の後に本プロジェクトの追加オプションが続きます)、終了コード1はC版と同じです。規則もC版に合わせました: `-L`は0〜255、`-s`・`-B`・`-C`・`-R`は`atoi ()`、`-T`・`-P`・`-A`の名前は大文字小文字を区別しない、後の`-n`が前の`-n`を置き換える、宛先は16個まで、各宛先はオプションを読むときに名前解決する、`-t`は`convtime ()`で解釈する |
+| 起動時のエラー | キャプチャ、そのフィルタ、制御ソケットは、forkの前に用意します。エラーが画面に出て終了コードが1になります(以前はデーモンの標準エラーとともに失われていました)。文面はC版と同じです(`pcap_activate: ...`、`pcap_compile("..."): ...`、`unix domain bind("...") error: ...`) |
+| `-T port` | ポートを追跡し、ToSは出力しません(`proto`と`full`の間)。本プロジェクトの`-T full-tos`も残しています |
+| `-i idx:interface` | 番号は、NetFlow v1・v5の入出力インターフェース、v9・IPFIXのingress/egressインターフェース、それらのオプションのscopeに入ります。省略したときは、宛先があれば起動時にインターフェースの番号を調べます |
+| `-c none` | 制御ソケットを作りません |
+| 宛先なし | `-n`がなくても、パケットを作ってエクスポート済みとして数えます(C版と同じ) |
 
 ### 既知の差と未完了の項目
 
 - `Flow table:`行(in use、max depth、collisions)は、ハッシュ関数が異なるため一致しません。
-- `-a`のとき、PSAMP受信側はフローの絶対時刻をwall clockから出力します。C版は直近のobservation time
-  を使います。ライブのループではまだ`-a`を扱っていません。
+- C版が誤っているコマンドラインは合わせていません。`-I abc`と`-e`の不明なホスト(呼び出しが設定していない
+  errnoの文面を`perror ()`が出します)、`-n`のポート(C版は16ビットに切り詰めます。C++版は書かれたとおりに
+  表示します)、intに収まらない`-t`の時間(C版は切り詰め、C++版は拒否します)、"Exporting flows from"に
+  表示される`-r`のファイル名(C版は15文字に切り詰めます)、IPv6パケットのToS(C版はマスクのバイト順の
+  誤りのため0を出力します)です。
+- 統計はC版が数えるものをすべては数えていません。`-v psamp`の"Packets processed"と、
+  "Ignored packets"(non-IP、too short)です。
 - ライブキャプチャは`lo`でのみ確認しました。実NICとBSDは未確認です。`--enable-ifname`と
   オプションレコードのinterfaceNameは未実装です。
 - ライブでの強制expireのエクスポートパケット数は、libpcapのパケットの渡し方で決まります
@@ -505,8 +517,7 @@ tests/
 
 ## 未完了の項目
 
-- ライブのループでの`-a`(PSAMP受信モードも含む): C版の`-a`のように、直近のパケット時刻を現在時刻にする
-- コマンドラインのエラーメッセージ(`Invalid -t name.`やusage)をC版に合わせる(現在は終了コードのみ一致)
+- 統計: `-v psamp`の"Packets processed"と、"Ignored packets"(non-IP、too short)
 - ZeroMQ付きビルド(`-DSOFTFLOW_NTOPNG=ON`)のCIジョブ
 - 実NICとBSDでのライブキャプチャ、`--enable-ifname`
 - 実環境でのSCTPの確認(開発環境にSCTPのカーネルモジュールがなく、udpへのフォールバックだけを確認済み)

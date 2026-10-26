@@ -2966,6 +2966,95 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
     return ok
 
 
+# Command lines that the C version reports as an error (or accepts in an odd way), for parity_cli_errors ().
+# {pcap} is the capture file and {ctl} a control socket path. These are not compared on purpose, because the
+# C version is wrong there: -I abc (perror () prints the text of an errno that strtol () did not set),
+# -e of an unknown host (the same with getaddrinfo ()), -n host:99999 (the port is cut to 16 bits, and the
+# C++ version shows the port as it was written), and -t maxlife=99999999999 (the C version drops the upper
+# bits of the time, the C++ version rejects it). The statistics of -v psamp are not compared either: the
+# C++ version does not count "Packets processed" for it. And the file name of -r that "Exporting flows from"
+# shows is cut to 15 characters by the C version.
+PARITY_CLI_ERROR_CASES = [
+    [], ["-h"], ["--help"], ["-z"], ["--bogus"], ["-i"], ["-r"], ["-t"], ["-X"],
+    ["-i", "lo", "-r", "{pcap}"], ["-r", "{pcap}", "-i", "lo"], ["-r", "{pcap}", "-r", "{pcap}"],
+    ["-i", ""], ["-i", ":"], ["-i", "1:"], ["-r", "/nonexistent/x.pcap", "-n", "127.0.0.1:9"],
+    ["-r", "/etc/passwd", "-n", "127.0.0.1:9"], ["-r", "{pcap}", "-n", "127.0.0.1:9", "this is not a filter"],
+    ["-T", "bogus", "-r", "{pcap}"], ["-P", "bogus", "-r", "{pcap}"], ["-F", "bogus", "-r", "{pcap}"],
+    ["-A", "bogus", "-r", "{pcap}"], ["-v", "99", "-r", "{pcap}"], ["-v", "abc", "-r", "{pcap}"],
+    ["-v", "0", "-r", "{pcap}"], ["-m", "0", "-r", "{pcap}"], ["-m", "abc", "-r", "{pcap}"],
+    ["-m", "-5", "-r", "{pcap}"], ["-x", "0", "-r", "{pcap}"], ["-x", "11", "-r", "{pcap}"],
+    ["-L", "300", "-r", "{pcap}"], ["-L", "-1", "-r", "{pcap}"], ["-H", "zz", "-r", "{pcap}"],
+    ["-n", "no.such.host.invalid:99", "-r", "{pcap}"], ["-n", "", "-r", "{pcap}"],
+    ["-n", "127.0.0.1", "-r", "{pcap}"], ["-n", "127.0.0.1:abc", "-r", "{pcap}"],
+    ["-n", "127.0.0.1:", "-r", "{pcap}"], ["-n", ":9", "-r", "{pcap}"],
+    ["-t", "bogus", "-r", "{pcap}"], ["-t", "bogus=1", "-r", "{pcap}"], ["-t", "general=0", "-r", "{pcap}"],
+    ["-t", "udp=abc", "-r", "{pcap}"], ["-t", "udp=", "-r", "{pcap}"], ["-t", "udp=-1", "-r", "{pcap}"],
+    ["-t", "expint=abc", "-r", "{pcap}"], ["-t", "tcp", "-r", "{pcap}"],
+    ["-I", "5x", "-r", "{pcap}"], ["-s", "abc", "-n", "127.0.0.1:9", "-r", "{pcap}"],
+    ["-B", "abc", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-C", "abc", "-n", "127.0.0.1:9", "-r", "{pcap}"],
+    ["-R", "abc", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-r", "{pcap}"], ["-n", "127.0.0.1:9"],
+    ["-T", "port", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-T", "ICMP", "-r", "{pcap}"],
+    ["-c", "none", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-c", "/nonexistent/dir/ctl", "-n", "127.0.0.1:9", "-r", "{pcap}"],
+    ["-r", "{pcap}", "-c", "/nonexistent/dir/ctl", "-n", "127.0.0.1:9"],
+    # The capture and the control socket are set up before the process forks (no -d).
+    ["-i", "nonexistent0", "-n", "127.0.0.1:9"], ["-d", "-i", "nonexistent0", "-n", "127.0.0.1:9"],
+    ["-i", "lo", "-n", "127.0.0.1:9", "-c", "{ctl}", "this is not a filter"],
+    ["-i", "lo", "-n", "127.0.0.1:9", "-c", "/nonexistent/dir/ctl"],
+    ["-i", "lo", "-n", "127.0.0.1:9", "-c", "/tmp/" + "x" * 120],
+    ["-R", "0", "-c", "/nonexistent/dir/ctl"],
+]
+
+
+def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
+    """A command line that is wrong, or odd, is reported by B as A reports it: the message, the usage (the
+    options of B that A does not have follow it), the standard output and the exit status."""
+    ctl = os.path.join(SUITE_TMP_DIR, "cli_errors.ctl")
+
+    def run(daemon: str, args: List[str]) -> Tuple[str, str, object]:
+        daemon = os.path.abspath(daemon)
+        try:
+            r = subprocess.run([daemon] + args, capture_output=True, text=True, timeout=10,
+                               stdin=subprocess.DEVNULL, cwd=SUITE_TMP_DIR)
+            out, err, rc = r.stdout, r.stderr, r.returncode
+        except subprocess.TimeoutExpired:
+            out, err, rc = "", "", "TIMEOUT"
+        norm = os.path.basename(daemon)
+
+        def clean(t: str) -> str:
+            t = t.replace(SUITE_TMP_DIR, "TMP").replace(pcap, "PCAP")      # the paths may contain the program name
+            # A took 15 characters of the file name of -r, as it keeps it in a buffer for an interface name.
+            t = re.sub(r"Exporting flows from \S* to ", "Exporting flows from SOURCE to ", t)
+            t = t.replace("/var/run/softflowd.", "/var/run/DEFAULT.").replace(daemon, "PROG").replace(norm, "PROG")
+            t = re.sub(r"version \d+\.\d+\.\d+", "version X", t)
+            t = re.sub(r"PROG v\d+\.\d+\.\d+ ", "PROG vX ", t)
+            return re.sub(r"This project's own additions.*", "", t, flags=re.S)
+        return clean(out), clean(err), rc
+
+    different = []
+    for template in PARITY_CLI_ERROR_CASES:
+        args = [a.format(pcap=pcap, ctl=ctl) for a in template]
+        if "lo" in args and not parity_can_capture_lo() and "-i" in args and args[args.index("-i") + 1] == "lo":
+            continue                    # needs root to open lo, as the other live checks
+        a, b = run(a_daemon, args), run(b_daemon, args)
+        if a != b:
+            if a[2] != b[2]:
+                what, x, y = "exit status", [str(a[2])], [str(b[2])]
+            else:
+                what, x, y = ("standard output", a[0], b[0]) if a[0] != b[0] else ("standard error", a[1], b[1])
+                x, y = x.splitlines(), y.splitlines()
+            line = next((i for i in range(max(len(x), len(y)))
+                         if (x[i] if i < len(x) else None) != (y[i] if i < len(y) else None)), 0)
+            different.append((" ".join(template) or "(no arguments)", what,
+                              x[line] if line < len(x) else "(none)", y[line] if line < len(y) else "(none)"))
+    if not different:
+        print_green(f"    - command lines that are wrong ({len(PARITY_CLI_ERROR_CASES)} cases), message, usage and exit status: MATCHED")
+        return True
+    print_red(f"    - command lines that are wrong: {len(different)} of {len(PARITY_CLI_ERROR_CASES)} DIFFER")
+    for text, what, x, y in different[:8]:
+        print_red(f"        {text}: {what} differs: A {x!r}, B {y!r}")
+    return False
+
+
 def parity_cli(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """-t is accepted or refused by A and B alike: the names, and the general timeout of 0."""
     ok = True
@@ -2990,6 +3079,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     print("  [Step 5] Verifying that B does what A does, byte for byte...")
     pcaps = parity_make_pcaps(tempfile.mkdtemp(dir=SUITE_TMP_DIR))
     ok = parity_cli(a_daemon, b_daemon, pcaps["smoke"])
+    ok = parity_cli_errors(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
     ok = parity_multithread(b_daemon, pcaps) and ok

@@ -47,8 +47,10 @@
 #include <cerrno>
 #include <climits>
 #include <csignal>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>
 #include <stdexcept>
 
 #include <poll.h>
@@ -938,8 +940,7 @@ PacketParser::parse_ipv4 (std::span<const std::uint8_t> data) const {
     packet.tos = 0;
   }
 
-  if (packet.is_first_fragment &&
-      track_level_ >= TrackLevel::IpProtoPort) {
+  if (packet.is_first_fragment && track_level_ >= TrackLevel::Port) {
     parse_transport (packet, data.subspan (header_len), data[9]);
   }
 
@@ -1017,7 +1018,7 @@ PacketParser::parse_ipv6 (std::span<const std::uint8_t> data) const {
   packet.protocol =
     track_level_ >= TrackLevel::IpProto ? next_header : std::uint8_t{0};
 
-  if (packet.is_first_fragment && track_level_ >= TrackLevel::IpProtoPort &&
+  if (packet.is_first_fragment && track_level_ >= TrackLevel::Port &&
       offset <= data.size()) {
     parse_transport (packet, data.subspan (offset), next_header);
   }
@@ -1170,8 +1171,7 @@ PcapHandle::open_live (const std::string &device, int snaplen,
   std::array<char, PCAP_ERRBUF_SIZE> errbuf{};
   pcap_t *handle = pcap_create (device.c_str(), errbuf.data());
   if (handle == nullptr) {
-    throw PcapError ("pcap_create failed for device '" + device +
-                     "': " + errbuf.data());
+    throw PcapError (std::string ("pcap_create: ") + errbuf.data());
   }
   // pcap_create()/pcap_activate() is used instead of the legacy
   // pcap_open_live() specifically so buffer_bytes (original: -B) and
@@ -1180,9 +1180,18 @@ PcapHandle::open_live (const std::string &device, int snaplen,
   // exit(1);` -- here every setup step below throws instead of exiting,
   // matching the rest of this project's RAII/exception-based error
   // handling.
-  pcap_set_snaplen (handle, snaplen);
-  pcap_set_promisc (handle, promiscuous ? 1 : 0);
-  pcap_set_timeout (handle, static_cast<int> (read_timeout.count()));
+  // Original: setup_packet_capture () checks the result of each of them.
+  const auto check = [&] (int result, const char *name) {
+    if (result != 0) {
+      const std::string err = pcap_geterr (handle);
+      pcap_close (handle);
+      throw PcapError (std::string (name) + ": " + err);
+    }
+  };
+  check (pcap_set_snaplen (handle, snaplen), "pcap_set_snaplen");
+  check (pcap_set_promisc (handle, promiscuous ? 1 : 0), "pcap_set_promisc");
+  check (pcap_set_timeout (handle, static_cast<int> (read_timeout.count())),
+         "pcap_set_timeout");
   // Immediate mode delivers each packet to the application as soon as
   // it's captured, rather than waiting for libpcap's internal buffer to
   // fill or its timeout to elapse. Without this, next_packet() can take
@@ -1191,17 +1200,17 @@ PcapHandle::open_live (const std::string &device, int snaplen,
   // latency that would make a live daemon sluggish to react to control
   // commands and signals interleaved with packet processing (see
   // run_live_capture() in softflowd.cpp).
-  pcap_set_immediate_mode (handle, 1);
+  check (pcap_set_immediate_mode (handle, 1), "pcap_set_immediate_mode");
   if (buffer_bytes > 0) {
-    pcap_set_buffer_size (handle, static_cast<int> (buffer_bytes));
+    check (pcap_set_buffer_size (handle, static_cast<int> (buffer_bytes)),
+           "pcap_set_buffer_size");
   }
 
   const int activate_result = pcap_activate (handle);
   if (activate_result < 0) {
     const std::string err = pcap_geterr (handle);
     pcap_close (handle);
-    throw PcapError ("pcap_activate failed for device '" + device +
-                     "': " + err);
+    throw PcapError ("pcap_activate: " + err);
   }
   // next_packet() must return at once when libpcap holds no packet: a
   // descriptor that is not readable does not mean that libpcap has handed over
@@ -1221,8 +1230,7 @@ PcapHandle::open_offline (const std::string &path) {
   std::array<char, PCAP_ERRBUF_SIZE> errbuf{};
   pcap_t *handle = pcap_open_offline (path.c_str(), errbuf.data());
   if (handle == nullptr) {
-    throw PcapError ("pcap_open_offline failed for '" + path +
-                     "': " + errbuf.data());
+    throw PcapError ("pcap_open_offline(" + path + "): " + errbuf.data());
   }
   return PcapHandle (handle);
 }
@@ -1232,7 +1240,7 @@ PcapHandle::set_filter (const std::string &bpf_expression) {
   struct bpf_program program{};
   if (pcap_compile (handle_.get(), &program, bpf_expression.c_str(), 1,
                     PCAP_NETMASK_UNKNOWN) < 0) {
-    throw PcapError (std::string ("pcap_compile failed: ") +
+    throw PcapError ("pcap_compile(\"" + bpf_expression + "\"): " +
                      pcap_geterr (handle_.get()));
   }
   // Original: forgetting to call `pcap_freecode(&program)` is a
@@ -1246,7 +1254,7 @@ PcapHandle::set_filter (const std::string &bpf_expression) {
   } guard{&program};
 
   if (pcap_setfilter (handle_.get(), &program) < 0) {
-    throw PcapError (std::string ("pcap_setfilter failed: ") +
+    throw PcapError (std::string ("pcap_setfilter: ") +
                      pcap_geterr (handle_.get()));
   }
 }
@@ -1361,10 +1369,8 @@ ExportDestination::ExportDestination (const std::string &host,
   }
 
   struct addrinfo *result = nullptr;
-  const int gai_err = getaddrinfo (host.c_str(), port.c_str(), &hints, &result);
-  if (gai_err != 0) {
-    throw ExportError ("failed to resolve export destination '" + host +
-                       ":" + port + "': " + gai_strerror (gai_err));
+  if (getaddrinfo (host.c_str(), port.c_str(), &hints, &result) != 0) {
+    throw ExportError ("No addresses found for [" + host + "]:" + port);
   }
   struct AddrinfoGuard {
     struct addrinfo *p;
@@ -1375,8 +1381,7 @@ ExportDestination::ExportDestination (const std::string &host,
 
   fd_ = socket (result->ai_family, result->ai_socktype, result->ai_protocol);
   if (fd_ < 0) {
-    throw ExportError ("socket() failed for export destination '" + host +
-                       ":" + port + "'");
+    throw ExportError (std::string ("socket() error: ") + std::strerror (errno));
   }
 
   if (!source_address.empty()) {
@@ -1402,8 +1407,11 @@ ExportDestination::ExportDestination (const std::string &host,
   if (!send_interface.empty()) {
 #ifdef SO_BINDTODEVICE
     // Original: -S. Linux-only, as the man page notes.
-    setsockopt (fd_, SOL_SOCKET, SO_BINDTODEVICE, send_interface.c_str(),
-                static_cast<socklen_t> (send_interface.size()));
+    // Original: bind_device (), whose failure is reported and not fatal.
+    if (setsockopt (fd_, SOL_SOCKET, SO_BINDTODEVICE, send_interface.c_str(),
+                    static_cast<socklen_t> (send_interface.size())) < 0) {
+      std::perror ("SO_BINDTODEVICE failed");
+    }
 #endif
   }
 
@@ -1433,8 +1441,7 @@ ExportDestination::ExportDestination (const std::string &host,
     const std::string err = std::strerror (errno);
     close (fd_);
     fd_ = -1;
-    throw ExportError ("connect() failed for export destination '" + host +
-                       ":" + port + "': " + err);
+    throw ExportError ("connect() error: " + err);
   }
 
   description_ = host + ":" + port;
@@ -1613,6 +1620,8 @@ track_level_name (softflow::TrackLevel level) {
       return "ip";
     case TrackLevel::IpProto:
       return "proto";
+    case TrackLevel::Port:
+      return "port";
     case TrackLevel::IpProtoPort:
       return "full";
     case TrackLevel::FullTos:
@@ -1632,6 +1641,8 @@ track_level_name (softflow::TrackLevel level) {
 // original option letter.
 struct DaemonConfig {
   std::string interface;        // -i
+  std::uint16_t if_index = 0;   // -i idx:interface (or looked up at the start)
+  bool user_ifindex = false;    // the index was given with -i
   std::string pcap_file;        // -r
   bool no_promiscuous = false;  // -N
 
@@ -1681,74 +1692,104 @@ struct DaemonConfig {
   std::optional<std::chrono::seconds> max_runtime;                        // --max-runtime=SECONDS
 };
 
-// Original: softflowd command-line arguments that specify a time use a
-// sequence of the form time[qualifier][time[qualifier]...], e.g. "10m",
-// "1h30m", or a bare number of seconds like "600". Each term is summed.
-std::chrono::seconds
-parse_time_spec (const std::string &spec) {
-  if (spec.empty()) {
-    throw std::invalid_argument ("empty time specification");
-  }
-  long total = 0;
-  std::size_t i = 0;
-  while (i < spec.size()) {
-    const std::size_t digits_start = i;
-    while (i < spec.size() && std::isdigit (static_cast<unsigned char> (spec[i]))) {
-      ++i;
-    }
-    if (i == digits_start) {
-      throw std::invalid_argument ("invalid time specification: " + spec);
-    }
-    const long value = std::stol (spec.substr (digits_start, i - digits_start));
+// An error of the start of the daemon that is reported as it is, as the
+// original prints it before it exits.
+class StartupError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
 
-    long multiplier = 1;
-    if (i < spec.size()) {
-      switch (spec[i]) {
-        case 's':
-        case 'S':
-          multiplier = 1;
-          ++i;
-          break;
-        case 'm':
-        case 'M':
-          multiplier = 60;
-          ++i;
-          break;
-        case 'h':
-        case 'H':
-          multiplier = 3600;
-          ++i;
-          break;
-        case 'd':
-        case 'D':
-          multiplier = 86400;
-          ++i;
-          break;
-        case 'w':
-        case 'W':
-          multiplier = 604800;
-          ++i;
-          break;
-        default:
-          throw std::invalid_argument ("invalid time qualifier in: " + spec);
-      }
-    }
-    total += value * multiplier;
-  }
-  return std::chrono::seconds (total);
+void
+print_usage ();
+
+// Original: die_usage (). Prints the message and the usage, then exits.
+[[noreturn]] void
+die_usage (const char *fmt, ...)
+  __attribute__ ((format (printf, 1, 2)));
+[[noreturn]] void
+die_usage (const char *fmt, ...) {
+  va_list ap;
+  va_start (ap, fmt);
+  std::vfprintf (stderr, fmt, ap);
+  va_end (ap);
+  print_usage();
+  std::exit (1);
 }
 
-// Original: -t timeout_name=time. Named timeouts are: general, tcp,
-// tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see softflowd(8)'s "Timeouts"
-// section).
+// Original: convtime.c. A time of the form time[qualifier][time[qualifier]...],
+// e.g. "10m", "1h30m", or a bare number of seconds like "600"; each term is
+// summed. Returns -1 for an invalid time. The original does not check the
+// products for an overflow, which is not defined for it; -1 is returned here.
+long
+convtime (const char *s) {
+  errno = 0;
+  long total = 0;
+  const char *p = s;
+
+  if (p == nullptr || *p == '\0') {
+    return -1;
+  }
+  while (*p) {
+    char *endp;
+    long secs = std::strtol (p, &endp, 10);
+    if (p == endp || (errno == ERANGE && (secs == LONG_MIN || secs == LONG_MAX)) ||
+        secs < 0) {
+      return -1;
+    }
+    long multiplier = 1;
+    switch (*endp++) {
+      case '\0':
+        --endp;
+        break;
+      case 's':
+      case 'S':
+        break;
+      case 'm':
+      case 'M':
+        multiplier = 60;
+        break;
+      case 'h':
+      case 'H':
+        multiplier = 60 * 60;
+        break;
+      case 'd':
+      case 'D':
+        multiplier = 24 * 60 * 60;
+        break;
+      case 'w':
+      case 'W':
+        multiplier = 7 * 24 * 60 * 60;
+        break;
+      default:
+        return -1;
+    }
+    if (__builtin_mul_overflow (secs, multiplier, &secs) ||
+        __builtin_add_overflow (total, secs, &total) || total < 0) {
+      return -1;
+    }
+    p = endp;
+  }
+  return total;
+}
+
+// Original: set_timeout (). -t timeout_name=time. Named timeouts are:
+// general, tcp, tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see
+// softflowd(8)'s "Timeouts" section). The original keeps the time in an int,
+// which silently drops the upper bits of a longer one; such a time is
+// rejected here.
 void
-apply_timeout_option (DaemonConfig &config, const std::string &spec) {
+set_timeout (DaemonConfig &config, const char *to_spec) {
+  const std::string spec = to_spec;
   const auto eq = spec.find ('=');
-  if (eq == std::string::npos) {
-    throw std::invalid_argument ("invalid -t argument (expected name=time): " + spec);
+  if (eq == std::string::npos || eq + 1 == spec.size()) {
+    die_usage ("Invalid -t option \"%s\".\n", spec.c_str());
   }
   const std::string name = spec.substr (0, eq);
-  const auto value = parse_time_spec (spec.substr (eq + 1));
+  const long timeout = convtime (spec.c_str() + eq + 1);
+  if (timeout < 0 || timeout > std::numeric_limits<int>::max()) {
+    die_usage ("Invalid -t timeout.\n");
+  }
+  const std::chrono::seconds value (timeout);
 
   if (name == "general") {
     config.timeouts.general = value;
@@ -1767,134 +1808,132 @@ apply_timeout_option (DaemonConfig &config, const std::string &spec) {
   } else if (name == "expint") {
     config.expiry_interval = value;
   } else {
-    throw std::invalid_argument ("unknown timeout name: " + name);
+    die_usage ("Invalid -t name.\n");
   }
 
   // Original: the general timeout may not be 0, as the check of an idle flow
   // would then never find anything idle.
   if (config.timeouts.general.count() == 0) {
-    throw std::invalid_argument ("\"general\" flow timeout must be greater than zero");
+    std::fprintf (stderr, "\"general\" flow timeout must be greater than zero\n");
+    std::exit (1);
   }
 }
 
-// Original: -T track_level.
-softflow::TrackLevel
-parse_track_level (const std::string &s) {
+// Original: -T track_level (the name is not case sensitive). Returns nothing
+// for an unknown name.
+std::optional<softflow::TrackLevel>
+parse_track_level (const char *s) {
   using softflow::TrackLevel;
-  if (s == "ip")
+  if (strcasecmp (s, "ip") == 0)
     return TrackLevel::IpOnly;
-  if (s == "proto")
+  if (strcasecmp (s, "proto") == 0)
     return TrackLevel::IpProto;
-  if (s == "full")
+  if (strcasecmp (s, "port") == 0)
+    return TrackLevel::Port;
+  if (strcasecmp (s, "full") == 0)
     return TrackLevel::IpProtoPort;
-  if (s == "full-tos")
+  if (strcasecmp (s, "full-tos") == 0)
     return TrackLevel::FullTos;
-  if (s == "vlan")
+  if (strcasecmp (s, "vlan") == 0)
     return TrackLevel::FullVlan;
-  if (s == "ether")
+  if (strcasecmp (s, "ether") == 0)
     return TrackLevel::FullVlanEther;
-  throw std::invalid_argument (
-    "unknown track level '" + s +
-    "' (expected ip, proto, full, full-tos, vlan, or ether)");
+  return std::nullopt;
 }
 
-// Original: -v netflow_version.
-ExportFormat
-parse_netflow_version (const std::string &s) {
-  if (s == "1")
-    return ExportFormat::Netflow1;
-  if (s == "5")
-    return ExportFormat::Netflow5;
-  if (s == "9")
-    return ExportFormat::Netflow9;
-  if (s == "10")
-    return ExportFormat::Ipfix;
-  if (s == "psamp")
+// Original: -v netflow_version. As in the original, a number is read by
+// atoi (), so that "5x" is version 5. Returns nothing for an unknown version.
+std::optional<ExportFormat>
+parse_netflow_version (const char *s) {
+  if (std::strcmp (s, "psamp") == 0)
     return ExportFormat::Psamp;
-  if (s == "ntopng") {
 #ifdef SOFTFLOW_HAVE_ZMQ
+  if (std::strcmp (s, "ntopng") == 0)
     return ExportFormat::Ntopng;
-#else
-    throw std::invalid_argument (
-      "ntopng export is not built in (configure with -DSOFTFLOW_NTOPNG=ON)");
 #endif
+  switch (std::atoi (s)) {
+    case 1:
+      return ExportFormat::Netflow1;
+    case 5:
+      return ExportFormat::Netflow5;
+    case 9:
+      return ExportFormat::Netflow9;
+    case 10:
+      return ExportFormat::Ipfix;
+    default:
+      return std::nullopt;
   }
-  throw std::invalid_argument ("unknown NetFlow version '" + s +
-                               "' (expected 1, 5, 9, 10, psamp, or ntopng)");
 }
 
-// Original: -P transport_protocol. Only udp is actually implemented in
-// this project (see the warning printed in main() if tcp/sctp is
-// requested); TCP/SCTP export would need a connection-oriented framing
-// layer this project does not yet have.
-TransportProtocol
-parse_transport_protocol (const std::string &s) {
-  if (s == "udp")
+// Original: -P transport_protocol (the name is not case sensitive). Returns
+// nothing for an unknown name.
+std::optional<TransportProtocol>
+parse_transport_protocol (const char *s) {
+  if (strcasecmp (s, "udp") == 0)
     return TransportProtocol::Udp;
-  if (s == "tcp")
+  if (strcasecmp (s, "tcp") == 0)
     return TransportProtocol::Tcp;
-  if (s == "sctp")
+  if (strcasecmp (s, "sctp") == 0)
     return TransportProtocol::Sctp;
-  throw std::invalid_argument ("unknown transport protocol '" + s +
-                               "' (expected udp, tcp, or sctp)");
+  return std::nullopt;
 }
 
-// Original: -A time_format. Only sec/milli are actually implemented (see
-// the warning printed in main() if micro/nano is requested) -- the IPFIX
-// abstract data types for microsecond/nanosecond timestamps use an
-// NTP-derived fixed-point encoding rather than a plain integer count,
-// which this project's exporters don't yet produce.
-TimeFormat
-parse_time_format (const std::string &s) {
-  if (s == "sec")
+// Original: -A time_format (the name is not case sensitive). Returns nothing
+// for an unknown name.
+std::optional<TimeFormat>
+parse_time_format (const char *s) {
+  if (strcasecmp (s, "sec") == 0)
     return TimeFormat::Seconds;
-  if (s == "milli")
+  if (strcasecmp (s, "milli") == 0)
     return TimeFormat::Milliseconds;
-  if (s == "micro")
+  if (strcasecmp (s, "micro") == 0)
     return TimeFormat::Microseconds;
-  if (s == "nano")
+  if (strcasecmp (s, "nano") == 0)
     return TimeFormat::Nanoseconds;
-  throw std::invalid_argument ("unknown time format '" + s +
-                               "' (expected sec, milli, micro, or nano)");
+  return std::nullopt;
 }
 
-// Original: -n host:port[,host:port...]. A numeric IPv6 address must be
-// bracketed (e.g. "[::1]:4432") to disambiguate its colons from the
-// port separator, exactly as the original requires.
+// Original: parse_hostport () and parse_hostports (). -n host:port[,host:port...].
+// A numeric IPv6 address is bracketed (e.g. "[::1]:4432") so that its colons
+// are not taken for the port separator. Each destination is resolved here, as
+// the original does, so that one that cannot be is reported when softflowd
+// starts. The original takes no more than 16 destinations and ignores the
+// rest.
 std::vector<std::pair<std::string, std::string>>
 parse_destinations (const std::string &spec) {
+  constexpr std::size_t kMaxDestinations = 16;
   std::vector<std::pair<std::string, std::string>> result;
   std::size_t pos = 0;
-  while (pos <= spec.size()) {
+  while (result.size() < kMaxDestinations) {
     const auto comma = spec.find (',', pos);
     const std::string token =
       spec.substr (pos, comma == std::string::npos ? std::string::npos
                                                    : comma - pos);
-    if (token.empty()) {
-      throw std::invalid_argument ("empty destination in -n argument: " + spec);
+    const auto colon = token.rfind (':');
+    // Original: only a missing or an empty port, or an empty argument, is
+    // "Invalid -n argument."; an empty host is one that cannot be resolved.
+    if (colon == std::string::npos || colon + 1 == token.size() ||
+        token.empty()) {
+      die_usage ("Invalid -n argument.\n");
+    }
+    std::string host = token.substr (0, colon);
+    const std::string port = token.substr (colon + 1);
+    if (!host.empty() && host.front() == '[' && host.back() == ']') {
+      host = host.substr (1, host.size() - 2);
     }
 
-    std::string host, port;
-    if (token.front() == '[') {
-      const auto close = token.find (']');
-      if (close == std::string::npos) {
-        throw std::invalid_argument ("malformed IPv6 destination: " + token);
-      }
-      host = token.substr (1, close - 1);
-      const auto colon = token.find (':', close);
-      if (colon == std::string::npos) {
-        throw std::invalid_argument ("missing port in destination: " + token);
-      }
-      port = token.substr (colon + 1);
-    } else {
-      const auto colon = token.rfind (':');
-      if (colon == std::string::npos) {
-        throw std::invalid_argument ("missing port in destination: " + token);
-      }
-      host = token.substr (0, colon);
-      port = token.substr (colon + 1);
+    struct addrinfo hints;
+    std::memset (&hints, 0, sizeof (hints));
+    hints.ai_socktype = SOCK_DGRAM;
+    struct addrinfo *res = nullptr;
+    if (getaddrinfo (host.c_str(), port.c_str(), &hints, &res) != 0 ||
+        res == nullptr) {
+      std::fprintf (stderr, "No addresses found for [%s]:%s\n", host.c_str(),
+                    port.c_str());
+      std::exit (1);
     }
-    result.emplace_back (std::move (host), std::move (port));
+    freeaddrinfo (res);
+    result.emplace_back (std::move (host), port);
 
     if (comma == std::string::npos) {
       break;
@@ -2121,10 +2160,11 @@ public:
 
     switch (format_) {
       case ExportFormat::Netflow1:
-        netflow1_.emplace (boot_time, config.debug);
+        netflow1_.emplace (boot_time, config.debug, config.if_index);
         break;
       case ExportFormat::Netflow5:
-        netflow5_.emplace (boot_time, config.debug, config.sampling_rate);
+        netflow5_.emplace (boot_time, config.debug, config.sampling_rate,
+                           config.if_index);
         break;
       case ExportFormat::Netflow9:
       case ExportFormat::Ipfix:
@@ -2138,7 +2178,7 @@ public:
                         format_ == ExportFormat::Netflow9
                           ? softflow::MessageVersion::NetFlow9
                           : softflow::MessageVersion::Ipfix,
-                        /*if_index=*/0, config.sampling_rate, config.track_level);
+                        config.if_index, config.sampling_rate, config.track_level);
         if (config.direction_mac.has_value() &&
             config.track_level >= softflow::TrackLevel::FullVlanEther) {
           ipfix_->set_direction_mac (*config.direction_mac);
@@ -2219,12 +2259,13 @@ public:
 
   bool
   wants_flows () const noexcept {
-    return has_sink() && format_ != ExportFormat::Psamp &&
-           format_ != ExportFormat::None;
+    // Original: without a destination the packets are made, counted as
+    // exported and sent nowhere.
+    return format_ != ExportFormat::Psamp && format_ != ExportFormat::None;
   }
   bool
   wants_samples () const noexcept {
-    return has_sink() && format_ == ExportFormat::Psamp;
+    return format_ == ExportFormat::Psamp;
   }
 
   // Original: softflowctl(8)'s send-template ("Has no effect for other
@@ -2935,8 +2976,7 @@ run_pcap_file (const DaemonConfig &config) {
   }
   const auto dl_kind = handle.datalink_kind();
   if (dl_kind == DatalinkKind::Unsupported) {
-    std::fprintf (stderr, "unsupported datalink type (pcap_datalink=%d)\n",
-                  handle.datalink());
+    std::fprintf (stderr, "Unsupported datalink type %d\n", handle.datalink());
     return 1;
   }
   const std::size_t skip = datalink_header_len (dl_kind);
@@ -3467,23 +3507,34 @@ handle_control_command (const std::string &command,
 // including an exception.
 class ControlListener {
 public:
+  // An empty path is no control socket (-c none): there is nothing to listen
+  // on, and poll () skips the descriptor -1.
   explicit ControlListener (const std::string &path) : path_ (path) {
+    if (path.empty()) {
+      return;
+    }
+    struct sockaddr_un addr {};
+    addr.sun_family = AF_UNIX;
+    if (path.size() >= sizeof (addr.sun_path)) {
+      throw StartupError ("control socket path too long");
+    }
+    std::strncpy (addr.sun_path, path.c_str(), sizeof (addr.sun_path) - 1);
     ::unlink (path.c_str());
     fd_ = socket (AF_UNIX, SOCK_STREAM, 0);
     if (fd_ < 0) {
-      throw std::runtime_error ("socket() for control socket failed");
+      throw StartupError (std::string ("unix domain socket() error: ") +
+                          std::strerror (errno));
     }
-    struct sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    if (path.size() >= sizeof (addr.sun_path)) {
+    if (bind (fd_, reinterpret_cast<struct sockaddr *> (&addr), sizeof (addr)) < 0) {
+      const std::string err = std::strerror (errno);
       ::close (fd_);
-      throw std::runtime_error ("control socket path too long: " + path);
+      throw StartupError ("unix domain bind(\"" + path + "\") error: " + err);
     }
-    std::strncpy (addr.sun_path, path.c_str(), sizeof (addr.sun_path) - 1);
-    if (bind (fd_, reinterpret_cast<struct sockaddr *> (&addr), sizeof (addr)) < 0 ||
-        listen (fd_, 5) < 0) {
+    if (listen (fd_, 5) < 0) {
+      const std::string err = std::strerror (errno);
       ::close (fd_);
-      throw std::runtime_error ("failed to set up control socket at '" + path + "'");
+      ::unlink (path.c_str());
+      throw StartupError ("unix domain listen() error: " + err);
     }
   }
 
@@ -3491,8 +3542,10 @@ public:
   ControlListener &operator= (const ControlListener &) = delete;
 
   ~ControlListener () {
-    ::close (fd_);
-    ::unlink (path_.c_str());
+    if (fd_ >= 0) {
+      ::close (fd_);
+      ::unlink (path_.c_str());
+    }
   }
 
   int
@@ -3563,8 +3616,10 @@ control_listener_state (ControlListener &listener) {
   return listener.replay_state;
 }
 
-int
-run_live_capture (const DaemonConfig &config) {
+// Original: setup_packet_capture () for a live capture. It is done before the
+// process forks, so that its errors are seen on the terminal.
+std::optional<softflow::PcapHandle>
+open_live_capture (const DaemonConfig &config) {
   using namespace softflow;
 
   // A short read timeout plus immediate mode (see PcapHandle::open_live)
@@ -3574,27 +3629,36 @@ run_live_capture (const DaemonConfig &config) {
   // many packets it drains per poll() cycle).
   // Original: with -R and without -i there is no capture at all, and the
   // frames that are received are Ethernet frames (linktype = 1).
-  std::optional<PcapHandle> handle;
-  if (!config.interface.empty()) {
-    handle.emplace (PcapHandle::open_live (
-      config.interface,
-      // Original: LIBPCAP_SNAPLEN_V4 (96) or, when IPv6 flows are tracked,
-      // LIBPCAP_SNAPLEN_V6 (160). A larger snaplen makes every frame of the
-      // capture ring larger, so a burst of packets overruns the ring.
-      config.snaplen != 0 ? config.snaplen : (should_track_ipv6 (config) ? 160 : 96),
-      !config.no_promiscuous,
-      std::chrono::milliseconds (100), config.buffer_bytes));
-    if (!config.bpf_filter.empty()) {
-      handle->set_filter (config.bpf_filter);
-    }
+  if (config.interface.empty()) {
+    return std::nullopt;
   }
+  PcapHandle handle = PcapHandle::open_live (
+    config.interface,
+    // Original: LIBPCAP_SNAPLEN_V4 (96) or, when IPv6 flows are tracked,
+    // LIBPCAP_SNAPLEN_V6 (160). A larger snaplen makes every frame of the
+    // capture ring larger, so a burst of packets overruns the ring.
+    config.snaplen != 0 ? config.snaplen : (should_track_ipv6 (config) ? 160 : 96),
+    !config.no_promiscuous, std::chrono::milliseconds (100), config.buffer_bytes);
+  if (handle.datalink_kind() == DatalinkKind::Unsupported) {
+    throw StartupError ("Unsupported datalink type " +
+                        std::to_string (handle.datalink()));
+  }
+  if (!config.bpf_filter.empty()) {
+    handle.set_filter (config.bpf_filter);
+  }
+  return handle;
+}
+
+// The capture and the control socket have been opened by the caller, before
+// it forked.
+int
+run_live_capture (const DaemonConfig &config,
+                  std::optional<softflow::PcapHandle> handle,
+                  ControlListenerPtr control_socket) {
+  using namespace softflow;
+
   const auto dl_kind =
     handle.has_value() ? handle->datalink_kind() : DatalinkKind::Ethernet;
-  if (dl_kind == DatalinkKind::Unsupported) {
-    std::fprintf (stderr, "unsupported datalink type (pcap_datalink=%d)\n",
-                  handle->datalink());
-    return 1;
-  }
   const std::size_t skip = datalink_header_len (dl_kind);
 
   PacketParser parser (config.track_level, config.full_l4hdr_check);
@@ -3609,7 +3673,7 @@ run_live_capture (const DaemonConfig &config) {
   // guard struct) ensures both the listening socket and its filesystem
   // entry are cleaned up on every return path from this function,
   // including an exception.
-  ControlListener control (config.ctl_sock);
+  ControlListener &control = *control_socket;
   const int ctl_fd = control.fd();
 
   // Original: -R receive_port. An additional UDP socket, listened on
@@ -4062,41 +4126,124 @@ get_interface_mac (const std::string &ifname) {
 #endif
 }
 
+// Original: usage (). The text is that of the original; the additions of
+// this project follow it.
 void
-print_usage (const char *argv0) {
+print_usage () {
+  const DaemonConfig defaults;
+  const softflow::FlowTimeouts &t = defaults.timeouts;
   std::fprintf (
     stderr,
-    "usage: %s [-6dDfhMNbal] [-F tree|hash|hash-tree] [-H direction_mac] [-L hoplimit] [-T track_level] [-c ctl_sock]\n"
-    "               [-i [if_ndx:]interface] [-m max_flows (1 or more)] [-n host:port]\n"
-    "               [-p pidfile] [-r pcap_file] [-t timeout_name=seconds]\n"
-    "               [-v netflow_version] [-P transport_protocol]\n"
-    "               [-A time_format] [-s sampling_rate] [-C capture_length]\n"
-    "               [-R receive_port] [-S send_interface_name]\n"
-    "               [-x number_of_mpls_labels (1 to 10)] [-e exporter_ip_address]\n"
-    "               [-B size_bytes] [bpf_expression]\n"
+    "Usage: %s [options] [bpf_program]\n"
+    "This is %s version %s. Valid commandline options:\n"
+    "  -i, --interface [idx:]interface\n"
+    "                          Specify interface to listen on\n"
+    "  -r, --read pcap_file    Specify packet capture file to read\n"
+    "  -t, --timeout timeout=time\n"
+    "                          Specify named timeout\n"
+    "  -m, --max-flows max_flows\n"
+    "                          Specify maximum number of flows to track (1 "
+    "or more, default %d)\n"
+    "  -n, --netflow-dest host:port\n"
+    "                          Send Cisco NetFlow(tm)-compatible packets to "
+    "host:port\n"
+    "  -p, --pidfile pidfile   Record pid in specified file\n"
+    "                          (default: %s)\n"
+    "  -c, --control-socket socketfile\n"
+    "                          Location of control socket\n"
+    "                          (default: %s)\n"
+    "  -v, --netflow-version 1|5|9|10|psamp\n"
+    "                          NetFlow export packet version\n"
+    "                          10 means IPFIX and psamp means PSAMP (packet "
+    "sampling)\n"
+#ifdef SOFTFLOW_HAVE_ZMQ
+    "     ntopng               ntopng means direct injection to NTOPNG (if "
+    "supported, ntopng 6.0 or later).\n"
+#endif
+    "  -L, --hoplimit hoplimit Set TTL/hoplimit for export datagrams\n"
+    "  -T, --track full|port|proto|ip|\n"
+    "                          Set flow tracking level (default: full)\n"
+    "                          vlan                 (\"vlan\" tracking means "
+    "\"full\" tracking with vlanid)\n"
+    "                          ether                (\"ether\" tracking "
+    "means \"vlan\" tracking with ether header)\n"
+    "  -H, --direction-mac MAC Specify MAC Address to determine direction "
+    "(requires -T ether)\n"
+    "  -6, --track-ipv6        Track IPv6 flows, regardless of whether "
+    "selected \n"
+    "                          NetFlow export protocol supports it\n"
+    "  -d, --foreground        Don't daemonise (run in foreground)\n"
+    "  -D, --debug             Debug mode: foreground + verbosity + track v6 "
+    "flows\n"
+    "  -P, --export-protocol udp|tcp|sctp\n"
+    "                          Specify transport layer protocol for "
+    "exporting packets\n"
+    "  -A, --absolute-time sec|milli|micro|nano\n"
+    "                          Specify absolute time format form exporting "
+    "records\n"
+    "  -s, --sampling-rate rate\n"
+    "                          Specify periodical sampling rate "
+    "(denominator)\n"
+    "  -B, --pcap-buffer-size bytes\n"
+    "                          Libpcap buffer size in bytes\n"
+    "  -b, --bidirectional     Bidirectional mode in IPFIX (-b work with -v "
+    "10)\n"
+    "  -a, --adjust-time       Adjusting time for reading pcap file (-a work "
+    "with -r)\n"
+    "  -C, --snaplen capture_length\n"
+    "                          Specify length for packet capture (snaplen)\n"
+    "  -l, --load-balance      Load balancing mode for multiple "
+    "destinations\n"
+    "  -R, --psamp-port receive_port\n"
+    "                          Specify port number for PSAMP receive mode\n"
+    "  -M, --multithread       Enable multithread\n"
+    "  -N, --no-promisc        Disable promiscuous mode\n"
+#ifdef __linux__
+    "  -S, --send-interface send_interface_name\n"
+    "                          Specify send interface name\n"
+#endif
+    "  -x, --mpls-labels labels\n"
+    "                          Specify number of MPLS labels (1 to 10)\n"
+    "  -I, --reinit-interval seconds\n"
+    "                          Specify seconds for reinitialize boot time\n"
+    "  -g, --gauge-cpu-clock   Gauge cpu clock (total and export) for "
+    "benchmark\n"
+    "  -e, --exporter-ip address\n"
+    "                          Specify Exporter IP (IPv4 or IPv6) address\n"
+    "  -f, --full-transport-header-check\n"
+    "                          Require the whole TCP/UDP/ICMP header instead "
+    "of\n"
+    "                          only the fields used (ports, TCP flags, ICMP "
+    "type/code)\n"
+    "  -F, --flow-lookup mode  Flow table lookup: tree, hash-tree (default) "
+    "or hash\n"
+    "                          (hash: a colliding flow expires the resident "
+    "one)\n"
+    "  -h, --help              Display this help\n"
     "\n"
-    "  -d, --foreground      Don't daemonise (run in foreground)\n"
-    "  -D, --debug           Debug mode: foreground + verbosity + track v6 flows\n"
-    "\n"
-    "One of -i, -r or -R must be given. See softflowd(8) for full option\n"
-    "documentation; this project implements the same option grammar as\n"
-    "the original softflowd. -P, -A, -x, and -b are fully implemented\n"
-    "(see README for details, e.g. SCTP availability and biflow's\n"
-    "encoding).\n"
+    "Valid timeout names and default values:\n"
+    "  tcp     (default %6d)"
+    "  tcp.rst (default %6d)"
+    "  tcp.fin (default %6d)\n"
+    "  udp     (default %6d)"
+    "  icmp    (default %6d)"
+    "  general (default %6d)\n"
+    "  maxlife (default %6d)"
+    "  expint  (default %6d)\n"
     "\n"
     "This project's own additions (not part of the original softflowd):\n"
+    "  -T full-tos           track the ToS as part of the flow as well\n"
     "  --export-out=PATH     additionally write export packets to a file,\n"
     "                        each length-prefixed with 4 big-endian bytes\n"
     "  --max-runtime=SECONDS shut down automatically after SECONDS (testing)\n",
-    argv0);
-}
-
-// Original: die_usage(). Prints the message and the usage, then exits.
-[[noreturn]] void
-die_usage (const char *argv0, const char *message) {
-  std::fputs (message, stderr);
-  print_usage (argv0);
-  std::exit (1);
+    SOFTFLOWDPP_NAME, SOFTFLOWDPP_NAME, SOFTFLOWDPP_VERSION,
+    static_cast<int> (defaults.max_flows), softflow::kDefaultPidFilePath,
+    softflow::kDefaultControlSocketPath, static_cast<int> (t.tcp.count()),
+    static_cast<int> (t.tcp_rst.count()), static_cast<int> (t.tcp_fin.count()),
+    static_cast<int> (t.udp.count()), static_cast<int> (t.icmp.count()),
+    static_cast<int> (t.general.count()),
+    static_cast<int> (t.maximum_lifetime.count()),
+    static_cast<int> (defaults.expiry_interval.count()));
 }
 
 }  // namespace
@@ -4192,9 +4339,7 @@ main (int argc, char **argv) {
           } else if (std::string (optarg) == "hash-tree") {
             config.flow_lookup = softflow::FlowLookup::HashTree;
           } else {
-            std::fprintf (stderr, "Invalid flow lookup %s\n\n", optarg);
-            print_usage (argv[0]);
-            return 1;
+            die_usage ("Invalid flow lookup mode\n\n");
           }
           break;
         case kOptExportOut:
@@ -4228,19 +4373,46 @@ main (int argc, char **argv) {
           // ordering) in exchange for more precise expiry timing.
           config.timeouts.second_granularity = false;
           break;
-        case 'n': {
-          auto dests = parse_destinations (optarg);
-          config.destinations.insert (config.destinations.end(),
-                                      dests.begin(), dests.end());
+        case 'n':
+          // Original: the destinations of a later -n replace those of an
+          // earlier one.
+          config.destinations = parse_destinations (optarg);
           break;
-        }
         case 'N':
           config.no_promiscuous = true;
           break;
         case 'i':
-          config.interface = optarg;
+          if (!config.pcap_file.empty() || !config.interface.empty()) {
+            die_usage ("Packet source already specified.\n\n");
+          }
+          {
+            // Original: -i [idx:]interface. The index is that of the interface
+            // in the options of NetFlow v9 and IPFIX; without it the index of
+            // the interface is looked up when the daemon starts.
+            std::string name = optarg;
+            const auto colon = name.find (':');
+            if (colon != std::string::npos) {
+              if (colon > 0) {
+                config.if_index = static_cast<std::uint16_t> (
+                  std::atoi (name.substr (0, colon).c_str()));
+              }
+              name.erase (0, colon + 1);
+              config.user_ifindex = true;
+            }
+            if (name.empty()) {
+              die_usage ("Wrong interface is specified.\n\n");
+            }
+            if (config.debug) {
+              std::fprintf (stderr, "Using %s (idx: %d)\n", name.c_str(),
+                            config.if_index);
+            }
+            config.interface = name;
+          }
           break;
         case 'r':
+          if (!config.pcap_file.empty() || !config.interface.empty()) {
+            die_usage ("Packet source already specified.\n\n");
+          }
           config.pcap_file = optarg;
           config.replay_control = false;
           break;
@@ -4248,23 +4420,24 @@ main (int argc, char **argv) {
           config.pidfile = optarg;
           break;
         case 'c':
-          config.ctl_sock = optarg;
+          // Original: "none" is no control socket.
+          config.ctl_sock = std::strcmp (optarg, "none") == 0 ? "" : optarg;
           // Original: -r clears the control socket path and a -c after it
           // sets it again, so a capture file is controlled only then.
-          config.replay_control = true;
+          config.replay_control = !config.ctl_sock.empty();
           break;
         case 'm': {
           // Range check on an int, as in the C version: 0, negative
           // values and non-numeric arguments are rejected.
           const int max_flows = std::atoi (optarg);
           if (max_flows < 1) {
-            die_usage (argv[0], "Invalid maximum flows\n\n");
+            die_usage ("Invalid maximum flows\n\n");
           }
           config.max_flows = static_cast<std::size_t> (max_flows);
           break;
         }
         case 't':
-          apply_timeout_option (config, optarg);
+          set_timeout (config, optarg);
           break;
         case 'd':
           config.no_daemonize = true;
@@ -4278,51 +4451,100 @@ main (int argc, char **argv) {
           config.force_ipv6 = true;
           break;
         case 'h':
-          print_usage (argv[0]);
+          print_usage();
           return 0;
-        case 'L':
-          config.ttl = std::stoi (optarg);
+        case 'L': {
+          // Original: atoi (), then a range check.
+          const int hoplimit = std::atoi (optarg);
+          if (hoplimit < 0 || hoplimit > 255) {
+            die_usage ("Invalid hop limit\n\n");
+          }
+          config.ttl = hoplimit;
           break;
-        case 'T':
-          config.track_level = parse_track_level (optarg);
+        }
+        case 'T': {
+          const auto level = parse_track_level (optarg);
+          if (!level.has_value()) {
+            die_usage ("Unknown flow tracking level\n");
+          }
+          config.track_level = *level;
           break;
-        case 'v':
-          config.export_format = parse_netflow_version (optarg);
+        }
+        case 'v': {
+          const auto format = parse_netflow_version (optarg);
+          if (!format.has_value()) {
+            std::fprintf (stderr, "Invalid NetFlow version\n");
+            return 1;
+          }
+          config.export_format = *format;
           export_format_explicit = true;
           break;
-        case 'P':
-          config.transport = parse_transport_protocol (optarg);
+        }
+        case 'P': {
+          const auto transport = parse_transport_protocol (optarg);
+          if (!transport.has_value()) {
+            die_usage ("Unknown transport layer protocol\n");
+          }
+          config.transport = *transport;
           break;
-        case 'A':
-          config.time_format = parse_time_format (optarg);
+        }
+        case 'A': {
+          const auto format = parse_time_format (optarg);
+          if (!format.has_value()) {
+            die_usage ("Unknown time format\n");
+          }
+          config.time_format = *format;
           break;
-        case 's':
-          config.sampling_rate = static_cast<std::uint32_t> (std::stoul (optarg));
+        }
+        case 's': {
+          // Original: atoi (); a rate below 2 is no sampling.
+          const int rate = std::atoi (optarg);
+          config.sampling_rate = rate < 2 ? 0 : static_cast<std::uint32_t> (rate);
           break;
+        }
         case 'C':
-          config.snaplen = std::stoi (optarg);
+          // Original: atoi ().
+          config.snaplen = std::atoi (optarg);
           break;
         case 'R':
-          config.psamp_receive_port = std::stoi (optarg);
+          // Original: atoi (), taken as the 16 bit port number of recvsock ().
+          config.psamp_receive_port =
+            static_cast<std::uint16_t> (std::atoi (optarg));
           break;
         case 'S':
           config.send_interface = optarg;
           break;
-        case 'e':
+        case 'e': {
+          // Original: the address is resolved when the option is read; one
+          // that cannot be is reported and not used. (The original reports
+          // it with perror (), which prints the text of an errno that
+          // getaddrinfo () did not set; the reason is printed here.)
+          struct addrinfo hints;
+          std::memset (&hints, 0, sizeof (hints));
+          struct addrinfo *res = nullptr;
+          const int err = getaddrinfo (optarg, nullptr, &hints, &res);
+          if (err != 0) {
+            std::fprintf (stderr, "getaddrinfo: %s\n", gai_strerror (err));
+            break;
+          }
+          freeaddrinfo (res);
           config.source_address = optarg;
           break;
+        }
         case 'x': {
           const int num_label = std::atoi (optarg);
           if (num_label < 1 || num_label > 10) {
-            die_usage (argv[0],
-                       "Invalid number of MPLS label (1 to 10)\n\n");
+            die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
           }
           config.mpls_labels = num_label;
           break;
         }
-        case 'B':
-          config.buffer_bytes = static_cast<std::size_t> (std::stoul (optarg));
+        case 'B': {
+          // Original: atoi (); only a positive size is a size.
+          const int size = std::atoi (optarg);
+          config.buffer_bytes = size > 0 ? static_cast<std::size_t> (size) : 0;
           break;
+        }
         case 'b':
           config.bidirectional_ipfix = true;
           break;
@@ -4346,14 +4568,11 @@ main (int argc, char **argv) {
           if ((errno == ERANGE && (sec == LONG_MAX || sec == LONG_MIN)) ||
               (errno != 0 && sec == 0)) {
             std::perror ("strtol");
-            print_usage (argv[0]);
+            print_usage();
             return 1;
           }
           if (timeunit == optarg) {
-            std::fprintf (stderr,
-                          "No digits were found in boot_time_reinit\n");
-            print_usage (argv[0]);
-            return 1;
+            die_usage ("No digits were found in boot_time_reinit\n");
           }
           if (*timeunit == 'd' || *timeunit == 'D') {
             if (sec > kBoottimeMaxDay)
@@ -4388,8 +4607,7 @@ main (int argc, char **argv) {
         }
         case '?':
         default:
-          print_usage (argv[0]);
-          return 1;
+          die_usage ("Invalid commandline option.\n");
       }
     }
   } catch (const std::exception &e) {
@@ -4409,33 +4627,11 @@ main (int argc, char **argv) {
 
   if (config.interface.empty() && config.pcap_file.empty() &&
       !config.psamp_receive_port.has_value()) {
-    std::fprintf (stderr, "%s: either -i, -r or -R must be specified\n", argv[0]);
-    print_usage (argv[0]);
-    return 1;
+    die_usage ("-i, -r or -R option not specified.\n");
   }
-  if (!config.interface.empty() && !config.pcap_file.empty()) {
-    std::fprintf (stderr, "%s: -i and -r are mutually exclusive\n", argv[0]);
-    return 1;
-  }
+  // Original: -R with -r is not an error, and has no effect.
   if (config.psamp_receive_port.has_value() && !config.pcap_file.empty()) {
-    std::fprintf (stderr,
-                  "%s: -R only has an effect with -i (live capture) or "
-                  "alone; ignored with -r\n",
-                  argv[0]);
     config.psamp_receive_port.reset();
-  }
-  if (config.mpls_labels > 0 && config.export_format != ExportFormat::Netflow9 &&
-      config.export_format != ExportFormat::Ipfix) {
-    std::fprintf (stderr,
-                  "%s: warning: -x only has an effect with -v 9 or -v "
-                  "10 (NetFlow v1/v5/PSAMP have no MPLS label fields); "
-                  "no MPLS labels will be exported\n",
-                  argv[0]);
-  }
-  if (config.bidirectional_ipfix && config.export_format != ExportFormat::Ipfix) {
-    std::fprintf (stderr,
-                  "%s: warning: -b only has an effect with -v 10 (IPFIX)\n",
-                  argv[0]);
   }
   if (config.debug) {
     std::printf (
@@ -4455,6 +4651,27 @@ main (int argc, char **argv) {
     // Original: softflowd defaults to daemonizing (forking into the
     // background) when run against a live interface, unless -d is
     // given.
+    // Original: the capture and the control socket are set up before the
+    // process forks, so that their errors are seen on the terminal.
+    auto live_handle = open_live_capture (config);
+    auto control_socket = open_control_listener (config.ctl_sock);
+#ifdef __linux__
+    // Original: without an index with -i, that of the interface is looked up
+    // (SIOCGIFINDEX) once there is a destination to export to.
+    if (!config.interface.empty() && !config.user_ifindex &&
+        !config.destinations.empty()) {
+      const unsigned index = if_nametoindex (config.interface.c_str());
+      if (index == 0) {
+        std::perror ("ioctl SIOCGIFINDEX");
+      } else {
+        config.if_index = static_cast<std::uint16_t> (index);
+      }
+      if (config.debug) {
+        std::fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n",
+                      config.interface.c_str(), config.if_index);
+      }
+    }
+#endif
     std::optional<softflow::PidFile> pidfile;
     if (!config.no_daemonize) {
       softflow::daemonize();
@@ -4481,7 +4698,17 @@ main (int argc, char **argv) {
         }
       }
     }
-    return run_live_capture (config);
+    return run_live_capture (config, std::move (live_handle),
+                             std::move (control_socket));
+  } catch (const softflow::PcapError &e) {
+    std::fprintf (stderr, "%s\n", e.what());
+    return 1;
+  } catch (const softflow::ExportError &e) {
+    std::fprintf (stderr, "%s\n", e.what());
+    return 1;
+  } catch (const StartupError &e) {
+    std::fprintf (stderr, "%s\n", e.what());
+    return 1;
   } catch (const std::exception &e) {
     std::fprintf (stderr, "%s: %s\n", argv[0], e.what());
     return 1;

@@ -62,22 +62,24 @@ enum class AddressFamily : std::uint8_t {
 // original and has been removed so -T's five values map onto this enum
 // one-to-one.
 enum class TrackLevel : std::uint8_t {
-    IpOnly,       // "ip":    source/destination address only
-    IpProto,      // "proto": + protocol
-    IpProtoPort,  // "full":  + source/destination port (the default). ToS
+  IpOnly,         // "ip":    source/destination address only
+  IpProto,        // "proto": + protocol
+  Port,           // "port":  + source/destination port, and no ToS in the
+                  // flow (the original's TRACK_IP_PROTO_PORT)
+  IpProtoPort,    // "full":  + source/destination port (the default). ToS
                   // is deliberately *not* part of flow identity at this
                   // level, matching the reference implementation's actual
                   // flow_compare() behavior (see FlowKey's own comment) --
                   // despite softflowd.h describing "full" as a 6-tuple
                   // that includes ToS, the real comparison function never
                   // touches it.
-    FullTos,      // "full-tos": + ToS. Opt-in: makes ToS part of flow
+  FullTos,        // "full-tos": + ToS. Opt-in: makes ToS part of flow
                   // identity too, matching what softflowd.h *documents*
                   // (but the reference C implementation doesn't actually
                   // do). Two packets identical except for ToS become
                   // separate flows at this level.
-    FullVlan,     // "vlan":  + VLAN ID
-    FullVlanEther, // "ether": + source/destination Ethernet address
+  FullVlan,       // "vlan":  + VLAN ID
+  FullVlanEther,  // "ether": + source/destination Ethernet address
 };
 
 // Original:

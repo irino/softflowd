@@ -79,14 +79,28 @@ version.
 | `-s` | The sampling rate is written into the sampling_interval of the NetFlow v5 header (it used to be 0) |
 | Flow sequence | `flow_seq` is a monotonic counter (it used to be the number of tracked flows, so numbers repeated) |
 | `-F hash`, `-F hash-tree` | The number of buckets and the capacity follow the C version: a power of two, at most 2^24 |
+| Times of a live capture | The flow times are the libpcap timestamps of the packets (`phdr->ts`), not the time at which they are read. With `-a` the first packet is the boot time and the time of the last packet is the current time (poll timeout, expiry, final expiry, `expire-all`), as in the C version |
+| Command line errors | The messages, the usage (the C text, with the options of this project after it) and the exit status 1 are those of the C version, and so are its rules: `-L` 0 to 255, `-s`, `-B`, `-C` and `-R` read by `atoi ()`, names of `-T`, `-P` and `-A` that are not case sensitive, a later `-n` replaces the earlier, at most 16 destinations, each resolved when the option is read, `-t` parsed by `convtime ()` |
+| Errors of the start | The capture, its filter and the control socket are set up before the process forks, so that their errors are seen and the exit status is 1 (they were lost with the standard error of the daemon). The texts are those of the C version (`pcap_activate: ...`, `pcap_compile("..."): ...`, `unix domain bind("...") error: ...`) |
+| `-T port` | Tracks the ports and exports no ToS, between `proto` and `full`. `-T full-tos` of this project is kept |
+| `-i idx:interface` | The index is put in the input and output interface of NetFlow v1 and v5, in the ingress and egress interface of v9 and IPFIX, and in the scope of their options. Without it, the index of the interface is looked up when the daemon starts if there is a destination |
+| `-c none` | No control socket |
+| No destination | Without `-n` the packets are made and counted as exported, as in the C version |
 
 ### Known differences and open items
 
 - The `Flow table:` line (in use, max depth, collisions) differs, because the
   hash function is another one.
-- With `-a`, a receiver of PSAMP exports the absolute times of the flows from
-  the wall clock, not from the last observation time as the C version does;
-  `-a` is not handled in the live loop yet.
+- Command lines in which the C version is wrong are not matched:
+  `-I abc` and an unknown host of `-e` (it prints the text of an errno that
+  the call did not set), the port of `-n` (cut to 16 bits by the C version; the
+  C++ version shows it as written), a time of `-t` that does not fit an int
+  (cut by the C version, rejected here), the file name of `-r` in
+  "Exporting flows from" (cut to 15 characters by the C version), and the ToS
+  of an IPv6 packet (the C version exports 0 because of a byte order mistake in
+  its mask).
+- The statistics do not count what the C version counts: "Packets processed"
+  with `-v psamp`, and "Ignored packets" (non-IP, too short).
 - Live capture was checked on `lo` only, not on a physical NIC or on BSD.
   `--enable-ifname` and the interfaceName of the option records are not
   implemented.
@@ -558,10 +572,8 @@ Building produces two executables: `softflowd+` (the daemon itself) and
 
 ## Open items
 
-- `-a` in the live loop (for PSAMP receive mode too): the last packet time as
-  the current time, as `-a` of the C version does
-- The error messages of the command line (`Invalid -t name.` and the usage)
-  as those of the C version; only the exit codes match now
+- The statistics: "Packets processed" with `-v psamp`, and "Ignored packets"
+  (non-IP, too short)
 - A CI job with ZeroMQ (`-DSOFTFLOW_NTOPNG=ON`)
 - Live capture on a physical NIC and on BSD; `--enable-ifname`
 - Real-world SCTP testing (the development environment has no SCTP kernel

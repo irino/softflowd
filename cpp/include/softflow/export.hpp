@@ -34,12 +34,16 @@ namespace softflow {
 // logic trivially unit-testable without a real network.
 class Netflow1Exporter {
 public:
-    // boot_time is the reference point ("device boot") that NetFlow's
-    // uptime-based fields are measured from. In the original, this was
-    // system_boot_time, computed once at startup via gettimeofday().
-    //
-    explicit Netflow1Exporter(TimePoint boot_time, bool debug = false)
-        : boot_time_(boot_time), debug_(debug) {}
+  // boot_time is the reference point ("device boot") that NetFlow's
+  // uptime-based fields are measured from. In the original, this was
+  // system_boot_time, computed once at startup via gettimeofday().
+  //
+  // if_index: the interface index of -i idx:interface, put in the input and
+  // output interface fields of the records.
+  explicit Netflow1Exporter (TimePoint boot_time, bool debug = false,
+                             std::uint16_t if_index = 0)
+      : boot_time_ (boot_time), debug_ (debug), if_index_ (if_index) {
+  }
 
     void set_boot_time(TimePoint boot_time) noexcept { boot_time_ = boot_time; }
 
@@ -64,20 +68,25 @@ private:
 
     TimePoint boot_time_;
     bool debug_{false};
+    std::uint16_t if_index_{0};
 };
 
 class Netflow5Exporter {
 public:
-    // debug: when true, mirrors the reference C softflowd's -D
-    // (verbose_flag) behavior of logging "Sending v5 flow packet len =
-    // %d" to stderr right before each UDP packet is handed off to
-    // send_multi_destinations().
-    //
-    // sampling_rate: -s. Above 1 it is put in the sampling_interval field of
-    // the header, with the sampling mode 1 (deterministic) in its top 2 bits.
-    explicit Netflow5Exporter(TimePoint boot_time, bool debug = false,
-                              std::uint32_t sampling_rate = 0)
-        : boot_time_(boot_time), debug_(debug), sampling_rate_(sampling_rate) {}
+  // debug: when true, mirrors the reference C softflowd's -D
+  // (verbose_flag) behavior of logging "Sending v5 flow packet len =
+  // %d" to stderr right before each UDP packet is handed off to
+  // send_multi_destinations().
+  //
+  // sampling_rate: -s. Above 1 it is put in the sampling_interval field of
+  // the header, with the sampling mode 1 (deterministic) in its top 2 bits.
+  // if_index: as for Netflow1Exporter.
+  explicit Netflow5Exporter (TimePoint boot_time, bool debug = false,
+                             std::uint32_t sampling_rate = 0,
+                             std::uint16_t if_index = 0)
+      : boot_time_ (boot_time), debug_ (debug), sampling_rate_ (sampling_rate),
+        if_index_ (if_index) {
+  }
 
     void set_boot_time(TimePoint boot_time) noexcept { boot_time_ = boot_time; }
 
@@ -107,6 +116,7 @@ private:
     std::uint32_t flow_seq_{0};
     bool debug_{false};
     std::uint32_t sampling_rate_{0};
+    std::uint16_t if_index_{0};
 };
 
 class IpfixExporter {
