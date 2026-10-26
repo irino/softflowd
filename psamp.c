@@ -167,6 +167,7 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   char buf[IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
   struct IPFIX_HEADER *ipfix = (struct IPFIX_HEADER *) buf;
   struct ntp_time_t ntptime;
+  struct timeval tv;
   uint16_t exportedOctets;
   struct pcap_pkthdr pkthdr;
   int recvsize = 0;
@@ -200,7 +201,11 @@ recv_psamp (int rsock, struct CB_CTXT *cb_ctxt) {
   offset += sizeof (struct ntp_time_t);
   ntptime.second = ntohl (ntptime.second);
   ntptime.fraction = ntohl (ntptime.fraction);
-  conv_ntp_to_unix (ntptime, &pkthdr.ts);
+  conv_ntp_to_unix (ntptime, &tv);
+  /* pcap_pkthdr.ts is a struct bpf_timeval on some platforms (e.g. OpenBSD),
+   * so it cannot be passed to conv_ntp_to_unix() directly. */
+  pkthdr.ts.tv_sec = tv.tv_sec;
+  pkthdr.ts.tv_usec = tv.tv_usec;
 
   //sectionExportedOctets
   MEMCPY (&exportedOctets, &buf[offset], exportedOctets);
