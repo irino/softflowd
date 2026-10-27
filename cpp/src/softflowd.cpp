@@ -840,6 +840,21 @@ FlowTableRuntime::record_export_stats (std::uint64_t flows, std::uint64_t record
     table_);
 }
 
+void
+FlowTableRuntime::count_packet_without_flow() noexcept {
+  std::visit ([] (auto &table) { table.count_packet_without_flow(); }, table_);
+}
+
+void
+FlowTableRuntime::count_non_ip_packet() noexcept {
+  std::visit ([] (auto &table) { table.count_non_ip_packet(); }, table_);
+}
+
+void
+FlowTableRuntime::count_bad_packet() noexcept {
+  std::visit ([] (auto &table) { table.count_bad_packet(); }, table_);
+}
+
 TrackLevel
 FlowTableRuntime::track_level () const noexcept {
   return std::visit ([] (const auto &table) { return table.track_level(); },
@@ -3177,12 +3192,14 @@ run_pcap_file (const DaemonConfig &config) {
     }
     ++sampled_total;
     if (config.export_format == ExportFormat::Psamp) {
+      table.count_packet_without_flow();
       exporter.export_psamp (
         PsampSample{pkt->data, pkt->wall_timestamp, sampled_total},
         config.adjust_pcap_time);
       continue;
     }
     if (pkt->data.size() <= skip) {
+      table.count_non_ip_packet();
       --sampled_total;
       continue;
     }
@@ -3190,16 +3207,19 @@ run_pcap_file (const DaemonConfig &config) {
 
     const auto frame = classify_frame (*pkt, dl_kind, ip_bytes);
     if (!frame.has_value()) {
+      table.count_non_ip_packet();
       --sampled_total;
       continue;
     }
     if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      table.count_non_ip_packet();
       --sampled_total;
       continue;
     }
 
     auto parsed = parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
     if (!parsed.has_value()) {
+      table.count_bad_packet();
       continue;
     }
     ++parsed_ok;
@@ -3832,6 +3852,7 @@ run_live_capture (const DaemonConfig &config,
     }
     ++sampled_total;
     if (config.export_format == ExportFormat::Psamp) {
+      table.count_packet_without_flow();
       exporter.export_psamp (
         PsampSample{pkt.data, pkt.wall_timestamp, sampled_total}, false);
       return;
@@ -3853,6 +3874,7 @@ run_live_capture (const DaemonConfig &config,
     } last_packet{config.adjust_pcap_time, pkt, last_packet_mono,
                   last_packet_wall};
     if (pkt.data.size() <= skip) {
+      table.count_non_ip_packet();
       --sampled_total;
       return;
     }
@@ -3860,10 +3882,12 @@ run_live_capture (const DaemonConfig &config,
 
     const auto frame = classify_frame (pkt, dl_kind, ip_bytes);
     if (!frame.has_value()) {
+      table.count_non_ip_packet();
       --sampled_total;
       return;
     }
     if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      table.count_non_ip_packet();
       --sampled_total;
       return;
     }
@@ -3871,6 +3895,7 @@ run_live_capture (const DaemonConfig &config,
     auto parsed =
       parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
     if (!parsed.has_value()) {
+      table.count_bad_packet();
       return;
     }
 

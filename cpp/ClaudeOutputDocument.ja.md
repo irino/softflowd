@@ -75,6 +75,8 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
 | `-i idx:interface` | 番号は、NetFlow v1・v5の入出力インターフェース、v9・IPFIXのingress/egressインターフェース、それらのオプションのscopeに入ります。省略したときは、宛先があれば起動時にインターフェースの番号を調べます |
 | `-c none` | 制御ソケットを作りません |
 | 宛先なし | `-n`がなくても、パケットを作ってエクスポート済みとして数えます(C版と同じ) |
+| パケットの統計 | "Packets processed"と"Ignored packets"(non-IP、too short)は、`-v psamp`や`-s`のときも含め、C版と同じに数えます |
+| `-g` | cpu clocksは、キャプチャファイルでもライブでも、停止時に報告します(標準エラー。デーモンはsyslog)。`-M`ではエクスポートのclockは"n/a"です。compatの測定は、既定のビルドがサニタイザ付きのため、最適化ビルドで行います |
 
 ### 既知の差と未完了の項目
 
@@ -84,8 +86,6 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
   表示します)、intに収まらない`-t`の時間(C版は切り詰め、C++版は拒否します)、"Exporting flows from"に
   表示される`-r`のファイル名(C版は15文字に切り詰めます)、IPv6パケットのToS(C版はマスクのバイト順の
   誤りのため0を出力します)です。
-- 統計はC版が数えるものをすべては数えていません。`-v psamp`の"Packets processed"と、
-  "Ignored packets"(non-IP、too short)です。
 - ライブキャプチャは`lo`でのみ確認しました。実NICとBSDは未確認です。`--enable-ifname`と
   オプションレコードのinterfaceNameは未実装です。
 - ライブでの強制expireのエクスポートパケット数は、libpcapのパケットの渡し方で決まります
@@ -517,7 +517,6 @@ tests/
 
 ## 未完了の項目
 
-- 統計: `-v psamp`の"Packets processed"と、"Ignored packets"(non-IP、too short)
 - ZeroMQ付きビルド(`-DSOFTFLOW_NTOPNG=ON`)のCIジョブ
 - 実NICとBSDでのライブキャプチャ、`--enable-ifname`
 - 実環境でのSCTPの確認(開発環境にSCTPのカーネルモジュールがなく、udpへのフォールバックだけを確認済み)

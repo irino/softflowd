@@ -3082,6 +3082,57 @@ def parity_live_gauge(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> b
     return ok
 
 
+def parity_statistics(a_daemon: str, b_daemon: str, pcap: str) -> bool:
+    """The statistics that count the packets (the processed ones, and the ignored ones that are not IP or too
+    short) are those of A for a capture with packets that are not IP, that are too short, that are IPv6 where
+    IPv6 is not tracked, with -v psamp and with -s."""
+    with open(pcap, "rb") as f:
+        data = f.read()
+    ipv6 = os.path.join(SUITE_TMP_DIR, "stat_v6.pcap")
+    subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "tools", "gen_ci_smoke_pcap.py"), "-6", ipv6],
+                   check=True, stdout=subprocess.DEVNULL)
+    nonip, short = bytearray(data[:24]), bytearray(data[:24])
+    off, n = 24, 0
+    while off < len(data):
+        ts, us, caplen, origlen = struct.unpack("<IIII", data[off:off + 16])
+        frame = bytearray(data[off + 16:off + 16 + caplen])
+        if n < 5:                       # five frames that are not IP, five that are too short for IP
+            arp = bytearray(frame)
+            arp[12:14] = b"\x08\x06"
+            nonip += struct.pack("<IIII", ts, us, caplen, origlen) + arp
+            frame = frame[:24]
+            short += struct.pack("<IIII", ts, us, len(frame), origlen) + frame
+        else:
+            nonip += data[off:off + 16 + caplen]
+            short += data[off:off + 16 + caplen]
+        off += 16 + caplen
+        n += 1
+    paths = {}
+    for name, content in (("nonip", nonip), ("short", short)):
+        paths[name] = os.path.join(SUITE_TMP_DIR, f"stat_{name}.pcap")
+        with open(paths[name], "wb") as f:
+            f.write(content)
+    cases = [("not IP", paths["nonip"], []), ("too short", paths["short"], []),
+             ("IPv6 with -v 5", ipv6, ["-v", "5"]), ("IPv6 with -v 9", ipv6, ["-v", "9"]),
+             ("-v psamp", pcap, ["-v", "psamp"]), ("-v psamp, not IP", paths["nonip"], ["-v", "psamp"]),
+             ("-s 3, not IP", paths["nonip"], ["-s", "3"]), ("-s 3, too short", paths["short"], ["-s", "3"])]
+
+    def stats(daemon: str, path: str, extra: List[str]) -> Tuple[str, ...]:
+        r = subprocess.run([daemon, "-r", path, "-a", "-n", "127.0.0.1:9"] + extra, capture_output=True,
+                           text=True, timeout=30, stdin=subprocess.DEVNULL)
+        return tuple((re.search(pattern, r.stdout) or [None, "?"])[1]
+                     for pattern in (r"Packets processed: (\d+)", r"Ignored packets: (.*)",
+                                     r"Number of active flows: (\d+)"))
+    different = [(label, stats(a_daemon, path, extra), stats(b_daemon, path, extra)) for label, path, extra in cases]
+    different = [d for d in different if d[1] != d[2]]
+    if not different:
+        print_green(f"    - statistics of the packets (processed, ignored; {len(cases)} captures): MATCHED")
+        return True
+    for label, a, b in different:
+        print_red(f"    - statistics of the packets, {label}: DIFFERENT (A {a}, B {b})")
+    return False
+
+
 def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """A command line that is wrong, or odd, is reported by B as A reports it: the message, the usage (the
     options of B that A does not have follow it), the standard output and the exit status."""
@@ -3180,6 +3231,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     ok = parity_cli(a_daemon, b_daemon, pcaps["smoke"])
     ok = parity_cli_errors(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_gauge(a_daemon, b_daemon, pcaps["smoke"]) and ok
+    ok = parity_statistics(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
     ok = parity_multithread(b_daemon, pcaps) and ok

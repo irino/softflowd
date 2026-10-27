@@ -86,6 +86,8 @@ version.
 | `-i idx:interface` | The index is put in the input and output interface of NetFlow v1 and v5, in the ingress and egress interface of v9 and IPFIX, and in the scope of their options. Without it, the index of the interface is looked up when the daemon starts if there is a destination |
 | `-c none` | No control socket |
 | No destination | Without `-n` the packets are made and counted as exported, as in the C version |
+| Statistics of the packets | "Packets processed" and "Ignored packets" (non-IP, too short) count as the C version does, also with `-v psamp` and `-s` |
+| `-g` | The cpu clocks are reported when the daemon stops, for a capture file and for a live capture: to the standard error, or to syslog for a daemon; with `-M` the clocks of the export are "n/a". The measurements of compat use an optimized build, as the default build has the sanitizers |
 
 ### Known differences and open items
 
@@ -99,8 +101,6 @@ version.
   "Exporting flows from" (cut to 15 characters by the C version), and the ToS
   of an IPv6 packet (the C version exports 0 because of a byte order mistake in
   its mask).
-- The statistics do not count what the C version counts: "Packets processed"
-  with `-v psamp`, and "Ignored packets" (non-IP, too short).
 - Live capture was checked on `lo` only, not on a physical NIC or on BSD.
   `--enable-ifname` and the interfaceName of the option records are not
   implemented.
@@ -572,8 +572,6 @@ Building produces two executables: `softflowd+` (the daemon itself) and
 
 ## Open items
 
-- The statistics: "Packets processed" with `-v psamp`, and "Ignored packets"
-  (non-IP, too short)
 - A CI job with ZeroMQ (`-DSOFTFLOW_NTOPNG=ON`)
 - Live capture on a physical NIC and on BSD; `--enable-ifname`
 - Real-world SCTP testing (the development environment has no SCTP kernel

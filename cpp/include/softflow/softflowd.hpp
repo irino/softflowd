@@ -729,6 +729,23 @@ public:
         stats_.packets_sent += packets;
         stats_.flows_dropped += failures;
     }
+    // Original: flow_cb () and process_packet () count the packets that do not
+    // become a flow in the statistics as well. A packet with -v psamp is
+    // counted as processed, one that is not IP is counted as ignored, and one
+    // that is too short for its headers is counted as ignored and as processed.
+    void
+    count_packet_without_flow () noexcept {
+      stats_.total_packets += 1;
+    }
+    void
+    count_non_ip_packet () noexcept {
+      stats_.non_ip_packets += 1;
+    }
+    void
+    count_bad_packet () noexcept {
+      stats_.bad_packets += 1;
+      stats_.total_packets += 1;
+    }
     TrackLevel track_level() const noexcept { return track_level_; }
     const FlowTimeouts& timeouts() const noexcept { return timeouts_; }
     static constexpr FlowIndexBackend backend() noexcept { return Backend; }
@@ -853,6 +870,12 @@ public:
     const FlowTableStats& stats() const noexcept;
     void record_export_stats(std::uint64_t flows, std::uint64_t records,
                               std::uint64_t packets, std::uint64_t failures) noexcept;
+    void
+    count_packet_without_flow () noexcept;
+    void
+    count_non_ip_packet () noexcept;
+    void
+    count_bad_packet () noexcept;
     TrackLevel track_level() const noexcept;
     FlowIndexBackend backend() const noexcept;
 
