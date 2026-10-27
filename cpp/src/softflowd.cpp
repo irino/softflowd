@@ -48,6 +48,7 @@
 #include <climits>
 #include <csignal>
 #include <cstdarg>
+#include <syslog.h>
 #include <cstdio>
 #include <cstring>
 #include <strings.h>
@@ -2965,6 +2966,49 @@ bool serve_control_client (ControlListener &listener,
                            ExportPipeline &exporter,
                            const softflow::PcapHandle *handle);
 
+// Original: logit () and loginit (). A process that is not a daemon logs to the
+// standard error, with a newline added, and a daemon to syslog (LOG_DAEMON, with
+// the PID).
+void
+logit_info (bool to_stderr, const char *fmt, ...)
+  __attribute__ ((format (printf, 2, 3)));
+void
+logit_info (bool to_stderr, const char *fmt, ...) {
+  va_list ap;
+  va_start (ap, fmt);
+  if (to_stderr) {
+    std::vfprintf (stderr, fmt, ap);
+    std::fputs ("\n", stderr);
+  } else {
+    static bool opened = false;
+    if (!opened) {
+      openlog (SOFTFLOWDPP_NAME, LOG_PID | LOG_NDELAY, LOG_DAEMON);
+      opened = true;
+    }
+    vsyslog (LOG_INFO, fmt, ap);
+  }
+  va_end (ap);
+}
+
+// Original: -g at the exit. The clocks of the export are not counted with the
+// threaded export (-M).
+void
+report_cpu_clocks (const DaemonConfig &config, bool to_stderr,
+                   std::clock_t cpu_start, const ExportPipeline &exporter) {
+  if (!config.gauge_clock) {
+    return;
+  }
+  logit_info (to_stderr, "cpu clocks: %ld\n",
+              static_cast<long> (std::clock() - cpu_start));
+  if (config.multithread) {
+    logit_info (to_stderr, "cpu clocks (export): n/a with threaded export\n");
+  } else {
+    logit_info (to_stderr, "cpu clocks (export): %ld (%lu calls)\n",
+                static_cast<long> (exporter.export_clocks()),
+                exporter.export_calls());
+  }
+}
+
 int
 run_pcap_file (const DaemonConfig &config) {
   using namespace softflow;
@@ -3288,19 +3332,7 @@ run_pcap_file (const DaemonConfig &config) {
   exporter.sync_stats (table);
   print_statistics (table.stats(), table.size(), table.lookup(), table.usage(),
                     stdout, &handle);
-  if (config.gauge_clock) {
-    // Original: logit (), which prints to the standard error when the
-    // process is not a daemon.
-    std::fprintf (stderr, "cpu clocks: %ld\n",
-                  static_cast<long> (std::clock() - cpu_start));
-    if (config.multithread) {
-      std::fprintf (stderr, "cpu clocks (export): n/a with threaded export\n");
-    } else {
-      std::fprintf (stderr, "cpu clocks (export): %ld (%lu calls)\n",
-                    static_cast<long> (exporter.export_clocks()),
-                    exporter.export_calls());
-    }
-  }
+  report_cpu_clocks (config, /*to_stderr=*/true, cpu_start, exporter);
   // Original: main () returns 1 when shutdown or exit stopped it.
   return control && control_listener_state (*control).stopped_by_controller ? 1 : 0;
 }
@@ -3662,6 +3694,7 @@ run_live_capture (const DaemonConfig &config,
                   ControlListenerPtr control_socket) {
   using namespace softflow;
 
+  const std::clock_t cpu_start = std::clock();  // -g
   const auto dl_kind =
     handle.has_value() ? handle->datalink_kind() : DatalinkKind::Ethernet;
   const std::size_t skip = datalink_header_len (dl_kind);
@@ -4066,6 +4099,8 @@ run_live_capture (const DaemonConfig &config,
     log_expiry_debug_expired (config.debug, expired);
   }
 
+  exporter.wait_idle();
+  report_cpu_clocks (config, config.no_daemonize, cpu_start, exporter);
   std::printf ("[softflowd] exiting (%s)\n",
                state.immediate_exit ? "immediate" : "graceful");
   // Original: main () returns 1 when shutdown or exit stopped it.

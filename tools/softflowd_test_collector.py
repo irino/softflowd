@@ -3041,6 +3041,47 @@ PARITY_CLI_ERROR_CASES = [
 ]
 
 
+def parity_live_gauge(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """-g of a live capture reports the "cpu clocks" counters on the standard error when the daemon stops (with
+    -d), as for a capture file, and with -M the clocks of the export are "n/a" for both."""
+    ok = True
+    for extra, label in (([], "-g"), (["-M"], "-g -M")):
+        results = []
+        for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+            path = os.path.join(SUITE_TMP_DIR, f"livegauge_{n}.ctl")
+            if os.path.exists(path):
+                os.remove(path)
+            proc = subprocess.Popen([daemon, "-d", "-g", "-i", "lo", "-v", "5", "-n", "127.0.0.1:9", "-c", path]
+                                    + extra + ["udp and dst port 41002"],
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    text=True)
+            for _ in range(100):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.sendto(b"x" * 40, ("127.0.0.1", 41002))
+            s.close()
+            time.sleep(0.5)
+            subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+            try:
+                _, err = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _, err = proc.communicate()
+            results.append(parse_gauge(err))
+        a, b = results
+        same = a is not None and b is not None and (a[1] is None) == (b[1] is None) and \
+            (a[1] is None or a[2] == b[2])
+        if same:
+            print_green(f"    - live on lo, cpu clocks of {label}: MATCHED (A {_fmt_gauge(a)}, B {_fmt_gauge(b)})")
+        else:
+            ok = False
+            print_red(f"    - live on lo, cpu clocks of {label}: DIFFERENT (A {a}, B {b})")
+    return ok
+
+
 def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """A command line that is wrong, or odd, is reported by B as A reports it: the message, the usage (the
     options of B that A does not have follow it), the standard output and the exit status."""
@@ -3148,6 +3189,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
         if parity_can_capture_lo():
             ok = parity_live(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_time(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_live_gauge(a_daemon, b_daemon, ctl_a, ctl_b) and ok
         else:
             print_yellow("    - live on lo: SKIPPED (needs root, to capture on lo)")
     else:
