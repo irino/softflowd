@@ -12,7 +12,8 @@ use crate::exporter::{
         IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID, IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID,
         IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, IPFIX_SOFTFLOWD_V4_TEMPLATE_ID,
         IPFIX_SOFTFLOWD_V6_TEMPLATE_ID, IPFIX_TEMPLATE_SET_ID,
-        NETFLOW9_TEMPLATE_SET_ID, REVERSE_PEN,
+        IPFIX_OPTION_TEMPLATE_SET_ID, IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID,
+        NETFLOW9_TEMPLATE_SET_ID, NETFLOW9_OPTION_TEMPLATE_SET_ID, REVERSE_PEN,
         TMPLICMPV4, TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6, valuate_icmp,
     },
 };
@@ -73,6 +74,33 @@ fn enc_sourceTransportPort(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
 fn enc_destinationTransportPort(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
     let bytes = ctx.flow.key.port[ctx.i ^ 1].to_be_bytes();
     dst[..2].copy_from_slice(&bytes);
+}
+
+fn enc_nf9_sourceTransportPort(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
+    if ctx.flow.key.protocol == 1 || ctx.flow.key.protocol == 58 {
+        dst[..2].fill(0);
+    } else {
+        let bytes = ctx.flow.key.port[ctx.i].to_be_bytes();
+        dst[..2].copy_from_slice(&bytes);
+    }
+}
+
+fn enc_nf9_destinationTransportPort(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
+    if ctx.flow.key.protocol == 1 || ctx.flow.key.protocol == 58 {
+        dst[..2].fill(0);
+    } else {
+        let bytes = ctx.flow.key.port[ctx.i ^ 1].to_be_bytes();
+        dst[..2].copy_from_slice(&bytes);
+    }
+}
+
+fn enc_nf9_icmpTypeCode(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
+    if ctx.flow.key.protocol == 1 || ctx.flow.key.protocol == 58 {
+        let bytes = ctx.flow.key.port[ctx.i ^ 1].to_be_bytes();
+        dst[..2].copy_from_slice(&bytes);
+    } else {
+        dst[..2].fill(0);
+    }
 }
 
 fn enc_icmpTypeCode(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
@@ -412,6 +440,62 @@ struct ExportTemplate {
 fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> [ExportTemplate; TMPLMAX] {
     let mut tmpls = Vec::with_capacity(TMPLMAX);
 
+    if version == 9 {
+        let v4_fields = vec![
+            FieldSpecEncoder { ie: 8, length: 4, encoder: enc_sourceIPv4Address },
+            FieldSpecEncoder { ie: 12, length: 4, encoder: enc_destinationIPv4Address },
+            FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime },
+            FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime },
+            FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount },
+            FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount },
+            FieldSpecEncoder { ie: 10, length: 4, encoder: enc_ifidx32 },
+            FieldSpecEncoder { ie: 14, length: 4, encoder: enc_ifidx32 },
+            FieldSpecEncoder { ie: 7, length: 2, encoder: enc_nf9_sourceTransportPort },
+            FieldSpecEncoder { ie: 11, length: 2, encoder: enc_nf9_destinationTransportPort },
+            FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
+            FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
+            FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion },
+            FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
+            FieldSpecEncoder { ie: 32, length: 2, encoder: enc_nf9_icmpTypeCode },
+            FieldSpecEncoder { ie: 58, length: 2, encoder: enc_vlanId },
+        ];
+        let v4_len = v4_fields.iter().map(|f| f.length).sum::<usize>();
+        let v4_tmpl = ExportTemplate {
+            template_id: IPFIX_SOFTFLOWD_V4_TEMPLATE_ID,
+            fields: v4_fields,
+            bi_fields: Vec::new(),
+            data_len: v4_len,
+        };
+
+        let v6_fields = vec![
+            FieldSpecEncoder { ie: 27, length: 16, encoder: enc_sourceIPv6Address },
+            FieldSpecEncoder { ie: 28, length: 16, encoder: enc_destinationIPv6Address },
+            FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime },
+            FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime },
+            FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount },
+            FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount },
+            FieldSpecEncoder { ie: 10, length: 4, encoder: enc_ifidx32 },
+            FieldSpecEncoder { ie: 14, length: 4, encoder: enc_ifidx32 },
+            FieldSpecEncoder { ie: 7, length: 2, encoder: enc_nf9_sourceTransportPort },
+            FieldSpecEncoder { ie: 11, length: 2, encoder: enc_nf9_destinationTransportPort },
+            FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
+            FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
+            FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion },
+            FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
+            FieldSpecEncoder { ie: 32, length: 2, encoder: enc_nf9_icmpTypeCode },
+            FieldSpecEncoder { ie: 58, length: 2, encoder: enc_vlanId },
+        ];
+        let v6_len = v6_fields.iter().map(|f| f.length).sum::<usize>();
+        let v6_tmpl = ExportTemplate {
+            template_id: IPFIX_SOFTFLOWD_V6_TEMPLATE_ID,
+            fields: v6_fields,
+            bi_fields: Vec::new(),
+            data_len: v6_len,
+        };
+
+        return [v4_tmpl.clone(), v4_tmpl, v6_tmpl.clone(), v6_tmpl];
+    }
+
     for idx in 0..TMPLMAX {
         let (v6, icmp, tmpl_id) = match idx {
             TMPLV4 => (false, false, IPFIX_SOFTFLOWD_V4_TEMPLATE_ID),
@@ -432,13 +516,13 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
         }
 
         // Time fields
-        if version == 10 && param.time_format == b's' {
+        if param.time_format == b's' {
             fields.push(FieldSpecEncoder { ie: 150, length: 4, encoder: enc_flowStartSeconds });
             fields.push(FieldSpecEncoder { ie: 151, length: 4, encoder: enc_flowEndSeconds });
-        } else if version == 10 && param.time_format == b'm' {
+        } else if param.time_format == b'm' {
             fields.push(FieldSpecEncoder { ie: 152, length: 8, encoder: enc_flowStartMilliSeconds });
             fields.push(FieldSpecEncoder { ie: 153, length: 8, encoder: enc_flowEndMilliSeconds });
-        } else if version == 10 && (param.time_format == b'M' || param.time_format == b'n') {
+        } else if param.time_format == b'M' || param.time_format == b'n' {
             fields.push(FieldSpecEncoder { ie: 154, length: 8, encoder: enc_flowStartMicroSeconds });
             fields.push(FieldSpecEncoder { ie: 155, length: 8, encoder: enc_flowEndMicroSeconds });
         } else {
@@ -480,7 +564,7 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
         }
 
         let mut bi_fields = Vec::new();
-        if bi_flag && version == 10 {
+        if bi_flag {
             bi_fields.push(FieldSpecEncoder { ie: 1 | 0x8000, length: 4, encoder: enc_octetDeltaCount });
             bi_fields.push(FieldSpecEncoder { ie: 2 | 0x8000, length: 4, encoder: enc_packetDeltaCount });
             bi_fields.push(FieldSpecEncoder { ie: 5 | 0x8000, length: 1, encoder: enc_ipClassOfService });
@@ -505,13 +589,67 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
 }
 
 fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_flag: bool, version: u16, sp: &SendParameter) {
-    let set_id = if version == 10 { IPFIX_TEMPLATE_SET_ID } else { NETFLOW9_TEMPLATE_SET_ID };
+    if version == 9 {
+        let tmpl_list = [&tmpls[TMPLV4], &tmpls[TMPLV6]];
+        for tmpl in tmpl_list {
+            let set_start = packet.len();
+            packet.extend_from_slice(&NETFLOW9_TEMPLATE_SET_ID.to_be_bytes());
+            let len_offset = packet.len();
+            packet.extend_from_slice(&0u16.to_be_bytes());
+            packet.extend_from_slice(&tmpl.template_id.to_be_bytes());
+            let count = tmpl.fields.len() as u16;
+            packet.extend_from_slice(&count.to_be_bytes());
+
+            for f in &tmpl.fields {
+                packet.extend_from_slice(&f.ie.to_be_bytes());
+                packet.extend_from_slice(&(f.length as u16).to_be_bytes());
+            }
+            let set_len = (packet.len() - set_start) as u16;
+            packet[len_offset..len_offset + 2].copy_from_slice(&set_len.to_be_bytes());
+        }
+
+        // NetFlow v9 Option Template (Set ID: 1)
+        let opt_tmpl_start = packet.len();
+        packet.extend_from_slice(&NETFLOW9_OPTION_TEMPLATE_SET_ID.to_be_bytes());
+        let opt_tmpl_len_offset = packet.len();
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        packet.extend_from_slice(&IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID.to_be_bytes());
+        packet.extend_from_slice(&4u16.to_be_bytes()); // scope_length
+        packet.extend_from_slice(&8u16.to_be_bytes()); // option_length
+
+        packet.extend_from_slice(&1u16.to_be_bytes()); // scope: interface
+        packet.extend_from_slice(&4u16.to_be_bytes());
+
+        packet.extend_from_slice(&34u16.to_be_bytes()); // samplingInterval
+        packet.extend_from_slice(&4u16.to_be_bytes());
+        packet.extend_from_slice(&35u16.to_be_bytes()); // samplingAlgorithm
+        packet.extend_from_slice(&1u16.to_be_bytes());
+        packet.extend_from_slice(&[0u8; 3]);
+
+        let opt_tmpl_len = (packet.len() - opt_tmpl_start) as u16;
+        packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2].copy_from_slice(&opt_tmpl_len.to_be_bytes());
+
+        // NetFlow v9 Option Data Record (Set ID: 256)
+        let opt_data_start = packet.len();
+        packet.extend_from_slice(&IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID.to_be_bytes());
+        let opt_data_len_offset = packet.len();
+        packet.extend_from_slice(&0u16.to_be_bytes());
+
+        packet.extend_from_slice(&(sp.ifidx as u32).to_be_bytes());
+        packet.extend_from_slice(&sp.param.sample_rate.to_be_bytes());
+        packet.push(1);
+        packet.extend_from_slice(&[0u8; 3]);
+
+        let opt_data_len = (packet.len() - opt_data_start) as u16;
+        packet[opt_data_len_offset..opt_data_len_offset + 2].copy_from_slice(&opt_data_len.to_be_bytes());
+        return;
+    }
 
     for tmpl in tmpls {
         let set_start = packet.len();
-        packet.extend_from_slice(&set_id.to_be_bytes());
+        packet.extend_from_slice(&IPFIX_TEMPLATE_SET_ID.to_be_bytes());
         let len_offset = packet.len();
-        packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder for set length
+        packet.extend_from_slice(&0u16.to_be_bytes());
 
         packet.extend_from_slice(&tmpl.template_id.to_be_bytes());
         let count = (tmpl.fields.len() + tmpl.bi_fields.len() + sp.param.max_num_label as usize) as u16;
@@ -521,7 +659,7 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
             packet.extend_from_slice(&f.ie.to_be_bytes());
             packet.extend_from_slice(&(f.length as u16).to_be_bytes());
         }
-        if bi_flag && version == 10 {
+        if bi_flag {
             for f in &tmpl.bi_fields {
                 packet.extend_from_slice(&f.ie.to_be_bytes());
                 packet.extend_from_slice(&(f.length as u16).to_be_bytes());
@@ -538,6 +676,66 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         let set_len = (packet.len() - set_start) as u16;
         packet[len_offset..len_offset + 2].copy_from_slice(&set_len.to_be_bytes());
     }
+
+    // IPFIX Option Template (Set ID: 3)
+    let opt_tmpl_start = packet.len();
+    packet.extend_from_slice(&IPFIX_OPTION_TEMPLATE_SET_ID.to_be_bytes());
+    let opt_tmpl_len_offset = packet.len();
+    packet.extend_from_slice(&0u16.to_be_bytes());
+    packet.extend_from_slice(&IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID.to_be_bytes());
+    packet.extend_from_slice(&10u16.to_be_bytes());
+    packet.extend_from_slice(&1u16.to_be_bytes());
+
+    packet.extend_from_slice(&143u16.to_be_bytes()); // meteringProcessId
+    packet.extend_from_slice(&4u16.to_be_bytes());
+
+    let opt_fields: [(u16, u16); 9] = [
+        (160, 8),  // systemInitTimeMilliseconds
+        (305, 4),  // samplingPacketInterval
+        (306, 4),  // samplingPacketSpace
+        (304, 2),  // selectorAlgorithm
+        (82, 16),  // interfaceName
+        (130, 4),  // exporterIPv4Address
+        (131, 16), // exporterIPv6Address
+        (403, 4),  // originalExporterIPv4Address
+        (404, 16), // originalExporterIPv6Address
+    ];
+    for (ie, len) in opt_fields {
+        packet.extend_from_slice(&ie.to_be_bytes());
+        packet.extend_from_slice(&len.to_be_bytes());
+    }
+    let opt_tmpl_len = (packet.len() - opt_tmpl_start) as u16;
+    packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2].copy_from_slice(&opt_tmpl_len.to_be_bytes());
+
+    // IPFIX Option Data Record (Set ID: 256)
+    let opt_data_start = packet.len();
+    packet.extend_from_slice(&IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID.to_be_bytes());
+    let opt_data_len_offset = packet.len();
+    packet.extend_from_slice(&0u16.to_be_bytes());
+
+    let pid = std::process::id();
+    packet.extend_from_slice(&pid.to_be_bytes());
+
+    let boot_ms = (sp.param.system_boot_time.tv_sec as u64) * 1000 + (sp.param.system_boot_time.tv_usec as u64) / 1000;
+    packet.extend_from_slice(&boot_ms.to_be_bytes());
+
+    let interval = if sp.param.sample_rate > 1 { sp.param.sample_rate } else { 1 };
+    let space = if sp.param.sample_rate > 0 { sp.param.sample_rate - 1 } else { 0 };
+    packet.extend_from_slice(&interval.to_be_bytes());
+    packet.extend_from_slice(&space.to_be_bytes());
+
+    packet.extend_from_slice(&1u16.to_be_bytes());
+
+    let mut ifname_buf = [0u8; 16];
+    let name_bytes = sp.param.interface_name.as_bytes();
+    let copy_len = name_bytes.len().min(15);
+    ifname_buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+    packet.extend_from_slice(&ifname_buf);
+
+    packet.extend_from_slice(&[0u8; 40]);
+
+    let opt_data_len = (packet.len() - opt_data_start) as u16;
+    packet[opt_data_len_offset..opt_data_len_offset + 2].copy_from_slice(&opt_data_len.to_be_bytes());
 }
 
 pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
@@ -601,7 +799,7 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
         while i + j < num_flows {
             let flow = sp.flows[i + j];
             let af = flow.key.af;
-            let icmp_flag = if valuate_icmp(flow) { 1 } else { 0 };
+            let icmp_flag = if version == 9 { 0 } else if valuate_icmp(flow) { 1 } else { 0 };
 
             if dh_offset.is_none() || af != last_af || icmp_flag != last_icmp_flag {
                 if let Some(dh_off) = dh_offset {
@@ -619,7 +817,11 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                 }
 
                 last_valid = packet.len();
-                let tmplindex = ipfix_flow_to_template_index(flow);
+                let tmplindex = if version == 9 {
+                    if af == libc::AF_INET as u16 { TMPLV4 } else { TMPLV6 }
+                } else {
+                    ipfix_flow_to_template_index(flow)
+                };
                 let tmpl = &tmpls[tmplindex];
                 let set_id = tmpl.template_id;
                 dh_offset = Some(packet.len());
@@ -629,7 +831,11 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                 last_icmp_flag = icmp_flag;
             }
 
-            let tmplindex = ipfix_flow_to_template_index(flow);
+            let tmplindex = if version == 9 {
+                if af == libc::AF_INET as u16 { TMPLV4 } else { TMPLV6 }
+            } else {
+                ipfix_flow_to_template_index(flow)
+            };
             let tmpl = &tmpls[tmplindex];
             let frecnum = if bi_flag { 1 } else { 2 };
             let mut flow_written = 0;

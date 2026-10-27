@@ -3289,11 +3289,17 @@ run_pcap_file (const DaemonConfig &config) {
   print_statistics (table.stats(), table.size(), table.lookup(), table.usage(),
                     stdout, &handle);
   if (config.gauge_clock) {
-    std::printf ("cpu clocks: %ld\n",
-                 static_cast<long> (std::clock() - cpu_start));
-    std::printf ("cpu clocks (export): %ld (%lu calls)\n",
-                 static_cast<long> (exporter.export_clocks()),
-                 exporter.export_calls());
+    // Original: logit (), which prints to the standard error when the
+    // process is not a daemon.
+    std::fprintf (stderr, "cpu clocks: %ld\n",
+                  static_cast<long> (std::clock() - cpu_start));
+    if (config.multithread) {
+      std::fprintf (stderr, "cpu clocks (export): n/a with threaded export\n");
+    } else {
+      std::fprintf (stderr, "cpu clocks (export): %ld (%lu calls)\n",
+                    static_cast<long> (exporter.export_clocks()),
+                    exporter.export_calls());
+    }
   }
   // Original: main () returns 1 when shutdown or exit stopped it.
   return control && control_listener_state (*control).stopped_by_controller ? 1 : 0;

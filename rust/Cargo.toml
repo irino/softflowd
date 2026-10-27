@@ -11,6 +11,14 @@ path = "src/bin/rsoftflowd.rs"
 name = "rsoftflowctl"
 path = "src/bin/rsoftflowctl.rs"
 
+[[bin]]
+name = "softflowd"
+path = "src/bin/softflowd.rs"
+
+[[bin]]
+name = "softflowctl"
+path = "src/bin/softflowctl.rs"
+
 [dependencies]
 pcap = "2.0.0"
 clap = { version = "4.5", features = ["derive"] }

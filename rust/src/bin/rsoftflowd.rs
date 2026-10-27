@@ -259,7 +259,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(ref dev) = capture_dev {
         nix::net::if_::if_nametoindex(dev.as_str()).unwrap_or(1) as u16
     } else {
-        1
+        0
     };
 
     if args.debug {
@@ -1008,7 +1008,6 @@ fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: 
             }
             if force_all {
                 flow.expiry_reason = ExpiryReason::Flush;
-                flow.flow_end_reason = 3; // End of flow
             }
             log::debug!(
                 "Queuing flow seq:{} ({:p}) for expiry reason {:?}",

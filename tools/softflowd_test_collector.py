@@ -1486,12 +1486,48 @@ def _fmt_gauge(g: Optional[Tuple[int, Optional[int], Optional[int]]]) -> str:
     return f"total={total} export={export} ({calls} calls)"
 
 
+# The C++ version is built with -fsanitize=address,undefined and without optimization by default (the build
+# type Debug of cpp/CMakeLists.txt), which makes it 10 times slower or more than the optimized C version: the
+# start of the sanitizers alone takes about 10 ms. The measurements use an optimized build of it instead.
+BUILD_OPTIMIZED_FOR_MEASURE = True
+
+
+def is_sanitizer_build(path: str) -> bool:
+    try:
+        with open(path, "rb") as f:
+            return b"__asan_init" in f.read()
+    except OSError:
+        return False
+
+
+def optimized_daemon(daemon: str) -> str:
+    """The daemon to measure: DAEMON, or if it is built with a sanitizer, an optimized build of cpp/."""
+    if not is_sanitizer_build(daemon):
+        return daemon
+    out = os.path.join(tempfile.gettempdir(), "softflowd_cpp_release")
+    cached = os.path.join(out, os.path.basename(daemon))
+    if BUILD_OPTIMIZED_FOR_MEASURE:
+        print_cyan(f"  [Measure] {os.path.basename(daemon)} is built with AddressSanitizer; building an optimized "
+                   f"one in {out} for the measurements...")
+        cpp_dir = os.path.join(PROJECT_ROOT, "cpp")
+        if run_command(["cmake", "-S", cpp_dir, "-B", out, "-DCMAKE_BUILD_TYPE=Release"]).returncode == 0 \
+                and run_command(["cmake", "--build", out, "-j", "--target", os.path.basename(daemon)]).returncode == 0 \
+                and os.path.exists(cached):
+            return cached
+    elif os.path.exists(cached):
+        return cached
+    print_yellow(f"Warning: {os.path.basename(daemon)} is built with AddressSanitizer, so that its times and "
+                 f"clocks are not comparable with an optimized build (cmake -DCMAKE_BUILD_TYPE=Release).")
+    return daemon
+
+
 def measure_pair(a_daemon: str, b_daemon: str, pair_name: str,
                  cases: List[Tuple[str, str, int]]) -> None:
     """Measure daemons A and B of a pair on the compat test cases
     (plus --bench-pcap files) and remember the results for the summary."""
     if MEASURE is None:
         return
+    b_daemon = optimized_daemon(b_daemon)
     if MEASURE.min_runs is None and MEASURE.max_runs is None:
         runs_label = f"x{MEASURE.runs}"
     else:
@@ -3055,6 +3091,28 @@ def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     return False
 
 
+def parity_gauge(a_daemon: str, b_daemon: str, pcap: str) -> bool:
+    """-g reports the "cpu clocks" counters on the standard error, for A and for B, and with -M (threaded
+    export) both report "n/a" for the clocks of the export. The numbers are not compared."""
+    ok = True
+    for extra, label in (([], "-g"), (["-M"], "-g -M")):
+        results = []
+        for daemon in (a_daemon, b_daemon):
+            r = subprocess.run([daemon, "-g", "-r", pcap, "-n", "127.0.0.1:9", "-v", "5"] + extra,
+                               capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+            results.append(parse_gauge(r.stderr))
+        a, b = results
+        calls = (a[2], b[2]) if a and b else None
+        same = a is not None and b is not None and (a[1] is None) == (b[1] is None) and \
+            (a[1] is None or a[2] == b[2])
+        if same:
+            print_green(f"    - cpu clocks of {label}: MATCHED (A {_fmt_gauge(a)}, B {_fmt_gauge(b)})")
+        else:
+            ok = False
+            print_red(f"    - cpu clocks of {label}: DIFFERENT (A {a}, B {b}{'' if calls else ', a counter is missing'})")
+    return ok
+
+
 def parity_cli(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """-t is accepted or refused by A and B alike: the names, and the general timeout of 0."""
     ok = True
@@ -3080,6 +3138,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     pcaps = parity_make_pcaps(tempfile.mkdtemp(dir=SUITE_TMP_DIR))
     ok = parity_cli(a_daemon, b_daemon, pcaps["smoke"])
     ok = parity_cli_errors(a_daemon, b_daemon, pcaps["smoke"]) and ok
+    ok = parity_gauge(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
     ok = parity_multithread(b_daemon, pcaps) and ok
@@ -3154,6 +3213,7 @@ def run_single_comparison(
 def compat_main():
     global COLLECTOR_BACKEND, PCAP_DIR, SUITE_TMP_DIR, MEASURE
     global CACHE_DIR, REBUILD_STABLE, REBUILD_DEV, REFRESH_PCAP, COMPAT_PCAPS
+    global BUILD_OPTIMIZED_FOR_MEASURE
     parser = argparse.ArgumentParser(
         description="softflowd Comprehensive Backward Compatibility Test Suite",
         epilog="Other subcommands: bench (export benchmark) and collect (flow "
@@ -3469,6 +3529,7 @@ def compat_main():
         check_required_tool("nfdump", "nfdump", "https://github.com/phaag/nfdump")
         check_required_tool("nfcapd", "nfdump", "https://github.com/phaag/nfdump")
 
+    BUILD_OPTIMIZED_FOR_MEASURE = not args.skip_build
     if measuring:
         MEASURE = MeasureSettings(args.gauge_clock, bench_tool, args.bench_runs,
                                   args.bench_warmup, args.bench_min_runs,
