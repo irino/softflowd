@@ -3133,6 +3133,112 @@ def parity_statistics(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     return False
 
 
+def _clean_log(text: str, daemon: str) -> List[str]:
+    """The lines of a log without the name, the version and the numbers that differ between A and B."""
+    text = text.replace(daemon, "PROG").replace(os.path.basename(daemon), "PROG")
+    text = re.sub(r"PROG v\d+\.\d+\.\d+ ", "PROG vX ", text)
+    text = re.sub(r"\]:\d+", "]:PORT", text)
+    return [line for line in text.splitlines() if line.strip()]
+
+
+def parity_live_log(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """A live capture logs, in the foreground, the same lines to the standard error for A and for B: the start,
+    and the end that the shutdown command and the exit command make (the first expires the flows)."""
+    ok = True
+    for command in ("shutdown", "exit"):
+        logs = []
+        for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+            path = os.path.join(SUITE_TMP_DIR, f"livelog_{n}.ctl")
+            if os.path.exists(path):
+                os.remove(path)
+            proc = subprocess.Popen([daemon, "-d", "-i", "lo", "-v", "5", "-n", "127.0.0.1:9", "-c", path,
+                                     "udp and dst port 41003"], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            for _ in range(100):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            subprocess.run([ctl, "-c", path, command], capture_output=True, timeout=10)
+            try:
+                out, err = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, err = proc.communicate()
+            logs.append((_clean_log(err, daemon), out.strip()))
+        if logs[0] == logs[1]:
+            print_green(f"    - live on lo, the log of the {command} command: MATCHED ({len(logs[0][0])} lines)")
+        else:
+            ok = False
+            print_red(f"    - live on lo, the log of the {command} command: DIFFERENT (A {logs[0]}, B {logs[1]})")
+    return ok
+
+
+def parity_daemon(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """A daemon (no -d) drops its privileges to the user nobody in an empty root directory, logs to syslog, and
+    leaves its pid file and control socket, as A does. Needs root, /var/empty, and a /dev/log that is free."""
+    if not parity_can_capture_lo() or not os.path.isdir("/var/empty") or os.path.exists("/dev/log"):
+        print_yellow("    - daemon (privileges, syslog): SKIPPED (needs root, /var/empty and no /dev/log)")
+        return True
+    results = []
+    for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+        sock, pidfile = (os.path.join(SUITE_TMP_DIR, f"daemon_{n}.{ext}") for ext in ("ctl", "pid"))
+        sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sink.bind(("127.0.0.1", 0))
+        sink.settimeout(5)
+        logsock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        logsock.bind("/dev/log")
+        logsock.settimeout(2)
+        pid = None
+        try:
+            subprocess.run([daemon, "-i", "lo", "-v", "5", "-n", f"127.0.0.1:{sink.getsockname()[1]}", "-c", sock,
+                            "-p", pidfile, "udp and dst port 41004"], timeout=10)
+            for _ in range(100):
+                if os.path.exists(pidfile) and os.path.exists(sock):
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            with open(pidfile) as f:
+                pid = int(f.read())
+            with open(f"/proc/{pid}/status") as f:
+                uids = next(line for line in f if line.startswith("Uid:")).split()[1:]
+            root = os.readlink(f"/proc/{pid}/root")
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.sendto(b"x" * 40, ("127.0.0.1", 41004))
+            s.close()
+            time.sleep(0.5)
+            reply = subprocess.run([ctl, "-c", sock, "expire-all"], capture_output=True, text=True,
+                                   timeout=10).stdout.strip().split(": ", 1)[-1]
+            try:
+                exported = len(sink.recv(65535))
+            except socket.timeout:
+                exported = 0
+            subprocess.run([ctl, "-c", sock, "shutdown"], capture_output=True, timeout=10)
+            time.sleep(1.0)
+            messages = []
+            try:
+                while True:
+                    messages.append(logsock.recv(4096).decode(errors="replace").split("]:", 1)[-1].strip())
+            except socket.timeout:
+                pass
+            results.append((uids, root, reply, exported, _clean_log("\n".join(messages), daemon),
+                            os.path.exists(f"/proc/{pid}"), os.path.exists(pidfile), os.path.exists(sock)))
+        except (OSError, subprocess.SubprocessError, StopIteration, ValueError) as e:
+            results.append((f"failed: {e}",))
+        finally:
+            if pid is not None and os.path.exists(f"/proc/{pid}"):
+                os.kill(pid, signal.SIGKILL)
+            logsock.close()
+            os.remove("/dev/log")
+            sink.close()
+    if results[0] == results[1] and len(results[0]) > 1 and results[0][0][0] != "0":
+        print_green(f"    - daemon (privileges, syslog): MATCHED (uid {results[0][0][0]}, root {results[0][1]}, "
+                    f"{len(results[0][4])} lines in syslog)")
+        return True
+    print_red(f"    - daemon (privileges, syslog): DIFFERENT (A {results[0]}, B {results[1]})")
+    return False
+
+
 def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     """A command line that is wrong, or odd, is reported by B as A reports it: the message, the usage (the
     options of B that A does not have follow it), the standard output and the exit status."""
@@ -3242,6 +3348,8 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
             ok = parity_live(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_time(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_gauge(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_live_log(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_daemon(a_daemon, b_daemon, ctl_a, ctl_b) and ok
         else:
             print_yellow("    - live on lo: SKIPPED (needs root, to capture on lo)")
     else:

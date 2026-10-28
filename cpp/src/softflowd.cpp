@@ -66,6 +66,8 @@
 #include <net/if_types.h>
 #endif
 #include <sys/un.h>
+#include <grp.h>
+#include <pwd.h>
 #include <unistd.h>
 #include <getopt.h>
 
@@ -3010,6 +3012,63 @@ bool serve_control_client (ControlListener &listener,
                            ExportPipeline &exporter,
                            const softflow::PcapHandle *handle);
 
+// Original: PRIVDROP_USER and PRIVDROP_CHROOT_DIR of softflowd.h.
+#ifndef PRIVDROP_USER
+#define PRIVDROP_USER "nobody"
+#endif
+#ifndef PRIVDROP_CHROOT_DIR
+#define PRIVDROP_CHROOT_DIR "/var/empty"
+#endif
+
+// Original: drop_privs (). A daemon changes its root directory to an empty one
+// and its user to an unprivileged one once it has what it needs from the
+// system: the capture, the sockets and the files. Exits on failure.
+void
+drop_privs () {
+  struct passwd *pw = getpwnam (PRIVDROP_USER);
+  if (pw == nullptr) {
+    logit (LOG_ERR, "Unable to find unprivileged user \"%s\"", PRIVDROP_USER);
+    std::exit (1);
+  }
+  if (chdir (PRIVDROP_CHROOT_DIR) != 0) {
+    logit (LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
+           PRIVDROP_CHROOT_DIR, std::strerror (errno));
+    std::exit (1);
+  }
+  if (chroot (PRIVDROP_CHROOT_DIR) != 0) {
+    logit (LOG_ERR, "Unable to chroot to directory \"%s\": %s",
+           PRIVDROP_CHROOT_DIR, std::strerror (errno));
+    std::exit (1);
+  }
+  if (chdir ("/") != 0) {
+    logit (LOG_ERR, "Unable to chdir to chroot root: %s", std::strerror (errno));
+    std::exit (1);
+  }
+  if (setgroups (1, &pw->pw_gid) != 0) {
+    logit (LOG_ERR, "Couldn't setgroups (%u): %s",
+           static_cast<unsigned int> (pw->pw_gid), std::strerror (errno));
+    std::exit (1);
+  }
+#ifdef __linux__
+  if (setresgid (pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
+#else
+  if (setregid (pw->pw_gid, pw->pw_gid) == -1) {
+#endif
+    logit (LOG_ERR, "Couldn't set gid (%u): %s",
+           static_cast<unsigned int> (pw->pw_gid), std::strerror (errno));
+    std::exit (1);
+  }
+#ifdef __linux__
+  if (setresuid (pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
+#else
+  if (setreuid (pw->pw_uid, pw->pw_uid) == -1) {
+#endif
+    logit (LOG_ERR, "Couldn't set uid (%u): %s",
+           static_cast<unsigned int> (pw->pw_uid), std::strerror (errno));
+    std::exit (1);
+  }
+}
+
 // Original: the two lines that main () logs when it starts collecting; the
 // capture file or the interface is the first %s of the second.
 void
@@ -3826,6 +3885,12 @@ run_live_capture (const DaemonConfig &config,
   std::uint64_t sampled_total = 0;  // total_packets of the original
   std::uint64_t non_sampled = 0;
 
+  // Original: only a daemon drops its privileges (main () does it when it is
+  // not told to stay in the foreground), after the capture, the control
+  // socket, the sockets of the destinations and the other files are open.
+  if (!config.no_daemonize) {
+    drop_privs();
+  }
   log_start (config, config.interface);
 
   // Original: with -a, flow_cb () records the time of the last packet in
