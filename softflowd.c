@@ -3463,6 +3463,9 @@ main (int argc, char **argv) {
 
     r = daemon (0, 0);
     loginit (PROGNAME, 0);
+    /* clock () counts the cpu time of this process, which starts at 0 in the
+     * child of the fork of daemon (): measure from here for -g. */
+    boottime = clock();
 
     if ((pidfile = fopen (pidfile_path, "r")) != NULL) {
       int pid;

@@ -2896,10 +2896,39 @@ format_flow (const softflow::FlowKey &key,
 // format_flow(), not format_flow_brief()) per expired flow. mode mirrors
 // the original's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
 // CE_EXPIRE_FORCED(1).
+// Original: log.c. A process that is not a daemon logs to the standard error,
+// a daemon to syslog (LOG_DAEMON, with the PID, and the connection opened at
+// once, as it can not be after the chroot of the privilege drop).
+bool log_to_stderr = true;
+
+void
+loginit (const char *ident, bool to_stderr) {
+  log_to_stderr = to_stderr;
+  if (!to_stderr) {
+    openlog (ident, LOG_PID | LOG_NDELAY, LOG_DAEMON);
+  }
+}
+
+void
+logit (int level, const char *fmt, ...)
+  __attribute__ ((format (printf, 2, 3)));
+void
+logit (int level, const char *fmt, ...) {
+  va_list ap;
+  va_start (ap, fmt);
+  if (log_to_stderr) {
+    std::vfprintf (stderr, fmt, ap);
+    std::fputs ("\n", stderr);
+  } else {
+    vsyslog (level, fmt, ap);
+  }
+  va_end (ap);
+}
+
 void
 log_expiry_debug_start (bool debug, int mode) {
   if (debug) {
-    std::fprintf (stderr, "Starting expiry scan: mode %d\n", mode);
+    logit (LOG_DEBUG, "Starting expiry scan: mode %d", mode);
   }
 }
 
@@ -2909,12 +2938,12 @@ log_expiry_debug_queued (bool debug, const std::vector<softflow::ExportRecord> &
     return;
   }
   for (const auto &record : expired) {
-    std::fprintf (stderr, "Queuing flow seq:%llu (%p) for expiry reason %d\n",
-                  static_cast<unsigned long long> (record.flow.flow_seq),
-                  static_cast<const void *> (&record.flow),
-                  static_cast<int> (record.flow.reason));
+    logit (LOG_DEBUG, "Queuing flow seq:%llu (%p) for expiry reason %d",
+           static_cast<unsigned long long> (record.flow.flow_seq),
+           static_cast<const void *> (&record.flow),
+           static_cast<int> (record.flow.reason));
   }
-  std::fprintf (stderr, "Finished scan %zu flow(s) to be evicted\n", expired.size());
+  logit (LOG_DEBUG, "Finished scan %zu flow(s) to be evicted", expired.size());
 }
 
 // Original: only when there is a flow to send (num_expired > 0).
@@ -2924,7 +2953,7 @@ log_expiry_debug_sent (bool debug, int packets_sent, std::size_t flows) {
     return;
   }
   if (debug) {
-    std::fprintf (stderr, "sent %d netflow packets\n", packets_sent);
+    logit (LOG_DEBUG, "sent %d netflow packets", packets_sent);
   }
 }
 
@@ -2934,9 +2963,9 @@ log_expiry_debug_expired (bool debug, const std::vector<softflow::ExportRecord> 
     return;
   }
   for (const auto &record : expired) {
-    std::fprintf (stderr, "EXPIRED: %s (%p)\n",
-                  format_flow (record.key, record.flow).c_str(),
-                  static_cast<const void *> (&record.flow));
+    logit (LOG_DEBUG, "EXPIRED: %s (%p)",
+           format_flow (record.key, record.flow).c_str(),
+           static_cast<const void *> (&record.flow));
   }
 }
 
@@ -2981,46 +3010,33 @@ bool serve_control_client (ControlListener &listener,
                            ExportPipeline &exporter,
                            const softflow::PcapHandle *handle);
 
-// Original: logit () and loginit (). A process that is not a daemon logs to the
-// standard error, with a newline added, and a daemon to syslog (LOG_DAEMON, with
-// the PID).
+// Original: the two lines that main () logs when it starts collecting; the
+// capture file or the interface is the first %s of the second.
 void
-logit_info (bool to_stderr, const char *fmt, ...)
-  __attribute__ ((format (printf, 2, 3)));
-void
-logit_info (bool to_stderr, const char *fmt, ...) {
-  va_list ap;
-  va_start (ap, fmt);
-  if (to_stderr) {
-    std::vfprintf (stderr, fmt, ap);
-    std::fputs ("\n", stderr);
-  } else {
-    static bool opened = false;
-    if (!opened) {
-      openlog (SOFTFLOWDPP_NAME, LOG_PID | LOG_NDELAY, LOG_DAEMON);
-      opened = true;
-    }
-    vsyslog (LOG_INFO, fmt, ap);
+log_start (const DaemonConfig &config, const std::string &source) {
+  logit (LOG_NOTICE, "%s v%s starting data collection", SOFTFLOWDPP_NAME,
+         SOFTFLOWDPP_VERSION);
+  for (const auto &[host, port] : config.destinations) {
+    logit (LOG_NOTICE, "Exporting flows from %s to [%s]:%s", source.c_str(),
+           host.c_str(), port.c_str());
   }
-  va_end (ap);
 }
 
 // Original: -g at the exit. The clocks of the export are not counted with the
 // threaded export (-M).
 void
-report_cpu_clocks (const DaemonConfig &config, bool to_stderr,
-                   std::clock_t cpu_start, const ExportPipeline &exporter) {
+report_cpu_clocks (const DaemonConfig &config, std::clock_t cpu_start,
+                   const ExportPipeline &exporter) {
   if (!config.gauge_clock) {
     return;
   }
-  logit_info (to_stderr, "cpu clocks: %ld\n",
-              static_cast<long> (std::clock() - cpu_start));
+  logit (LOG_INFO, "cpu clocks: %ld\n",
+         static_cast<long> (std::clock() - cpu_start));
   if (config.multithread) {
-    logit_info (to_stderr, "cpu clocks (export): n/a with threaded export\n");
+    logit (LOG_INFO, "cpu clocks (export): n/a with threaded export\n");
   } else {
-    logit_info (to_stderr, "cpu clocks (export): %ld (%lu calls)\n",
-                static_cast<long> (exporter.export_clocks()),
-                exporter.export_calls());
+    logit (LOG_INFO, "cpu clocks (export): %ld (%lu calls)\n",
+           static_cast<long> (exporter.export_clocks()), exporter.export_calls());
   }
 }
 
@@ -3059,12 +3075,7 @@ run_pcap_file (const DaemonConfig &config) {
   // so the two implementations' output is easy to diff line-for-line.
   // Original: `logit(LOG_NOTICE, "%s v%s starting data collection",
   // PROGNAME, PROGVER);`
-  std::fprintf (stderr, "%s v%s starting data collection\n",
-                SOFTFLOWDPP_NAME, SOFTFLOWDPP_VERSION);
-  for (const auto &[host, port] : config.destinations) {
-    std::fprintf (stderr, "Exporting flows from %s to [%s]:%s\n",
-                  config.pcap_file.c_str(), host.c_str(), port.c_str());
-  }
+  log_start (config, config.pcap_file);
 
   bool time_base_established = false;
   TimePoint time_base_mono{};
@@ -3127,8 +3138,8 @@ run_pcap_file (const DaemonConfig &config) {
     scan (table.expire_urgent());
     if (table.size() > table.max_flows()) {
       if (config.debug) {
-        std::fprintf (stderr, "Forcing expiry of %zu flows\n",
-                      table.size() - table.max_flows());
+        logit (LOG_INFO, "Forcing expiry of %zu flows",
+               table.size() - table.max_flows());
       }
       const auto forced =
         table.force_expire_oldest (table.size() - table.max_flows());
@@ -3277,8 +3288,8 @@ run_pcap_file (const DaemonConfig &config) {
     // in process_packet(), logged only when a *new* flow entry is
     // created (not on every packet belonging to an existing flow).
     if (config.debug && table.size() != size_before) {
-      std::fprintf (stderr, "ADD FLOW %s\n",
-                    format_flow_brief (flow.flow_seq, key).c_str());
+      logit (LOG_DEBUG, "ADD FLOW %s",
+             format_flow_brief (flow.flow_seq, key).c_str());
     }
     // Original: -x. Only actually stored (and later exported) when
     // requested, capped both by -x's own argument and by the IPFIX/
@@ -3316,11 +3327,11 @@ run_pcap_file (const DaemonConfig &config) {
   // as both of these lines (yes, the original really does log "on user
   // request" here too, even though EOF triggered it, not a user signal).
   if (reached_eof) {
-    std::fprintf (stderr, "Shutting down after pcap EOF\n");
+    logit (LOG_NOTICE, "Shutting down after pcap EOF");
   }
-  std::fprintf (stderr, control && control_listener_state (*control).immediate_exit
-                          ? "Exiting immediately on user request\n"
-                          : "Shutting down on user request\n");
+  logit (LOG_WARNING, control && control_listener_state (*control).immediate_exit
+                        ? "Exiting immediately on user request"
+                        : "Shutting down on user request");
 
   const auto now = config.adjust_pcap_time ? last_packet_mono : Clock::now();
   const auto wall_now = config.adjust_pcap_time
@@ -3352,7 +3363,7 @@ run_pcap_file (const DaemonConfig &config) {
   exporter.sync_stats (table);
   print_statistics (table.stats(), table.size(), table.lookup(), table.usage(),
                     stdout, &handle);
-  report_cpu_clocks (config, /*to_stderr=*/true, cpu_start, exporter);
+  report_cpu_clocks (config, cpu_start, exporter);
   // Original: main () returns 1 when shutdown or exit stopped it.
   return control && control_listener_state (*control).stopped_by_controller ? 1 : 0;
 }
@@ -3806,9 +3817,6 @@ run_live_capture (const DaemonConfig &config,
       fcntl (psamp_fd, F_SETFL, psamp_flags | O_NONBLOCK);
     }
     psamp_guard.fd = psamp_fd;
-    std::printf ("[softflowd] PSAMP receive mode: listening on UDP port %d "
-                 "(%s)\n",
-                 *config.psamp_receive_port, using_ipv6 ? "IPv6" : "IPv4");
   }
 
   SignalPipe signals;
@@ -3818,11 +3826,7 @@ run_live_capture (const DaemonConfig &config,
   std::uint64_t sampled_total = 0;  // total_packets of the original
   std::uint64_t non_sampled = 0;
 
-  std::printf ("[softflowd] listening on %s, control socket %s, version=%s, "
-               "track=%s\n",
-               config.interface.c_str(), config.ctl_sock.c_str(),
-               format_name (config.export_format),
-               track_level_name (config.track_level));
+  log_start (config, config.interface);
 
   // Original: with -a, flow_cb () records the time of the last packet in
   // last_packet_time, which next_expire () and check_expired () use as the
@@ -3908,8 +3912,8 @@ run_live_capture (const DaemonConfig &config,
       key, pkt.timestamp, pkt.wall_timestamp, direction,
       pkt.original_length - skip - frame->vlan_size, parsed->tcp_flags, parsed->tos);
     if (config.debug && table.size() != size_before) {
-      std::fprintf (stderr, "ADD FLOW %s\n",
-                    format_flow_brief (flow.flow_seq, key).c_str());
+      logit (LOG_DEBUG, "ADD FLOW %s",
+             format_flow_brief (flow.flow_seq, key).c_str());
     }
     if (config.mpls_labels > 0 && !frame->mpls_labels.empty()) {
       const std::size_t keep = std::min<std::size_t> (
@@ -3979,14 +3983,10 @@ run_live_capture (const DaemonConfig &config,
       if (sig == SIGTERM || sig == SIGINT) {
         state.shutting_down = true;
       } else if (sig == SIGUSR1) {
-        std::printf ("[softflowd] stats: tracked=%zu total_packets=%llu\n",
-                     table.size(),
-                     static_cast<unsigned long long> (
-                       table.stats().total_packets));
+        logit (LOG_INFO, "stats: tracked=%zu total_packets=%llu", table.size(),
+               static_cast<unsigned long long> (table.stats().total_packets));
       } else if (sig == SIGHUP) {
-        std::printf (
-          "[softflowd] SIGHUP received (config reload not "
-          "implemented in this stage)\n");
+        logit (LOG_INFO, "SIGHUP received (config reload not implemented)");
       }
     }
 
@@ -4091,8 +4091,8 @@ run_live_capture (const DaemonConfig &config,
       scan (table.expire_flows (now));
       if (table.size() > table.max_flows()) {
         if (config.debug) {
-          std::fprintf (stderr, "Forcing expiry of %zu flows\n",
-                        table.size() - table.max_flows());
+          logit (LOG_INFO, "Forcing expiry of %zu flows",
+                 table.size() - table.max_flows());
         }
         const auto forced =
           table.force_expire_oldest (table.size() - table.max_flows());
@@ -4107,7 +4107,11 @@ run_live_capture (const DaemonConfig &config,
     }
   }
 
+  // Original: the flags of the signal handlers and of the control socket are
+  // logged as these three lines (the last of them is for an internal error,
+  // which this version has no case of).
   if (state.shutting_down) {
+    logit (LOG_WARNING, "Shutting down on user request");
     // Original: "receipt of a SIGTERM or SIGINT will cause softflowd
     // to exit, after expiring all flows (and thus sending flow export
     // packets if -n was specified)".
@@ -4124,10 +4128,11 @@ run_live_capture (const DaemonConfig &config,
     log_expiry_debug_expired (config.debug, expired);
   }
 
+  if (!state.shutting_down) {
+    logit (LOG_WARNING, "Exiting immediately on user request");
+  }
   exporter.wait_idle();
-  report_cpu_clocks (config, config.no_daemonize, cpu_start, exporter);
-  std::printf ("[softflowd] exiting (%s)\n",
-               state.immediate_exit ? "immediate" : "graceful");
+  report_cpu_clocks (config, cpu_start, exporter);
   // Original: main () returns 1 when shutdown or exit stopped it.
   return state.stopped_by_controller ? 1 : 0;
 }
@@ -4710,6 +4715,7 @@ main (int argc, char **argv) {
 
   try {
     if (!config.pcap_file.empty()) {
+      loginit (SOFTFLOWDPP_NAME, true);
       return run_pcap_file (config);
     }
 
@@ -4738,8 +4744,11 @@ main (int argc, char **argv) {
     }
 #endif
     std::optional<softflow::PidFile> pidfile;
-    if (!config.no_daemonize) {
+    if (config.no_daemonize) {
+      loginit (SOFTFLOWDPP_NAME, true);
+    } else {
       softflow::daemonize();
+      loginit (SOFTFLOWDPP_NAME, false);
       pidfile.emplace (config.pidfile);
     }
     // Original: with ethernet tracking and no -H, the MAC address of the
