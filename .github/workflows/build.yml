@@ -161,6 +161,35 @@ jobs:
           sh tools/compare_expiry_stats.sh "$stable" "$dev" \
             pcaps/http.cap pcaps/v6-http.cap
 
+  # The C++ version in cpp/ (softflowd+ and softflowctl+): its unit tests, and
+  # a comparison with the C version of this tree (step 5 of the compat test:
+  # the exported datagrams byte for byte, the control replies, the logs, the
+  # errors of the command line, and, as root, a live capture on lo).  The C++
+  # version is built with AddressSanitizer and UndefinedBehaviorSanitizer.
+  # "ntopng" builds it with -DSOFTFLOW_NTOPNG=ON (it needs libzmq) and compares
+  # the ntopng messages of the two versions as well.
+  cpp-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ntopng: [without, with]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libpcap-dev autoconf automake libtool \
+            pkg-config python3
+          if [ "${{ matrix.ntopng }}" = with ]; then
+            sudo apt-get install -y --no-install-recommends libzmq3-dev
+          fi
+
+      - name: Build, unit tests, comparison with the C version
+        run: sh .github/scripts/cpp-test.sh ${{ matrix.ntopng == 'with' && 'ntopng' || '' }}
+
   freebsd:
     runs-on: ubuntu-latest
     steps:
