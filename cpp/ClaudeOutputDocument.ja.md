@@ -76,6 +76,10 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
 | `-c none` | 制御ソケットを作りません |
 | 宛先なし | `-n`がなくても、パケットを作ってエクスポート済みとして数えます(C版と同じ) |
 | パケットの統計 | "Packets processed"と"Ignored packets"(non-IP、too short)は、`-v psamp`や`-s`のときも含め、C版と同じに数えます |
+| ログ | C版と同じ`logit ()`です。フォアグラウンドは標準エラー、デーモンはsyslog(LOG_DAEMON、PID付き)に出します。起動、終了(`Shutting down on user request`、`Exiting immediately on user request`)、expireのデバッグ行、`-g`は、C版の文面とレベルです。標準出力に出していた`[softflowd] ...`の行はなくなりました |
+| 権限 | デーモン(`-d`なし)は、キャプチャ・ソケット・ファイルを開いた後で、rootを`/var/empty`に、ユーザーを`nobody`に変えます(`PRIVDROP_CHROOT_DIR`、`PRIVDROP_USER`)。メッセージはC版と同じです。rootと`/var/empty`が必要です。停止後にpidファイルと制御ソケットが残るのもC版と同じです |
+| 両端が同じアドレス | 両端のアドレスが同じ会話(loopbackインターフェース)の2方向のパケットは、1つのBiflowです(RFC 5103)。ポートの小さい端点が先になります。アドレスだけを比べていたC版も、これに合わせて直しました |
+| `-b` | 統計は、1フローを1レコードと数えます |
 | `-g` | cpu clocksは、キャプチャファイルでもライブでも、停止時に報告します(標準エラー。デーモンはsyslog)。`-M`ではエクスポートのclockは"n/a"です。compatの測定は、既定のビルドがサニタイザ付きのため、最適化ビルドで行います |
 
 ### 既知の差と未完了の項目

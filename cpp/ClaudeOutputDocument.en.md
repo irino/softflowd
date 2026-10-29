@@ -87,6 +87,10 @@ version.
 | `-c none` | No control socket |
 | No destination | Without `-n` the packets are made and counted as exported, as in the C version |
 | Statistics of the packets | "Packets processed" and "Ignored packets" (non-IP, too short) count as the C version does, also with `-v psamp` and `-s` |
+| Log | `logit ()` as in the C version: to the standard error in the foreground, to syslog (LOG_DAEMON, with the PID) for a daemon. The start, the end (`Shutting down on user request`, `Exiting immediately on user request`), the debug lines of the expiry and `-g` use the texts and the levels of the C version; the lines `[softflowd] ...` that were written to the standard output are gone |
+| Privileges | A daemon (no `-d`) changes its root to `/var/empty` and its user to `nobody` once it has opened the capture, the sockets and the files (`PRIVDROP_CHROOT_DIR`, `PRIVDROP_USER`), with the messages of the C version; it needs root and `/var/empty`. Its pid file and control socket are left when it stops, as with the C version |
+| Same address at both ends | The packets of both directions of a conversation with one address at both ends (a loopback interface) are one Biflow (RFC 5103): the endpoint with the lower port is the first one. The C version, which compared the address only, was changed to do so too |
+| `-b` | The statistics count one record for each flow |
 | `-g` | The cpu clocks are reported when the daemon stops, for a capture file and for a live capture: to the standard error, or to syslog for a daemon; with `-M` the clocks of the export are "n/a". The measurements of compat use an optimized build, as the default build has the sanitizers |
 
 ### Known differences and open items

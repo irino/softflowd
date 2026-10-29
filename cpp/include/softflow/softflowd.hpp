@@ -974,6 +974,13 @@ make_flow_key (const ParsedPacket &packet, TrackLevel track_level,
                std::array<std::uint16_t, 2> vlanid = {0, 0},
                std::array<std::array<std::uint8_t, 6>, 2> ethermac = {});
 
+// Which of the two endpoints of the flow the source of the packet is (the
+// original's ndx): 0 for the first of the canonical order, the lower address
+// or, when both ends have the same address (RFC 5103: a Biflow of a loopback
+// conversation), the lower port; otherwise 1.
+std::uint8_t
+flow_direction (const FlowKey &key, const ParsedPacket &packet);
+
 // ---------------------------------------------------------------------
 // PcapHandle (original: softflowd.c's main(), where pcap_t* was managed
 //             by hand across several possible exit paths)

@@ -1194,6 +1194,29 @@ out:
 }
 
 /**
+ * @brief Put the two directions of a flow record the other way round.
+ *
+ * Everything that is kept for each of the two endpoints changes places.
+ */
+static void
+flow_swap_directions (struct FLOW *flow) {
+  struct FLOW saved = *flow;
+  int i;
+
+  for (i = 0; i < 2; i++) {
+    flow->octets[i] = saved.octets[i ^ 1];
+    flow->packets[i] = saved.packets[i ^ 1];
+    flow->ip6_flowlabel[i] = saved.ip6_flowlabel[i ^ 1];
+    flow->addr[i] = saved.addr[i ^ 1];
+    flow->port[i] = saved.port[i ^ 1];
+    flow->tcp_flags[i] = saved.tcp_flags[i ^ 1];
+    flow->tos[i] = saved.tos[i ^ 1];
+    flow->vlanid[i] = saved.vlanid[i ^ 1];
+    memcpy (flow->ethermac[i], saved.ethermac[i ^ 1], sizeof (flow->ethermac[i]));
+  }
+}
+
+/**
  * @brief Main per-packet processing function.
  *
  * Takes a packet provided by libpcap and finds a matching flow, creating one if
@@ -1250,6 +1273,20 @@ process_packet (struct CB_CTXT *cb_ctxt,
   if (ft->param.track_level >= TRACK_FULL_VLAN_ETHER &&
       cb_ctxt->linktype == DLT_EN10MB)
     ether_to_flowrec (&tmp, (const struct ether_header *) frame, ndx);
+
+  /*
+   * RFC 5103: the packets of the two directions of a flow belong to one
+   * Biflow, also when the address is the same at both ends (a conversation
+   * on a loopback interface, for one). The endpoints are put in canonical
+   * order by the address, and by the port where the addresses are the same,
+   * the lower first, so that the two directions find the same flow.
+   */
+  if (ndx == 0 &&
+      memcmp (&tmp.addr[0], &tmp.addr[1], sizeof (tmp.addr[0])) == 0 &&
+      ntohs (tmp.port[0]) > ntohs (tmp.port[1])) {
+    flow_swap_directions (&tmp);
+    ndx = 1;
+  }
 
   tmp.mplsLabelStackDepth = num_label < 10 ? num_label : 10;
   for (i = 0; i < num_label && i < 10; i++) {

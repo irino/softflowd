@@ -1136,6 +1136,15 @@ make_flow_key (const ParsedPacket &packet, TrackLevel track_level,
                                   vlanid, ethermac);
 }
 
+std::uint8_t
+flow_direction (const FlowKey &key, const ParsedPacket &packet) {
+  const bool same_address = key.addr()[0] == key.addr()[1];
+  return key.addr()[0] == packet.src &&
+             (!same_address || key.port()[0] == packet.src_port)
+           ? 0
+           : 1;
+}
+
 // =======================================================================
 // PcapHandle (original: softflowd.c's main(), which managed pcap_t* by
 //             hand)
@@ -2120,7 +2129,8 @@ class ExportPipeline {
 public:
   ExportPipeline (const DaemonConfig &config, softflow::TimePoint boot_time)
       : format_ (config.export_format), gauge_clock_ (config.gauge_clock),
-        multithread_ (config.multithread) {
+        multithread_ (config.multithread),
+        biflow_ (config.bidirectional_ipfix) {
     const auto transport_kind = [&] {
       switch (config.transport) {
         case TransportProtocol::Udp:
@@ -2466,10 +2476,13 @@ public:
     // `octets[1] > 0` in compat/netflow5.c, mirrored by this project's own
     // flatten() helpers in export.cpp). So "records sent" is *not* the same as the number
     // of input flows -- count directions with packets independently.
+    // Original: with -b, bidir_func () makes one record of each flow.
     std::uint64_t record_count = 0;
     for (const auto &r : records) {
-      record_count += (r.flow.packets[0] > 0 ? 1u : 0u) +
-                      (r.flow.packets[1] > 0 ? 1u : 0u);
+      record_count += biflow_ && format_ == ExportFormat::Ipfix
+                        ? 1u
+                        : (r.flow.packets[0] > 0 ? 1u : 0u) +
+                            (r.flow.packets[1] > 0 ? 1u : 0u);
     }
     // No per-record encoding failures are currently detectable, and
     // send_packet() doesn't report per-destination failures -- so
@@ -2534,6 +2547,7 @@ private:
   ExportFormat format_;
   bool gauge_clock_;
   bool multithread_;
+  bool biflow_;  // -b: a flow is one record of IPFIX, whatever its directions
   std::clock_t export_clocks_ = 0;
   unsigned long export_calls_ = 0;
   std::string export_out_;
@@ -3252,49 +3266,8 @@ run_pcap_file (const DaemonConfig &config) {
     }
     ++batch_packets;
     ++total;
-    // Original: flow_cb (). -s is tested before the packet is counted, so
-    // the first packet is the first one that is kept; a packet that is not
-    // IP is taken back out of the count below.
-    if (config.sampling_rate > 1 &&
-        (sampled_total + non_sampled) % config.sampling_rate > 0) {
-      ++non_sampled;
-      continue;
-    }
-    ++sampled_total;
-    if (config.export_format == ExportFormat::Psamp) {
-      table.count_packet_without_flow();
-      exporter.export_psamp (
-        PsampSample{pkt->data, pkt->wall_timestamp, sampled_total},
-        config.adjust_pcap_time);
-      continue;
-    }
-    if (pkt->data.size() <= skip) {
-      table.count_non_ip_packet();
-      --sampled_total;
-      continue;
-    }
-    const auto ip_bytes = pkt->data.subspan (skip);
-
-    const auto frame = classify_frame (*pkt, dl_kind, ip_bytes);
-    if (!frame.has_value()) {
-      table.count_non_ip_packet();
-      --sampled_total;
-      continue;
-    }
-    if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
-      table.count_non_ip_packet();
-      --sampled_total;
-      continue;
-    }
-
-    auto parsed = parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
-    if (!parsed.has_value()) {
-      table.count_bad_packet();
-      continue;
-    }
-    ++parsed_ok;
-
-    // Original: softflowd.c's process_packet() *always* sources
+    // Original: flow_cb () makes the first packet the boot time (-a) before
+    // anything else is done with it, and process_packet () *always* sources
     // flow->flow_start/flow->flow_last from phdr->ts (the pcap file's
     // own recorded timestamp) via PCAP_TS_TO_TIMEVAL -- this is not
     // conditional on -a. (-a/adjust_time only affects the separate
@@ -3326,6 +3299,52 @@ run_pcap_file (const DaemonConfig &config) {
       time_base_mono + std::chrono::duration_cast<Clock::duration> (
                          pkt->wall_timestamp - time_base_wall);
 
+    // Original: flow_cb (). -s is tested before the packet is counted, so
+    // the first packet is the first one that is kept; a packet that is not
+    // IP is taken back out of the count below.
+    if (config.sampling_rate > 1 &&
+        (sampled_total + non_sampled) % config.sampling_rate > 0) {
+      ++non_sampled;
+      continue;
+    }
+    ++sampled_total;
+    if (config.export_format == ExportFormat::Psamp) {
+      table.count_packet_without_flow();
+      exporter.export_psamp (
+        PsampSample{pkt->data, pkt->wall_timestamp, sampled_total},
+        config.adjust_pcap_time);
+      continue;
+    }
+    // Original: flow_cb () records the time of the packet whatever became of
+    // it (not for -v psamp, nor for a packet that sampling left out).
+    last_packet_mono = effective_time;
+    last_packet_wall = pkt->wall_timestamp;
+    if (pkt->data.size() <= skip) {
+      table.count_non_ip_packet();
+      --sampled_total;
+      continue;
+    }
+    const auto ip_bytes = pkt->data.subspan (skip);
+
+    const auto frame = classify_frame (*pkt, dl_kind, ip_bytes);
+    if (!frame.has_value()) {
+      table.count_non_ip_packet();
+      --sampled_total;
+      continue;
+    }
+    if (frame->af == AddressFamily::IPv6 && !should_track_ipv6 (config)) {
+      table.count_non_ip_packet();
+      --sampled_total;
+      continue;
+    }
+
+    auto parsed = parser.parse (ip_bytes.subspan (frame->ip_offset), frame->af);
+    if (!parsed.has_value()) {
+      table.count_bad_packet();
+      continue;
+    }
+    ++parsed_ok;
+
     // Original: when a capture file is read, check_expired() runs with
     // CE_EXPIRE_FORCED only, so no flow is expired for being idle mid-file,
     // with or without -a: flows accumulate until EOF, apart from the forced
@@ -3334,7 +3353,7 @@ run_pcap_file (const DaemonConfig &config) {
 
     const auto key = make_flow_key (*parsed, parser.track_level(),
                                     {frame->vlanid, 0}, frame->ethermac);
-    const std::uint8_t direction = (key.addr()[0] == parsed->src) ? 0 : 1;
+    const std::uint8_t direction = flow_direction (key, *parsed);
     // Original: `tmp.octets[ndx] = phdr->len - datalink_size;` --
     // octet counts exclude the L2 (e.g. Ethernet) header. Using the
     // raw on-the-wire length here over-counted every packet by the
@@ -3375,8 +3394,6 @@ run_pcap_file (const DaemonConfig &config) {
       }
       exporter.reinit_boot_time (system_boot_time);
     }
-    last_packet_mono = effective_time;
-    last_packet_wall = pkt->wall_timestamp;
   }
 
   force_expire_over_max();
@@ -3432,32 +3449,15 @@ run_pcap_file (const DaemonConfig &config) {
 // when running against a live interface, plus its control-socket
 // handling)
 // =======================================================================
-// Original: the %-based address formatting softflowd.c's dump-flows
-// output uses. IPv6 addresses are printed as plain colon-separated hex
-// groups (not the canonical "::"-compressed form RFC 5952 prefers) --
-// simpler to implement correctly and still a valid, parseable IPv6
-// text representation.
+// Original: inet_ntop () for the addresses that softflowd.c's debug lines and
+// its dump-flows output print: IPv6 in the compressed form ("::1").
 std::string
 format_address (const softflow::IpAddress &addr) {
   using namespace softflow;
-  if (addr.family == AddressFamily::IPv4) {
-    char buf[16];
-    std::snprintf (buf, sizeof (buf), "%u.%u.%u.%u", addr.bytes[0],
-                   addr.bytes[1], addr.bytes[2], addr.bytes[3]);
-    return buf;
-  }
-  std::string result;
-  for (int i = 0; i < 8; ++i) {
-    if (i > 0) {
-      result += ':';
-    }
-    char buf[8];
-    std::snprintf (buf, sizeof (buf), "%x",
-                   (addr.bytes[static_cast<std::size_t> (i) * 2] << 8) |
-                     addr.bytes[static_cast<std::size_t> (i) * 2 + 1]);
-    result += buf;
-  }
-  return result;
+  std::array<char, INET6_ADDRSTRLEN> text{};
+  const bool v4 = addr.family == AddressFamily::IPv4;
+  inet_ntop (v4 ? AF_INET : AF_INET6, addr.bytes.data(), text.data(), text.size());
+  return text.data();
 }
 
 // Original: accept_control ()'s replies, byte for byte. The reply is the text
@@ -3970,8 +3970,7 @@ run_live_capture (const DaemonConfig &config,
 
     const auto key = make_flow_key (*parsed, parser.track_level(),
                                     {frame->vlanid, 0}, frame->ethermac);
-    const std::uint8_t direction =
-      (key.addr()[0] == parsed->src) ? 0 : 1;
+    const std::uint8_t direction = flow_direction (key, *parsed);
     const std::size_t size_before = table.size();
     Flow &flow = table.record_packet (
       key, pkt.timestamp, pkt.wall_timestamp, direction,

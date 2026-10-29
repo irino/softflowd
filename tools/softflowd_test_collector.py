@@ -2534,7 +2534,61 @@ def parity_make_pcaps(directory: str) -> Dict[str, str]:
     paths["many"] = os.path.join(directory, "many.pcap")
     with open(paths["many"], "wb") as f:
         f.write(out)
+    paths["loopback"] = os.path.join(directory, "loopback.pcap")
+    with open(paths["loopback"], "wb") as f:
+        f.write(parity_loopback_pcap(data[:24]))
     return paths
+
+
+def parity_loopback_pcap(header: bytes) -> bytes:
+    """Conversations in which both ends have the same address (IPv4 and IPv6, as on a loopback interface): UDP
+    that starts from the higher or the lower port, TCP, ICMP, the same port at both ends, and, for the
+    comparison, two addresses that differ. RFC 5103: the packets of both directions are one Biflow."""
+    def eth(v6: bool) -> bytes:
+        return bytes([2, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 2]) + (b"\x86\xdd" if v6 else b"\x08\x00")
+
+    def frame(v6: bool, src: str, dst: str, proto: int, payload: bytes) -> bytes:
+        if v6:
+            return eth(True) + struct.pack(">IHBB16s16s", 0x60000000, len(payload), proto, 64,
+                                           socket.inet_pton(socket.AF_INET6, src),
+                                           socket.inet_pton(socket.AF_INET6, dst)) + payload
+        return eth(False) + struct.pack(">BBHHHBBH4s4s", 0x45, 0, 20 + len(payload), 1, 0, 64, proto, 0,
+                                        socket.inet_aton(src), socket.inet_aton(dst)) + payload
+
+    def udp(sport: int, dport: int, size: int = 20) -> bytes:
+        return struct.pack(">HHHH", sport, dport, 8 + size, 0) + b"x" * size
+
+    def tcp(sport: int, dport: int, flags: int) -> bytes:
+        return struct.pack(">HHIIBBHHH", sport, dport, 1, 1, 0x50, flags, 8192, 0, 0)
+
+    def icmp(kind: int) -> bytes:
+        return struct.pack(">BBHHH", kind, 0, 0, 1, 1) + b"y" * 8
+
+    frames = []
+    for v6, same, other in ((False, "127.0.0.1", "127.0.0.2"), (True, "::1", "::2")):
+        def add(proto: int, payload: bytes, src: str = same, dst: str = same) -> None:
+            frames.append(frame(v6, src, dst, proto, payload))
+        for high, low in ((40000, 53), (53, 40000)):    # the first packet is from the higher or the lower port
+            add(17, udp(high, low))
+            add(17, udp(low, high))
+            add(17, udp(high, low))
+            add(17, udp(low, high, 5))
+        add(6, tcp(50000, 80, 0x02))
+        add(6, tcp(80, 50000, 0x12))
+        add(6, tcp(50000, 80, 0x10))
+        add(6, tcp(81, 50001, 0x02))
+        add(6, tcp(50001, 81, 0x12))
+        add(6, tcp(81, 50001, 0x10))
+        add(6, tcp(7000, 7000, 0x02))                   # the same port at both ends
+        add(6, tcp(7000, 7000, 0x10))
+        add(58 if v6 else 1, icmp(128 if v6 else 8))
+        add(58 if v6 else 1, icmp(129 if v6 else 0))
+        add(17, udp(40001, 53), other, same)            # two addresses
+        add(17, udp(53, 40001), same, other)
+    out = bytearray(header)
+    for n, f in enumerate(frames):
+        out += struct.pack("<IIII", 1000000 + n // 10, (n % 10) * 1000 + 10, len(f), len(f)) + f
+    return bytes(out)
 
 
 def parity_export(daemon: str, pcap: str, version: str, extra: List[str]) -> List[bytes]:
