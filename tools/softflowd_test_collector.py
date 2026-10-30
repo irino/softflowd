@@ -2406,6 +2406,79 @@ def ntopng_parity(daemon_a: str, daemon_b: str, pcaps: List[Tuple[str, str]]) ->
     return ok
 
 
+def ntopng_has_dialect(daemon: str, dialect: str) -> bool:
+    """Whether the usage of daemon lists the dialect of -v (a build without --enable-ntopng-json has no JSON)."""
+    r = subprocess.run([daemon, "-h"], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+    return dialect in r.stdout + r.stderr
+
+
+def ntopng_daemon_check(daemon: str, name: str) -> bool:
+    """-v ntopng as a daemon (no -d) on lo exports the flows over ZeroMQ.  ZeroMQ starts its I/O threads in
+    the process that makes the socket, and a fork () does not carry them to the child, so the socket has to be
+    made after the fork.  Needs root (to capture on lo and to drop the privileges) and /var/empty."""
+    if not parity_can_capture_lo() or not os.path.isdir("/var/empty"):
+        print_yellow(f"    - {name} as a daemon (-v ntopng): SKIPPED (needs root and /var/empty)")
+        return True
+    pid_path = os.path.join(SUITE_TMP_DIR, "ntopng_daemon.pid")
+    ctl_path = os.path.join(SUITE_TMP_DIR, "ntopng_daemon.ctl")
+    for path in (pid_path, ctl_path):
+        if os.path.exists(path):
+            os.remove(path)
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    srv.settimeout(15)
+    count, error = 0, ""
+    try:
+        subprocess.run([daemon, "-i", "lo", "-v", "ntopng", "-n", f"127.0.0.1:{srv.getsockname()[1]}",
+                        "-p", pid_path, "-c", ctl_path, "-t", "general=1", "-t", "expint=1",
+                        "udp and dst port 41021"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=15)
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            conn = None
+            error = "softflowd did not connect"
+        if conn is not None:
+            with conn:
+                conn.settimeout(15)
+                _zmq_sub_handshake(conn)
+                time.sleep(0.5)
+                for _ in range(5):
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                        sender.sendto(b"x" * 40, ("127.0.0.1", 41021))
+                time.sleep(0.5)
+                with open(pid_path) as f:       # the shutdown on SIGTERM expires and exports the flows
+                    os.kill(int(f.read().strip()), signal.SIGTERM)
+                conn.settimeout(0.5)
+                last_rx, deadline = time.time(), time.time() + 20
+                while time.time() < deadline and time.time() - last_rx < 4:
+                    try:
+                        flags, _ = _zmq_read_frame(conn)
+                    except socket.timeout:
+                        continue
+                    except EOFError:
+                        break
+                    last_rx = time.time()
+                    if not flags & 0x05:        # the last frame of a message that is not a command
+                        count += 1
+    except (OSError, ValueError, EOFError, subprocess.SubprocessError) as e:
+        error = f"({type(e).__name__}) {e}"
+    finally:
+        srv.close()
+        try:
+            with open(pid_path) as f:
+                os.kill(int(f.read().strip()), signal.SIGTERM)
+        except (OSError, ValueError):
+            pass
+    if count > 0:
+        print_green(f"    - {name} as a daemon (-v ntopng): MATCHED ({count} messages)")
+        return True
+    print_red(f"    - {name} as a daemon (-v ntopng): FAILED: no message received {error}")
+    return False
+
+
 def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
     """compat --ntopng: check -v ntopng (TLV) and -v ntopng-json on the pcaps."""
     print_cyan("\n[ntopng] Verifying the ZMQ export for ntopng...")
@@ -2418,6 +2491,13 @@ def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
     pcaps = [("IPv4 HTTP", ensure_sample_pcap("http.cap", HTTP_PCAP_URL)),
              ("IPv6 HTTP", ensure_sample_pcap("v6-http.cap", V6_HTTP_PCAP_URL))]
     pcaps += [(os.path.basename(p), p) for p in COMPAT_PCAPS]
+    # Both ends with the same address (IPv4 and IPv6, as on a loopback interface): one Biflow.
+    with open(pcaps[0][1], "rb") as f:
+        header = f.read(24)
+    loopback = os.path.join(SUITE_TMP_DIR, "ntopng_loopback.pcap")
+    with open(loopback, "wb") as f:
+        f.write(parity_loopback_pcap(header))
+    pcaps.append(("same addresses (IPv4, IPv6)", loopback))
     # Many flows: the export is split into several messages.
     many = 3000
     expected: Dict[str, int] = {}
@@ -2429,6 +2509,9 @@ def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
     ok = True
     totals: Dict[str, int] = {}
     for dialect in NTOPNG_DIALECTS:
+        if not ntopng_has_dialect(daemon, dialect):
+            print_yellow(f"    - -v {dialect}: SKIPPED (this softflowd is built without it)")
+            continue
         for label, pcap in pcaps:
             text = f"{label} (-v {dialect})"
             try:
@@ -2451,9 +2534,10 @@ def ntopng_step(args: argparse.Namespace, build_dir: str) -> bool:
     if cpp_daemon and os.path.exists(cpp_daemon):
         print_cyan("  [ntopng] softflowd vs softflowd+: the messages, byte for byte")
         ok = ntopng_parity(daemon, cpp_daemon, pcaps) and ok
+        ok = ntopng_daemon_check(cpp_daemon, "softflowd+") and ok
     else:
         print_yellow("  [ntopng] softflowd+ with ntopng support not available: not compared")
-    return ok
+    return ntopng_daemon_check(daemon, "softflowd") and ok
 
 
 # ==========================================================================
@@ -3057,13 +3141,8 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
 
 
 # Command lines that the C version reports as an error (or accepts in an odd way), for parity_cli_errors ().
-# {pcap} is the capture file and {ctl} a control socket path. These are not compared on purpose, because the
-# C version is wrong there: -I abc (perror () prints the text of an errno that strtol () did not set),
-# -e of an unknown host (the same with getaddrinfo ()), -n host:99999 (the port is cut to 16 bits, and the
-# C++ version shows the port as it was written), and -t maxlife=99999999999 (the C version drops the upper
-# bits of the time, the C++ version rejects it). The statistics of -v psamp are not compared either: the
-# C++ version does not count "Packets processed" for it. And the file name of -r that "Exporting flows from"
-# shows is cut to 15 characters by the C version.
+# {pcap} is the capture file and {ctl} a control socket path. The statistics of -v psamp are not compared on
+# purpose: the C++ version does not count "Packets processed" for it.
 PARITY_CLI_ERROR_CASES = [
     [], ["-h"], ["--help"], ["-z"], ["--bogus"], ["-i"], ["-r"], ["-t"], ["-X"],
     ["-i", "lo", "-r", "{pcap}"], ["-r", "{pcap}", "-i", "lo"], ["-r", "{pcap}", "-r", "{pcap}"],
@@ -3092,6 +3171,13 @@ PARITY_CLI_ERROR_CASES = [
     ["-i", "lo", "-n", "127.0.0.1:9", "-c", "/nonexistent/dir/ctl"],
     ["-i", "lo", "-n", "127.0.0.1:9", "-c", "/tmp/" + "x" * 120],
     ["-R", "0", "-c", "/nonexistent/dir/ctl"],
+    # A number that is out of range, and an unknown host of -e (which is reported and not used).
+    ["-I", "abc", "-r", "{pcap}"], ["-I", "99999999999999999999", "-r", "{pcap}"],
+    ["-e", "no.such.host.invalid", "-n", "127.0.0.1:9", "-r", "{pcap}"],
+    ["-n", "127.0.0.1:65536", "-r", "{pcap}"], ["-n", "127.0.0.1:99999", "-r", "{pcap}"],
+    ["-n", "127.0.0.1:99999999999999999999", "-r", "{pcap}"], ["-n", "127.0.0.1:65535", "-r", "{pcap}"],
+    ["-t", "maxlife=99999999999", "-r", "{pcap}"], ["-R", "99999", "-n", "127.0.0.1:9", "-r", "{pcap}"],
+    ["-R", "-1", "-n", "127.0.0.1:9", "-r", "{pcap}"],
 ]
 
 
@@ -3228,6 +3314,55 @@ def parity_live_log(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> boo
     return ok
 
 
+def parity_live_signals(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """The signals in the foreground, for A and for B.  SIGUSR1 logs the number of the tracked flows and of the
+    packets, and SIGHUP logs that a reload is not implemented; the process goes on (a signal that is not handled
+    ends it).  SIGTERM and SIGINT end the process with the status 0 after the log of the shutdown, and the
+    control socket is removed."""
+    ok = True
+    for sig, label in ((signal.SIGUSR1, "SIGUSR1"), (signal.SIGHUP, "SIGHUP"),
+                       (signal.SIGTERM, "SIGTERM"), (signal.SIGINT, "SIGINT")):
+        ends = sig in (signal.SIGTERM, signal.SIGINT)
+        results = []
+        for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+            path = os.path.join(SUITE_TMP_DIR, f"livesig_{n}.ctl")
+            if os.path.exists(path):
+                os.remove(path)
+            proc = subprocess.Popen([daemon, "-d", "-i", "lo", "-v", "5", "-n", "127.0.0.1:9", "-c", path,
+                                     "udp and dst port 41004"], stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            for _ in range(100):
+                if os.path.exists(path):
+                    break
+                time.sleep(0.1)
+            time.sleep(1.0)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                sender.sendto(b"x" * 40, ("127.0.0.1", 41004))
+            time.sleep(0.5)
+            proc.send_signal(sig)
+            time.sleep(1.0)
+            alive = proc.poll() is None
+            if alive:
+                subprocess.run([ctl, "-c", path, "exit"], capture_output=True, timeout=10)
+            try:
+                _, err = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                _, err = proc.communicate()
+            lines = [line for line in _clean_log(err, daemon)
+                     if "stats:" in line or "SIGHUP" in line or "Shutting down" in line]
+            results.append((alive, proc.returncode if ends else None, os.path.exists(path) if ends else None,
+                            lines))
+        a, b = results
+        good = a[0] != ends and a[3] and (not ends or (a[1] == 0 and not a[2]))
+        if a == b and good:
+            print_green(f"    - live on lo, {label}: MATCHED ({a[3][0]!r})")
+        else:
+            ok = False
+            print_red(f"    - live on lo, {label}: DIFFERENT (A {a}, B {b})")
+    return ok
+
+
 def parity_daemon(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
     """A daemon (no -d) drops its privileges to the user nobody in an empty root directory, logs to syslog, and
     leaves its pid file and control socket, as A does. Needs root, /var/empty, and a /dev/log that is free."""
@@ -3310,12 +3445,12 @@ def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
 
         def clean(t: str) -> str:
             t = t.replace(SUITE_TMP_DIR, "TMP").replace(pcap, "PCAP")      # the paths may contain the program name
-            # A took 15 characters of the file name of -r, as it keeps it in a buffer for an interface name.
-            t = re.sub(r"Exporting flows from \S* to ", "Exporting flows from SOURCE to ", t)
             t = t.replace("/var/run/softflowd.", "/var/run/DEFAULT.").replace(daemon, "PROG").replace(norm, "PROG")
             t = re.sub(r"version \d+\.\d+\.\d+", "version X", t)
             t = re.sub(r"PROG v\d+\.\d+\.\d+ ", "PROG vX ", t)
-            return re.sub(r"This project's own additions.*", "", t, flags=re.S)
+            # The block of the options that A does not have: its heading and the indented lines that follow
+            # (the lines of a log may follow it, as with an option that is reported and the run goes on).
+            return re.sub(r"This project's own additions[^\n]*\n(?:  [^\n]*\n)*", "", t)
         return clean(out), clean(err), rc
 
     different = []
@@ -3403,6 +3538,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
             ok = parity_live_time(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_gauge(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_log(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_live_signals(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_daemon(a_daemon, b_daemon, ctl_a, ctl_b) and ok
         else:
             print_yellow("    - live on lo: SKIPPED (needs root, to capture on lo)")

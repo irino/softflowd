@@ -80,7 +80,7 @@ version.
 | Flow sequence | `flow_seq` is a monotonic counter (it used to be the number of tracked flows, so numbers repeated) |
 | `-F hash`, `-F hash-tree` | The number of buckets and the capacity follow the C version: a power of two, at most 2^24 |
 | Times of a live capture | The flow times are the libpcap timestamps of the packets (`phdr->ts`), not the time at which they are read. With `-a` the first packet is the boot time and the time of the last packet is the current time (poll timeout, expiry, final expiry, `expire-all`), as in the C version |
-| Command line errors | The messages, the usage (the C text, with the options of this project after it) and the exit status 1 are those of the C version, and so are its rules: `-L` 0 to 255, `-s`, `-B`, `-C` and `-R` read by `atoi ()`, names of `-T`, `-P` and `-A` that are not case sensitive, a later `-n` replaces the earlier, at most 16 destinations, each resolved when the option is read, `-t` parsed by `convtime ()` |
+| Command line errors | The messages, the usage (the C text, with the options of this project after it) and the exit status 1 are those of the C version, and so are its rules: `-L` 0 to 255, `-s`, `-B`, `-C` and `-R` read by `atoi ()`, names of `-T`, `-P` and `-A` that are not case sensitive, a later `-n` replaces the earlier, at most 16 destinations, each resolved when the option is read, `-t` parsed by `convtime ()`. A port of `-n` above 65535 is refused with the usage message (the C version cut it to 16 bits, and was changed too). A port of `-R` that is not 0 to 65535 is reported with the usage and the default port 4739 is used, as the C version meant to do |
 | Errors of the start | The capture, its filter and the control socket are set up before the process forks, so that their errors are seen and the exit status is 1 (they were lost with the standard error of the daemon). The texts are those of the C version (`pcap_activate: ...`, `pcap_compile("..."): ...`, `unix domain bind("...") error: ...`) |
 | `-T port` | Tracks the ports and exports no ToS, between `proto` and `full`. `-T full-tos` of this project is kept |
 | `-i idx:interface` | The index is put in the input and output interface of NetFlow v1 and v5, in the ingress and egress interface of v9 and IPFIX, and in the scope of their options. Without it, the index of the interface is looked up when the daemon starts if there is a destination |
@@ -91,20 +91,28 @@ version.
 | Privileges | A daemon (no `-d`) changes its root to `/var/empty` and its user to `nobody` once it has opened the capture, the sockets and the files (`PRIVDROP_CHROOT_DIR`, `PRIVDROP_USER`), with the messages of the C version; it needs root and `/var/empty`. Its pid file and control socket are left when it stops, as with the C version |
 | Same address at both ends | The packets of both directions of a conversation with one address at both ends (a loopback interface) are one Biflow (RFC 5103): the endpoint with the lower port is the first one. The C version, which compared the address only, was changed to do so too |
 | `-b` | The statistics count one record for each flow |
+| Signals | `SIGTERM` and `SIGINT` expire the flows and end the process with the status 0, in the foreground too, and the control socket is removed. `SIGUSR1` logs `stats: tracked=... total_packets=...` and `SIGHUP` logs `SIGHUP received (config reload not implemented)`; the process goes on. The C version, which ended at once on all of them (on `SIGTERM` and `SIGINT` in the foreground), was changed to do the same |
+| ZeroMQ and the fork | The ZeroMQ sockets of `-v ntopng` are made after the fork and before the privilege separation. The C version made them before `daemon ()`, so that a daemon exported nothing (ZeroMQ's I/O threads do not survive a fork); it was changed. A failure is logged with `logit ()` |
+| CI | The job `cpp-test` of `.github/workflows/build.yml` (without and with ZeroMQ) runs `.github/scripts/cpp-test.sh`: the build, `ctest`, `compat --strict --psamp` and the check of the daemon. With ZeroMQ the C version is built with `--enable-ntopng` and passed as `--ntopng-bin`; `-v ntopng-json` is skipped where the build has no JSON |
 | `-g` | The cpu clocks are reported when the daemon stops, for a capture file and for a live capture: to the standard error, or to syslog for a daemon; with `-M` the clocks of the export are "n/a". The measurements of compat use an optimized build, as the default build has the sanitizers |
 
 ### Known differences and open items
 
 - The `Flow table:` line (in use, max depth, collisions) differs, because the
   hash function is another one.
-- Command lines in which the C version is wrong are not matched:
-  `-I abc` and an unknown host of `-e` (it prints the text of an errno that
-  the call did not set), the port of `-n` (cut to 16 bits by the C version; the
-  C++ version shows it as written), a time of `-t` that does not fit an int
-  (cut by the C version, rejected here), the file name of `-r` in
-  "Exporting flows from" (cut to 15 characters by the C version), and the ToS
-  of an IPv6 packet (the C version exports 0 because of a byte order mistake in
-  its mask).
+- The command lines in which the C version was wrong are matched now, as the C
+  version was changed: `-I abc` and an unknown host of `-e` (the text of an
+  errno that the call did not set), the port of `-n` and `-R` above 65535, a
+  time of `-t` that does not fit an int, the file name of `-r` in "Exporting
+  flows from" (cut to 15 characters), and the ToS of an IPv6 packet (a byte
+  order mistake in a mask). `PARITY_CLI_ERROR_CASES` holds 75 command lines.
+- The version is `v0.0.1` here and `v1.1.1` in the C version; this is kept.
+- A daemon leaves its pid file and its control socket when it stops, in both
+  versions: it is in a chroot as the user `nobody`, which cannot remove them.
+  Removing them through a directory descriptor kept from before the chroot was
+  tried and fails (`EACCES`) in a directory that `nobody` cannot write to.
+- The compat check of ntopng covers IPv4, IPv6 and the same address at both
+  ends (byte for byte), and a daemon with a ZeroMQ subscriber.
 - Live capture was checked on `lo` only, not on a physical NIC or on BSD.
   `--enable-ifname` and the interfaceName of the option records are not
   implemented.

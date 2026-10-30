@@ -57,6 +57,12 @@ Flows may also be expired early if they approach their traffic counts
 exceed 2 Gib or if the number of flows being tracked exceeds *max_flows*
 (default: 8192). In this last case, flows are expired oldest-first.
 
+The two directions of a conversation are tracked as one flow (a
+bidirectional flow, RFC 5103). The endpoints of the flow are put in
+order by their addresses. When both ends have the same address, as in a
+conversation on a loopback interface, the end with the lower port comes
+first.
+
 Upon expiry, the flow information is accumulated into statistics which
 may be viewed using *softflowctl*(8). If the **-n** option has been
 specified the flow information is formatted in a UDP datagram which is
@@ -120,8 +126,8 @@ pass of the main loop.
 **-F** *mode*, **\--flow-lookup** *mode*
 
 Select how active flows are looked up. *mode* may be one of: "tree" (one
-tree of all flows, the default), "hash-tree" (a hash table of trees:
-flows that share a bucket are told apart by the tree), or "hash" (a hash
+tree of all flows), "hash-tree" (a hash table of trees: flows that share
+a bucket are told apart by the tree; the default), or "hash" (a hash
 table with room for one flow per bucket: when a different flow hashes to
 an occupied bucket, the flow already there is expired at once and the
 new flow takes its place). In "hash" mode a flow may therefore be
@@ -197,9 +203,10 @@ source and destination addresses, source and destination port, source
 and destination ethernet address, vlanid and protocol), "vlan" (track
 source and destination addresses, source and destination port, vlanid
 and protocol), "full" (track source and destination addresses, source
-and destination port and protocol in the flow, the default), "proto"
-(track source and destination addresses and protocol), or "ip" (only
-track source and destination addresses). Selecting either of the latter
+and destination port and protocol in the flow, the default), "port" (the
+same as "full", but the type of service is not tracked), "proto" (track
+source and destination addresses and protocol), or "ip" (only track
+source and destination addresses). Selecting either of the latter
 options will produce flows with less information in them (e.g. TCP/UDP
 ports will not be recorded). This will cause flows to be consolidated,
 reducing the quantity of output and CPU load that **softflowd** will
@@ -253,7 +260,9 @@ Specify length for packet capture (snaplen).
 
 **-R** *receive_port*, **\--psamp-port** *receive_port*
 
-Specify port number for PSAMP receive mode.
+Specify port number for PSAMP receive mode. If *receive_port* is not in
+the range 0 to 65535, the error is reported with the usage and the
+default port 4739 is used.
 
 **-S** *send_interface_name*, **\--send-interface**
 *send_interface_name*
@@ -273,7 +282,9 @@ code).
 
 **-g**, **\--gauge-cpu-clock**
 
-Gauge the CPU clock (total and export) for benchmarking.
+Gauge the CPU clock (total and export) for benchmarking. The clocks are
+logged when **softflowd** exits: to the standard error, or to
+*syslog*(3) if **softflowd** runs as a daemon.
 
 **-I** *seconds*, **\--reinit-interval** *seconds*
 
@@ -283,8 +294,8 @@ value may be followed by 'd', 'h' or 'm' for days, hours or minutes.
 **-M**, **\--multithread**
 
 Enable multithreaded operation. This is only available if **softflowd**
-was built with pthread support, which is the default if pthread.h and
-libpthread are found (**./configure \--disable-pthread** disables it).
+was built with pthread support. This is the default if pthread.h and
+libpthread are found; **./configure \--disable-pthread** disables it.
 
 Any further command-line arguments will be concatenated together and
 applied as a *bpf*(4) packet filter. This filter will cause
@@ -394,6 +405,23 @@ summary data. Also, receipt of a SIGTERM or SIGINT will cause
 export packets if **-n** was specified on the command-line). If you do
 not want to export flows upon shutdown, clear them first with
 *softflowctl*(8) or use *softflowctl*(8) 's "exit" command.
+
+Receipt of a SIGUSR1 logs the number of the tracked flows and of the
+packets processed. Receipt of a SIGHUP logs that reloading the
+configuration is not implemented; the configuration is not changed and
+**softflowd** goes on.
+
+**Privilege Separation**
+
+When **softflowd** runs as a daemon (that is, without **-d**), it opens
+the capture device, the export sockets, the control socket and the pid
+file first. It then changes its root directory to */var/empty* and its
+user to "nobody". The directory must exist; it may be changed at build
+time with the **\--with-chrootdir** option of **configure**. Because
+**softflowd** cannot remove files outside of the root directory, or in a
+directory that the user "nobody" cannot write to, the pid file and the
+control socket are left in place when the daemon exits. A **softflowd**
+that does not run as a daemon removes the control socket when it exits.
 
 **EXAMPLES**\
 softflowd -i fxp0

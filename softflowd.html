@@ -1,5 +1,5 @@
 <!-- Creator     : groff version 1.23.0 -->
-<!-- CreationDate: Sun Oct 11 02:49:58 2026 -->
+<!-- CreationDate: Fri Oct 30 09:34:28 2026 -->
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
 "http://www.w3.org/TR/html4/loose.dtd">
 <html>
@@ -96,6 +96,13 @@ of flows being tracked exceeds <i>max_flows</i> (default:
 8192). In this last case, flows are expired
 oldest-first.</p>
 
+<p style="margin-left:9%; margin-top: 1em">The two
+directions of a conversation are tracked as one flow (a
+bidirectional flow, RFC 5103). The endpoints of the flow are
+put in order by their addresses. When both ends have the
+same address, as in a conversation on a loopback interface,
+the end with the lower port comes first.</p>
+
 <p style="margin-left:9%; margin-top: 1em">Upon expiry, the
 flow information is accumulated into statistics which may be
 viewed using <i>softflowctl</i>(8). If the <b>-n</b> option
@@ -181,19 +188,18 @@ main loop.</p>
 
 <p style="margin-left:19%;">Select how active flows are
 looked up. <i>mode</i> may be one of: &ldquo;tree&rdquo;
-(one tree of all flows, the default),
-&ldquo;hash-tree&rdquo; (a hash table of trees: flows that
-share a bucket are told apart by the tree), or
-&ldquo;hash&rdquo; (a hash table with room for one flow per
-bucket: when a different flow hashes to an occupied bucket,
-the flow already there is expired at once and the new flow
-takes its place). In &ldquo;hash&rdquo; mode a flow may
-therefore be exported as several records, and the number of
-flows expired this way is shown as &ldquo;collision&rdquo;
-in the statistics. The hash modes size the table from
-<i>max_flows</i>. The hash function is xxHash if
-<b>softflowd</b> was built with it (the configure script
-uses the system libxxhash if found and
+(one tree of all flows), &ldquo;hash-tree&rdquo; (a hash
+table of trees: flows that share a bucket are told apart by
+the tree; the default), or &ldquo;hash&rdquo; (a hash table
+with room for one flow per bucket: when a different flow
+hashes to an occupied bucket, the flow already there is
+expired at once and the new flow takes its place). In
+&ldquo;hash&rdquo; mode a flow may therefore be exported as
+several records, and the number of flows expired this way is
+shown as &ldquo;collision&rdquo; in the statistics. The hash
+modes size the table from <i>max_flows</i>. The hash
+function is xxHash if <b>softflowd</b> was built with it
+(the configure script uses the system libxxhash if found and
 <b>--without-xxhash</b> disables it), otherwise a built-in
 FNV-1a.</p>
 
@@ -288,15 +294,16 @@ address, vlanid and protocol), &ldquo;vlan&rdquo; (track
 source and destination addresses, source and destination
 port, vlanid and protocol), &ldquo;full&rdquo; (track source
 and destination addresses, source and destination port and
-protocol in the flow, the default), &ldquo;proto&rdquo;
-(track source and destination addresses and protocol), or
-&ldquo;ip&rdquo; (only track source and destination
-addresses). Selecting either of the latter options will
-produce flows with less information in them (e.g. TCP/UDP
-ports will not be recorded). This will cause flows to be
-consolidated, reducing the quantity of output and CPU load
-that <b>softflowd</b> will place on the system at the cost
-of some detail being lost.</p>
+protocol in the flow, the default), &ldquo;port&rdquo; (the
+same as &ldquo;full&rdquo;, but the type of service is not
+tracked), &ldquo;proto&rdquo; (track source and destination
+addresses and protocol), or &ldquo;ip&rdquo; (only track
+source and destination addresses). Selecting either of the
+latter options will produce flows with less information in
+them (e.g. TCP/UDP ports will not be recorded). This will
+cause flows to be consolidated, reducing the quantity of
+output and CPU load that <b>softflowd</b> will place on the
+system at the cost of some detail being lost.</p>
 
 <p style="margin-top: 1em"><b>-H</b> <i>mac_address</i>,
 <b>--direction-mac</b> <i>mac_address</i></p>
@@ -369,7 +376,9 @@ capture (snaplen).</p>
 <b>--psamp-port</b> <i>receive_port</i></p>
 
 <p style="margin-left:19%;">Specify port number for PSAMP
-receive mode.</p>
+receive mode. If <i>receive_port</i> is not in the range 0
+to 65535, the error is reported with the usage and the
+default port 4739 is used.</p>
 
 <p style="margin-top: 1em"><b>-S</b>
 <i>send_interface_name</i>, <b>--send-interface</b>
@@ -397,7 +406,9 @@ ICMP header instead of only the fields <b>softflowd</b> uses
 <b>--gauge-cpu-clock</b></p>
 
 <p style="margin-left:19%;">Gauge the CPU clock (total and
-export) for benchmarking.</p>
+export) for benchmarking. The clocks are logged when
+<b>softflowd</b> exits: to the standard error, or to
+<i>syslog</i>(3) if <b>softflowd</b> runs as a daemon.</p>
 
 <p style="margin-top: 1em"><b>-I</b> <i>seconds</i>,
 <b>--reinit-interval</b> <i>seconds</i></p>
@@ -412,8 +423,9 @@ days, hours or minutes.</p>
 
 <p style="margin-left:19%;">Enable multithreaded operation.
 This is only available if <b>softflowd</b> was built with
-pthread support, which is the default if pthread.h and libpthread are
-found (<b>./configure --disable-pthread</b> disables it).</p>
+pthread support. This is the default if pthread.h and
+libpthread are found; <b>./configure --disable-pthread</b>
+disables it.</p>
 
 <p style="margin-left:9%; margin-top: 1em">Any further
 command-line arguments will be concatenated together and
@@ -546,6 +558,29 @@ specified on the command-line). If you do not want to export
 flows upon shutdown, clear them first with
 <i>softflowctl</i>(8) or use <i>softflowctl</i>(8) &rsquo;s
 &ldquo;exit&rdquo; command.</p>
+
+<p style="margin-left:9%; margin-top: 1em">Receipt of a
+SIGUSR1 logs the number of the tracked flows and of the
+packets processed. Receipt of a SIGHUP logs that reloading
+the configuration is not implemented; the configuration is
+not changed and <b>softflowd</b> goes on.</p>
+
+<p style="margin-left:4%; margin-top: 1em"><b>Privilege
+Separation</b></p>
+
+<p style="margin-left:9%;">When <b>softflowd</b> runs as a
+daemon (that is, without <b>-d</b>), it opens the capture
+device, the export sockets, the control socket and the pid
+file first. It then changes its root directory to
+<i>/var/empty</i> and its user to &ldquo;nobody&rdquo;. The
+directory must exist; it may be changed at build time with
+the <b>--with-chrootdir</b> option of <b>configure</b>.
+Because <b>softflowd</b> cannot remove files outside of the
+root directory, or in a directory that the user
+&ldquo;nobody&rdquo; cannot write to, the pid file and the
+control socket are left in place when the daemon exits. A
+<b>softflowd</b> that does not run as a daemon removes the
+control socket when it exits.</p>
 
 <p style="margin-top: 1em"><b>EXAMPLES</b> <br>
 softflowd -i fxp0</p>

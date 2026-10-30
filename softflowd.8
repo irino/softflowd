@@ -104,6 +104,10 @@ exceed 2 Gib or if the number of flows being tracked exceeds
 (default: 8192).
 In this last case, flows are expired oldest-first.
 .Pp
+The two directions of a conversation are tracked as one flow (a bidirectional flow, RFC 5103).
+The endpoints of the flow are put in order by their addresses.
+When both ends have the same address, as in a conversation on a loopback interface, the end with the lower port comes first.
+.Pp
 Upon expiry, the flow information is accumulated into statistics which may
 be viewed using
 .Xr softflowctl 8 .
@@ -286,6 +290,10 @@ may be one of:
 (track source and destination addresses, source and destination port, vlanid and protocol),
 .Dq full
 (track source and destination addresses, source and destination port and protocol in the flow, the default),
+.Dq port
+(the same as
+.Dq full ,
+but the type of service is not tracked),
 .Dq proto
 (track source and destination addresses and protocol), or
 .Dq ip
@@ -356,6 +364,10 @@ Specify periodical sampling rate (denominator).
 Specify length for packet capture (snaplen).
 .It Fl R Ar receive_port , Fl \-psamp-port Ar receive_port
 Specify port number for PSAMP receive mode.
+If
+.Ar receive_port
+is not in the range 0 to 65535, the error is reported with the usage and the
+default port 4739 is used.
 .It Fl S Ar send_interface_name , Fl \-send-interface Ar send_interface_name
 Specify send interface name.
 (This option works on Linux only because of use of SO_BINDTODEVICE for
@@ -368,6 +380,13 @@ Require the whole TCP, UDP or ICMP header instead of only the fields
 uses (the ports, the TCP flags and the ICMP type and code).
 .It Fl g , Fl \-gauge-cpu-clock
 Gauge the CPU clock (total and export) for benchmarking.
+The clocks are logged when
+.Nm
+exits: to the standard error, or to
+.Xr syslog 3
+if
+.Nm
+runs as a daemon.
 .It Fl I Ar seconds , Fl \-reinit-interval Ar seconds
 Specify the interval in seconds for reinitialising the boot time.
 The value may be followed by
@@ -502,6 +521,40 @@ or use
 .Xr softflowctl 8 's
 .Dq exit
 command.
+.Pp
+Receipt of a
+.Dv SIGUSR1
+logs the number of the tracked flows and of the packets processed.
+Receipt of a
+.Dv SIGHUP
+logs that reloading the configuration is not implemented; the configuration is not changed and
+.Nm
+goes on.
+.Ss Privilege Separation
+When
+.Nm
+runs as a daemon (that is, without
+.Fl d ) ,
+it opens the capture device, the export sockets, the control socket and the
+pid file first.
+It then changes its root directory to
+.Pa /var/empty
+and its user to
+.Dq nobody .
+The directory must exist; it may be changed at build time with the
+.Fl \-with-chrootdir
+option of
+.Nm configure .
+Because
+.Nm
+cannot remove files outside of the root directory, or in a directory that
+the user
+.Dq nobody
+cannot write to, the pid file and the control socket are left in place
+when the daemon exits.
+A
+.Nm
+that does not run as a daemon removes the control socket when it exits.
 .Sh EXAMPLES
 .Bl -tag -width Ds
 .It softflowd -i fxp0

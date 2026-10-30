@@ -1729,6 +1729,9 @@ public:
 void
 print_usage ();
 
+// Original: IPFIX_PORT of ipfix.h, the default port of -R.
+constexpr int kDefaultIpfixPort = 4739;
+
 // Original: die_usage (). Prints the message and the usage, then exits.
 [[noreturn]] void
 die_usage (const char *fmt, ...)
@@ -1944,6 +1947,16 @@ parse_destinations (const std::string &spec) {
     }
     std::string host = token.substr (0, colon);
     const std::string port = token.substr (colon + 1);
+    // Original: a numeric port above 65535 is refused (getaddrinfo () would
+    // cut it to 16 bits).
+    if (port.front() >= '0' && port.front() <= '9') {
+      char *end = nullptr;
+      errno = 0;
+      const unsigned long number = std::strtoul (port.c_str(), &end, 10);
+      if (*end == '\0' && (errno == ERANGE || number > 65535)) {
+        die_usage ("Invalid -n argument.\n");
+      }
+    }
     if (!host.empty() && host.front() == '[' && host.back() == ']') {
       host = host.substr (1, host.size() - 2);
     }
@@ -4640,19 +4653,26 @@ main (int argc, char **argv) {
           // Original: atoi ().
           config.snaplen = std::atoi (optarg);
           break;
-        case 'R':
-          // Original: atoi (), taken as the 16 bit port number of recvsock ().
-          config.psamp_receive_port =
-            static_cast<std::uint16_t> (std::atoi (optarg));
+        case 'R': {
+          // Original: atoi (); a port that does not fit 16 bits is reported with
+          // the usage, and the default port (IPFIX_PORT of ipfix.h) is used.
+          int port = std::atoi (optarg);
+          if (port < 0 || port > 65535) {
+            std::fprintf (stderr, "Invalid -R port, using the default %d.\n",
+                          kDefaultIpfixPort);
+            print_usage();
+            port = kDefaultIpfixPort;
+          }
+          config.psamp_receive_port = static_cast<std::uint16_t> (port);
           break;
+        }
         case 'S':
           config.send_interface = optarg;
           break;
         case 'e': {
           // Original: the address is resolved when the option is read; one
           // that cannot be is reported and not used. (The original reports
-          // it with perror (), which prints the text of an errno that
-          // getaddrinfo () did not set; the reason is printed here.)
+          // it with the reason of getaddrinfo (), as it is printed here.)
           struct addrinfo hints;
           std::memset (&hints, 0, sizeof (hints));
           struct addrinfo *res = nullptr;

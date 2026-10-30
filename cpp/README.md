@@ -1,12 +1,6 @@
 # softflowd+
 
-A rewrite of [irino/softflowd](https://github.com/irino/softflowd) (a C
-flow-monitoring / NetFlow-export daemon) into modern C++ with the
-memory-safety practices.
+A C++ rewrite of [irino/softflowd](https://github.com/irino/softflowd).
 
-## build
-
-```
-cmake -S . -B build
-cmake --build build -j
-```
+- English: [README.en.md](README.en.md)
+- 日本語: [README.ja.md](README.ja.md)

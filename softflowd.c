@@ -131,6 +131,10 @@ struct FLOW
 /** Set by the signal handler to the received signal number to request a
  * graceful shutdown. */
 static volatile sig_atomic_t graceful_shutdown_request = 0;
+/** Set by SIGUSR1: log the number of the tracked flows and of the packets. */
+static volatile sig_atomic_t stats_log_request = 0;
+/** Set by SIGHUP: log that a reload of the configuration is not implemented. */
+static volatile sig_atomic_t hup_log_request = 0;
 
 /* Describes a datalink header and how to extract v4/v6 frames from it */
 struct DATALINK {
@@ -319,6 +323,28 @@ lookup_netflow_sender (int version) {
 static void
 sighand_graceful_shutdown (int signum) {
   graceful_shutdown_request = signum;
+}
+
+/**
+ * @brief Signal handler of SIGUSR1: request the log of the statistics.
+ *
+ * @param signum Signal number; not used.
+ */
+static void
+sighand_log_stats (int signum) {
+  (void) signum;
+  stats_log_request = 1;
+}
+
+/**
+ * @brief Signal handler of SIGHUP: request the log that there is no reload.
+ *
+ * @param signum Signal number; not used.
+ */
+static void
+sighand_hup (int signum) {
+  (void) signum;
+  hup_log_request = 1;
 }
 
 /**
@@ -2879,6 +2905,16 @@ parse_hostport (const char *s, struct sockaddr *addr,
     die_usage ("Invalid -n argument.\n");
   }
   *(port - 1) = '\0';
+  /* getaddrinfo () cuts a numeric port to 16 bits: refuse one that is too big */
+  if (*port >= '0' && *port <= '9') {
+    char *end;
+    unsigned long portnum;
+    errno = 0;
+    portnum = strtoul (port, &end, 10);
+    if (*end == '\0' && (errno == ERANGE || portnum > 65535)) {
+      die_usage ("Invalid -n argument.\n");
+    }
+  }
 
   /* Accept [host]:port for numeric IPv6 addresses */
   if (*host == '[' && *(port - 2) == ']') {
@@ -2888,11 +2924,9 @@ parse_hostport (const char *s, struct sockaddr *addr,
 
   memset (&hints, '\0', sizeof (hints));
   hints.ai_socktype = SOCK_DGRAM;
-  if ((herr = getaddrinfo (host, port, &hints, &res)) == -1) {
-    fprintf (stderr, "Address lookup failed: %s\n", gai_strerror (herr));
-    exit (1);
-  }
-  if (res == NULL || res->ai_addr == NULL) {
+  /* getaddrinfo () returns a non-zero EAI_* code on failure, not -1 only */
+  if ((herr = getaddrinfo (host, port, &hints, &res)) != 0 || res == NULL ||
+      res->ai_addr == NULL) {
     fprintf (stderr, "No addresses found for [%s]:%s\n", host, port);
     exit (1);
   }
@@ -3008,6 +3042,41 @@ parse_mac_address (const char *str, u_int8_t mac[6]) {
   }
   return (0);
 }
+
+#ifdef ENABLE_NTOPNG
+/**
+ * @brief Create the ZeroMQ sockets of the -n destinations of -v ntopng.
+ *
+ * ZeroMQ starts its I/O threads in the process that makes the socket, and a
+ * fork () does not carry them to the child: the sockets are made after
+ * daemon (), and before drop_privs ().  Exits on failure.
+ *
+ * @param target Export target; the destinations are numeric (getnameinfo ()).
+ */
+static void
+connect_ntopng_destinations (struct NETFLOW_TARGET *target) {
+  int dest_idx, rc;
+  struct DESTINATION *dest;
+
+  if (target->dialect->version != SOFTFLOWD_NF_VERSION_NTOPNG
+#ifdef ENABLE_NTOPNG_JSON
+      && target->dialect->version != SOFTFLOWD_NF_VERSION_NTOPNG_JSON
+#endif
+  )
+    return;
+  for (dest_idx = 0; dest_idx < target->num_destinations; dest_idx++) {
+    dest = &target->destinations[dest_idx];
+    if (dest->ss.ss_family == 0)
+      continue;
+    if ((rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq)) !=
+        0) {
+      logit (LOG_ERR, "Could not create ZeroMQ socket for %s:%s: (%d) %s",
+             dest->hostname, dest->servname, rc, strerror (rc));
+      exit (1);
+    }
+  }
+}
+#endif /* ENABLE_NTOPNG */
 
 /**
  * @brief softflowd entry point: parse options, set up capture and export, and
@@ -3158,13 +3227,17 @@ main (int argc, char **argv) {
       case 'e':
         if (optarg != NULL) {
           struct addrinfo hints;
+          int gai_err;
+          memset (&hints, '\0', sizeof (hints));
           hints.ai_family = AF_UNSPEC;
           hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
           hints.ai_flags = 0;
           hints.ai_protocol = protocol;
-          if (getaddrinfo (optarg, NULL, &hints,
-                           &flowtrack.param.option.exporterAddr) != 0) {
-            perror ("getaddrinfo");
+          /* getaddrinfo() does not set errno; report its own error code. */
+          if ((gai_err = getaddrinfo (optarg, NULL, &hints,
+                                      &flowtrack.param.option.exporterAddr)) !=
+              0) {
+            fprintf (stderr, "getaddrinfo: %s\n", gai_strerror (gai_err));
             break;
           }
         }
@@ -3223,6 +3296,7 @@ main (int argc, char **argv) {
                  sizeof (flowtrack.param.option.interfaceName));
         break;
       case 'I':
+        errno = 0; /* strtol() sets errno on error only */
         boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
         if ((errno == ERANGE && (boot_time_reinit_sec == LONG_MAX ||
                                  boot_time_reinit_sec == LONG_MIN)) ||
@@ -3317,8 +3391,13 @@ main (int argc, char **argv) {
         break;
       case 'R':
         recvport = atoi (optarg);
-        if (recvport < 0 && recvport > 65535)
+        if (recvport < 0 || recvport > 65535) {
+          /* Say so with the usage, and go on with the default port */
+          fprintf (stderr, "Invalid -R port, using the default %d.\n",
+                   IPFIX_PORT);
+          usage();
           recvport = IPFIX_PORT;
+        }
         rsock = recvsock ((uint16_t) recvport);
         if (rsock < 0)
           exit (1);
@@ -3460,13 +3539,7 @@ main (int argc, char **argv) {
           || target.dialect->version == SOFTFLOWD_NF_VERSION_NTOPNG_JSON
 #endif
       ) {
-        int rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq);
-
-        if (rc) {
-          fprintf (stderr, "Could not create ZeroMQ socket for %s:%s: (%d) %s\n",
-                   dest->hostname, dest->servname, rc, strerror (rc));
-          exit (1);
-        }
+        /* The ZeroMQ socket is made after the fork: connect_ntopng_destinations () */
       } else
 #endif
         dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
@@ -3495,6 +3568,9 @@ main (int argc, char **argv) {
 
   if (dontfork_flag) {
     loginit (PROGNAME, 1);
+#ifdef ENABLE_NTOPNG
+    connect_ntopng_destinations (&target);
+#endif
   } else {
     FILE *pidfile;
 
@@ -3529,21 +3605,32 @@ main (int argc, char **argv) {
     fprintf (pidfile, "%u\n", (unsigned int) getpid());
     fclose (pidfile);
 
-    signal (SIGINT, sighand_graceful_shutdown);
-    signal (SIGTERM, sighand_graceful_shutdown);
     signal (SIGSEGV, sighand_other);
 
+#ifdef ENABLE_NTOPNG
+    connect_ntopng_destinations (&target);
+#endif
     setprotoent (1);
     drop_privs();
   }
+
+  /* For both the daemon and the foreground process, as the C++ version does:
+   * the default action of these signals would be to terminate at once, without
+   * the expiry of the flows and the removal of the control socket. SIGUSR1 and
+   * SIGHUP are logged by the main loop. */
+  signal (SIGINT, sighand_graceful_shutdown);
+  signal (SIGTERM, sighand_graceful_shutdown);
+  signal (SIGUSR1, sighand_log_stats);
+  signal (SIGHUP, sighand_hup);
 
   logit (LOG_NOTICE, "%s v%s starting data collection", PROGNAME, PROGVER);
   for (dest_idx = 0; dest_idx < target.num_destinations; dest_idx++) {
     dest = &target.destinations[dest_idx];
     if (dest->ss.ss_family != 0) {
+      /* interfaceName holds IFNAMSIZ - 1 characters only: not for a file name */
       logit (LOG_NOTICE, "Exporting flows from %s to [%s]:%s",
-             flowtrack.param.option.interfaceName, dest->hostname,
-             dest->servname);
+             capfile != NULL ? capfile : flowtrack.param.option.interfaceName,
+             dest->hostname, dest->servname);
     }
   }
   flowtrack.param.option.meteringProcessId = getpid();
@@ -3616,6 +3703,20 @@ main (int argc, char **argv) {
         logit (LOG_ERR, "Exiting on poll: %s", strerror (errno));
         break;
       }
+    }
+
+    /* Requests of SIGUSR1 and SIGHUP; the handlers only set the flags */
+    if (stats_log_request) {
+      stats_log_request = 0;
+      FLOWTRACK_LOCK();
+      logit (LOG_INFO, "stats: tracked=%u total_packets=%llu",
+             flowtrack.param.num_flows,
+             (unsigned long long) flowtrack.param.total_packets);
+      FLOWTRACK_UNLOCK();
+    }
+    if (hup_log_request) {
+      hup_log_request = 0;
+      logit (LOG_INFO, "SIGHUP received (config reload not implemented)");
     }
 
     /* Accept connection on control socket if present */
