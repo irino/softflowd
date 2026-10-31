@@ -1,19 +1,25 @@
-// Original files: softflowd.h, common.h, freelist.h, treetype.h, sys-tree.h
-//
-// This single header intentionally mirrors the original softflowd's
-// monolithic layout: softflowd.h declared struct FLOW / EXPIRY / FLOWTRACK /
-// FLOWTRACKPARAMETERS together, and softflowd.c contained essentially all of
-// the logic (packet parsing, flow tracking, capture loop, main()). We follow
-// the same file boundary here -- everything the daemon needs is declared in
-// softflowd.hpp and defined in softflowd.cpp -- while still applying the
-// memory-safety practices described in the accompanying article
-// (https://mecanik.dev/ja/posts/c++-vs-rust-memory-safety-practical-examples-with-modern-c++/).
-//
-// packet_parser.* and capture.* from earlier iterations of this project have
-// been folded back into this file and softflowd.cpp, since the original
-// softflowd had no separate files for that logic either -- it all lived in
-// softflowd.c. freelist.* has also been folded in, since it directly
-// implements what used to be struct FLOWTRACK.
+/**
+ * @file softflowd.hpp
+ * @brief The flow table, the packet parser, the capture handle and the export
+ * destinations of softflowd+.
+ *
+ * This single header intentionally mirrors the original softflowd's
+ * monolithic layout: softflowd.h declared struct FLOW / EXPIRY / FLOWTRACK /
+ * FLOWTRACKPARAMETERS together, and softflowd.c contained essentially all of
+ * the logic (packet parsing, flow tracking, capture loop, main()). We follow
+ * the same file boundary here -- everything the daemon needs is declared in
+ * softflowd.hpp and defined in softflowd.cpp -- while still applying the
+ * memory-safety practices described in the accompanying article
+ * (https://mecanik.dev/ja/posts/c++-vs-rust-memory-safety-practical-examples-with-modern-c++/).
+ *
+ * packet_parser.* and capture.* from earlier iterations of this project have
+ * been folded back into this file and softflowd.cpp, since the original
+ * softflowd had no separate files for that logic either -- it all lived in
+ * softflowd.c. freelist.* has also been folded in, since it directly
+ * implements what used to be struct FLOWTRACK.
+ *
+ * @original softflowd.h, common.h, freelist.h, treetype.h, sys-tree.h.
+ */
 #ifndef SOFTFLOWD_HPP
 #define SOFTFLOWD_HPP
 
@@ -43,105 +49,167 @@ namespace softflow {
 // Common types (original: common.h, and the top of softflowd.h)
 // ---------------------------------------------------------------------
 
+/**
+ * @brief The monotonic clock on which the times of the flows are recorded.
+ */
 using Clock = std::chrono::steady_clock;
+/**
+ * @brief A point in time on Clock.
+ */
 using TimePoint = Clock::time_point;
+/**
+ * @brief A span of time on Clock.
+ */
 using Duration = Clock::duration;
 
-// Original: struct FLOW used a raw int / u_int8_t for protocol, tcp_flags,
-// etc. enum class gives these fields compile-time type safety.
+/**
+ * @brief The address family of a flow: IPv4 or IPv6.
+ *
+ * @original struct FLOW used a raw int / u_int8_t for protocol, tcp_flags,
+ * etc. enum class gives these fields compile-time type safety.
+ */
 enum class AddressFamily : std::uint8_t {
-    IPv4,
-    IPv6,
+  IPv4,  ///< An IPv4 address (4 octets).
+  IPv6,  ///< An IPv6 address (16 octets).
 };
 
-// Original: TRACK_IP_ONLY .. TRACK_FULL_VLAN_ETHER (softflowd.h)
-// Original: -T track_level, exactly five levels named "ip", "proto",
-// "full" (the default), "vlan", and "ether". An earlier revision of this
-// project had a spurious sixth level between IpProtoPort and FullVlan
-// (used only to gate ToS capture); that distinction doesn't exist in the
-// original and has been removed so -T's five values map onto this enum
-// one-to-one.
+/**
+ * @brief How much of a packet identifies a flow, selected with -T.
+ *
+ * The levels are ordered: a higher level tells more packets apart (the code
+ * compares them with >=). The flow table, the exporters and the packet parser
+ * use the level to decide which fields belong to a flow and are exported.
+ *
+ * @original TRACK_IP_ONLY .. TRACK_FULL_VLAN_ETHER (softflowd.h), and -T
+ * track_level, exactly five levels named "ip", "proto", "full" (the default),
+ * "vlan", and "ether". An earlier revision of this project had a spurious
+ * sixth level between IpProtoPort and FullVlan (used only to gate ToS
+ * capture); that distinction doesn't exist in the original and has been
+ * removed so -T's five values map onto this enum one-to-one. The level "port"
+ * (the original's TRACK_IP_PROTO_PORT) and "full-tos" are additions of this
+ * project, as the enumerators describe.
+ */
 enum class TrackLevel : std::uint8_t {
-  IpOnly,         // "ip":    source/destination address only
-  IpProto,        // "proto": + protocol
-  Port,           // "port":  + source/destination port, and no ToS in the
-                  // flow (the original's TRACK_IP_PROTO_PORT)
-  IpProtoPort,    // "full":  + source/destination port (the default). ToS
-                  // is deliberately *not* part of flow identity at this
-                  // level, matching the reference implementation's actual
-                  // flow_compare() behavior (see FlowKey's own comment) --
-                  // despite softflowd.h describing "full" as a 6-tuple
-                  // that includes ToS, the real comparison function never
-                  // touches it.
-  FullTos,        // "full-tos": + ToS. Opt-in: makes ToS part of flow
-                  // identity too, matching what softflowd.h *documents*
-                  // (but the reference C implementation doesn't actually
-                  // do). Two packets identical except for ToS become
-                  // separate flows at this level.
-  FullVlan,       // "vlan":  + VLAN ID
-  FullVlanEther,  // "ether": + source/destination Ethernet address
+  IpOnly,   ///< "ip": source/destination address only.
+  IpProto,  ///< "proto": the addresses and the protocol.
+  /** "port": the addresses, the protocol and the source/destination port,
+   *  and no ToS in the flow (the original's TRACK_IP_PROTO_PORT). */
+  Port,
+  /** "full": the addresses, the protocol and the source/destination port (the
+   *  default). ToS is deliberately *not* part of flow identity at this level,
+   *  matching the reference implementation's actual flow_compare() behavior
+   *  (see FlowKey's own comment) -- despite softflowd.h describing "full" as
+   *  a 6-tuple that includes ToS, the real comparison function never touches
+   *  it. */
+  IpProtoPort,
+  /** "full-tos": adds ToS. Opt-in: makes ToS part of flow identity too,
+   *  matching what softflowd.h *documents* (but the reference C implementation
+   *  doesn't actually do). Two packets identical except for ToS become
+   *  separate flows at this level. */
+  FullTos,
+  FullVlan,       ///< "vlan": adds the VLAN ID.
+  FullVlanEther,  ///< "ether": adds the source/destination Ethernet address.
 };
 
-// Original:
-//   union { struct in_addr v4; struct in6_addr v6; } addr[2];
-// A union plus a separate "which member is active" flag requires the
-// programmer to remember which member is valid; accessing the wrong one
-// (type punning) is undetected undefined behavior. Here a single fixed-size
-// array is used, and AddressFamily only changes how many of the bytes are
-// meaningful. (std::variant would be even safer, but this packet-processing
-// hot path favors a representation with low copy/branch overhead.)
+/**
+ * @brief An IPv4 or IPv6 address, with its family.
+ *
+ * @original
+ *   union { struct in_addr v4; struct in6_addr v6; } addr[2];
+ * A union plus a separate "which member is active" flag requires the
+ * programmer to remember which member is valid; accessing the wrong one
+ * (type punning) is undetected undefined behavior. Here a single fixed-size
+ * array is used, and AddressFamily only changes how many of the bytes are
+ * meaningful. (std::variant would be even safer, but this packet-processing
+ * hot path favors a representation with low copy/branch overhead.)
+ */
 struct IpAddress {
-    AddressFamily family{AddressFamily::IPv4};
-    std::array<std::uint8_t, 16> bytes{}; // only the first 4 bytes are used for IPv4
+  AddressFamily family{AddressFamily::IPv4};  ///< The family, which decides how many of #bytes are meaningful.
+  std::array<std::uint8_t, 16> bytes{};       ///< The address in network byte order; only the first 4 bytes are used for IPv4.
 
-    // A defaulted three-way comparison gives us both operator== (needed for
-    // the hash-based backend) and a strict total order (needed for the
-    // tree-based backend) for free, with no hand-written comparator that
-    // could get out of sync between the two.
-    friend auto operator<=>(const IpAddress&, const IpAddress&) = default;
-    friend bool operator==(const IpAddress&, const IpAddress&) = default;
+  /**
+     * @brief Compares two addresses, by family and then by bytes.
+     *
+     * A defaulted three-way comparison gives us both operator== (needed for
+     * the hash-based backend) and a strict total order (needed for the
+     * tree-based backend) for free, with no hand-written comparator that
+     * could get out of sync between the two.
+     *
+     * @return The three-way ordering.
+     */
+  friend auto
+  operator<=> (const IpAddress &, const IpAddress &) = default;
+  /**
+     * @brief Compares two addresses for equality.
+     *
+     * @return true when the family and the bytes are equal.
+     */
+  friend bool
+  operator== (const IpAddress &, const IpAddress &) = default;
 };
 
-// Original: struct FLOW's mplsLabelStackDepth + mplsLabels[10] -- a fixed
-// buffer with its length tracked in a *separate* variable. Any place that
-// forgets to keep the two in sync is a buffer overrun / uninitialized read
-// waiting to happen (this is exactly the pattern in the article's second
-// example). std::vector ties the length to the data itself.
-// Each element is the top 3 octets of one MPLS shim header --
-// label(20 bits) | EXP(3 bits) | S(1 bit), i.e. bits 31-8 of the 4-byte
-// shim, TTL octet dropped -- stored verbatim rather than decomposed, so
-// it can be passed straight through to the IPFIX
-// mplsTopLabelStackSectionN field unchanged. See
-// softflowd.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
+/**
+ * @brief The MPLS label stack of a packet, one element per label.
+ *
+ * @original struct FLOW's mplsLabelStackDepth + mplsLabels[10] -- a fixed
+ * buffer with its length tracked in a *separate* variable. Any place that
+ * forgets to keep the two in sync is a buffer overrun / uninitialized read
+ * waiting to happen (this is exactly the pattern in the article's second
+ * example). std::vector ties the length to the data itself.
+ * Each element is the top 3 octets of one MPLS shim header --
+ * label(20 bits) | EXP(3 bits) | S(1 bit), i.e. bits 31-8 of the 4-byte
+ * shim, TTL octet dropped -- stored verbatim rather than decomposed, so
+ * it can be passed straight through to the IPFIX
+ * mplsTopLabelStackSectionN field unchanged. See
+ * softflowd.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
+ */
 using MplsLabelStack = std::vector<std::uint32_t>;
 
 // ---------------------------------------------------------------------
 // FlowKey / Flow (original: struct FLOW in softflowd.h)
 // ---------------------------------------------------------------------
 
-// Original: struct FLOW mixed two responsibilities in one struct:
-//   (a) the fields used as a lookup key (addr/port/protocol/tos/vlanid...)
-//   (b) the fields updated as a result of a lookup (octets/packets/flow_seq)
-// It also carried an `EXPIRY *expiry` raw pointer to a matching EXPIRY
-// struct, and EXPIRY carried a `FLOW *flow` raw pointer back. This mutual
-// raw-pointer relationship is exactly the dangling-pointer / use-after-free
-// pattern called out in the article: freeing one side without updating the
-// other leaves a dangling pointer on the other side.
-//
-// Here the lookup key (FlowKey) and the value (Flow) are separate types, and
-// any association between a flow and its expiry bookkeeping is made through
-// a FlowTable-owned container key -- never a raw pointer -- so ownership
-// always lives in exactly one place.
+/**
+ * @brief The key that identifies a flow: its two endpoints in canonical order, the protocol and, depending on the track level, ToS, the VLAN IDs and the Ethernet addresses.
+ *
+ * @original struct FLOW mixed two responsibilities in one struct:
+ *   (a) the fields used as a lookup key (addr/port/protocol/tos/vlanid...)
+ *   (b) the fields updated as a result of a lookup (octets/packets/flow_seq)
+ * It also carried an `EXPIRY *expiry` raw pointer to a matching EXPIRY
+ * struct, and EXPIRY carried a `FLOW *flow` raw pointer back. This mutual
+ * raw-pointer relationship is exactly the dangling-pointer / use-after-free
+ * pattern called out in the article: freeing one side without updating the
+ * other leaves a dangling pointer on the other side.
+ *
+ * Here the lookup key (FlowKey) and the value (Flow) are separate types, and
+ * any association between a flow and its expiry bookkeeping is made through
+ * a FlowTable-owned container key -- never a raw pointer -- so ownership
+ * always lives in exactly one place.
+ */
 class FlowKey {
 public:
-    // Original: just before inserting/looking up a flow, softflowd.c had a
-    // comment explaining that "the numerically smaller address/port goes in
-    // slot [0]" and normalized the fields by hand at every call site -- a
-    // convention enforced only by a comment, not by the type system. Here,
-    // make_canonical() is the *only* way to construct a FlowKey, so an
-    // unnormalized FlowKey cannot exist. The implementation is a small pure
-    // function that fits comfortably in the header, just as softflowd.h
-    // itself had no corresponding .c file.
+  /**
+   * @brief Makes the key of a flow from the two ends of a packet, in canonical order.
+   *
+   * @param addr_a The address of the first end.
+   * @param addr_b The address of the second end.
+   * @param port_a The port of the first end.
+   * @param port_b The port of the second end.
+   * @param protocol The IP protocol number.
+   * @param tos The type of service; 0 unless the track level asks for it.
+   * @param vlanid The VLAN IDs of the two ends, in the order of @p addr_a and @p addr_b.
+   * @param ethermac The Ethernet addresses of the two ends, in the order of @p addr_a and @p addr_b.
+   * @return The key; the numerically smaller address (then port) is in slot 0, and the VLAN IDs and Ethernet addresses are swapped with it.
+   *
+   * @original just before inserting/looking up a flow, softflowd.c had a
+   * comment explaining that "the numerically smaller address/port goes in
+   * slot [0]" and normalized the fields by hand at every call site -- a
+   * convention enforced only by a comment, not by the type system. Here,
+   * make_canonical() is the *only* way to construct a FlowKey, so an
+   * unnormalized FlowKey cannot exist. The implementation is a small pure
+   * function that fits comfortably in the header, just as softflowd.h
+   * itself had no corresponding .c file.
+   */
   static FlowKey
   make_canonical (IpAddress addr_a, IpAddress addr_b,
                   std::uint16_t port_a, std::uint16_t port_b,
@@ -174,121 +242,199 @@ public:
     return key;
   }
 
-    const std::array<IpAddress, 2>& addr() const noexcept { return addr_; }
-    const std::array<std::uint16_t, 2>& port() const noexcept { return port_; }
-    std::uint8_t protocol() const noexcept { return protocol_; }
-    std::uint8_t tos() const noexcept { return tos_; }
-    const std::array<std::uint16_t, 2>& vlanid() const noexcept {
-        return vlanid_;
+  /**
+     * @brief The addresses of the two ends.
+     *
+     * @return The addresses, in canonical order.
+     */
+  const std::array<IpAddress, 2> &
+  addr () const noexcept {
+    return addr_; }
+  /**
+     * @brief The ports of the two ends.
+     *
+     * @return The ports, in canonical order.
+     */
+  const std::array<std::uint16_t, 2> &
+  port () const noexcept {
+    return port_; }
+  /**
+     * @brief The IP protocol number.
+     *
+     * @return The protocol.
+     */
+  std::uint8_t
+  protocol () const noexcept {
+    return protocol_; }
+  /**
+     * @brief The type of service.
+     *
+     * @return The ToS; 0 unless the track level asks for it.
+     */
+  std::uint8_t
+  tos () const noexcept {
+    return tos_; }
+  /**
+     * @brief The VLAN IDs of the two ends.
+     *
+     * @return The VLAN IDs, in canonical order.
+     */
+  const std::array<std::uint16_t, 2> &
+  vlanid () const noexcept {
+    return vlanid_;
     }
+    /**
+     * @brief The Ethernet addresses of the two ends.
+     *
+     * @return The addresses, in canonical order.
+     */
     const std::array<std::array<std::uint8_t, 6>, 2> &
     ethermac () const noexcept {
       return ethermac_;
     }
 
-    // Defaulted <=> gives both operator== (used by the hash-based backend)
-    // and a strict total order (used by the tree-based backend, in place of
-    // the original's RB_GENERATE-produced comparison function). One
-    // declaration serves both FlowTable backends described below.
-    //
-    // Original: softflowd.c's flow_compare() -- compares af/addr/protocol/
-    // port(/vlanid/ethermac when tracked) only; ToS is *not* part of flow
-    // identity there by default (see TrackLevel::IpProtoPort's comment).
-    // tos_ is always a member of FlowKey (so it participates in this
-    // defaulted comparison uniformly), but callers below only pass a real
-    // ToS value in when TrackLevel::FullTos or above is selected --
-    // otherwise they always pass 0, which makes tos_ a constant that never
-    // differentiates any flow, functionally identical to excluding it.
+    /**
+     * @brief Orders two keys; with operator== it serves both backends of the flow table.
+     *
+     * Defaulted \<=\> gives both operator== (used by the hash-based backend)
+     * and a strict total order (used by the tree-based backend, in place of
+     * the original's RB_GENERATE-produced comparison function). One
+     * declaration serves both FlowTable backends described below.
+     *
+     * Original: softflowd.c's flow_compare() -- compares af/addr/protocol/
+     * port(/vlanid/ethermac when tracked) only; ToS is *not* part of flow
+     * identity there by default (see TrackLevel::IpProtoPort's comment).
+     * tos_ is always a member of FlowKey (so it participates in this
+     * defaulted comparison uniformly), but callers below only pass a real
+     * ToS value in when TrackLevel::FullTos or above is selected --
+     * otherwise they always pass 0, which makes tos_ a constant that never
+     * differentiates any flow, functionally identical to excluding it.
+     *
+     * @return The three-way ordering.
+     */
     friend auto operator<=>(const FlowKey&, const FlowKey&) = default;
+    /**
+     * @brief Compares two keys for equality.
+     *
+     * @return true when all the fields are equal.
+     */
     friend bool operator==(const FlowKey&, const FlowKey&) = default;
 
 private:
-    FlowKey() = default;
+  /**
+     * @brief Creates an empty key; make_canonical() is the only way to make a usable one.
+     */
+  FlowKey() = default;
 
-    std::array<IpAddress, 2> addr_{};
-    std::array<std::uint16_t, 2> port_{};
-    std::array<std::uint16_t, 2> vlanid_{};
-    std::array<std::array<std::uint8_t, 6>, 2> ethermac_{};
-    std::uint8_t protocol_{0};
-    std::uint8_t tos_{0};
+  std::array<IpAddress, 2> addr_{};                        ///< The addresses of the two ends.
+  std::array<std::uint16_t, 2> port_{};                    ///< The ports of the two ends.
+  std::array<std::uint16_t, 2> vlanid_{};                  ///< The VLAN IDs of the two ends.
+  std::array<std::array<std::uint8_t, 6>, 2> ethermac_{};  ///< The Ethernet addresses of the two ends.
+  std::uint8_t protocol_{0};                               ///< The IP protocol number.
+  std::uint8_t tos_{0};                                    ///< The type of service.
 };
 
-// Original: struct FLOW's statistics fields. The `[2]` raw C arrays for
-// tcp_flags/octets/packets become std::array; mplsLabels[10] +
-// mplsLabelStackDepth becomes MplsLabelStack (a vector); ethermac[2][6]
-// becomes std::array<std::array<uint8_t,6>,2>. In every case, an
-// out-of-bounds index becomes an immediately detectable exception/assertion
-// (std::array::at(), or a debug-build-checked operator[]) instead of silent
-// memory corruption.
-// Original: softflowd.h's R_GENERAL .. R_FLUSH expiry-reason enum, used to
-// classify why a flow was removed from the table for statistics purposes.
+/**
+ * @brief Why a flow was removed from the table, for the statistics.
+ *
+ * @original struct FLOW's statistics fields. The `[2]` raw C arrays for
+ * tcp_flags/octets/packets become std::array; mplsLabels[10] +
+ * mplsLabelStackDepth becomes MplsLabelStack (a vector); ethermac[2][6]
+ * becomes std::array\<std::array\<uint8_t,6\>,2\>. In every case, an
+ * out-of-bounds index becomes an immediately detectable exception/assertion
+ * (std::array::at(), or a debug-build-checked operator[]) instead of silent
+ * memory corruption.
+ * Original: softflowd.h's R_GENERAL .. R_FLUSH expiry-reason enum, used to
+ * classify why a flow was removed from the table for statistics purposes.
+ */
 enum class ExpiryReason : std::uint8_t {
-  General,
-  Tcp,
-  TcpRst,
-  TcpFin,
-  Udp,
-  Icmp,
-  MaxLife,
-  OverBytes,
-  OverFlows,
-  Flush,
-  Collision
+  General,    ///< Expired by the general timeout.
+  Tcp,        ///< Expired by the TCP timeout.
+  TcpRst,     ///< Expired by the timeout after a TCP RST.
+  TcpFin,     ///< Expired by the timeout after a TCP FIN.
+  Udp,        ///< Expired by the UDP timeout.
+  Icmp,       ///< Expired by the ICMP timeout.
+  MaxLife,    ///< Lived as long as the maximum lifetime.
+  OverBytes,  ///< Counted over 2 GiB and exported at once.
+  OverFlows,  ///< Evicted because there were more flows than -m allows.
+  Flush,      ///< Flushed on shutdown or by expire-all.
+  Collision   ///< Evicted by a flow that hashed to the same slot (-F hash).
 };
 
+/**
+ * @brief The state of a flow that changes while packets arrive: the counters, the times and the flags of both directions.
+ *
+ * Index 0 and 1 of the arrays are the two ends of the key, in canonical order.
+ */
 struct Flow {
-    std::uint64_t flow_seq{0};
-    TimePoint flow_start{};
-    TimePoint flow_last{};
-    // Wall-clock counterparts of flow_start/flow_last, for -D debug
-    // logging (format_flow()) and anything else that needs an actual
-    // calendar date/time -- flow_start/flow_last above are on the
-    // monotonic Clock (see softflowd.hpp's `using Clock =
-    // std::chrono::steady_clock`), which has no fixed relationship to
-    // wall-clock time on its own. In the original, flow->flow_start IS
-    // the real wall-clock pcap-recorded time (see PCAP_TS_TO_TIMEVAL），
-    // so these are populated alongside flow_start/flow_last in
-    // record_packet() from the packet's own wall_timestamp.
-    std::chrono::system_clock::time_point wall_start{};
-    std::chrono::system_clock::time_point wall_last{};
+  std::uint64_t flow_seq{0};  ///< The sequence number of the flow: how many flows were created before it, plus one.
+  TimePoint flow_start{};     ///< The time of the first packet.
+  TimePoint flow_last{};      ///< The time of the last packet.
+  // Wall-clock counterparts of flow_start/flow_last, for -D debug
+  // logging (format_flow()) and anything else that needs an actual
+  // calendar date/time -- flow_start/flow_last above are on the
+  // monotonic Clock (see softflowd.hpp's `using Clock =
+  // std::chrono::steady_clock`), which has no fixed relationship to
+  // wall-clock time on its own. In the original, flow->flow_start IS
+  // the real wall-clock pcap-recorded time (see PCAP_TS_TO_TIMEVAL），
+  // so these are populated alongside flow_start/flow_last in
+  // record_packet() from the packet's own wall_timestamp.
+  std::chrono::system_clock::time_point wall_start{};  ///< Wall-clock counterpart of #flow_start.
+  std::chrono::system_clock::time_point wall_last{};   ///< Wall-clock counterpart of #flow_last.
 
-    std::array<std::uint64_t, 2> octets{};
-    std::array<std::uint64_t, 2> packets{};
-    std::array<std::uint8_t, 2> tcp_flags{};
-    std::array<std::uint8_t, 2> tos{};
-    std::array<std::array<std::uint8_t, 6>, 2> ethermac{};
+  std::array<std::uint64_t, 2> octets{};                  ///< The octets seen from each end.
+  std::array<std::uint64_t, 2> packets{};                 ///< The packets seen from each end.
+  std::array<std::uint8_t, 2> tcp_flags{};                ///< The TCP flags seen from each end (ORed together).
+  std::array<std::uint8_t, 2> tos{};                      ///< The type of service of the first packet, in the slot of its direction; the other slot stays 0.
+  std::array<std::array<std::uint8_t, 6>, 2> ethermac{};  ///< The Ethernet addresses of each end.
 
-    std::uint32_t ip6_flowlabel_a{0};
-    std::uint32_t ip6_flowlabel_b{0};
+  std::uint32_t ip6_flowlabel_a{0};  ///< The IPv6 flow label of the first end; never recorded, so 0 (dump-flows prints it).
+  std::uint32_t ip6_flowlabel_b{0};  ///< The IPv6 flow label of the second end; never recorded, so 0 (dump-flows prints it).
 
-    MplsLabelStack mpls_labels;
+  MplsLabelStack mpls_labels;  ///< The MPLS labels of the flow.
 
-    std::uint8_t flow_end_reason{0};
-    ExpiryReason reason{ExpiryReason::General};
+  std::uint8_t flow_end_reason{0};             ///< The flowEndReason that IPFIX reports (1 idle timeout, 2 active timeout, 3 end of flow, 5 lack of resource).
+  ExpiryReason reason{ExpiryReason::General};  ///< Why the flow expired, once it did.
 };
 
-// Original: NetFlow/IPFIX/PSAMP export code (in softflowd.c, export.c,
-// export_common.c, psamp.c and the files in compat/) worked directly off
-// `struct FLOW`, which carried both the key fields (addr/port/protocol/...)
-// and the value fields (octets/packets/...) together. Since this project
-// splits those into FlowKey and Flow, exporters need both -- ExportRecord is
-// what FlowTable::expire_flows()/force_expire_oldest() hand back, pairing a
-// key with its accumulated statistics at the moment the flow was expired.
+/**
+ * @brief A flow as an exporter takes it: its key with the statistics at the moment it expired.
+ *
+ * @original NetFlow/IPFIX/PSAMP export code (in softflowd.c, export.c,
+ * export_common.c, psamp.c and the files in compat/) worked directly off
+ * `struct FLOW`, which carried both the key fields (addr/port/protocol/...)
+ * and the value fields (octets/packets/...) together. Since this project
+ * splits those into FlowKey and Flow, exporters need both -- ExportRecord is
+ * what FlowTable::expire_flows()/force_expire_oldest() hand back, pairing a
+ * key with its accumulated statistics at the moment the flow was expired.
+ */
 struct ExportRecord {
-    FlowKey key;
-    Flow flow;
+  FlowKey key;  ///< The key of the flow.
+  Flow flow;    ///< The statistics of the flow.
 };
 
-// Original: the EXPIRY event of a flow (expiry->expires_at), as dump-flows
-// shows it next to the flow.
+/**
+ * @brief A flow with its expiry event, as dump-flows shows it.
+ *
+ * @original the EXPIRY event of a flow (expiry-\>expires_at), as dump-flows
+ * shows it next to the flow.
+ */
 struct ExpiryEntry {
-    ExportRecord record;
-    TimePoint expires_at;
+  ExportRecord record;   ///< The flow.
+  TimePoint expires_at;  ///< When the flow expires.
 };
 
-// Original: expiry->expires_at, a time_t. A flow that is over 2 GiB or over
-// its maximum lifetime has 0, which is due at once; any other flow has the
-// whole second of its expiry time.
+/**
+ * @brief The time when a flow expires, in whole seconds since the epoch.
+ *
+ * @param flow The flow.
+ * @param expires_at The time on Clock when it expires.
+ * @return 0 for a flow that is due at once, otherwise the expiry time as seconds since the epoch.
+ *
+ * @original expiry-\>expires_at, a time_t. A flow that is over 2 GiB or over
+ * its maximum lifetime has 0, which is due at once; any other flow has the
+ * whole second of its expiry time.
+ */
 inline long long
 expiry_epoch_seconds (const Flow &flow, TimePoint expires_at) {
     if (flow.reason == ExpiryReason::OverBytes || flow.reason == ExpiryReason::MaxLife) {
@@ -300,35 +446,56 @@ expiry_epoch_seconds (const Flow &flow, TimePoint expires_at) {
     return std::chrono::duration_cast<std::chrono::seconds> (wall.time_since_epoch()).count();
 }
 
-// ---------------------------------------------------------------------
-// ByteWriter (a shared serialization helper used by netflow1.*,
-// netflow5.*, netflow9.*, ipfix.*, and psamp.*)
-// ---------------------------------------------------------------------
-//
-// The original built export packets by populating `__packed` C structs
-// (e.g. `struct NF5_HEADER`) with htons()/htonl() and then treating the
-// struct's address as a byte buffer to send. Two portability/safety issues
-// with that approach:
-//   1. `__packed` (or `#pragma pack`) structs have members at potentially
-//      under-aligned addresses; reading/writing through a typed pointer to
-//      such a member is undefined behavior on architectures that don't
-//      support unaligned access, even though it "works" on x86.
-//   2. Every htons()/htonl() call is a place where it's easy to forget the
-//      conversion, or apply it to the wrong field, with no compiler
-//      diagnostic either way.
-// ByteWriter appends fields one at a time as explicit big-endian byte
-// sequences into a std::vector<std::uint8_t> -- there is no struct, no
-// packing pragma, and no possibility of an unconverted or
-// wrong-byte-order field compiling silently.
+/**
+ * @brief Appends the fields of a packet as big-endian bytes to a buffer.
+ *
+ * It is the serialization helper that the exporters of NetFlow v1, v5, v9, IPFIX and PSAMP share.
+ *
+ * The original built export packets by populating `__packed` C structs
+ * (e.g. `struct NF5_HEADER`) with htons()/htonl() and then treating the
+ * struct's address as a byte buffer to send. Two portability/safety issues
+ * with that approach:
+ *   1. `__packed` (or `#pragma pack`) structs have members at potentially
+ *      under-aligned addresses; reading/writing through a typed pointer to
+ *      such a member is undefined behavior on architectures that don't
+ *      support unaligned access, even though it "works" on x86.
+ *   2. Every htons()/htonl() call is a place where it's easy to forget the
+ *      conversion, or apply it to the wrong field, with no compiler
+ *      diagnostic either way.
+ * ByteWriter appends fields one at a time as explicit big-endian byte
+ * sequences into a std::vector\<std::uint8_t\> -- there is no struct, no
+ * packing pragma, and no possibility of an unconverted or
+ * wrong-byte-order field compiling silently.
+ *
+ * @original ByteWriter (a shared serialization helper used by netflow1.*, netflow5.*, netflow9.*, ipfix.*, and psamp.*)
+ */
 class ByteWriter {
 public:
-    void put_u8(std::uint8_t v) { buf_.push_back(v); }
+  /**
+     * @brief Appends one byte.
+     *
+     * @param v The value.
+     */
+  void
+  put_u8 (std::uint8_t v) {
+    buf_.push_back (v); }
 
-    void put_u16(std::uint16_t v) {
-        buf_.push_back(static_cast<std::uint8_t>(v >> 8));
-        buf_.push_back(static_cast<std::uint8_t>(v));
+  /**
+     * @brief Appends a 16-bit value, big-endian.
+     *
+     * @param v The value.
+     */
+  void
+  put_u16 (std::uint16_t v) {
+    buf_.push_back (static_cast<std::uint8_t> (v >> 8));
+    buf_.push_back (static_cast<std::uint8_t> (v));
     }
 
+    /**
+     * @brief Appends a 32-bit value, big-endian.
+     *
+     * @param v The value.
+     */
     void put_u32(std::uint32_t v) {
         buf_.push_back(static_cast<std::uint8_t>(v >> 24));
         buf_.push_back(static_cast<std::uint8_t>(v >> 16));
@@ -336,6 +503,11 @@ public:
         buf_.push_back(static_cast<std::uint8_t>(v));
     }
 
+    /**
+     * @brief Appends a 64-bit value, big-endian.
+     *
+     * @param v The value.
+     */
     void put_u64(std::uint64_t v) {
         for (int shift = 56; shift >= 0; shift -= 8) {
             buf_.push_back(
@@ -343,25 +515,54 @@ public:
         }
     }
 
+    /**
+     * @brief Appends bytes as they are.
+     *
+     * @param bytes The bytes.
+     */
     void put_bytes(std::span<const std::uint8_t> bytes) {
         buf_.insert(buf_.end(), bytes.begin(), bytes.end());
     }
 
-    // Appends the first 4 (IPv4) or 16 (IPv6) bytes of an IpAddress.
+    /**
+     * @brief Appends the 4 octets of an IPv4 address.
+     *
+     * Appends the first 4 (IPv4) or 16 (IPv6) bytes of an IpAddress.
+     *
+     * @param addr The address.
+     */
     void put_ipv4(const IpAddress& addr) {
         put_bytes(std::span<const std::uint8_t>(addr.bytes.data(), 4));
     }
+    /**
+     * @brief Appends the 16 octets of an IPv6 address.
+     *
+     * @param addr The address.
+     */
     void put_ipv6(const IpAddress& addr) {
         put_bytes(std::span<const std::uint8_t>(addr.bytes.data(), 16));
     }
 
+    /**
+     * @brief The number of bytes written.
+     *
+     * @return The size.
+     */
     std::size_t size() const noexcept { return buf_.size(); }
 
-    // Overwrites 2 or 4 bytes previously written at `offset`, big-endian.
-    // Used for length/count fields whose final value is only known after
-    // the rest of the record has been serialized (e.g. a FlowSet length).
-    // `offset` is bounds-checked, turning a would-be out-of-bounds write
-    // into an exception rather than silent buffer corruption.
+    /**
+     * @brief Overwrites 2 bytes that were written before, big-endian.
+     *
+     * Overwrites 2 or 4 bytes previously written at `offset`, big-endian.
+     * Used for length/count fields whose final value is only known after
+     * the rest of the record has been serialized (e.g. a FlowSet length).
+     * `offset` is bounds-checked, turning a would-be out-of-bounds write
+     * into an exception rather than silent buffer corruption.
+     *
+     * @param offset Where the 2 bytes start.
+     * @param v The new value.
+     * @throw std::out_of_range when @p offset is outside of what was written.
+     */
     void patch_u16(std::size_t offset, std::uint16_t v) {
         if (offset + 2 > buf_.size()) {
             throw std::out_of_range("ByteWriter::patch_u16: offset out of range");
@@ -369,6 +570,13 @@ public:
         buf_[offset] = static_cast<std::uint8_t>(v >> 8);
         buf_[offset + 1] = static_cast<std::uint8_t>(v);
     }
+    /**
+     * @brief Overwrites 4 bytes that were written before, big-endian.
+     *
+     * @param offset Where the 4 bytes start.
+     * @param v The new value.
+     * @throw std::out_of_range when @p offset is outside of what was written.
+     */
     void patch_u32(std::size_t offset, std::uint32_t v) {
         if (offset + 4 > buf_.size()) {
             throw std::out_of_range("ByteWriter::patch_u32: offset out of range");
@@ -379,14 +587,31 @@ public:
         buf_[offset + 3] = static_cast<std::uint8_t>(v);
     }
 
+    /**
+     * @brief The bytes written so far.
+     *
+     * @return The buffer.
+     */
     const std::vector<std::uint8_t>& bytes() const noexcept { return buf_; }
+    /**
+     * @brief Hands over the buffer; the writer is left empty.
+     *
+     * @return The buffer.
+     */
     std::vector<std::uint8_t> take() { return std::move(buf_); }
 
-    // Discards everything written after `new_size` bytes. Used to roll
-    // back a Set/FlowSet header that was opened speculatively but turned
-    // out to have no room for even a single record before a packet-size
-    // budget was reached -- see e.g. export_common.c's `last_valid`
-    // rollback in send_ipfix_flows().
+    /**
+     * @brief Discards everything written after a size.
+     *
+     * Discards everything written after `new_size` bytes. Used to roll
+     * back a Set/FlowSet header that was opened speculatively but turned
+     * out to have no room for even a single record before a packet-size
+     * budget was reached -- see e.g. export_common.c's `last_valid`
+     * rollback in send_ipfix_flows().
+     *
+     * @param new_size The number of bytes to keep.
+     * @throw std::out_of_range when @p new_size is more than what was written.
+     */
     void truncate(std::size_t new_size) {
         if (new_size > buf_.size()) {
             throw std::out_of_range("ByteWriter::truncate: new_size exceeds current size");
@@ -395,104 +620,93 @@ public:
     }
 
 private:
-    std::vector<std::uint8_t> buf_;
+  std::vector<std::uint8_t> buf_;  ///< The bytes written so far.
 };
 
 } // namespace softflow
 
-// Original: sys-tree.h's RB_GENERATE macro generated the FLOW/EXPIRY
-// comparison functions (fl_compare/expiry_compare) with hand-rolled pointer
-// arithmetic. All that's needed here for the hash-based backend is a
-// std::hash<FlowKey> specialization; there is no hand-written comparator or
-// tree-rotation logic to maintain at all.
+/**
+ * @brief The hash of a FlowKey, for the hash-based backend of the flow table.
+ *
+ * @original sys-tree.h's RB_GENERATE macro generated the FLOW/EXPIRY
+ * comparison functions (fl_compare/expiry_compare) with hand-rolled pointer
+ * arithmetic. All that's needed here for the hash-based backend is a
+ * std::hash\<FlowKey\> specialization; there is no hand-written comparator or
+ * tree-rotation logic to maintain at all.
+ */
 template <>
 struct std::hash<softflow::FlowKey> {
-    std::size_t operator()(const softflow::FlowKey& k) const noexcept {
-        std::size_t h = std::hash<std::uint8_t>{}(k.protocol());
-        auto mix = [&h](std::size_t v) {
-            h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        };
-        for (const auto& a : k.addr()) {
-            for (auto b : a.bytes) {
-                mix(std::hash<std::uint8_t>{}(b));
-            }
-        }
-        for (auto p : k.port()) {
-            mix(std::hash<std::uint16_t>{}(p));
-        }
-        for (auto v : k.vlanid()) {
-            mix(std::hash<std::uint16_t>{}(v));
-        }
-        for (const auto &mac : k.ethermac()) {
-          for (auto b : mac) {
-            mix (std::hash<std::uint8_t>{}(b));
-          }
-        }
-        mix(std::hash<std::uint8_t>{}(k.tos()));
-        return h;
+  /**
+     * @brief Hashes a flow key, over all its fields.
+     *
+     * @param k The key.
+     * @return The hash.
+     */
+  std::size_t
+  operator() (const softflow::FlowKey &k) const noexcept {
+    std::size_t h = std::hash<std::uint8_t>{}(k.protocol());
+    auto mix = [&h] (std::size_t v) {
+      h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+    };
+    for (const auto &a : k.addr()) {
+      for (auto b : a.bytes) {
+        mix (std::hash<std::uint8_t>{}(b));
+      }
+    }
+    for (auto p : k.port()) {
+      mix (std::hash<std::uint16_t>{}(p));
+    }
+    for (auto v : k.vlanid()) {
+      mix (std::hash<std::uint16_t>{}(v));
+    }
+    for (const auto &mac : k.ethermac()) {
+      for (auto b : mac) {
+        mix (std::hash<std::uint8_t>{}(b));
+      }
+    }
+    mix (std::hash<std::uint8_t>{}(k.tos()));
+    return h;
     }
 };
 
 namespace softflow {
 
-// ---------------------------------------------------------------------
-// FlowTable (original: struct FLOWTRACK + freelist.c + treetype.h +
-//            sys-tree.h)
-// ---------------------------------------------------------------------
-//
-// The original implementation combined three pieces of manual memory
-// management:
-//   1. freelist.c: a hand-rolled malloc/free wrapper (a separate free list
-//      for flows and one for expiry events)
-//   2. sys-tree.h: an intrusive red-black tree via the RB_HEAD/RB_ENTRY
-//      macros (the FLOW struct itself doubled as a tree node, via
-//      `FLOW_ENTRY(FLOW) trp;`)
-//   3. Mutual raw pointers between FLOW and EXPIRY
-//
-// This design allowed for the classic bug patterns the article warns about:
-//   - freeing a flow but forgetting to remove it from the expiry tree,
-//     leaving a pointer to freed memory (dangling pointer / use-after-free)
-//   - forgetting to return memory to the free list, or returning it twice
-//     (double free)
-//   - calling RB_INSERT/RB_REMOVE in the wrong order (corrupting the tree)
-//
-// In the modern C++ version, ownership of every flow lives in exactly one
-// place: the associative container inside FlowTable. No free list is
-// needed -- insertion/removal is the container's job, and a double free is
-// structurally impossible. Expiry bookkeeping never touches a raw pointer;
-// it maps "time -> FlowKey", and looking up an expired flow is just a
-// lookup by key -- if that lookup somehow fails, find() returns "not
-// found" instead of crashing.
-//
-// New in this revision: which associative container backs the primary flow
-// index is a template parameter, so the same code that used to hard-code a
-// red-black tree (sys-tree.h) in the original C project can now be selected
-// explicitly:
-//   - FlowIndexBackend::Hash -> std::unordered_map (average O(1) lookup)
-//   - FlowIndexBackend::Tree -> std::map (a genuine red-black tree in
-//     libstdc++/libc++, giving ordered iteration -- the closest modern
-//     equivalent of the original's RB_HEAD/RB_ENTRY-based flow tree)
-// FlowTable<Backend> selects the backend at compile time (zero overhead,
-// the classic C++ template approach). FlowTableRuntime, defined further
-// below, wraps both instantiations in a std::variant so the choice can also
-// be made at run time (e.g. from a command-line flag).
+/**
+ * @brief The container that holds the flows of a FlowTable.
+ *
+ * See FlowTable for why the container is selectable.
+ */
 enum class FlowIndexBackend {
-    Hash, // std::unordered_map<FlowKey, Flow> -- closest to a hash table
-    Tree, // std::map<FlowKey, Flow>           -- a genuine red-black tree
+  Hash,  ///< std::unordered_map\<FlowKey, Flow\> -- closest to a hash table.
+  Tree,  ///< std::map\<FlowKey, Flow\> -- a genuine red-black tree.
 };
 
-// Original: enum FLOW_LOOKUP, selected with -F/--flow-lookup.
-//   Tree     -- an ordered map (FlowIndexBackend::Tree).
-//   HashTree -- a hash table that keeps colliding flows (the default;
-//               FlowIndexBackend::Hash).
-//   Hash     -- a hash table with one slot per bucket (FlowIndexBackend::Hash
-//               plus collision mode): a flow that hashes to a slot that is
-//               taken evicts the resident flow, which is exported as
-//               expired by collision.
-enum class FlowLookup { Tree,
-                        HashTree,
-                        Hash };
+/**
+ * @brief How the flows are looked up, selected with -F/--flow-lookup.
+ *
+ * Tree is an ordered map, HashTree a hash table that keeps colliding flows (the default) and Hash a hash table with one slot per bucket.
+ *
+ * @original enum FLOW_LOOKUP, selected with -F/--flow-lookup.
+ *   Tree     -- an ordered map (FlowIndexBackend::Tree).
+ *   HashTree -- a hash table that keeps colliding flows (the default;
+ *               FlowIndexBackend::Hash).
+ *   Hash     -- a hash table with one slot per bucket (FlowIndexBackend::Hash
+ *               plus collision mode): a flow that hashes to a slot that is
+ *               taken evicts the resident flow, which is exported as
+ *               expired by collision.
+ */
+enum class FlowLookup {
+  Tree,      ///< An ordered map (FlowIndexBackend::Tree).
+  HashTree,  ///< A hash table that keeps colliding flows (FlowIndexBackend::Hash); the default.
+  Hash       ///< A hash table with one slot per bucket: a flow that hashes to a taken slot evicts the resident flow.
+};
 
+/**
+ * @brief The name of a lookup mode, as -F and the statistics write it.
+ *
+ * @param lookup The mode.
+ * @return "tree", "hash-tree" or "hash".
+ */
 constexpr const char *
 flow_lookup_name (FlowLookup lookup) noexcept {
   switch (lookup) {
@@ -505,306 +719,608 @@ flow_lookup_name (FlowLookup lookup) noexcept {
   }
 }
 
-// Original: flow_table_usage(). How the active flows are spread over the
-// buckets of the flow table.
+/**
+ * @brief How the active flows are spread over the buckets of the flow table.
+ *
+ * @original flow_table_usage(). How the active flows are spread over the
+ * buckets of the flow table.
+ */
 struct FlowTableUsage {
-  std::size_t buckets{0};
-  std::size_t bytes{0};
-  std::size_t used{0};
-  std::size_t max_depth{0};
+  std::size_t buckets{0};    ///< The number of buckets.
+  std::size_t bytes{0};      ///< The memory that the table uses, in bytes.
+  std::size_t used{0};       ///< The number of buckets that hold at least one flow.
+  std::size_t max_depth{0};  ///< The most flows in one bucket.
 };
 
-// Original: struct FLOWTRACKPARAMETERS' timeout fields. Plain `int` (in
-// seconds) is replaced with std::chrono::seconds so that passing a value in
-// the wrong unit (e.g. milliseconds by mistake) becomes a compile error
-// rather than a runtime bug.
+/**
+ * @brief The timeouts after which flows expire, set with -t.
+ *
+ * @original struct FLOWTRACKPARAMETERS' timeout fields. Plain `int` (in
+ * seconds) is replaced with std::chrono::seconds so that passing a value in
+ * the wrong unit (e.g. milliseconds by mistake) becomes a compile error
+ * rather than a runtime bug.
+ */
 struct FlowTimeouts {
-    std::chrono::seconds tcp{3600};
-    std::chrono::seconds tcp_rst{120};
-    std::chrono::seconds tcp_fin{300};
-    std::chrono::seconds udp{300};
-    std::chrono::seconds icmp{300};
-    std::chrono::seconds general{3600};
-    std::chrono::seconds maximum_lifetime{3600 * 24 * 7};
+  std::chrono::seconds tcp{3600};                        ///< The idle time of a TCP flow.
+  std::chrono::seconds tcp_rst{120};                     ///< The idle time of a TCP flow after a RST.
+  std::chrono::seconds tcp_fin{300};                     ///< The idle time of a TCP flow after a FIN from both ends.
+  std::chrono::seconds udp{300};                         ///< The idle time of a UDP flow.
+  std::chrono::seconds icmp{300};                        ///< The idle time of an ICMP or ICMPv6 flow.
+  std::chrono::seconds general{3600};                    ///< The idle time of any other flow.
+  std::chrono::seconds maximum_lifetime{3600 * 24 * 7};  ///< The longest life of a flow; 0 for no limit.
 
-    // Original: expiry->expires_at is a plain `time_t`, computed as
-    // `flow->flow_last.tv_sec + timeout_value` -- whole-second integer
-    // arithmetic that silently discards flow_last's tv_usec, UNCONDITIONALLY
-    // (the original has no finer-grained mode to opt into). This project's
-    // TimePoint retains full (sub-second) precision, so flows that would
-    // tie (same whole second) in the original can end up with distinct,
-    // differently-ordered expiry times here instead -- this is not a rare
-    // edge case: many real captures have several flows finishing within
-    // the same wall-clock second, especially under -r where a whole
-    // multi-second capture can be read in milliseconds, and every one of
-    // those ties changes NetFlow/IPFIX export packet record ordering
-    // relative to the original. So this defaults to true, matching the
-    // original's only actual behavior; --no-expiry-second-granularity is
-    // available to opt into full sub-second precision instead. Only
-    // affects expiry *scheduling*; flow.flow_start/flow.flow_last
-    // themselves (and thus exported Duration/octets/packets statistics)
-    // keep full precision either way.
-    bool second_granularity = true;
+  // Original: expiry->expires_at is a plain `time_t`, computed as
+  // `flow->flow_last.tv_sec + timeout_value` -- whole-second integer
+  // arithmetic that silently discards flow_last's tv_usec, UNCONDITIONALLY
+  // (the original has no finer-grained mode to opt into). This project's
+  // TimePoint retains full (sub-second) precision, so flows that would
+  // tie (same whole second) in the original can end up with distinct,
+  // differently-ordered expiry times here instead -- this is not a rare
+  // edge case: many real captures have several flows finishing within
+  // the same wall-clock second, especially under -r where a whole
+  // multi-second capture can be read in milliseconds, and every one of
+  // those ties changes NetFlow/IPFIX export packet record ordering
+  // relative to the original. So this defaults to true, matching the
+  // original's only actual behavior; --no-expiry-second-granularity is
+  // available to opt into full sub-second precision instead. Only
+  // affects expiry *scheduling*; flow.flow_start/flow.flow_last
+  // themselves (and thus exported Duration/octets/packets statistics)
+  // keep full precision either way.
+  bool second_granularity = true;  ///< Schedule the expiry in whole seconds, as the original does (--no-expiry-second-granularity turns it off).
 };
 
-// Original: struct FLOWTRACKPARAMETERS' statistics fields. The original had
-// a dozen-plus flat u_int64_t counters; only the subset needed so far is
-// kept here (NetFlow export statistics will be added in a later stage).
-// Original: struct STATISTIC (softflowd.h) + update_statistic() in
-// softflowd.c -- a running min/mean/max accumulator using Welford's
-// online-mean update.
+/**
+ * @brief A running minimum, mean and maximum.
+ *
+ * The mean is updated with Welford's online method.
+ *
+ * @original struct FLOWTRACKPARAMETERS' statistics fields. The original had
+ * a dozen-plus flat u_int64_t counters; only the subset needed so far is
+ * kept here (NetFlow export statistics will be added in a later stage).
+ * Original: struct STATISTIC (softflowd.h) + update_statistic() in
+ * softflowd.c -- a running min/mean/max accumulator using Welford's
+ * online-mean update.
+ */
 struct StatAccumulator {
-    double min{0.0};
-    double mean{0.0};
-    double max{0.0};
-    std::uint64_t n{0};
+  double min{0.0};     ///< The smallest value.
+  double mean{0.0};    ///< The mean.
+  double max{0.0};     ///< The largest value.
+  std::uint64_t n{0};  ///< The number of values.
 
-    void update(double value) noexcept {
-        if (n == 0 || value < min) min = value;
-        if (n == 0 || value > max) max = value;
-        ++n;
-        mean += (value - mean) / static_cast<double>(n);
+  /**
+     * @brief Adds a value.
+     *
+     * @param value The value.
+     */
+  void
+  update (double value) noexcept {
+    if (n == 0 || value < min)
+      min = value;
+    if (n == 0 || value > max)
+      max = value;
+    ++n;
+    mean += (value - mean) / static_cast<double> (n);
     }
 };
 
+/**
+ * @brief The counters that the statistics report.
+ */
 struct FlowTableStats {
-    std::uint64_t total_packets{0};
-    std::uint64_t bad_packets{0};
-    std::uint64_t non_ip_packets{0};
-    std::uint64_t frag_packets{0};
-    std::uint64_t flows_expired{0};
-    std::uint64_t flows_force_expired{0};
+  std::uint64_t total_packets{0};        ///< The packets processed ("Packets processed").
+  std::uint64_t bad_packets{0};          ///< The packets that were too short for their headers ("too short").
+  std::uint64_t non_ip_packets{0};       ///< The packets that were not IP ("non-IP").
+  std::uint64_t frag_packets{0};         ///< The fragments ("Fragments").
+  std::uint64_t flows_expired{0};        ///< The flows that expired ("Flows expired").
+  std::uint64_t flows_force_expired{0};  ///< The flows that were forced to expire ("forced"), because there were too many.
 
-    std::uint64_t flows_exported{0};
-    std::uint64_t records_sent{0};
-    std::uint64_t packets_sent{0};
-    std::uint64_t flows_dropped{0};
+  std::uint64_t flows_exported{0};  ///< The flows that were exported.
+  std::uint64_t records_sent{0};    ///< The records that were sent.
+  std::uint64_t packets_sent{0};    ///< The export packets that were sent.
+  std::uint64_t flows_dropped{0};   ///< The flows that could not be exported.
 
-    StatAccumulator duration;
-    StatAccumulator octets;
-    StatAccumulator packets;
+  StatAccumulator duration;  ///< The duration of the expired flows, in seconds.
+  StatAccumulator octets;    ///< The octets of the expired flows (both directions).
+  StatAccumulator packets;   ///< The packets of the expired flows (both directions).
 
-    std::array<std::uint64_t, 256> flows_pp{};
-    std::array<std::uint64_t, 256> octets_pp{};
-    std::array<std::uint64_t, 256> packets_pp{};
-    std::array<StatAccumulator, 256> duration_pp{};
+  std::array<std::uint64_t, 256> flows_pp{};       ///< The expired flows by protocol.
+  std::array<std::uint64_t, 256> octets_pp{};      ///< The octets of the expired flows by protocol.
+  std::array<std::uint64_t, 256> packets_pp{};     ///< The packets of the expired flows by protocol.
+  std::array<StatAccumulator, 256> duration_pp{};  ///< The duration of the expired flows by protocol, in seconds.
 
-    std::uint64_t expired_general{0};
-    std::uint64_t expired_tcp{0};
-    std::uint64_t expired_tcp_rst{0};
-    std::uint64_t expired_tcp_fin{0};
-    std::uint64_t expired_udp{0};
-    std::uint64_t expired_icmp{0};
-    std::uint64_t expired_maxlife{0};
-    std::uint64_t expired_overbytes{0};
-    std::uint64_t expired_maxflows{0};
-    std::uint64_t expired_flush{0};
-    std::uint64_t expired_collision{0};
+  std::uint64_t expired_general{0};    ///< The flows that expired for ExpiryReason::General.
+  std::uint64_t expired_tcp{0};        ///< The flows that expired for ExpiryReason::Tcp.
+  std::uint64_t expired_tcp_rst{0};    ///< The flows that expired for ExpiryReason::TcpRst.
+  std::uint64_t expired_tcp_fin{0};    ///< The flows that expired for ExpiryReason::TcpFin.
+  std::uint64_t expired_udp{0};        ///< The flows that expired for ExpiryReason::Udp.
+  std::uint64_t expired_icmp{0};       ///< The flows that expired for ExpiryReason::Icmp.
+  std::uint64_t expired_maxlife{0};    ///< The flows that expired for ExpiryReason::MaxLife.
+  std::uint64_t expired_overbytes{0};  ///< The flows that expired for ExpiryReason::OverBytes.
+  std::uint64_t expired_maxflows{0};   ///< The flows that expired for ExpiryReason::OverFlows.
+  std::uint64_t expired_flush{0};      ///< The flows that expired for ExpiryReason::Flush.
+  std::uint64_t expired_collision{0};  ///< The flows that expired for ExpiryReason::Collision.
 };
 
-// Original: struct FLOWTRACK as a whole, plus the functionality of
-// freelist.c / sys-tree.h.
-//
-// Member function bodies are defined out-of-line in softflowd.cpp and
-// explicitly instantiated for both FlowIndexBackend values (see the
-// `extern template` declarations below), mirroring the original's
-// declaration-in-.h / definition-in-.c split even though this is a
-// template.
+/**
+ * @brief The table of the active flows, with their expiry schedule.
+ *
+ * The original implementation combined three pieces of manual memory
+ * management:
+ *   1. freelist.c: a hand-rolled malloc/free wrapper (a separate free list
+ *      for flows and one for expiry events)
+ *   2. sys-tree.h: an intrusive red-black tree via the RB_HEAD/RB_ENTRY
+ *      macros (the FLOW struct itself doubled as a tree node, via
+ *      `FLOW_ENTRY(FLOW) trp;`)
+ *   3. Mutual raw pointers between FLOW and EXPIRY
+ *
+ * This design allowed for the classic bug patterns the article warns about:
+ *   - freeing a flow but forgetting to remove it from the expiry tree,
+ *     leaving a pointer to freed memory (dangling pointer / use-after-free)
+ *   - forgetting to return memory to the free list, or returning it twice
+ *     (double free)
+ *   - calling RB_INSERT/RB_REMOVE in the wrong order (corrupting the tree)
+ *
+ * In the modern C++ version, ownership of every flow lives in exactly one
+ * place: the associative container inside FlowTable. No free list is
+ * needed -- insertion/removal is the container's job, and a double free is
+ * structurally impossible. Expiry bookkeeping never touches a raw pointer;
+ * it maps "time -\> FlowKey", and looking up an expired flow is just a
+ * lookup by key -- if that lookup somehow fails, find() returns "not
+ * found" instead of crashing.
+ *
+ * New in this revision: which associative container backs the primary flow
+ * index is a template parameter, so the same code that used to hard-code a
+ * red-black tree (sys-tree.h) in the original C project can now be selected
+ * explicitly:
+ *   - FlowIndexBackend::Hash -\> std::unordered_map (average O(1) lookup)
+ *   - FlowIndexBackend::Tree -\> std::map (a genuine red-black tree in
+ *     libstdc++/libc++, giving ordered iteration -- the closest modern
+ *     equivalent of the original's RB_HEAD/RB_ENTRY-based flow tree)
+ * FlowTable\<Backend\> selects the backend at compile time (zero overhead,
+ * the classic C++ template approach). FlowTableRuntime, defined further
+ * below, wraps both instantiations in a std::variant so the choice can also
+ * be made at run time (e.g. from a command-line flag).
+
+ * @tparam Backend The container of the flows.
+ *
+ * @original struct FLOWTRACK as a whole, plus the functionality of
+ * freelist.c / sys-tree.h.
+ *
+ * Member function bodies are defined out-of-line in softflowd.cpp and
+ * explicitly instantiated for both FlowIndexBackend values (see the
+ * `extern template` declarations below), mirroring the original's
+ * declaration-in-.h / definition-in-.c split even though this is a
+ * template.
+ */
 template <FlowIndexBackend Backend>
 class FlowTable {
 public:
-    // Original: RB_HEAD(FLOWS, FLOW) flows; (an intrusive red-black tree
-    // keyed by the FLOW struct itself), or with FlowIndexBackend::Hash, the
-    // modern equivalent of a from-scratch hash table.
-    using FlowMap =
-        std::conditional_t<Backend == FlowIndexBackend::Hash,
-                            std::unordered_map<FlowKey, Flow>,
-                            std::map<FlowKey, Flow>>;
+  /**
+     * @brief The container of the flows, keyed by FlowKey.
+     *
+     * @original RB_HEAD(FLOWS, FLOW) flows; (an intrusive red-black tree
+     * keyed by the FLOW struct itself), or with FlowIndexBackend::Hash, the
+     * modern equivalent of a from-scratch hash table.
+     */
+  using FlowMap =
+    std::conditional_t<Backend == FlowIndexBackend::Hash,
+                       std::unordered_map<FlowKey, Flow>,
+                       std::map<FlowKey, Flow>>;
 
-    explicit FlowTable(std::size_t max_flows,
-                        TrackLevel track_level = TrackLevel::IpProtoPort,
-                        FlowTimeouts timeouts = {});
+  /**
+     * @brief Creates an empty table.
+     *
+     * @param max_flows The most flows that are tracked (-m).
+     * @param track_level The -T level.
+     * @param timeouts The timeouts after which flows expire.
+     */
+  explicit FlowTable (std::size_t max_flows,
+                      TrackLevel track_level = TrackLevel::IpProtoPort,
+                      FlowTimeouts timeouts = {});
 
-    // Copying is deleted rather than left to the implicitly-generated
-    // (and subtly wrong) default: expiry_lookup_ holds std::multimap
-    // iterators that point into this object's own expiry_index_. A
-    // member-wise *copy* would copy those iterator values verbatim, so the
-    // copy's expiry_lookup_ would end up pointing into the *original's*
-    // expiry_index_ rather than its own -- silently corrupting the
-    // invariant the moment either object is destroyed or modified. Moving
-    // does not have this problem: per the standard, moving a container
-    // preserves the validity of iterators into it, so a moved-from
-    // FlowTable's expiry_lookup_ iterators remain correctly associated with
-    // the moved-to object's expiry_index_.
-    FlowTable(const FlowTable&) = delete;
-    FlowTable& operator=(const FlowTable&) = delete;
-    FlowTable(FlowTable&&) noexcept = default;
-    FlowTable& operator=(FlowTable&&) noexcept = default;
-    ~FlowTable() = default;
+  /**
+     * @brief Copying is not allowed: the expiry lookup holds iterators into the expiry index of this object.
+     *
+     * Copying is deleted rather than left to the implicitly-generated
+     * (and subtly wrong) default: expiry_lookup_ holds std::multimap
+     * iterators that point into this object's own expiry_index_. A
+     * member-wise *copy* would copy those iterator values verbatim, so the
+     * copy's expiry_lookup_ would end up pointing into the *original's*
+     * expiry_index_ rather than its own -- silently corrupting the
+     * invariant the moment either object is destroyed or modified. Moving
+     * does not have this problem: per the standard, moving a container
+     * preserves the validity of iterators into it, so a moved-from
+     * FlowTable's expiry_lookup_ iterators remain correctly associated with
+     * the moved-to object's expiry_index_.
+     */
+  FlowTable (const FlowTable &) = delete;
+  /**
+     * @brief Copy assignment is not allowed.
+     */
+  FlowTable &
+  operator= (const FlowTable &) = delete;
+  /**
+     * @brief Moves a table; the iterators of the expiry lookup stay valid.
+     */
+  FlowTable (FlowTable &&) noexcept = default;
+  /**
+     * @brief Move assignment.
+     */
+  FlowTable &
+  operator= (FlowTable &&) noexcept = default;
+  /**
+     * @brief Destroys the table with its flows.
+     */
+  ~FlowTable() = default;
 
-    // Original: the "look up the flow, update it if found, otherwise
-    // allocate + RB_INSERT" sequence that softflowd.c performed for every
-    // packet in process_packet(). Here, unordered_map/map::try_emplace does
-    // "construct if absent, otherwise return the existing entry" in a
-    // single lookup.
-    //
-    // Returns: a reference to the updated Flow. The reference is valid only
-    // while this FlowTable is alive and the flow has not yet been expired
-    // (by design, this reference is meant to be used immediately by the
-    // caller rather than stored, so no raw pointer needs to be handed out).
-    Flow& record_packet(const FlowKey& key, TimePoint now,
-                         std::chrono::system_clock::time_point wall_now,
-                         std::uint8_t direction, std::uint64_t octet_delta,
-                         std::uint8_t tcp_flags, std::uint8_t tos);
+  /**
+     * @brief Adds a packet to its flow, which is created when it is new, and schedules the expiry of the flow.
+     *
+     * @param key The key of the flow.
+     * @param now The monotonic time of the packet.
+     * @param wall_now The wall-clock time of the packet.
+     * @param direction Which end of the key the source of the packet is (0 or 1).
+     * @param octet_delta The octets of the packet.
+     * @param tcp_flags The TCP flags of the packet.
+     * @param tos The type of service of the packet.
+     * @return The updated flow; use it at once, as it is valid only until the flow expires.
+     *
+     * @original the "look up the flow, update it if found, otherwise
+     * allocate + RB_INSERT" sequence that softflowd.c performed for every
+     * packet in process_packet(). Here, unordered_map/map::%try_emplace does
+     * "construct if absent, otherwise return the existing entry" in a
+     * single lookup.
+     *
+     * Returns: a reference to the updated Flow. The reference is valid only
+     * while this FlowTable is alive and the flow has not yet been expired
+     * (by design, this reference is meant to be used immediately by the
+     * caller rather than stored, so no raw pointer needs to be handed out).
+     */
+  Flow &
+  record_packet (const FlowKey &key, TimePoint now,
+                 std::chrono::system_clock::time_point wall_now,
+                 std::uint8_t direction, std::uint64_t octet_delta,
+                 std::uint8_t tcp_flags, std::uint8_t tos);
 
-    // flush_all: original's CE_EXPIRE_ALL (used on graceful shutdown).
-    // Expires every remaining flow regardless of its normal expiry time,
-    // tagging each with ExpiryReason::Flush for statistics purposes.
-    std::vector<ExportRecord> expire_flows(TimePoint now, bool flush_all = false);
+  /**
+     * @brief Removes the flows that are due, and the flows that were evicted by a collision.
+     *
+     * flush_all: original's CE_EXPIRE_ALL (used on graceful shutdown).
+     * Expires every remaining flow regardless of its normal expiry time,
+     * tagging each with ExpiryReason::Flush for statistics purposes.
+     *
+     * @param now The monotonic time that flows are due at.
+     * @param flush_all Expire every flow whatever its time (shutdown, expire-all); ExpiryReason::Flush is counted.
+     * @return The expired flows, in the order of their expiry.
+     */
+  std::vector<ExportRecord>
+  expire_flows (TimePoint now, bool flush_all = false);
 
-    // Original: check_expired (CE_EXPIRE_FORCED), which a capture file is
-    // checked with: only the flows that are due at once (expires_at 0) and
-    // those evicted by a collision.
-    std::vector<ExportRecord>
-    expire_urgent ();
+  /**
+     * @brief Removes only the flows that are due at once and those evicted by a collision.
+     *
+     * @return The expired flows.
+     *
+     * @original check_expired (CE_EXPIRE_FORCED), which a capture file is
+     * checked with: only the flows that are due at once (expires_at 0) and
+     * those evicted by a collision.
+     */
+  std::vector<ExportRecord>
+  expire_urgent ();
 
-    // Explicit forced eviction (original: softflowd.c's handling of
-    // exceeding the configured maximum flow count with -m). Evicts the
-    // flows with the nearest expiry first (i.e. the least recently active).
-    std::vector<ExportRecord> force_expire_oldest(std::size_t count);
+  /**
+     * @brief Evicts flows because there are too many (-m); those with the nearest expiry go first.
+     *
+     * Explicit forced eviction (original: softflowd.c's handling of
+     * exceeding the configured maximum flow count with -m). Evicts the
+     * flows with the nearest expiry first (i.e. the least recently active).
+     *
+     * @param count How many flows to evict.
+     * @return The evicted flows.
+     */
+  std::vector<ExportRecord>
+  force_expire_oldest (std::size_t count);
 
-    // Original: -F hash. Gives the table one slot per bucket (a power of
-    // two, at least `buckets`); only the std::unordered_map backend has it.
-    // A flow that finds its slot taken evicts the resident one.
-    void
-    enable_collision_mode (std::size_t buckets);
+  /**
+     * @brief Turns on -F hash: one slot per bucket, and a flow that finds its slot taken evicts the resident flow.
+     *
+     * @param buckets The number of slots, rounded up to a power of two.
+     * @note Only the FlowIndexBackend::Hash backend has it.
+     *
+     * @original -F hash. Gives the table one slot per bucket (a power of
+     * two, at least `buckets`); only the std::unordered_map backend has it.
+     * A flow that finds its slot taken evicts the resident one.
+     */
+  void
+  enable_collision_mode (std::size_t buckets);
 
-    // Original: the flows with expires_at == 0 and R_COLLISION: the flows
-    // that were evicted by a collision, to be exported now.
-    std::vector<ExportRecord>
-    expire_collisions ();
+  /**
+     * @brief Takes the flows that were evicted by a collision, to be exported now.
+     *
+     * @return The evicted flows.
+     *
+     * @original the flows with expires_at == 0 and R_COLLISION: the flows
+     * that were evicted by a collision, to be exported now.
+     */
+  std::vector<ExportRecord>
+  expire_collisions ();
 
-    // Original: flow_table_usage().
-    FlowTableUsage
-    usage () const;
+  /**
+     * @brief How the flows are spread over the buckets.
+     *
+     * @return The usage.
+     *
+     * @original flow_table_usage().
+     */
+  FlowTableUsage
+  usage () const;
 
-    // Original: softflowctl(8)'s dump-flows command. Returns a copy of
-    // every currently tracked flow *without* removing or expiring any of
-    // them (unlike expire_flows()/force_expire_oldest()) -- purely a
-    // read-only snapshot for diagnostic reporting.
-    std::vector<ExportRecord> snapshot() const;
+  /**
+     * @brief Copies every tracked flow without expiring any.
+     *
+     * @return The flows.
+     *
+     * @original softflowctl(8)'s dump-flows command. Returns a copy of
+     * every currently tracked flow *without* removing or expiring any of
+     * them (unlike expire_flows()/force_expire_oldest()) -- purely a
+     * read-only snapshot for diagnostic reporting.
+     */
+  std::vector<ExportRecord>
+  snapshot () const;
 
-    // Original: dump-flows walks the expiry tree, so this is the same flows
-    // in the order of their expiry events.
-    std::vector<ExpiryEntry>
-    expiry_snapshot () const;
+  /**
+     * @brief Copies every tracked flow with its expiry event, in the order of the expiry.
+     *
+     * @return The flows.
+     *
+     * @original dump-flows walks the expiry tree, so this is the same flows
+     * in the order of their expiry events.
+     */
+  std::vector<ExpiryEntry>
+  expiry_snapshot () const;
 
-    // Original: next_expire (). Milliseconds until the flow table has to be
-    // checked again: 0 when a check is due, -1 when there is no flow. The
-    // earliest expiry is moved up to a multiple of `interval` seconds
-    // (clustering), which is what makes -t expint group the expiries.
-    int
-    next_expire (std::chrono::system_clock::time_point wall_now,
-                 std::chrono::seconds interval) const;
+  /**
+     * @brief Tells when the table has to be checked again.
+     *
+     * @param wall_now The current wall-clock time.
+     * @param interval The interval of -t expint: the earliest expiry is moved up to a multiple of it.
+     * @return Milliseconds until the check; 0 when a check is due, -1 when there is no flow.
+     *
+     * @original next_expire (). Milliseconds until the flow table has to be
+     * checked again: 0 when a check is due, -1 when there is no flow. The
+     * earliest expiry is moved up to a multiple of `interval` seconds
+     * (clustering), which is what makes -t expint group the expiries.
+     */
+  int
+  next_expire (std::chrono::system_clock::time_point wall_now,
+               std::chrono::seconds interval) const;
 
-    // Original: delete_all_flows (). Drops every flow, including those that
-    // wait to be exported after a collision, without export and without
-    // counting them. Returns the number of flows dropped.
-    std::size_t
-    delete_all ();
+  /**
+     * @brief Drops every flow, including those that wait to be exported after a collision, without export and without counting them.
+     *
+     * @return The number of flows dropped.
+     *
+     * @original delete_all_flows (). Drops every flow, including those that
+     * wait to be exported after a collision, without export and without
+     * counting them. Returns the number of flows dropped.
+     */
+  std::size_t
+  delete_all ();
 
-    std::size_t size() const noexcept { return flows_.size(); }
-    std::size_t max_flows() const noexcept { return max_flows_; }
-    const FlowTableStats& stats() const noexcept { return stats_; }
+  /**
+     * @brief The number of tracked flows.
+     *
+     * @return The number.
+     */
+  std::size_t
+  size () const noexcept {
+    return flows_.size(); }
+  /**
+     * @brief The most flows that are tracked.
+     *
+     * @return The limit.
+     */
+  std::size_t
+  max_flows () const noexcept {
+    return max_flows_; }
+  /**
+     * @brief The counters of the table.
+     *
+     * @return The statistics.
+     */
+  const FlowTableStats &
+  stats () const noexcept {
+    return stats_; }
 
-    // Original: send_nflow5()/send_nflow9()/send_ipfix() etc. incrementing
-    // ft->param.flows_exported/records_sent/packets_sent/flows_dropped as
-    // a side effect of exporting. ExportPipeline is a standalone class
-    // with no reference to this table's stats_, so the caller (the main
-    // loop) reports the outcome of each export_flows() call back here.
-    void record_export_stats(std::uint64_t flows, std::uint64_t records,
-                              std::uint64_t packets, std::uint64_t failures) noexcept {
-        stats_.flows_exported += flows;
-        stats_.records_sent += records;
-        stats_.packets_sent += packets;
-        stats_.flows_dropped += failures;
+  /**
+     * @brief Adds the outcome of an export to the statistics.
+     *
+     * @param flows The flows exported.
+     * @param records The records sent.
+     * @param packets The packets sent.
+     * @param failures The flows that could not be sent.
+     *
+     * @original send_nflow5()/send_nflow9()/send_ipfix() etc. incrementing
+     * ft-\>param.flows_exported/records_sent/packets_sent/flows_dropped as
+     * a side effect of exporting. ExportPipeline is a standalone class
+     * with no reference to this table's stats_, so the caller (the main
+     * loop) reports the outcome of each export_flows() call back here.
+     */
+  void
+  record_export_stats (std::uint64_t flows, std::uint64_t records,
+                       std::uint64_t packets, std::uint64_t failures) noexcept {
+    stats_.flows_exported += flows;
+    stats_.records_sent += records;
+    stats_.packets_sent += packets;
+    stats_.flows_dropped += failures;
     }
-    // Original: flow_cb () and process_packet () count the packets that do not
-    // become a flow in the statistics as well. A packet with -v psamp is
-    // counted as processed, one that is not IP is counted as ignored, and one
-    // that is too short for its headers is counted as ignored and as processed.
+    /**
+     * @brief Counts a packet that does not become a flow as processed.
+     *
+     * @original flow_cb () and process_packet () count the packets that do not
+     * become a flow in the statistics as well. A packet with -v psamp is
+     * counted as processed, one that is not IP is counted as ignored, and one
+     * that is too short for its headers is counted as ignored and as processed.
+     */
     void
     count_packet_without_flow () noexcept {
       stats_.total_packets += 1;
     }
+    /**
+     * @brief Counts a packet that is not IP as ignored.
+     */
     void
     count_non_ip_packet () noexcept {
       stats_.non_ip_packets += 1;
     }
+    /**
+     * @brief Counts a packet that is too short for its headers as ignored and as processed.
+     */
     void
     count_bad_packet () noexcept {
       stats_.bad_packets += 1;
       stats_.total_packets += 1;
     }
+    /**
+     * @brief The -T level.
+     *
+     * @return The level.
+     */
     TrackLevel track_level() const noexcept { return track_level_; }
+    /**
+     * @brief The timeouts.
+     *
+     * @return The timeouts.
+     */
     const FlowTimeouts& timeouts() const noexcept { return timeouts_; }
+    /**
+     * @brief The container of the flows.
+     *
+     * @return The backend.
+     */
     static constexpr FlowIndexBackend backend() noexcept { return Backend; }
 
 private:
-    std::pair<TimePoint, ExpiryReason> compute_expiry(
-        const Flow& flow, std::uint8_t protocol, AddressFamily af) const;
-    void record_expiry_stats(const Flow& flow, std::uint8_t protocol,
-                              ExpiryReason reason_override, bool override_reason);
-    void reschedule_expiry(const FlowKey& key, std::uint64_t flow_seq, TimePoint new_expiry);
+  /**
+     * @brief Works out when a flow expires and why.
+     *
+     * @param flow The flow.
+     * @param protocol Its IP protocol.
+     * @param af Its address family.
+     * @return The expiry time and the reason.
+     */
+  std::pair<TimePoint, ExpiryReason>
+  compute_expiry (
+    const Flow &flow, std::uint8_t protocol, AddressFamily af) const;
+  /**
+     * @brief Updates the statistics for a flow that expired.
+     *
+     * @param flow The flow.
+     * @param protocol Its IP protocol.
+     * @param reason_override The reason to count when @p override_reason is set.
+     * @param override_reason Count @p reason_override instead of the reason of the flow.
+     */
+  void
+  record_expiry_stats (const Flow &flow, std::uint8_t protocol,
+                       ExpiryReason reason_override, bool override_reason);
+  /**
+     * @brief Moves the expiry event of a flow to a new time.
+     *
+     * @param key The key of the flow.
+     * @param flow_seq The sequence number of the flow.
+     * @param new_expiry The new expiry time.
+     */
+  void
+  reschedule_expiry (const FlowKey &key, std::uint64_t flow_seq, TimePoint new_expiry);
 
-    template <class Due>
-    std::vector<ExportRecord>
-    expire_while (Due due, bool flush_all);
+  /**
+     * @brief Removes the flows from the front of the expiry index while they are due.
+     *
+     * @param due Tells whether an expiry key is due.
+     * @param flush_all Remove every flow.
+     * @return The expired flows.
+     * @tparam Due A callable that takes an ExpiryKey and returns bool.
+     */
+  template <class Due>
+  std::vector<ExportRecord>
+  expire_while (Due due, bool flush_all);
 
-    // Original: check_expired () makes the reason of a flow that lived at
-    // least maximum_lifetime (whole seconds) R_MAXLIFE, whatever it was.
-    ExpiryReason
-    reason_at_expiry (const Flow &flow, ExpiryReason reason) const;
-    void
-    forget_slot (const FlowKey &key);
+  /**
+     * @brief The reason to count when a flow expires.
+     *
+     * @param flow The flow.
+     * @param reason The reason of the schedule.
+     * @return ExpiryReason::MaxLife when the flow lived at least the maximum lifetime, otherwise @p reason.
+     *
+     * @original check_expired () makes the reason of a flow that lived at
+     * least maximum_lifetime (whole seconds) R_MAXLIFE, whatever it was.
+     */
+  ExpiryReason
+  reason_at_expiry (const Flow &flow, ExpiryReason reason) const;
+  /**
+     * @brief Frees the slot of a flow in collision mode, when the flow is the resident.
+     *
+     * @param key The key of the flow.
+     */
+  void
+  forget_slot (const FlowKey &key);
 
-    std::size_t max_flows_;
-    // Original: ft->param.next_flow_seq, which starts at 1 and counts every
-    // flow ever created, not the flows being tracked.
-    std::uint64_t next_flow_seq_{1};
-    TrackLevel track_level_;
-    FlowTimeouts timeouts_;
-    FlowTableStats stats_;
+  std::size_t max_flows_;  ///< The most flows that are tracked.
+  /**
+     * @brief The sequence number of the next flow.
+     *
+     * @original ft-\>param.next_flow_seq, which starts at 1 and counts every
+     * flow ever created, not the flows being tracked.
+     */
+  std::uint64_t next_flow_seq_{1};
+  TrackLevel track_level_;  ///< The -T level.
+  FlowTimeouts timeouts_;   ///< The timeouts.
+  FlowTableStats stats_;    ///< The counters.
 
-    FlowMap flows_;
+  FlowMap flows_;  ///< The flows.
 
-    // Original: RB_HEAD(EXPIRIES, EXPIRY) expiries; (an intrusive red-black
-    // tree whose EXPIRY nodes pointed back to a FLOW via a raw pointer).
-    // Here it's a "expiry time -> flow key" map -- the expiry index never
-    // holds the flow itself or a pointer to it. Kept as std::multimap
-    // (i.e. always tree-backed) regardless of the primary FlowMap backend,
-    // because ordered iteration by time is fundamental to expiry
-    // processing either way.
-    // Original: expiry_compare () orders the tree by expires_at and then by
-    // the flow sequence. A flow that is due at once (expires_at 0: over 2 GiB,
-    // over its maximum lifetime) is kept at TimePoint::min (), in front.
-    using ExpiryKey = std::pair<TimePoint, std::uint64_t>;
-    std::map<ExpiryKey, FlowKey> expiry_index_;
+  /**
+     * @brief The key of the expiry index: the expiry time and the sequence number of the flow.
+     *
+     * @original RB_HEAD(EXPIRIES, EXPIRY) expiries; (an intrusive red-black
+     * tree whose EXPIRY nodes pointed back to a FLOW via a raw pointer).
+     * Here it's a "expiry time -\> flow key" map -- the expiry index never
+     * holds the flow itself or a pointer to it. Kept as std::multimap
+     * (i.e. always tree-backed) regardless of the primary FlowMap backend,
+     * because ordered iteration by time is fundamental to expiry
+     * processing either way.
+     * Original: expiry_compare () orders the tree by expires_at and then by
+     * the flow sequence. A flow that is due at once (expires_at 0: over 2 GiB,
+     * over its maximum lifetime) is kept at TimePoint::min (), in front.
+     */
+  using ExpiryKey = std::pair<TimePoint, std::uint64_t>;
+  std::map<ExpiryKey, FlowKey> expiry_index_;  ///< The expiry events, in time order.
 
-    // Auxiliary index used to look up a flow's current position in
-    // expiry_index_ by FlowKey, so that rescheduling (extending a timeout
-    // when new traffic arrives) can be done in O(log n) instead of a linear
-    // scan. This holds std::multimap iterators, not raw pointers; inserting
-    // or erasing *other* elements of a std::map/std::multimap never
-    // invalidates the iterators to elements that remain (a guarantee of the
-    // standard library's map family), so holding on to them here is safe.
-    std::unordered_map<FlowKey, std::map<ExpiryKey, FlowKey>::iterator>
-        expiry_lookup_;
+  /**
+     * @brief Finds the expiry event of a flow by its key, so that it can be rescheduled in O(log n).
+     *
+     * Auxiliary index used to look up a flow's current position in
+     * expiry_index_ by FlowKey, so that rescheduling (extending a timeout
+     * when new traffic arrives) can be done in O(log n) instead of a linear
+     * scan. This holds std::multimap iterators, not raw pointers; inserting
+     * or erasing *other* elements of a std::map/std::multimap never
+     * invalidates the iterators to elements that remain (a guarantee of the
+     * standard library's map family), so holding on to them here is safe.
+     */
+  std::unordered_map<FlowKey, std::map<ExpiryKey, FlowKey>::iterator>
+    expiry_lookup_;
 
-    // Collision mode (-F hash): the resident flow of every slot, and the
-    // evicted flows that wait to be exported.
-    std::vector<std::optional<FlowKey>> slots_;
-    std::vector<ExportRecord> collided_;
+  /**
+     * @brief The resident flow of every slot, in collision mode (-F hash).
+     *
+     * Collision mode (-F hash): the resident flow of every slot, and the
+     * evicted flows that wait to be exported.
+     */
+  std::vector<std::optional<FlowKey>> slots_;
+  /**
+     * @brief The flows that a collision evicted, which wait to be exported.
+     */
+  std::vector<ExportRecord> collided_;
 };
 
 // Explicit instantiation declarations: tells any translation unit that
@@ -816,271 +1332,541 @@ private:
 extern template class FlowTable<FlowIndexBackend::Hash>;
 extern template class FlowTable<FlowIndexBackend::Tree>;
 
-// A non-template wrapper that allows the backend to be chosen at run time
-// (e.g. from a command-line flag) rather than fixed at compile time. This
-// directly answers "should flow tracking use a tree or a hash table" as a
-// runtime decision, the same way the original build could be configured
-// with -DFLOW_RB or an equivalent choice at build time -- except here it's
-// a single binary that can do either.
-//
-// Internally this simply holds a std::variant of the two FlowTable
-// instantiations and forwards every call through std::visit. There is no
-// dynamic dispatch / vtable overhead beyond what std::variant already adds
-// (a single tag check per call), and no raw pointers or manual ownership
-// are introduced by this wrapper.
+/**
+ * @brief A FlowTable whose backend is chosen at run time, from -F.
+ *
+ * It holds the two FlowTable instantiations in a std::variant and forwards every call.
+ *
+ * A non-template wrapper that allows the backend to be chosen at run time
+ * (e.g. from a command-line flag) rather than fixed at compile time. This
+ * directly answers "should flow tracking use a tree or a hash table" as a
+ * runtime decision, the same way the original build could be configured
+ * with -DFLOW_RB or an equivalent choice at build time -- except here it's
+ * a single binary that can do either.
+ *
+ * Internally this simply holds a std::variant of the two FlowTable
+ * instantiations and forwards every call through std::visit. There is no
+ * dynamic dispatch / vtable overhead beyond what std::variant already adds
+ * (a single tag check per call), and no raw pointers or manual ownership
+ * are introduced by this wrapper.
+ */
 class FlowTableRuntime {
 public:
+  /**
+   * @brief Creates an empty table.
+   *
+   * @param lookup The lookup mode (-F).
+   * @param max_flows The most flows that are tracked (-m).
+   * @param track_level The -T level.
+   * @param timeouts The timeouts after which flows expire.
+   */
   FlowTableRuntime (FlowLookup lookup, std::size_t max_flows,
                     TrackLevel track_level = TrackLevel::IpProtoPort,
                     FlowTimeouts timeouts = {});
 
+  /**
+   * @brief Forwards to the table; see FlowTable::record_packet.
+   * @copydoc FlowTable::record_packet
+   */
   Flow &
   record_packet (const FlowKey &key, TimePoint now,
                  std::chrono::system_clock::time_point wall_now,
                  std::uint8_t direction, std::uint64_t octet_delta,
                  std::uint8_t tcp_flags, std::uint8_t tos);
+  /**
+   * @brief Forwards to the table; see FlowTable::expire_flows.
+   * @copydoc FlowTable::expire_flows
+   */
   std::vector<ExportRecord>
   expire_flows (TimePoint now, bool flush_all = false);
+  /**
+   * @brief Forwards to the table; see FlowTable::expire_urgent.
+   * @copydoc FlowTable::expire_urgent
+   */
   std::vector<ExportRecord>
   expire_urgent ();
+  /**
+   * @brief Forwards to the table; see FlowTable::force_expire_oldest.
+   * @copydoc FlowTable::force_expire_oldest
+   */
   std::vector<ExportRecord>
   force_expire_oldest (std::size_t count);
+  /**
+   * @brief Forwards to the table; see FlowTable::expire_collisions.
+   * @copydoc FlowTable::expire_collisions
+   */
   std::vector<ExportRecord>
   expire_collisions ();
+  /**
+   * @brief Forwards to the table; see FlowTable::snapshot.
+   * @copydoc FlowTable::snapshot
+   */
   std::vector<ExportRecord>
   snapshot () const;
+  /**
+   * @brief Forwards to the table; see FlowTable::expiry_snapshot.
+   * @copydoc FlowTable::expiry_snapshot
+   */
   std::vector<ExpiryEntry>
   expiry_snapshot () const;
+  /**
+   * @brief Forwards to the table; see FlowTable::next_expire.
+   * @copydoc FlowTable::next_expire
+   */
   int
   next_expire (std::chrono::system_clock::time_point wall_now,
                std::chrono::seconds interval) const;
+  /**
+   * @brief Forwards to the table; see FlowTable::delete_all.
+   * @copydoc FlowTable::delete_all
+   */
   std::size_t
   delete_all ();
+  /**
+   * @brief Forwards to the table; see FlowTable::usage.
+   * @copydoc FlowTable::usage
+   */
   FlowTableUsage
   usage () const;
+  /**
+   * @brief The lookup mode.
+   *
+   * @return The mode.
+   */
   FlowLookup
   lookup () const noexcept {
     return lookup_;
   }
 
-    const FlowTimeouts& timeouts() const noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::timeouts.
+     * @copydoc FlowTable::timeouts
+     */
+  const FlowTimeouts &
+  timeouts () const noexcept;
 
-    std::size_t size() const noexcept;
-    std::size_t max_flows() const noexcept;
-    const FlowTableStats& stats() const noexcept;
-    void record_export_stats(std::uint64_t flows, std::uint64_t records,
-                              std::uint64_t packets, std::uint64_t failures) noexcept;
-    void
-    count_packet_without_flow () noexcept;
-    void
-    count_non_ip_packet () noexcept;
-    void
-    count_bad_packet () noexcept;
-    TrackLevel track_level() const noexcept;
-    FlowIndexBackend backend() const noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::size.
+     * @copydoc FlowTable::size
+     */
+  std::size_t
+  size () const noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::max_flows.
+     * @copydoc FlowTable::max_flows
+     */
+  std::size_t
+  max_flows () const noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::stats.
+     * @copydoc FlowTable::stats
+     */
+  const FlowTableStats &
+  stats () const noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::record_export_stats.
+     * @copydoc FlowTable::record_export_stats
+     */
+  void
+  record_export_stats (std::uint64_t flows, std::uint64_t records,
+                       std::uint64_t packets, std::uint64_t failures) noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::count_packet_without_flow.
+     * @copydoc FlowTable::count_packet_without_flow
+     */
+  void
+  count_packet_without_flow () noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::count_non_ip_packet.
+     * @copydoc FlowTable::count_non_ip_packet
+     */
+  void
+  count_non_ip_packet () noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::count_bad_packet.
+     * @copydoc FlowTable::count_bad_packet
+     */
+  void
+  count_bad_packet () noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::track_level.
+     * @copydoc FlowTable::track_level
+     */
+  TrackLevel
+  track_level () const noexcept;
+  /**
+     * @brief The container that holds the flows.
+     *
+     * @return The backend.
+     */
+  FlowIndexBackend
+  backend () const noexcept;
 
 private:
-  FlowLookup lookup_;
+  FlowLookup lookup_;  ///< The lookup mode.
   std::variant<FlowTable<FlowIndexBackend::Hash>,
                FlowTable<FlowIndexBackend::Tree>>
-    table_;
+    table_;  ///< The table of the chosen backend.
 };
 
-// ---------------------------------------------------------------------
-// PacketParser (original: softflowd.c's ipv4_to_flowrec() /
-//               ipv6_to_flowrec() / transport_to_flowrec())
-// ---------------------------------------------------------------------
-//
-// The original code cast raw byte buffers directly onto <netinet/ip.h>'s
-// struct ip / struct ip6_hdr / struct tcphdr etc. (a form of type punning
-// that is a strict-aliasing violation -- technically undefined behavior
-// that merely "happens to work" on most platforms/compilers). No casts are
-// used here; every field is read a byte at a time out of a std::span via
-// the read_be16/read_be32 helpers defined in softflowd.cpp. Because those
-// helpers always read explicitly as big-endian, byte-order bugs from a
-// missing ntohs/ntohl are structurally impossible.
-//
-// The original's ipv6_to_flowrec() also contained a real bug worth noting:
-//   eh6 = (const struct ip6_ext *) pkt + size;
-// Due to cast binding tighter than +, this advances the pointer by `size *
-// sizeof(struct ip6_ext)` bytes, not `size` bytes as intended -- a classic
-// "pointer arithmetic unit mismatch after a cast" bug that's easy to write
-// in C and easy to miss in review. Using std::span::subspan(), which is
-// unambiguously byte-oriented by its type signature, makes this entire bug
-// class impossible to reintroduce by accident.
+/**
+ * @brief What the packet parser reads from the headers of a packet.
+ */
 struct ParsedPacket {
-    IpAddress src{};
-    IpAddress dst{};
-    std::uint16_t src_port{0};
-    std::uint16_t dst_port{0};
-    std::uint8_t protocol{0};
-    std::uint8_t tos{0};
-    std::uint8_t tcp_flags{0};
-    std::uint32_t ip6_flowlabel{0};
-    bool is_fragment{false};
-    bool is_first_fragment{true};
+  IpAddress src{};                 ///< The source address.
+  IpAddress dst{};                 ///< The destination address.
+  std::uint16_t src_port{0};       ///< The source port; the ICMP type for ICMP.
+  std::uint16_t dst_port{0};       ///< The destination port; the ICMP code for ICMP.
+  std::uint8_t protocol{0};        ///< The IP protocol number.
+  std::uint8_t tos{0};             ///< The type of service.
+  std::uint8_t tcp_flags{0};       ///< The TCP flags.
+  std::uint32_t ip6_flowlabel{0};  ///< The IPv6 flow label.
+  bool is_fragment{false};         ///< Whether the packet is a fragment.
+  bool is_first_fragment{true};    ///< Whether the packet is the first fragment (or not fragmented); only then it has the transport header.
 };
 
-// Original: process_packet()'s PP_BAD_PACKET / PP_MALLOC_FAIL integer
-// return codes. A caller that forgets to check them gets no help from the
-// compiler. std::optional<ParsedPacket> encodes "may not have a value" in
-// the type itself. (It's still possible to call .value() unconditionally,
-// so this isn't a hard guarantee -- but the return type alone now signals
-// that failure is possible, which the original's plain `int` did not.)
+/**
+ * @brief Reads the headers of an IPv4 or IPv6 packet into a ParsedPacket.
+ *
+ * The original code cast raw byte buffers directly onto \<netinet/ip.h\>'s
+ * struct ip / struct ip6_hdr / struct tcphdr etc. (a form of type punning
+ * that is a strict-aliasing violation -- technically undefined behavior
+ * that merely "happens to work" on most platforms/compilers). No casts are
+ * used here; every field is read a byte at a time out of a std::span via
+ * the read_be16/read_be32 helpers defined in softflowd.cpp. Because those
+ * helpers always read explicitly as big-endian, byte-order bugs from a
+ * missing ntohs/ntohl are structurally impossible.
+ *
+ * The original's ipv6_to_flowrec() also contained a real bug worth noting:
+ *   eh6 = (const struct ip6_ext *) pkt + size;
+ * Due to cast binding tighter than +, this advances the pointer by `size *
+ * sizeof(struct ip6_ext)` bytes, not `size` bytes as intended -- a classic
+ * "pointer arithmetic unit mismatch after a cast" bug that's easy to write
+ * in C and easy to miss in review. Using std::span::subspan(), which is
+ * unambiguously byte-oriented by its type signature, makes this entire bug
+ * class impossible to reintroduce by accident.
+ *
+ * Original: PacketParser (original: softflowd.c's ipv4_to_flowrec() / ipv6_to_flowrec() / transport_to_flowrec())
+ *
+ * @original process_packet()'s PP_BAD_PACKET / PP_MALLOC_FAIL integer
+ * return codes. A caller that forgets to check them gets no help from the
+ * compiler. std::optional\<ParsedPacket\> encodes "may not have a value" in
+ * the type itself. (It's still possible to call .value() unconditionally,
+ * so this isn't a hard guarantee -- but the return type alone now signals
+ * that failure is possible, which the original's plain `int` did not.)
+ */
 class PacketParser {
 public:
-    // full_l4hdr_check: when false (the default), only the bytes that are
-    // read are required in the transport header: the ports of TCP, UDP,
-    // DCCP and SCTP, the TCP flags, and the ICMP/ICMPv6 type and code. When
-    // true (-f), the whole TCP, UDP, DCCP, ICMP or ICMPv6 header is
-    // required, as the reference C softflowd did before it relaxed this
-    // check. This follows the C implementation's default.
-    explicit PacketParser(TrackLevel track_level,
-                          bool full_l4hdr_check = false)
-        : track_level_(track_level),
-          full_l4hdr_check_(full_l4hdr_check) {}
+  /**
+     * @brief Creates a parser.
+     *
+     * full_l4hdr_check: when false (the default), only the bytes that are
+     * read are required in the transport header: the ports of TCP, UDP,
+     * DCCP and SCTP, the TCP flags, and the ICMP/ICMPv6 type and code. When
+     * true (-f), the whole TCP, UDP, DCCP, ICMP or ICMPv6 header is
+     * required, as the reference C softflowd did before it relaxed this
+     * check. This follows the C implementation's default.
+     *
+     * @param track_level The -T level.
+     * @param full_l4hdr_check Require the whole transport header (-f).
+     */
+  explicit PacketParser (TrackLevel track_level,
+                         bool full_l4hdr_check = false)
+      : track_level_ (track_level),
+        full_l4hdr_check_ (full_l4hdr_check) {}
 
-    // Original: ipv4_to_flowrec() / ipv6_to_flowrec()
-    // ip_payload is the IP packet with the data-link layer header already
-    // stripped off.
-    std::optional<ParsedPacket> parse(std::span<const std::uint8_t> ip_payload,
-                                       AddressFamily af) const;
+  /**
+     * @brief Parses one packet.
+     *
+     * @param ip_payload The IP packet, with the data-link header already stripped off.
+     * @param af Whether it is IPv4 or IPv6.
+     * @return The fields, or nullopt when the packet is too short or malformed.
+     *
+     * @original ipv4_to_flowrec() / ipv6_to_flowrec()
+     * ip_payload is the IP packet with the data-link layer header already
+     * stripped off.
+     */
+  std::optional<ParsedPacket>
+  parse (std::span<const std::uint8_t> ip_payload,
+         AddressFamily af) const;
 
-    TrackLevel track_level() const noexcept { return track_level_; }
+  /**
+     * @brief The -T level.
+     *
+     * @return The level.
+     */
+  TrackLevel
+  track_level () const noexcept {
+    return track_level_; }
 
 private:
-    std::optional<ParsedPacket>
-    parse_ipv4(std::span<const std::uint8_t> data) const;
-    std::optional<ParsedPacket>
-    parse_ipv6(std::span<const std::uint8_t> data) const;
+  /**
+     * @brief Parses an IPv4 packet.
+     *
+     * @param data The packet.
+     * @return The fields, or nullopt when the packet is malformed.
+     */
+  std::optional<ParsedPacket>
+  parse_ipv4 (std::span<const std::uint8_t> data) const;
+  /**
+     * @brief Parses an IPv6 packet, with its extension headers.
+     *
+     * @param data The packet.
+     * @return The fields, or nullopt when the packet is malformed.
+     */
+  std::optional<ParsedPacket>
+  parse_ipv6 (std::span<const std::uint8_t> data) const;
 
-    // Original: transport_to_flowrec()
-    void parse_transport(ParsedPacket& packet,
-                          std::span<const std::uint8_t> transport_payload,
-                          std::uint8_t protocol) const;
+  /**
+     * @brief Reads the ports, the TCP flags or the ICMP type and code from the transport header.
+     *
+     * @param packet The parsed packet, which is filled in.
+     * @param transport_payload The bytes after the IP header.
+     * @param protocol The IP protocol of the packet.
+     *
+     * @original transport_to_flowrec()
+     */
+  void
+  parse_transport (ParsedPacket &packet,
+                   std::span<const std::uint8_t> transport_payload,
+                   std::uint8_t protocol) const;
 
-    TrackLevel track_level_;
-    bool full_l4hdr_check_;
+  TrackLevel track_level_;
+  bool full_l4hdr_check_;  ///< Whether the whole transport header is required.
 };
 
-// Original: the "decide addr[ndx] vs addr[ndx^1] ordering" step that
-// preceded FlowKey construction (a memcmp inside ipv4_to_flowrec) is now
-// just a call into FlowKey::make_canonical from a ParsedPacket.
-// vlanid and ethermac are those of the packet's source (index 0) and
-// destination (index 1); they are part of the flow only at the tracking
-// levels that ask for them (-T vlan and -T ether).
+/**
+ * @brief Makes the key of the flow that a packet belongs to.
+ *
+ * @param packet The parsed packet.
+ * @param track_level The -T level, which decides the fields that belong to the key.
+ * @param vlanid The VLAN IDs of the source and of the destination.
+ * @param ethermac The Ethernet addresses of the source and of the destination.
+ * @return The key.
+ *
+ * @original the "decide addr[ndx] vs addr[ndx^1] ordering" step that
+ * preceded FlowKey construction (a memcmp inside ipv4_to_flowrec) is now
+ * just a call into FlowKey::make_canonical from a ParsedPacket.
+ * vlanid and ethermac are those of the packet's source (index 0) and
+ * destination (index 1); they are part of the flow only at the tracking
+ * levels that ask for them (-T vlan and -T ether).
+ */
 FlowKey
 make_flow_key (const ParsedPacket &packet, TrackLevel track_level,
                std::array<std::uint16_t, 2> vlanid = {0, 0},
                std::array<std::array<std::uint8_t, 6>, 2> ethermac = {});
 
-// Which of the two endpoints of the flow the source of the packet is (the
-// original's ndx): 0 for the first of the canonical order, the lower address
-// or, when both ends have the same address (RFC 5103: a Biflow of a loopback
-// conversation), the lower port; otherwise 1.
+/**
+ * @brief Tells which end of a flow the source of a packet is.
+ *
+ * Which of the two endpoints of the flow the source of the packet is (the
+ * original's ndx): 0 for the first of the canonical order, the lower address
+ * or, when both ends have the same address (RFC 5103: a Biflow of a loopback
+ * conversation), the lower port; otherwise 1.
+ *
+ * @param key The key of the flow.
+ * @param packet The parsed packet.
+ * @return 0 for the first end of the canonical order; otherwise 1.
+ */
 std::uint8_t
 flow_direction (const FlowKey &key, const ParsedPacket &packet);
 
-// ---------------------------------------------------------------------
-// PcapHandle (original: softflowd.c's main(), where pcap_t* was managed
-//             by hand across several possible exit paths)
-// ---------------------------------------------------------------------
-//
-// The original declared `pcap_t *pcap;` in main() and reused it across
-// several exit paths (an error exit(1), a signal-driven shutdown, etc.),
-// risking a forgotten pcap_close() on at least one path.
-//
-// Here, ownership of the pcap_t is expressed with std::unique_ptr and a
-// custom deleter. Regardless of which function returns, or whether an
-// exception propagates, the destructor is guaranteed to call pcap_close()
-// exactly once when the handle goes out of scope -- eliminating the whole
-// class of "forgot to close it" bugs. This is the most basic application of
-// RAII, and mirrors the article's SocketHandle example.
+/**
+ * @brief An error of libpcap: a device or file that cannot be opened, a filter that does not compile.
+ */
 class PcapError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-// Original: softflowd.c's DATALINK table (`static const struct DATALINK
-// lt[]`). For each known link-layer type, it hand-maintained the number of
-// bytes to skip to reach the IP header (skiplen) and how to determine the
-// EtherType. Ethernet / Linux SLL / RAW / NULL-LOOP are supported here
-// (PPP/PFLOG from the original can be added in a later stage).
+/**
+ * @brief The link-layer types that softflowd+ can read.
+ *
+ * @original softflowd.c's DATALINK table (`static const struct DATALINK
+ * lt[]`). For each known link-layer type, it hand-maintained the number of
+ * bytes to skip to reach the IP header (skiplen) and how to determine the
+ * EtherType. Ethernet / Linux SLL / RAW / NULL-LOOP are supported here
+ * (PPP/PFLOG from the original can be added in a later stage).
+ */
 enum class DatalinkKind {
-    Ethernet,
-    LinuxSll,
-    Raw,
-    NullLoop,
-    Unsupported,
+  Ethernet,     ///< Ethernet.
+  LinuxSll,     ///< Linux cooked capture.
+  Raw,          ///< Raw IP.
+  NullLoop,     ///< BSD loopback (null / loop).
+  Unsupported,  ///< Any other link-layer type.
 };
 
+/**
+ * @brief Classifies a libpcap link-layer type.
+ *
+ * @param pcap_dlt The DLT_ value.
+ * @return The kind.
+ */
 DatalinkKind classify_datalink(int pcap_dlt);
+/**
+ * @brief The size of the link-layer header that comes before the IP header.
+ *
+ * @param kind The kind.
+ * @return The size in octets.
+ */
 std::size_t datalink_header_len(DatalinkKind kind);
 
-// Original: the result of pcap_next_ex(), i.e. the pair of
-// `const u_char *frame` + `struct pcap_pkthdr *phdr`. The constraint that
-// the span is valid only until the next call to next_packet() comes from
-// libpcap's zero-copy design and can't be fully hidden, but combining
-// "pointer" and "another, separate length variable" into a single type
-// still prevents the class of bug where the length gets mismatched against
-// the wrong pointer.
+/**
+ * @brief A captured packet with its lengths and times.
+ *
+ * @original the result of pcap_next_ex(), i.e. the pair of
+ * `const u_char *frame` + `struct pcap_pkthdr *phdr`. The constraint that
+ * the span is valid only until the next call to next_packet() comes from
+ * libpcap's zero-copy design and can't be fully hidden, but combining
+ * "pointer" and "another, separate length variable" into a single type
+ * still prevents the class of bug where the length gets mismatched against
+ * the wrong pointer.
+ */
 struct CapturedPacket {
-    std::span<const std::uint8_t> data; // the bytes actually captured
-    std::uint32_t original_length;      // on-the-wire length before any truncation (phdr->len)
-    TimePoint timestamp;                // this process's monotonic clock at the moment of capture
-    std::chrono::system_clock::time_point wall_timestamp; // libpcap's own recorded timestamp (phdr->ts)
+  std::span<const std::uint8_t> data;                    ///< The bytes actually captured.
+  std::uint32_t original_length;                         ///< The on-the-wire length before any truncation (phdr->len).
+  TimePoint timestamp;                                   ///< This process's monotonic clock at the moment of capture.
+  std::chrono::system_clock::time_point wall_timestamp;  ///< libpcap's own recorded timestamp (phdr->ts).
 };
 
+/**
+ * @brief A libpcap capture, live or from a file, that closes itself.
+ *
+ * The original declared `pcap_t *pcap;` in main() and reused it across
+ * several exit paths (an error exit(1), a signal-driven shutdown, etc.),
+ * risking a forgotten pcap_close() on at least one path.
+ *
+ * Here, ownership of the pcap_t is expressed with std::unique_ptr and a
+ * custom deleter. Regardless of which function returns, or whether an
+ * exception propagates, the destructor is guaranteed to call pcap_close()
+ * exactly once when the handle goes out of scope -- eliminating the whole
+ * class of "forgot to close it" bugs. This is the most basic application of
+ * RAII, and mirrors the article's SocketHandle example.
+ *
+ * Original: PcapHandle (original: softflowd.c's main(), where pcap_t* was managed by hand across several possible exit paths)
+ */
 class PcapHandle {
 public:
-    // Original: softflowd.c called pcap_open_live() directly, which offers
-    // no control over the capture buffer size or "immediate mode" (how
-    // promptly a captured packet is handed to the application versus
-    // waiting for internal buffering/timeout). This project instead uses
-    // the pcap_create()/pcap_activate() sequence, which allows setting
-    // both -- buffer_bytes maps to the original's -B option, and
-    // immediate mode (always enabled here) meaningfully improves how
-    // quickly a live-captured packet becomes visible to next_packet(),
-    // which in turn keeps the control-socket/signal-handling side of the
-    // daemon's event loop responsive under load (see run_live_capture()
-    // in softflowd.cpp).
-    static PcapHandle open_live(const std::string& device, int snaplen,
-                                 bool promiscuous,
-                                 std::chrono::milliseconds read_timeout,
-                                 std::size_t buffer_bytes = 0);
-    static PcapHandle open_offline(const std::string& path);
+  /**
+     * @brief Opens a live capture.
+     *
+     * @param device The interface.
+     * @param snaplen The bytes of a packet that are captured.
+     * @param promiscuous Open the interface in promiscuous mode.
+     * @param read_timeout How long a read waits for packets.
+     * @param buffer_bytes The capture buffer size (-B); 0 for the default.
+     * @return The handle.
+     * @throw PcapError when the device cannot be opened.
+     *
+     * @original softflowd.c called pcap_open_live() directly, which offers
+     * no control over the capture buffer size or "immediate mode" (how
+     * promptly a captured packet is handed to the application versus
+     * waiting for internal buffering/timeout). This project instead uses
+     * the pcap_create()/pcap_activate() sequence, which allows setting
+     * both -- buffer_bytes maps to the original's -B option, and
+     * immediate mode (always enabled here) meaningfully improves how
+     * quickly a live-captured packet becomes visible to next_packet(),
+     * which in turn keeps the control-socket/signal-handling side of the
+     * daemon's event loop responsive under load (see run_live_capture()
+     * in softflowd.cpp).
+     */
+  static PcapHandle
+  open_live (const std::string &device, int snaplen,
+             bool promiscuous,
+             std::chrono::milliseconds read_timeout,
+             std::size_t buffer_bytes = 0);
+  /**
+     * @brief Opens a capture file.
+     *
+     * @param path The file.
+     * @return The handle.
+     * @throw PcapError when the file cannot be opened.
+     */
+  static PcapHandle
+  open_offline (const std::string &path);
 
-    PcapHandle(const PcapHandle&) = delete;
-    PcapHandle& operator=(const PcapHandle&) = delete;
-    PcapHandle(PcapHandle&&) noexcept = default;
-    PcapHandle& operator=(PcapHandle&&) noexcept = default;
-    ~PcapHandle() = default; // the unique_ptr's deleter calls pcap_close()
+  /**
+     * @brief A handle cannot be copied.
+     */
+  PcapHandle (const PcapHandle &) = delete;
+  /**
+     * @brief A handle cannot be copied.
+     */
+  PcapHandle &
+  operator= (const PcapHandle &) = delete;
+  /**
+     * @brief Moves a handle.
+     */
+  PcapHandle (PcapHandle &&) noexcept = default;
+  /**
+     * @brief Moves a handle.
+     */
+  PcapHandle &
+  operator= (PcapHandle &&) noexcept = default;
+  /**
+     * @brief Closes the capture.
+     */
+  ~PcapHandle() = default;  // the unique_ptr's deleter calls pcap_close()
 
-    int datalink() const noexcept { return pcap_datalink(handle_.get()); }
-    DatalinkKind datalink_kind() const { return classify_datalink(datalink()); }
+  /**
+     * @brief The link-layer type of the capture.
+     *
+     * @return The DLT_ value.
+     */
+  int
+  datalink () const noexcept {
+    return pcap_datalink (handle_.get()); }
+  /**
+     * @brief The kind of the link-layer type.
+     *
+     * @return The kind.
+     */
+  DatalinkKind
+  datalink_kind () const {
+    return classify_datalink (datalink()); }
 
-    // Original: softflowd.c's main loop polled/selected on pcap's file
-    // descriptor (via pcap_get_selectable_fd()) alongside its control
-    // socket so it could react promptly to both packets and control
-    // commands without a busy-wait. Exposed here so a live daemon loop can
-    // add this fd to the same poll() set as the control socket and signal
-    // pipe. Returns -1 if the platform/capture mode doesn't support a
-    // selectable descriptor (notably, this is generally not meaningful
-    // for offline pcap files, only live captures).
-    int selectable_fd() const noexcept {
-        return pcap_get_selectable_fd(handle_.get());
+  /**
+     * @brief The file descriptor to poll for packets.
+     *
+     * @return The descriptor; -1 when it is not supported (offline files).
+     *
+     * @original softflowd.c's main loop polled/selected on pcap's file
+     * descriptor (via pcap_get_selectable_fd()) alongside its control
+     * socket so it could react promptly to both packets and control
+     * commands without a busy-wait. Exposed here so a live daemon loop can
+     * add this fd to the same poll() set as the control socket and signal
+     * pipe. Returns -1 if the platform/capture mode doesn't support a
+     * selectable descriptor (notably, this is generally not meaningful
+     * for offline pcap files, only live captures).
+     */
+  int
+  selectable_fd () const noexcept {
+    return pcap_get_selectable_fd (handle_.get());
     }
 
-    // Original: softflowd.c's pcap_compile()/pcap_setfilter() calls. The
-    // original only passed pcap_geterr()'s string to logit() on a compile
-    // failure, which the caller had no way to observe. Here it's an
-    // exception, so it cannot be silently ignored.
+    /**
+     * @brief Compiles and sets the packet filter.
+     *
+     * @param bpf_expression The BPF expression.
+     * @throw PcapError when it does not compile.
+     *
+     * @original softflowd.c's pcap_compile()/pcap_setfilter() calls. The
+     * original only passed pcap_geterr()'s string to logit() on a compile
+     * failure, which the caller had no way to observe. Here it's an
+     * exception, so it cannot be silently ignored.
+     */
     void set_filter(const std::string& bpf_expression);
 
-    // Original: softflowd.c's statistics() called pcap_stats() directly on
-    // its pcap_t*. Returns std::nullopt if the stats are unavailable for
-    // this capture mode (notably, offline pcap files -- pcap_stats() only
-    // reports meaningful numbers for live captures).
+    /**
+     * @brief The capture statistics of libpcap.
+     *
+     * @return The statistics; nullopt when they are not available (offline files).
+     *
+     * @original softflowd.c's statistics() called pcap_stats() directly on
+     * its pcap_t*. Returns std::nullopt if the stats are unavailable for
+     * this capture mode (notably, offline pcap files -- pcap_stats() only
+     * reports meaningful numbers for live captures).
+     */
     std::optional<struct pcap_stat> stats() const noexcept {
         struct pcap_stat ps{};
         if (pcap_stats(handle_.get(), &ps) != 0) {
@@ -1089,128 +1875,244 @@ public:
         return ps;
     }
 
-    // Original: a thin wrapper over pcap_next_ex().
-    // Returns: a CapturedPacket if one was available; std::nullopt on a
-    // read timeout (live capture) or EOF (offline file).
+    /**
+     * @brief Reads the next packet; the data are valid until the next call.
+     *
+     * @return The packet; nullopt on a read timeout (live) or at the end of the file.
+     *
+     * @original a thin wrapper over pcap_next_ex().
+     * Returns: a CapturedPacket if one was available; std::nullopt on a
+     * read timeout (live capture) or EOF (offline file).
+     */
     std::optional<CapturedPacket> next_packet();
 
-    // Original: pcap_dispatch (pcap, max_packets, callback, ...). Hands the
-    // packets that libpcap has (those of one read for a live capture, at most
-    // max_packets) to `callback` and returns how many there were; -2 when the
-    // loop was ended by an exception of the callback, which is rethrown, and
-    // -1 on an error.
+    /**
+     * @brief Hands the packets that libpcap has to a callback.
+     *
+     * @param max_packets The most packets to hand over.
+     * @param callback Called for each packet.
+     * @return The number of packets; -2 when the callback threw (the exception is rethrown); -1 on an error.
+     *
+     * @original pcap_dispatch (pcap, max_packets, callback, ...). Hands the
+     * packets that libpcap has (those of one read for a live capture, at most
+     * max_packets) to `callback` and returns how many there were; -2 when the
+     * loop was ended by an exception of the callback, which is rethrown, and
+     * -1 on an error.
+     */
     int dispatch(int max_packets, const std::function<void(const CapturedPacket&)>& callback);
 
 private:
-    explicit PcapHandle(pcap_t* handle) : handle_(handle) {}
+  /**
+     * @brief Takes over a libpcap handle.
+     *
+     * @param handle The handle.
+     */
+  explicit PcapHandle (pcap_t *handle)
+      : handle_ (handle) {}
 
-    struct PcapCloser {
-        void operator()(pcap_t* p) const noexcept {
-            if (p != nullptr) {
-                pcap_close(p);
-            }
-        }
+  /**
+     * @brief Closes a libpcap handle.
+     */
+  struct PcapCloser {
+    /**
+         * @brief Closes the handle, if there is one.
+         *
+         * @param p The handle.
+         */
+    void
+    operator() (pcap_t *p) const noexcept {
+      if (p != nullptr) {
+        pcap_close (p);
+      }
+    }
     };
+    /**
+     * @brief The libpcap handle.
+     */
     std::unique_ptr<pcap_t, PcapCloser> handle_;
 };
 
-// ---------------------------------------------------------------------
-// ExportDestination / ExportDestinationSet (original: softflowd.c's -n
-// destination handling and send_multi_destinations())
-// ---------------------------------------------------------------------
-//
-// Original: softflowd.c resolved each -n host:port with getaddrinfo(),
-// opened a UDP socket per destination, and sent each export packet with
-// sendto(). The socket file descriptors lived for the daemon's entire
-// runtime as plain ints in a global-ish destinations array; nothing
-// enforced that every one of them got closed on every exit path.
-//
-// ExportDestination wraps one such socket in RAII (closed by the
-// destructor, matching PcapHandle and PidFile elsewhere in this project).
-// The socket is connect()-ed to its destination up front, which both
-// simplifies sending (plain send() instead of sendto() + a sockaddr each
-// time) and lets the kernel report certain errors (e.g. ICMP port
-// unreachable for a UDP send to a closed collector port) back to this
-// process instead of silently discarding them.
+/**
+ * @brief An error of an export destination: it cannot be resolved, opened or written.
+ */
 class ExportError : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
 };
 
-// Original: -P transport_protocol. udp and tcp are both fully implemented
-// here; sctp is attempted using IPPROTO_SCTP if the platform's headers
-// declare it (Linux with the kernel SCTP module loaded typically does),
-// and otherwise ExportDestination's constructor throws ExportError, which
-// main() reports as a fallback-to-udp warning rather than a hard failure
-// -- see softflowd.cpp.
+/**
+ * @brief The transport of the export, selected with -P.
+ *
+ * @original -P transport_protocol. udp and tcp are both fully implemented
+ * here; sctp is attempted using IPPROTO_SCTP if the platform's headers
+ * declare it (Linux with the kernel SCTP module loaded typically does),
+ * and otherwise ExportDestination's constructor throws ExportError, which
+ * main() reports as a fallback-to-udp warning rather than a hard failure
+ * -- see softflowd.cpp.
+ */
 enum class TransportKind {
-    Udp,
-    Tcp,
-    Sctp,
+  Udp,   ///< UDP.
+  Tcp,   ///< TCP.
+  Sctp,  ///< SCTP, when the platform has it.
 };
 
+/**
+ * @brief A socket to one collector, connected up front and closed by the destructor.
+ *
+ * Original: ExportDestination / ExportDestinationSet (original: softflowd.c's -n destination handling and send_multi_destinations())
+ *
+ * softflowd.c resolved each -n host:port with getaddrinfo(),
+ * opened a UDP socket per destination, and sent each export packet with
+ * sendto(). The socket file descriptors lived for the daemon's entire
+ * runtime as plain ints in a global-ish destinations array; nothing
+ * enforced that every one of them got closed on every exit path.
+ *
+ * ExportDestination wraps one such socket in RAII (closed by the
+ * destructor, matching PcapHandle and PidFile elsewhere in this project).
+ * The socket is connect()-ed to its destination up front, which both
+ * simplifies sending (plain send() instead of sendto() + a sockaddr each
+ * time) and lets the kernel report certain errors (e.g. ICMP port
+ * unreachable for a UDP send to a closed collector port) back to this
+ * process instead of silently discarding them.
+ */
 class ExportDestination {
 public:
-    // host/port are resolved via getaddrinfo(), so host may be a hostname
-    // or a numeric IPv4/IPv6 address, and port may be a numeric port or a
-    // services(5) name. ttl, if set, configures the original's -L
-    // (IPv4 TTL / IPv6 hop limit). source_address and send_interface
-    // correspond to the original's -e and -S respectively.
-    //
-    // Original: with tcp or sctp, the original opened one long-lived
-    // connection per destination and streamed export packets over it
-    // back-to-back with no additional framing -- the same approach taken
-    // here, since every one of this project's export formats already
-    // carries its own self-describing length in its header (a NetFlow v9/
-    // IPFIX collector reading a TCP stream reads that header, learns the
-    // message's length, reads that many bytes, and repeats).
-    ExportDestination(const std::string& host, const std::string& port,
-                       TransportKind transport = TransportKind::Udp,
-                       std::optional<int> ttl = std::nullopt,
-                       const std::string& source_address = "",
-                       const std::string& send_interface = "");
-    ~ExportDestination();
+  /**
+     * @brief Resolves and connects a destination.
+     *
+     * host/port are resolved via getaddrinfo(), so host may be a hostname
+     * or a numeric IPv4/IPv6 address, and port may be a numeric port or a
+     * services(5) name. ttl, if set, configures the original's -L
+     * (IPv4 TTL / IPv6 hop limit). source_address and send_interface
+     * correspond to the original's -e and -S respectively.
+     *
+     * Original: with tcp or sctp, the original opened one long-lived
+     * connection per destination and streamed export packets over it
+     * back-to-back with no additional framing -- the same approach taken
+     * here, since every one of this project's export formats already
+     * carries its own self-describing length in its header (a NetFlow v9/
+     * IPFIX collector reading a TCP stream reads that header, learns the
+     * message's length, reads that many bytes, and repeats).
+     *
+     * @param host A host name or a numeric address.
+     * @param port A numeric port or a service name.
+     * @param transport The transport (-P).
+     * @param ttl The IPv4 TTL / IPv6 hop limit (-L).
+     * @param source_address The address to send from (-e).
+     * @param send_interface The interface to send on (-S).
+     * @throw ExportError when it cannot be set up.
+     */
+  ExportDestination (const std::string &host, const std::string &port,
+                     TransportKind transport = TransportKind::Udp,
+                     std::optional<int> ttl = std::nullopt,
+                     const std::string &source_address = "",
+                     const std::string &send_interface = "");
+  /**
+     * @brief Closes the socket.
+     */
+  ~ExportDestination();
 
-    ExportDestination(const ExportDestination&) = delete;
-    ExportDestination& operator=(const ExportDestination&) = delete;
-    ExportDestination(ExportDestination&&) noexcept;
-    ExportDestination& operator=(ExportDestination&&) noexcept;
+  /**
+     * @brief A destination cannot be copied.
+     */
+  ExportDestination (const ExportDestination &) = delete;
+  /**
+     * @brief A destination cannot be copied.
+     */
+  ExportDestination &
+  operator= (const ExportDestination &) = delete;
+  /**
+     * @brief Moves a destination.
+     */
+  ExportDestination (ExportDestination &&) noexcept;
+  /**
+     * @brief Moves a destination.
+     */
+  ExportDestination &
+  operator= (ExportDestination &&) noexcept;
 
-    // Sends one already-serialized export packet (e.g. from
-    // Netflow5Exporter::build_packets()) to this destination. For
-    // stream-oriented transports (tcp, sctp), this loops until every byte
-    // is written, since a single send()/write() call over a stream socket
-    // is not guaranteed to consume the whole buffer at once the way a UDP
-    // datagram send is.
-    void send_packet(const std::vector<std::uint8_t>& packet) const;
+  /**
+     * @brief Sends one export packet to the destination.
+     *
+     * Sends one already-serialized export packet (e.g. from
+     * Netflow5Exporter::build_packets()) to this destination. For
+     * stream-oriented transports (tcp, sctp), this loops until every byte
+     * is written, since a single send()/write() call over a stream socket
+     * is not guaranteed to consume the whole buffer at once the way a UDP
+     * datagram send is.
+     *
+     * @param packet The serialized packet.
+     * @throw ExportError when it cannot be sent.
+     */
+  void
+  send_packet (const std::vector<std::uint8_t> &packet) const;
 
-    const std::string& description() const noexcept { return description_; }
+  /**
+     * @brief A description of the destination, for messages.
+     *
+     * @return The description.
+     */
+  const std::string &
+  description () const noexcept {
+    return description_; }
 
 private:
-    int fd_{-1};
-    bool stream_oriented_{false};
-    std::string description_;
+  int fd_{-1};                   ///< The socket.
+  bool stream_oriented_{false};  ///< Whether the transport is a stream (TCP, SCTP).
+  std::string description_;      ///< The description of the destination.
 };
 
-// Original: softflowd.c's -n (comma-separated multiple destinations) and
-// -l (load-balance across them, sending each successive export packet to
-// the next destination in round-robin order, instead of the default of
-// sending every packet to every destination).
+/**
+ * @brief The destinations of -n, with the choice of -l.
+ *
+ * @original softflowd.c's -n (comma-separated multiple destinations) and
+ * -l (load-balance across them, sending each successive export packet to
+ * the next destination in round-robin order, instead of the default of
+ * sending every packet to every destination).
+ */
 class ExportDestinationSet {
 public:
-    void add(ExportDestination destination);
+  /**
+     * @brief Adds a destination.
+     *
+     * @param destination The destination, which the set takes over.
+     */
+  void
+  add (ExportDestination destination);
 
-    bool empty() const noexcept { return destinations_.empty(); }
-    std::size_t size() const noexcept { return destinations_.size(); }
+  /**
+     * @brief Whether there is no destination.
+     *
+     * @return true when there is none.
+     */
+  bool
+  empty () const noexcept {
+    return destinations_.empty(); }
+  /**
+     * @brief The number of destinations.
+     *
+     * @return The number.
+     */
+  std::size_t
+  size () const noexcept {
+    return destinations_.size(); }
 
-    // Sends `packet` according to `load_balance`: to every configured
-    // destination if false (the original's default), or to just the next
-    // destination in round-robin order if true (the original's -l).
-    void send_packet(const std::vector<std::uint8_t>& packet, bool load_balance);
+  /**
+     * @brief Sends a packet to every destination, or to the next one in turn.
+     *
+     * Sends `packet` according to `load_balance`: to every configured
+     * destination if false (the original's default), or to just the next
+     * destination in round-robin order if true (the original's -l).
+     *
+     * @param packet The serialized packet.
+     * @param load_balance Send it to the next destination only (-l).
+     */
+  void
+  send_packet (const std::vector<std::uint8_t> &packet, bool load_balance);
 
 private:
-    std::vector<ExportDestination> destinations_;
-    std::uint64_t sent_ = 0;
+  std::vector<ExportDestination> destinations_;  ///< The destinations.
+  std::uint64_t sent_ = 0;                       ///< The packets sent, which picks the next destination with -l.
 };
 
 } // namespace softflow

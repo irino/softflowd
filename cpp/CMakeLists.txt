@@ -135,3 +135,32 @@ add_test(NAME daemon COMMAND test_daemon)
 add_executable(test_softflowctl tests/test_softflowctl.cpp)
 target_link_libraries(test_softflowctl PRIVATE softflowctl_lib Threads::Threads)
 add_test(NAME softflowctl COMMAND test_softflowctl)
+
+# API documentation: `cmake --build <dir> --target doc` writes HTML to
+# <dir>/doc/html. Not part of the default build, and skipped when Doxygen is
+# not installed. A Doxygen comment keeps what the C version does as
+# "@original" (see DOXYGEN_ALIASES), next to the description of the C++ code.
+find_package(Doxygen OPTIONAL_COMPONENTS dot)
+if(DOXYGEN_FOUND)
+  set(DOXYGEN_PROJECT_NAME "softflowd+")
+  set(DOXYGEN_PROJECT_NUMBER "${PROJECT_VERSION}")
+  set(DOXYGEN_PROJECT_BRIEF "C++ rewrite of softflowd, a NetFlow / IPFIX exporter")
+  set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/doc")
+  set(DOXYGEN_RECURSIVE YES)
+  set(DOXYGEN_FILE_PATTERNS "*.hpp" "*.cpp" "*.md")
+  set(DOXYGEN_EXCLUDE_PATTERNS "*/build*/*")
+  set(DOXYGEN_USE_MDFILE_AS_MAINPAGE "${CMAKE_CURRENT_SOURCE_DIR}/README.en.md")
+  set(DOXYGEN_EXTRACT_STATIC YES)
+  set(DOXYGEN_EXTRACT_ANON_NSPACES YES)
+  set(DOXYGEN_BUILTIN_STL_SUPPORT YES)
+  set(DOXYGEN_QUIET YES)
+  set(DOXYGEN_WARN_IF_UNDOCUMENTED YES)
+  set(DOXYGEN_WARN_NO_PARAMDOC NO)
+  set(DOXYGEN_ALIASES "original=@par Original (C version)^^")
+  if(DOXYGEN_DOT_FOUND)
+    set(DOXYGEN_HAVE_DOT YES)
+  endif()
+  doxygen_add_docs(doc
+    include src README.en.md ClaudeOutputDocument.en.md
+    COMMENT "Generating the API documentation with Doxygen")
+endif()
