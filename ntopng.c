@@ -76,24 +76,27 @@
 #define NTOPNG_DST_VLAN 59
 
 /* struct zmq_msg_hdr_v4: 36 bytes, the two bytes after flags are padding */
+/** @brief The header of a message to ntopng (36 octets). */
 struct NTOPNG_MSG_HEADER {
-  char url[16];
-  u_int8_t version, flags;
-  u_int8_t pad[2];
-  u_int32_t uncompressed_size; /* network byte order */
-  u_int32_t compressed_size;   /* network byte order */
-  u_int32_t msg_id;            /* network byte order */
-  u_int32_t source_id;         /* host byte order, read as is by ntopng */
+  char url[16];                /**< The topic of the message, "flow" */
+  u_int8_t version;            /**< Version of the header, ZMQ_MSG_VERSION */
+  u_int8_t flags;              /**< Flags, NTOPNG_FLAG_IS_TLV for TLV */
+  u_int8_t pad[2];             /**< Padding */
+  u_int32_t uncompressed_size; /**< Size of the payload, network byte order */
+  u_int32_t compressed_size;   /**< Size of the compressed payload, network byte order */
+  u_int32_t msg_id;            /**< Counter of the messages, network byte order */
+  u_int32_t source_id;         /**< Identifies the exporter, host byte order, read as is by ntopng */
 } __attribute__ ((packed));
 
 typedef char
   ntopng_msg_header_size_check[(sizeof (struct NTOPNG_MSG_HEADER) == 36) ? 1
                                                                          : -1];
 
+/** @brief The payload of a message to ntopng, in the TLV format of the nDPI serializer. */
 struct TLV {
-  u_int8_t *buf;
-  size_t size; /* capacity of buf */
-  size_t len;  /* bytes used */
+  u_int8_t *buf; /**< The payload */
+  size_t size;   /**< Capacity of buf */
+  size_t len;    /**< Bytes used */
 };
 
 /*

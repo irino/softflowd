@@ -4,7 +4,7 @@
 [mecanik.dev の記事](https://mecanik.dev/ja/posts/c++-vs-rust-memory-safety-practical-examples-with-modern-c++/)
 で示されているモダンC++のメモリ安全性プラクティスに沿って段階的に書き換えるプロジェクトです。
 
-(English version: [README.en.md](README.en.md))
+(English version: [ClaudeOutputDocument.en.md](ClaudeOutputDocument.en.md))
 
 ## 現在の進捗
 

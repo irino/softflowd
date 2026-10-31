@@ -136,16 +136,16 @@ static volatile sig_atomic_t stats_log_request = 0;
 /** Set by SIGHUP: log that a reload of the configuration is not implemented. */
 static volatile sig_atomic_t hup_log_request = 0;
 
-/* Describes a datalink header and how to extract v4/v6 frames from it */
+/** @brief Describes a datalink header and how to extract v4/v6 frames from it */
 struct DATALINK {
-  int dlt;           /* BPF datalink type */
-  int skiplen;       /* Number of bytes to skip datalink header */
-  int ft_off;        /* Datalink frametype offset */
-  int ft_len;        /* Datalink frametype length */
-  int ft_is_be;      /* Set if frametype is big-endian */
-  u_int32_t ft_mask; /* Mask applied to frametype */
-  u_int32_t ft_v4;   /* IPv4 frametype */
-  u_int32_t ft_v6;   /* IPv6 frametype */
+  int dlt;           /**< BPF datalink type */
+  int skiplen;       /**< Number of bytes to skip datalink header */
+  int ft_off;        /**< Datalink frametype offset */
+  int ft_len;        /**< Datalink frametype length */
+  int ft_is_be;      /**< Set if frametype is big-endian */
+  u_int32_t ft_mask; /**< Mask applied to frametype */
+  u_int32_t ft_v4;   /**< IPv4 frametype */
+  u_int32_t ft_v6;   /**< IPv6 frametype */
 };
 
 /* Datalink types that we know about */
@@ -232,7 +232,8 @@ get_interface_mac (const char *ifname, u_int8_t mac[6]) {
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
 
 #ifdef ENABLE_PTHREAD
-/* Context for threaded export (-M): unlike netflow_send_func_t, this
+/**
+ * @brief Context for threaded export (-M): unlike netflow_send_func_t, this
  * wrapper's signature actually matches what pthread_create() invokes
  * (void *(*)(void *)), and it owns a deep copy of both the flows and
  * the SENDPARAMETER referencing them, so the sending thread never
@@ -242,10 +243,10 @@ typedef int (netflow_send_func_t) (struct SENDPARAMETER);
  * after that call returns, so no return path of an export function can
  * leak them. */
 struct THREADED_SENDPARAMETER {
-  struct SENDPARAMETER sp;
-  netflow_send_func_t *func;
-  struct FLOW **owned_flows;
-  int num_flows;
+  struct SENDPARAMETER sp;   /**< The parameters of the export; sp.flows points at owned_flows */
+  netflow_send_func_t *func; /**< The export function to run */
+  struct FLOW **owned_flows; /**< The copies of the flows, which threaded_send () frees */
+  int num_flows;             /**< Number of entries of owned_flows */
 };
 
 /**
@@ -273,11 +274,12 @@ threaded_send (void *arg) {
 }
 #endif /* ENABLE_PTHREAD */
 
+/** @brief An export version and the functions that send it. */
 struct NETFLOW_SENDER {
-  int version;
-  netflow_send_func_t *func;
-  netflow_send_func_t *bidir_func;
-  int v6_capable;
+  int version;                     /**< The version, as -v gives it */
+  netflow_send_func_t *func;       /**< Sends the flows of the version */
+  netflow_send_func_t *bidir_func; /**< Sends biflow records (-b); NULL when the version has no such function */
+  int v6_capable;                  /**< Non-zero when the version can carry IPv6 flows */
 };
 
 /* Known NetFlow export functions (nf[0] is default).

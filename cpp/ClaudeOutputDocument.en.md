@@ -6,7 +6,7 @@ memory-safety practices described in
 [this article](https://mecanik.dev/ja/posts/c++-vs-rust-memory-safety-practical-examples-with-modern-c++/)
 (Japanese).
 
-(日本語版: [README.ja.md](README.ja.md))
+(日本語版: <a href="ClaudeOutputDocument.ja.md">ClaudeOutputDocument.ja.md</a>)
 
 ## Progress
 

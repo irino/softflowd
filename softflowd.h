@@ -47,9 +47,10 @@ extern int use_thread;
 #define SOFTFLOWD_NF_VERSION_NTOPNG_JSON (0x7fff0002)
 #define SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING "ntopng-json"
 #endif /* ENABLE_NTOPNG_JSON */
+/** @brief The ZeroMQ context and the socket of a connection to ntopng. */
 struct ZMQ {
-  void *context;
-  void *socket;
+  void *context; /**< The ZeroMQ context */
+  void *socket;  /**< The ZeroMQ socket */
 };
 #endif /* ENABLE_NTOPNG */
 
@@ -258,7 +259,7 @@ struct FLOWTRACK {
   struct freelist flow_freelist;   /**< Freelist for flows */
   struct freelist expiry_freelist; /**< Freelist for expiry events */
 
-  struct FLOWTRACKPARAMETERS param;
+  struct FLOWTRACKPARAMETERS param; /**< Parameters, limits, timeouts and statistics */
 };
 
 /**

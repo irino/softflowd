@@ -581,9 +581,13 @@ struct EXPORT_TEMPLATE {
 /** Templates indexed by TMPLV4, TMPLICMPV4, TMPLV6 and TMPLICMPV6. */
 static struct EXPORT_TEMPLATE templates[TMPLMAX];
 
-/* Emits NFv9/IPFIX Options Templates and Data Records using
- * export_emit_group_enc(). Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to
- * avoid duplicate padded declarations. */
+/**
+ * @brief Emits NFv9/IPFIX Options Templates and Data Records using
+ * export_emit_group_enc().
+ *
+ * Reuses struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE to avoid duplicate padded
+ * declarations.
+ */
 struct EXPORT_OPTION_TEMPLATE {
   /** Options template as sent on the wire. */
   struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE tmpl;

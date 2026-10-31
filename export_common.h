@@ -49,9 +49,10 @@
 
 #define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE 1428
 
+/** @brief A time as a 64-bit NTP timestamp. */
 struct ntp_time_t {
-  uint32_t second;
-  uint32_t fraction;
+  uint32_t second;   /**< Seconds since 1900-01-01 */
+  uint32_t fraction; /**< Fraction of a second, in units of 2^-32 */
 };
 
 /* Force a resend of the flow template. */

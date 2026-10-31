@@ -24,4 +24,4 @@ softflowd_LDADD = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON) $(XXHASH_L
 softflowd_DEPENDENCIES = $(STATIC_SEPARATE_OBJECTS) $(NTOPNG) $(NTOPNG_JSON)
 softflowctl_SOURCES = softflowctl.c $(COMMON)
 dist_man_MANS = softflowd.8 softflowctl.8
-EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig README.md
+EXTRA_DIST = softflowd.spec softflowd.init softflowd.sysconfig README.md Doxyfile

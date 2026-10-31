@@ -62,6 +62,7 @@ target_link_libraries(softflow_core PUBLIC ${PCAP_LIBRARY})
 # Original: --enable-ntopng (default NO). Sends the flows to ntopng 6.0 or
 # later over ZeroMQ with -v ntopng.
 option(SOFTFLOW_NTOPNG "Enable flow sending to ntopng with ZeroMQ" OFF)
+option(SOFTFLOW_DOC_WARN_AS_ERROR "Make the doc target fail on a Doxygen warning" OFF)
 if(SOFTFLOW_NTOPNG)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(ZMQ REQUIRED IMPORTED_TARGET libzmq)
@@ -138,7 +139,8 @@ add_test(NAME softflowctl COMMAND test_softflowctl)
 
 # API documentation: `cmake --build <dir> --target doc` writes HTML to
 # <dir>/doc/html. Not part of the default build, and skipped when Doxygen is
-# not installed. A Doxygen comment keeps what the C version does as
+# not installed. With -DSOFTFLOW_DOC_WARN_AS_ERROR=ON a Doxygen warning, such as
+# an undocumented declaration, fails it (the doc job of CI). A Doxygen comment keeps what the C version does as
 # "@original" (see DOXYGEN_ALIASES), next to the description of the C++ code.
 find_package(Doxygen OPTIONAL_COMPONENTS dot)
 if(DOXYGEN_FOUND)
@@ -156,6 +158,9 @@ if(DOXYGEN_FOUND)
   set(DOXYGEN_QUIET YES)
   set(DOXYGEN_WARN_IF_UNDOCUMENTED YES)
   set(DOXYGEN_WARN_NO_PARAMDOC NO)
+  if(SOFTFLOW_DOC_WARN_AS_ERROR)
+    set(DOXYGEN_WARN_AS_ERROR FAIL_ON_WARNINGS)
+  endif()
   set(DOXYGEN_ALIASES "original=@par Original (C version)^^")
   if(DOXYGEN_DOT_FOUND)
     set(DOXYGEN_HAVE_DOT YES)

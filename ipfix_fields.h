@@ -93,9 +93,10 @@ static export_encoder_fn enc_interfaceName;
  */
 #define enc_flowStartNanoSeconds enc_flowStartMicroSeconds
 #define enc_flowEndNanoSeconds enc_flowEndMicroSeconds
+/** @brief A field of a template, and the function that encodes its value. */
 struct EXPORT_FIELD_SPECIFIER_ENCODER {
-  struct IPFIX_FIELD_SPECIFIER field;
-  export_encoder_t encoder;
+  struct IPFIX_FIELD_SPECIFIER field; /**< The field specifier of the template */
+  export_encoder_t encoder;           /**< Writes the value of the field */
 };
 #define IPFIX_FIELD_TABLE_TYPE struct EXPORT_FIELD_SPECIFIER_ENCODER
 #define DEF_FIELD_ENC(ie, len, fn) {{(ie), (len)}, (fn)}
@@ -234,10 +235,11 @@ static const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
 #define NETFLOW9_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS \
   (sizeof (field_nf9option) / sizeof (IPFIX_FIELD_TABLE_TYPE))
 
+/** @brief The options template that softflowd sends, as it is on the wire. */
 struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
-  struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS];
-  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];
+  struct IPFIX_OPTION_TEMPLATE_SET_HEADER h;                                     /**< Set header and options template record header */
+  struct IPFIX_FIELD_SPECIFIER s[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_SCOPE_RECORDS]; /**< Scope fields */
+  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_OPTION_TEMPLATE_NRECORDS];      /**< Option fields */
 } __packed;
 
 /* Stuff pertaining to the templates that softflowd uses */
@@ -268,11 +270,13 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
 #define IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS \
   (IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS + IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS)
 
+/** @brief A flow template that softflowd sends, as it is on the wire. */
 struct IPFIX_SOFTFLOWD_TEMPLATE {
-  struct IPFIX_TEMPLATE_SET_HEADER h;
-  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];
-  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS];
-  u_int16_t data_len, bi_count;
+  struct IPFIX_TEMPLATE_SET_HEADER h;                                          /**< Set header and template record header */
+  struct IPFIX_FIELD_SPECIFIER r[IPFIX_SOFTFLOWD_TEMPLATE_NRECORDS];           /**< Field specifiers of the fields */
+  struct IPFIX_VENDOR_FIELD_SPECIFIER v[IPFIX_SOFTFLOWD_TEMPLATE_BI_NRECORDS]; /**< Field specifiers of the reverse-direction fields of biflow; bi_count of them are used */
+  u_int16_t data_len;                                                          /**< Length in octets of a data record, MPLS labels included */
+  u_int16_t bi_count;                                                          /**< Number of entries of v[] in use */
 } __packed;
 
 #endif /* _IPFIX_FIELDS_H */

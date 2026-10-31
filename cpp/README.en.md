@@ -36,6 +36,10 @@ Doxygen comments: they describe what the C++ code does, and `@original` keeps
 the note about the function or the variable of the C version that it follows
 and about how it differs.
 
+A declaration without a comment is a warning. CI (the job `cpp-doc`) builds with
+`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`, which makes a warning fail the build; use it
+before a commit that adds a declaration.
+
 ## Test
 
 ```sh

@@ -38,3 +38,4 @@ Makefile.in
 /rust/target/
 
 __pycache__/
+/doc-c/

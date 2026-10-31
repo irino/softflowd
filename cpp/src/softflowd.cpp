@@ -876,12 +876,26 @@ FlowTableRuntime::backend () const noexcept {
 
 namespace {
 
+/**
+ * @brief Reads a big-endian 16-bit value.
+ *
+ * @param data The bytes.
+ * @param offset Where the 2 bytes start; the caller makes sure that they are in @p data.
+ * @return The value.
+ */
 std::uint16_t
 read_be16 (std::span<const std::uint8_t> data,
            std::size_t offset) {
   return static_cast<std::uint16_t> ((data[offset] << 8) | data[offset + 1]);
 }
 
+/**
+ * @brief Reads a big-endian 32-bit value.
+ *
+ * @param data The bytes.
+ * @param offset Where the 4 bytes start; the caller makes sure that they are in @p data.
+ * @return The value.
+ */
 std::uint32_t
 read_be32 (std::span<const std::uint8_t> data,
            std::size_t offset) {
@@ -891,16 +905,16 @@ read_be32 (std::span<const std::uint8_t> data,
          static_cast<std::uint32_t> (data[offset + 3]);
 }
 
-constexpr std::uint8_t kProtoIcmp = 1;
-constexpr std::uint8_t kProtoTcp = 6;
-constexpr std::uint8_t kProtoUdp = 17;
-constexpr std::uint8_t kProtoDccp = 33;
-constexpr std::uint8_t kProtoSctp = 132;
-constexpr std::uint8_t kProtoIcmpV6 = 58;
-constexpr std::uint8_t kNextHopByHop = 0;
-constexpr std::uint8_t kNextRouting = 43;
-constexpr std::uint8_t kNextFragment = 44;
-constexpr std::uint8_t kNextDstOptions = 60;
+constexpr std::uint8_t kProtoIcmp = 1;        ///< The IP protocol number of ICMP.
+constexpr std::uint8_t kProtoTcp = 6;         ///< The IP protocol number of TCP.
+constexpr std::uint8_t kProtoUdp = 17;        ///< The IP protocol number of UDP.
+constexpr std::uint8_t kProtoDccp = 33;       ///< The IP protocol number of DCCP.
+constexpr std::uint8_t kProtoSctp = 132;      ///< The IP protocol number of SCTP.
+constexpr std::uint8_t kProtoIcmpV6 = 58;     ///< The IP protocol number of ICMPv6.
+constexpr std::uint8_t kNextHopByHop = 0;     ///< The next header value of the IPv6 Hop-by-Hop Options header.
+constexpr std::uint8_t kNextRouting = 43;     ///< The next header value of the IPv6 Routing header.
+constexpr std::uint8_t kNextFragment = 44;    ///< The next header value of the IPv6 Fragment header.
+constexpr std::uint8_t kNextDstOptions = 60;  ///< The next header value of the IPv6 Destination Options header.
 
 }  // namespace
 
@@ -1583,24 +1597,45 @@ namespace {
 // of the original's single-letter flags, and are filtered out of argv
 // before the original's getopt()-based option string is parsed.
 
-enum class ExportFormat { None,
-                          Netflow1,
-                          Netflow5,
-                          Netflow9,
-                          Ipfix,
-                          Psamp,
-                          Ntopng };
+/**
+ * @brief The format of the export, which -v chooses.
+ */
+enum class ExportFormat {
+  None,      ///< No exporter; no option of the command line gives this format.
+  Netflow1,  ///< NetFlow version 1.
+  Netflow5,  ///< NetFlow version 5, the default.
+  Netflow9,  ///< NetFlow version 9.
+  Ipfix,     ///< IPFIX (-v 10).
+  Psamp,     ///< PSAMP (-v psamp).
+  Ntopng     ///< ntopng messages (-v ntopng); only with ZeroMQ.
+};
 
-enum class TransportProtocol { Udp,
-                               Tcp,
-                               Sctp };
+/**
+ * @brief The transport protocol of the export, which -P chooses.
+ */
+enum class TransportProtocol {
+  Udp,  ///< UDP.
+  Tcp,  ///< TCP.
+  Sctp  ///< SCTP; see the README for what is supported.
+};
 
-enum class TimeFormat { SysUpTime,
-                        Seconds,
-                        Milliseconds,
-                        Microseconds,
-                        Nanoseconds };
+/**
+ * @brief The format of the times in IPFIX and PSAMP records, which -A chooses.
+ */
+enum class TimeFormat {
+  SysUpTime,     ///< Milliseconds since the start of the exporter; the default.
+  Seconds,       ///< Seconds since the epoch.
+  Milliseconds,  ///< Milliseconds since the epoch.
+  Microseconds,  ///< Microseconds since the epoch.
+  Nanoseconds    ///< Nanoseconds since the epoch; written like Microseconds (see write_time_values() in export.cpp).
+};
 
+/**
+ * @brief Converts a time format to the one of the exporters.
+ *
+ * @param format The time format of -A.
+ * @return The same format as an IpfixTimeFormat.
+ */
 softflow::IpfixTimeFormat
 to_ipfix_time_format (TimeFormat format) {
   switch (format) {
@@ -1618,6 +1653,12 @@ to_ipfix_time_format (TimeFormat format) {
   return softflow::IpfixTimeFormat::SysUpTime;
 }
 
+/**
+ * @brief Gives the name of an export format.
+ *
+ * @param format The format.
+ * @return The name: "none", "netflow1", "netflow5", "netflow9", "ipfix", "psamp" or "ntopng".
+ */
 const char *
 format_name (ExportFormat format) {
   switch (format) {
@@ -1639,6 +1680,12 @@ format_name (ExportFormat format) {
   return "unknown";
 }
 
+/**
+ * @brief Gives the name of a track level, as -T takes it.
+ *
+ * @param level The track level.
+ * @return The name: "ip", "proto", "port", "full", "full-tos", "vlan" or "ether".
+ */
 const char *
 track_level_name (softflow::TrackLevel level) {
   using softflow::TrackLevel;
@@ -1661,62 +1708,66 @@ track_level_name (softflow::TrackLevel level) {
   return "full";
 }
 
-// Original: softflowd.c's -n / -p / -c / -m / -t / -T / -v / -L / etc.
-// gathered into one struct rather than threaded through main() as
-// individual local variables, since there are simply too many of them for
-// that to stay readable. Field-by-field comments note the corresponding
-// original option letter.
+/**
+ * @brief The settings of a run: what the command line gave, and the defaults of the original for the rest.
+ *
+ * @original softflowd.c's -n / -p / -c / -m / -t / -T / -v / -L / etc.
+ * gathered into one struct rather than threaded through main() as
+ * individual local variables, since there are simply too many of them for
+ * that to stay readable. Field-by-field comments note the corresponding
+ * original option letter.
+ */
 struct DaemonConfig {
-  std::string interface;        // -i
-  std::uint16_t if_index = 0;   // -i idx:interface (or looked up at the start)
-  bool user_ifindex = false;    // the index was given with -i
-  std::string pcap_file;        // -r
-  bool no_promiscuous = false;  // -N
+  std::string interface;        ///< The interface to capture from (-i).
+  std::uint16_t if_index = 0;   ///< The interface index of the records: the one that -i idx:interface gave, or otherwise looked up at the start.
+  bool user_ifindex = false;    ///< true when -i gave the index.
+  std::string pcap_file;        ///< The file to read packets from (-r).
+  bool no_promiscuous = false;  ///< true when the interface is not put into promiscuous mode (-N).
 
-  std::vector<std::pair<std::string, std::string>> destinations;  // -n (host,port)
-  bool load_balance = false;                                      // -l
-  std::optional<int> ttl;                                         // -L
-  std::string source_address;                                     // -e
-  std::string send_interface;                                     // -S
+  std::vector<std::pair<std::string, std::string>> destinations;  ///< The destinations as (host, port) pairs (-n).
+  bool load_balance = false;                                      ///< true when the destinations take turns (-l).
+  std::optional<int> ttl;                                         ///< The TTL of the export packets (-L), if given.
+  std::string source_address;                                     ///< The source address of the export packets (-e).
+  std::string send_interface;                                     ///< The interface to send the export packets from (-S).
 
-  std::string pidfile = softflow::kDefaultPidFilePath;         // -p
-  std::string ctl_sock = softflow::kDefaultControlSocketPath;  // -c
-  bool replay_control = false;  // -c after -r
+  std::string pidfile = softflow::kDefaultPidFilePath;         ///< The path of the pid file (-p).
+  std::string ctl_sock = softflow::kDefaultControlSocketPath;  ///< The path of the control socket (-c).
+  bool replay_control = false;                                 ///< true when -c came after -r, so that the control socket is served while a file is read.
 
-  std::size_t max_flows = 8192;  // -m (original default)
+  std::size_t max_flows = 8192;  ///< The number of flows that are tracked at most (-m).
 
-  softflow::FlowTimeouts timeouts;          // -t
-  std::chrono::seconds expiry_interval{60};  // -t expint (DEFAULT_EXPIRY_INTERVAL)
+  softflow::FlowTimeouts timeouts;           ///< The timeouts of the flows (-t).
+  std::chrono::seconds expiry_interval{60};  ///< The interval between the checks for expired flows (-t expint).
 
-  bool no_daemonize = false;  // -d
-  bool force_ipv6 = false;    // -6
-  bool debug = false;         // -D (implies -d and -6, plus extra output)
+  bool no_daemonize = false;  ///< true when softflowd stays in the foreground (-d).
+  bool force_ipv6 = false;    ///< true when IPv6 flows are tracked for every format (-6).
+  bool debug = false;         ///< true for the debug output (-D, which implies -d and -6).
 
-  softflow::TrackLevel track_level = softflow::TrackLevel::IpProtoPort;  // -T
+  softflow::TrackLevel track_level = softflow::TrackLevel::IpProtoPort;  ///< What a flow is identified by (-T).
 
-  ExportFormat export_format = ExportFormat::Netflow5;  // -v (default: version 5)
+  ExportFormat export_format = ExportFormat::Netflow5;  ///< The export format (-v).
 
-  TransportProtocol transport = TransportProtocol::Udp;  // -P (udp and tcp implemented; see README for sctp)
-  TimeFormat time_format = TimeFormat::SysUpTime;        // -A (sec/milli/micro/nano/sysuptime[default] -- IPFIX/PSAMP only)
-  std::uint32_t sampling_rate = 1;                       // -s (1 = every packet, no sampling)
-  int snaplen = 0;                                       // -C (0 = 96, or 160 for IPv6)
-  std::size_t buffer_bytes = 0;                          // -B (0 = let libpcap choose)
-  bool bidirectional_ipfix = false;                      // -b (simplified; see README)
-  int mpls_labels = 0;                                   // -x (implemented for -v 9/10)
-  std::optional<int> psamp_receive_port;                 // -R (alone, or with -i, which is then read first)
-  bool adjust_pcap_time = false;                         // -a
-  std::chrono::seconds boot_time_reinit{0};              // -I (0 = disabled)
-  bool gauge_clock = false;                              // -g
-  bool full_l4hdr_check = false;                         // -f
-  bool multithread = false;                              // -M
-  std::optional<std::array<std::uint8_t, 6>> direction_mac;  // -H
+  TransportProtocol transport = TransportProtocol::Udp;      ///< The transport protocol of the export (-P).
+  TimeFormat time_format = TimeFormat::SysUpTime;            ///< The format of the times (-A); for IPFIX and PSAMP only.
+  std::uint32_t sampling_rate = 1;                           ///< One packet of every this many is tracked (-s); 1 tracks every packet.
+  int snaplen = 0;                                           ///< The snapshot length (-C); 0 for the default of 96 bytes, or 160 bytes with IPv6.
+  std::size_t buffer_bytes = 0;                              ///< The size of the capture buffer (-B); 0 for the size libpcap chooses.
+  bool bidirectional_ipfix = false;                          ///< true for biflow records (-b).
+  int mpls_labels = 0;                                       ///< The number of MPLS labels in a record (-x); for NetFlow v9 and IPFIX.
+  std::optional<int> psamp_receive_port;                     ///< The port to receive PSAMP on (-R), if given.
+  bool adjust_pcap_time = false;                             ///< true to use the times of the packets as the current time (-a).
+  std::chrono::seconds boot_time_reinit{0};                  ///< The interval at which the boot time is reset (-I); 0 for never.
+  bool gauge_clock = false;                                  ///< true to report the time that the export takes (-g).
+  bool full_l4hdr_check = false;                             ///< true to check the size of the whole transport header (-f).
+  bool multithread = false;                                  ///< true to export on another thread (-M).
+  std::optional<std::array<std::uint8_t, 6>> direction_mac;  ///< The Ethernet address that decides flowDirection (-H), if given.
 
-  std::string bpf_filter;  // trailing bpf_expression
+  std::string bpf_filter;  ///< The BPF expression at the end of the command line.
 
   // --- This project's own additions (not part of the original grammar) ---
-  softflow::FlowLookup flow_lookup = softflow::FlowLookup::HashTree;      // -F
-  std::string export_out;                                                 // --export-out=PATH
-  std::optional<std::chrono::seconds> max_runtime;                        // --max-runtime=SECONDS
+  softflow::FlowLookup flow_lookup = softflow::FlowLookup::HashTree;  ///< How flows are looked up (-F).
+  std::string export_out;                                             ///< The file to write the export packets to (--export-out), if given.
+  std::optional<std::chrono::seconds> max_runtime;                    ///< The time after which softflowd stops (--max-runtime), if given.
 };
 
 // An error of the start of the daemon that is reported as it is, as the
@@ -1729,10 +1780,21 @@ public:
 void
 print_usage ();
 
-// Original: IPFIX_PORT of ipfix.h, the default port of -R.
+/**
+ * @brief The default port of -R: 4739.
+ *
+ * @original IPFIX_PORT of ipfix.h, the default port of -R.
+ */
 constexpr int kDefaultIpfixPort = 4739;
 
-// Original: die_usage (). Prints the message and the usage, then exits.
+/**
+ * @brief Prints a message and the usage to the standard error, and exits with 1.
+ *
+ * @param fmt The format of the message, as for printf().
+ * @param ... The values for the format.
+ *
+ * @original die_usage (). Prints the message and the usage, then exits.
+ */
 [[noreturn]] void
 die_usage (const char *fmt, ...)
   __attribute__ ((format (printf, 1, 2)));
@@ -1746,10 +1808,19 @@ die_usage (const char *fmt, ...) {
   std::exit (1);
 }
 
-// Original: convtime.c. A time of the form time[qualifier][time[qualifier]...],
-// e.g. "10m", "1h30m", or a bare number of seconds like "600"; each term is
-// summed. Returns -1 for an invalid time. The original does not check the
-// products for an overflow, which is not defined for it; -1 is returned here.
+/**
+ * @brief Reads a time with qualifiers, such as "90", "10m" or "1h30m".
+ *
+ * The qualifiers are s, m, h, d and w (seconds, minutes, hours, days and weeks), in either case; a number without one is seconds.
+ *
+ * @param s The text.
+ * @return The number of seconds, or -1 when the text is empty, has a negative number or an unknown qualifier, or does not fit.
+ *
+ * @original convtime.c. A time of the form time[qualifier][time[qualifier]...],
+ * e.g. "10m", "1h30m", or a bare number of seconds like "600"; each term is
+ * summed. Returns -1 for an invalid time. The original does not check the
+ * products for an overflow, which is not defined for it; -1 is returned here.
+ */
 long
 convtime (const char *s) {
   errno = 0;
@@ -1802,10 +1873,19 @@ convtime (const char *s) {
   return total;
 }
 
-// Original: set_timeout (). -t timeout_name=time. Named timeouts are:
-// general, tcp, tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see
-// softflowd(8)'s "Timeouts" section). As in the original, the time is kept in
-// an int, so a longer one is rejected.
+/**
+ * @brief Applies one -t option, "name=time".
+ *
+ * It prints the usage and exits for a bad name or time, and exits with 1 when the general timeout would be 0.
+ *
+ * @param config The settings to change; expint sets expiry_interval, the others set timeouts.
+ * @param to_spec The text of the option.
+ *
+ * @original set_timeout (). -t timeout_name=time. Named timeouts are:
+ * general, tcp, tcp.rst, tcp.fin, udp, icmp, maxlife, expint (see
+ * softflowd(8)'s "Timeouts" section). As in the original, the time is kept in
+ * an int, so a longer one is rejected.
+ */
 void
 set_timeout (DaemonConfig &config, const char *to_spec) {
   const std::string spec = to_spec;
@@ -1848,8 +1928,15 @@ set_timeout (DaemonConfig &config, const char *to_spec) {
   }
 }
 
-// Original: -T track_level (the name is not case sensitive). Returns nothing
-// for an unknown name.
+/**
+ * @brief Reads the name of a track level of -T.
+ *
+ * @param s The name, in either case.
+ * @return The level, or nothing for an unknown name.
+ *
+ * @original -T track_level (the name is not case sensitive). Returns nothing
+ * for an unknown name.
+ */
 std::optional<softflow::TrackLevel>
 parse_track_level (const char *s) {
   using softflow::TrackLevel;
@@ -1870,8 +1957,17 @@ parse_track_level (const char *s) {
   return std::nullopt;
 }
 
-// Original: -v netflow_version. As in the original, a number is read by
-// atoi (), so that "5x" is version 5. Returns nothing for an unknown version.
+/**
+ * @brief Reads the argument of -v.
+ *
+ * "ntopng" is known only when softflowd is built with ZeroMQ (SOFTFLOW_HAVE_ZMQ).
+ *
+ * @param s A version number, "psamp" or "ntopng".
+ * @return The format, or nothing for an unknown one.
+ *
+ * @original -v netflow_version. As in the original, a number is read by
+ * atoi (), so that "5x" is version 5. Returns nothing for an unknown version.
+ */
 std::optional<ExportFormat>
 parse_netflow_version (const char *s) {
   if (std::strcmp (s, "psamp") == 0)
@@ -1894,8 +1990,15 @@ parse_netflow_version (const char *s) {
   }
 }
 
-// Original: -P transport_protocol (the name is not case sensitive). Returns
-// nothing for an unknown name.
+/**
+ * @brief Reads the argument of -P.
+ *
+ * @param s The name, in either case.
+ * @return The protocol, or nothing for an unknown name.
+ *
+ * @original -P transport_protocol (the name is not case sensitive). Returns
+ * nothing for an unknown name.
+ */
 std::optional<TransportProtocol>
 parse_transport_protocol (const char *s) {
   if (strcasecmp (s, "udp") == 0)
@@ -1907,8 +2010,15 @@ parse_transport_protocol (const char *s) {
   return std::nullopt;
 }
 
-// Original: -A time_format (the name is not case sensitive). Returns nothing
-// for an unknown name.
+/**
+ * @brief Reads the argument of -A.
+ *
+ * @param s The name ("sec", "milli", "micro" or "nano"), in either case.
+ * @return The format, or nothing for an unknown name.
+ *
+ * @original -A time_format (the name is not case sensitive). Returns nothing
+ * for an unknown name.
+ */
 std::optional<TimeFormat>
 parse_time_format (const char *s) {
   if (strcasecmp (s, "sec") == 0)
@@ -1922,12 +2032,21 @@ parse_time_format (const char *s) {
   return std::nullopt;
 }
 
-// Original: parse_hostport () and parse_hostports (). -n host:port[,host:port...].
-// A numeric IPv6 address is bracketed (e.g. "[::1]:4432") so that its colons
-// are not taken for the port separator. Each destination is resolved here, as
-// the original does, so that one that cannot be is reported when softflowd
-// starts. The original takes no more than 16 destinations and ignores the
-// rest.
+/**
+ * @brief Reads the argument of -n: destinations of the form host:port, separated by commas.
+ *
+ * It prints the usage and exits for a bad argument, and exits with 1 for a destination that cannot be resolved.
+ *
+ * @param spec The argument.
+ * @return The (host, port) pairs, without the brackets of an IPv6 host.
+ *
+ * @original parse_hostport () and parse_hostports (). -n host:port[,host:port...].
+ * A numeric IPv6 address is bracketed (e.g. "[::1]:4432") so that its colons
+ * are not taken for the port separator. Each destination is resolved here, as
+ * the original does, so that one that cannot be is reported when softflowd
+ * starts. The original takes no more than 16 destinations and ignores the
+ * rest.
+ */
 std::vector<std::pair<std::string, std::string>>
 parse_destinations (const std::string &spec) {
   constexpr std::size_t kMaxDestinations = 16;
@@ -1982,10 +2101,17 @@ parse_destinations (const std::string &spec) {
   return result;
 }
 
-// Original: -6's documented purpose ("force softflowd to track IPv6 flows
-// even if the NetFlow export protocol does not support reporting them").
-// NetFlow v1 and v5 have no IPv6 record format at all; v9, IPFIX, and
-// PSAMP all support IPv6 natively (see netflow9.hpp/ipfix.hpp/psamp.hpp).
+/**
+ * @brief Tells whether IPv6 flows are tracked.
+ *
+ * @param config The settings.
+ * @return true with -6, and otherwise unless the format is NetFlow v1 or v5, which have no IPv6 record.
+ *
+ * @original -6's documented purpose ("force softflowd to track IPv6 flows
+ * even if the NetFlow export protocol does not support reporting them").
+ * NetFlow v1 and v5 have no IPv6 record format at all; v9, IPFIX, and
+ * PSAMP all support IPv6 natively (see netflow9.hpp/ipfix.hpp/psamp.hpp).
+ */
 bool
 should_track_ipv6 (const DaemonConfig &config) {
   if (config.force_ipv6) {
@@ -2000,17 +2126,24 @@ should_track_ipv6 (const DaemonConfig &config) {
   }
 }
 
-// =======================================================================
-// write_framed_packets (this project's own --export-out extension)
-// =======================================================================
-//
-// Writes each export packet to `path` with a simple 4-byte big-endian
-// length prefix, so a human or a small script can split the file back
-// into individual UDP payloads without needing to parse each protocol's
-// framing just to find record boundaries. This is specific to this
-// project's own debug/demo output file, not part of any of the wire
-// protocols themselves, and not part of the original softflowd (which
-// only ever sends export packets over the network via -n).
+/**
+ * @brief Writes export packets to a file, each after its length as 4 bytes in big-endian order.
+ *
+ * A script can thus split the file into the packets without knowing the protocol. It is the --export-out file of this project; the original has no such file.
+ *
+ * Writes each export packet to `path` with a simple 4-byte big-endian
+ * length prefix, so a human or a small script can split the file back
+ * into individual UDP payloads without needing to parse each protocol's
+ * framing just to find record boundaries. This is specific to this
+ * project's own debug/demo output file, not part of any of the wire
+ * protocols themselves, and not part of the original softflowd (which
+ * only ever sends export packets over the network via -n).
+ *
+ * @param path The file.
+ * @param packets The packets; nothing is written, and the file is not touched, when there are none.
+ * @param append true to append to the file, and false to start it anew.
+ * @throw std::runtime_error when the file cannot be opened.
+ */
 void
 write_framed_packets (const std::string &path,
                       const std::vector<std::vector<std::uint8_t>> &packets,
@@ -2044,12 +2177,21 @@ write_framed_packets (const std::string &path,
   }
 }
 
-// Original: pcap_memcpy () and process_packet_loop () with -M. The capture
-// loop hands one packet at a time to another thread, which does the flow
-// tracking, and waits for it to be finished with the previous packet first.
-// The packet is copied because libpcap reuses its buffer.
+/**
+ * @brief Tracks flows on another thread for -M, one packet at a time.
+ *
+ * @original pcap_memcpy () and process_packet_loop () with -M. The capture
+ * loop hands one packet at a time to another thread, which does the flow
+ * tracking, and waits for it to be finished with the previous packet first.
+ * The packet is copied because libpcap reuses its buffer.
+ */
 class PacketProcessor {
 public:
+  /**
+   * @brief Starts the thread that processes the packets.
+   *
+   * @param process The function that tracks one packet; it runs on the new thread.
+   */
   explicit PacketProcessor (
     std::function<void (const softflow::CapturedPacket &)> process)
       : process_ (std::move (process)), thread_ ([this] { run(); }) {
@@ -2068,6 +2210,13 @@ public:
     thread_.join();
   }
 
+  /**
+   * @brief Hands one packet over to the thread.
+   *
+   * It waits until the thread is done with the previous packet, and copies the data of the packet. An exception that the processing of the previous packet threw is thrown again here.
+   *
+   * @param pkt The packet.
+   */
   void
   submit (const softflow::CapturedPacket &pkt) {
     std::unique_lock<std::mutex> lock (mutex_);
@@ -2080,8 +2229,14 @@ public:
     cv_.notify_one();
   }
 
-  // Original: wait_for_packet_loop_idle (). What the processing thread
-  // shares with the main thread may be used again after this returns.
+  /**
+   * @brief Waits until the thread has finished the packet that it was given.
+   *
+   * An exception that the processing threw is thrown again here.
+   *
+   * @original wait_for_packet_loop_idle (). What the processing thread
+   * shares with the main thread may be used again after this returns.
+   */
   void
   wait_idle () {
     std::unique_lock<std::mutex> lock (mutex_);
@@ -2127,19 +2282,28 @@ private:
   std::thread thread_;  // last: it starts using the members above
 };
 
-// =======================================================================
-// ExportPipeline (original: softflowd.c's per-destination NetFlow/IPFIX/
-// PSAMP state and send_multi_destinations())
-// =======================================================================
-//
-// Owns exactly one of the five Stage 3 exporters (selected by -v),
-// this run's -n destinations (if any), and this project's own
-// --export-out file (if requested). Every place that needs to export
-// flows or PSAMP samples goes through this one object instead of
-// repeating the "which exporter, which destinations, which file" dispatch
-// logic at each call site.
+/**
+ * @brief Exports flows and PSAMP samples to the destinations, the --export-out file and ntopng, with the one exporter that -v chose.
+ *
+ * Owns exactly one of the five Stage 3 exporters (selected by -v),
+ * this run's -n destinations (if any), and this project's own
+ * --export-out file (if requested). Every place that needs to export
+ * flows or PSAMP samples goes through this one object instead of
+ * repeating the "which exporter, which destinations, which file" dispatch
+ * logic at each call site.
+ *
+ * @original ExportPipeline (original: softflowd.c's per-destination NetFlow/IPFIX/ PSAMP state and send_multi_destinations())
+ */
 class ExportPipeline {
 public:
+  /**
+   * @brief Makes the exporter of the format that -v chose, and opens the destinations (or the ntopng sinks) and the --export-out file.
+   *
+   * A destination that cannot be opened throws a softflow::ExportError; for -P sctp it only prints a warning and falls back to UDP.
+   *
+   * @param config The settings.
+   * @param boot_time The time when the exporter started, which SysUpTime counts from.
+   */
   ExportPipeline (const DaemonConfig &config, softflow::TimePoint boot_time)
       : format_ (config.export_format), gauge_clock_ (config.gauge_clock),
         multithread_ (config.multithread),
@@ -2237,11 +2401,6 @@ public:
     }
   }
 
-  // True if there is anywhere for export packets to actually go
-  // (a real -n destination and/or this project's --export-out file).
-  // Original: with no -n, softflowd runs in "statistics gathering
-  // mode only" -- flows are still tracked and expired, but no export
-  // packets are built or sent at all.
   ExportPipeline (const ExportPipeline &) = delete;
   ExportPipeline &
   operator= (const ExportPipeline &) = delete;
@@ -2258,16 +2417,29 @@ public:
     }
   }
 
-  // Original: wait_for_export_threads (). Blocks until every export that
-  // was queued by -M has been sent.
+  /**
+   * @brief Waits until every export that -M queued has been sent.
+   *
+   * @original wait_for_export_threads (). Blocks until every export that
+   * was queued by -M has been sent.
+   */
   void
   wait_idle () {
     std::unique_lock<std::mutex> lock (queue_mutex_);
     idle_cv_.wait (lock, [&] { return queue_.empty() && !busy_; });
   }
 
-  // Moves what the export thread has sent since the last call into the
-  // statistics of the flow table; a no-op without -M.
+  /**
+   * @brief Adds what the export thread has sent since the last call to the statistics of a flow table.
+   *
+   * Without -M there is nothing to add.
+   *
+   * Moves what the export thread has sent since the last call into the
+   * statistics of the flow table; a no-op without -M.
+   *
+   * @param table The flow table; it provides record_export_stats ().
+   * @tparam Table The type of the flow table.
+   */
   template <typename Table>
   void
   sync_stats (Table &table) {
@@ -2282,6 +2454,11 @@ public:
     }
   }
 
+  /**
+   * @brief Gives the number of ntopng destinations.
+   *
+   * @return The number; 0 when built without ZeroMQ.
+   */
   std::size_t
   ntopng_sink_count () const noexcept {
 #ifdef SOFTFLOW_HAVE_ZMQ
@@ -2291,28 +2468,53 @@ public:
 #endif
   }
 
+  /**
+   * @brief Tells whether the export packets have anywhere to go.
+   *
+   * @return true when there is a destination, an ntopng sink or the --export-out file.
+   *
+   * @original with no -n, softflowd runs in "statistics gathering
+   * mode only" -- flows are still tracked and expired, but no export
+   * packets are built or sent at all.
+   */
   bool
   has_sink () const noexcept {
     return !destinations_.empty() || !export_out_.empty() ||
            ntopng_sink_count() != 0;
   }
 
+  /**
+   * @brief Tells whether the format exports flows.
+   *
+   * @return true for every format except PSAMP and None.
+   */
   bool
   wants_flows () const noexcept {
     // Original: without a destination the packets are made, counted as
     // exported and sent nowhere.
     return format_ != ExportFormat::Psamp && format_ != ExportFormat::None;
   }
+  /**
+   * @brief Tells whether the format exports sampled packets.
+   *
+   * @return true for PSAMP.
+   */
   bool
   wants_samples () const noexcept {
     return format_ == ExportFormat::Psamp;
   }
 
-  // Original: softflowctl(8)'s send-template ("Has no effect for other
-  // flow export versions" besides NetFlow v9). Returns true if this
-  // pipeline was actually able to honor the request (i.e. is running
-  // NetFlow v9), so the control-command handler can report accurately
-  // whether anything happened.
+  /**
+   * @brief Makes the exporter send its templates again; it is the send-template command.
+   *
+   * @return true when the format has templates (NetFlow v9 or IPFIX), and otherwise false.
+   *
+   * @original softflowctl(8)'s send-template ("Has no effect for other
+   * flow export versions" besides NetFlow v9). Returns true if this
+   * pipeline was actually able to honor the request (i.e. is running
+   * NetFlow v9), so the control-command handler can report accurately
+   * whether anything happened.
+   */
   bool
   resend_template () {
     std::lock_guard<std::mutex> state_lock (state_mutex_);
@@ -2323,10 +2525,17 @@ public:
     return false;
   }
 
-  // Original: -I boot_time_reinit periodic reset, driven by the main
-  // loop's expiry-check cadence. No-op for exporters that don't use
-  // boot_time (PSAMP; IPFIX's SysUpTime encoding uses it too, but is
-  // reinitialized here alongside the others).
+  /**
+   * @brief Sets the boot time of the exporters again (-I).
+   *
+   * @param now The new boot time on Clock.
+   * @param wall_now The wall-clock time that corresponds to @p now; the current time by default.
+   *
+   * @original -I boot_time_reinit periodic reset, driven by the main
+   * loop's expiry-check cadence. No-op for exporters that don't use
+   * boot_time (PSAMP; IPFIX's SysUpTime encoding uses it too, but is
+   * reinitialized here alongside the others).
+   */
   void
   reinit_boot_time (softflow::TimePoint now,
                     std::chrono::system_clock::time_point wall_now =
@@ -2341,28 +2550,51 @@ public:
     }
   }
 
-  // flows/records/packets/failures actually sent, so the caller can
-  // report them into FlowTableStats (see FlowTable::record_export_stats).
+  /**
+   * @brief What an export sent, to be added to the statistics of the flow table.
+   *
+   * flows/records/packets/failures actually sent, so the caller can
+   * report them into FlowTableStats (see FlowTable::record_export_stats).
+   */
   struct ExportOutcome {
-    std::uint64_t flows = 0;
-    std::uint64_t records = 0;
-    std::uint64_t packets = 0;
-    std::uint64_t failures = 0;
+    std::uint64_t flows = 0;     ///< The flows exported.
+    std::uint64_t records = 0;   ///< The records sent.
+    std::uint64_t packets = 0;   ///< The packets sent; for ntopng, the messages.
+    std::uint64_t failures = 0;  ///< The failures to send; none is detected now, so it is 0.
   };
 
+  /**
+   * @brief Gives the CPU clock ticks that the export has taken (-g).
+   *
+   * @return The ticks.
+   */
   std::clock_t
   export_clocks () const {
     return export_clocks_;
   }
 
+  /**
+   * @brief Gives the number of exports whose clock ticks are counted (-g).
+   *
+   * @return The number.
+   */
   unsigned long
   export_calls () const {
     return export_calls_;
   }
 
-  // Original: with -M the expired flows are copied and sent by another
-  // thread. A single export thread keeps the packets, and so the sequence
-  // numbers, in order. The outcome is then reported later, by sync_stats ().
+  /**
+   * @brief Exports expired flows, at once or, with -M, on the export thread.
+   *
+   * @param records The flows.
+   * @param now The current time on Clock.
+   * @param wall_now The wall-clock time that corresponds to @p now.
+   * @return What was sent. With -M it is empty, and sync_stats () reports it later.
+   *
+   * @original with -M the expired flows are copied and sent by another
+   * thread. A single export thread keeps the packets, and so the sequence
+   * numbers, in order. The outcome is then reported later, by sync_stats ().
+   */
   ExportOutcome
   export_flows (const std::vector<softflow::ExportRecord> &records,
                 softflow::TimePoint now,
@@ -2384,12 +2616,18 @@ public:
     return {};
   }
 
+  /**
+   * @brief Expired flows that wait in the queue of the export thread (-M).
+   */
   struct Job {
-    std::vector<softflow::ExportRecord> records;
-    softflow::TimePoint now;
-    std::chrono::system_clock::time_point wall_now;
+    std::vector<softflow::ExportRecord> records;     ///< The flows.
+    softflow::TimePoint now;                         ///< The current time on Clock when they expired.
+    std::chrono::system_clock::time_point wall_now;  ///< The wall-clock time that corresponds to #now.
   };
 
+  /**
+   * @brief The body of the export thread of -M: it exports the jobs of the queue until it is stopped and the queue is empty.
+   */
   void
   export_thread () {
     std::unique_lock<std::mutex> lock (queue_mutex_);
@@ -2413,9 +2651,18 @@ public:
     }
   }
 
-  // Original: send_ntopng (). Every message goes to every destination. As in
-  // the original the flows are not counted as exported, only the records
-  // and the messages are.
+  /**
+   * @brief Makes the ntopng messages of flows and sends every message to every destination.
+   *
+   * @param records The flows.
+   * @param now The current time on Clock.
+   * @param wall_now The wall-clock time that corresponds to @p now.
+   * @return The records and the messages that were made; the flows are not counted.
+   *
+   * @original send_ntopng (). Every message goes to every destination. As in
+   * the original the flows are not counted as exported, only the records
+   * and the messages are.
+   */
   ExportOutcome
   export_ntopng (const std::vector<softflow::ExportRecord> &records,
                  softflow::TimePoint now,
@@ -2434,6 +2681,16 @@ public:
     return outcome;
   }
 
+  /**
+   * @brief Makes the packets of flows in the format of -v, sends them, and counts what was sent.
+   *
+   * With -g, the CPU clock ticks of the call are added to export_clocks ().
+   *
+   * @param records The flows.
+   * @param now The current time on Clock.
+   * @param wall_now The wall-clock time that corresponds to @p now.
+   * @return What was sent. The flows are the flows that were given, but for NetFlow v1 and v5 they are the records; failures is 0. Nothing is sent when there are no flows or the format does not export flows.
+   */
   ExportOutcome
   export_now (const std::vector<softflow::ExportRecord> &records,
               softflow::TimePoint now,
@@ -2524,8 +2781,15 @@ public:
     return ExportOutcome{flow_count, record_count, packets.size(), 0};
   }
 
-  // Original: send_psamp (). One message per sampled packet, sent at once.
-  // The template message goes to every destination, whatever -l says.
+  /**
+   * @brief Sends one PSAMP message for a sampled packet.
+   *
+   * @param sample The sampled packet.
+   * @param adjust_time true with -a; it is handed to the exporter as it is.
+   *
+   * @original send_psamp (). One message per sampled packet, sent at once.
+   * The template message goes to every destination, whatever -l says.
+   */
   void
   export_psamp (const softflow::PsampSample &sample, bool adjust_time) {
     std::lock_guard<std::mutex> state_lock (state_mutex_);
@@ -2588,37 +2852,49 @@ private:
 #endif
 };
 
-// Original: -x number_of_mpls_labels. An MPLS-encapsulated frame (EtherType
-// 0x8847 unicast / 0x8848 multicast) carries one or more 4-byte label
-// stack entries before the actual IP header; there is no explicit
-// "next protocol" field, so -- following the same convention other MPLS-
-// aware tools use -- the IP version nibble of the first byte after the
-// label stack determines whether what follows is IPv4 or IPv6.
-// Original: `tmp.mplsLabels[i] = *(((const u_int32_t *) (frame +
-// datalink_size)) + i);` -- a raw, NOT byte-swapped, 4-byte memory copy of
-// each MPLS shim header straight from the wire into a u_int32_t. Read
-// this way (no ntohl()) and later written out the same way (another raw
-// memcpy(), not htonl()) in ipfix_flow_to_flowset(), the net effect
-// cancels out to a verbatim pass-through of the original wire bytes' top
-// 3 octets (label(20 bits) | EXP(3 bits) | S(1 bit), dropping only the
-// TTL octet) into the IPFIX mplsTopLabelStackSectionN field -- see
-// export.cpp's write_mpls_labels(). So `section` here is exactly those
-// top 3 octets (bits 31-8 of the 4-byte shim), stored verbatim rather
-// than decomposed into a label number, so it can be passed through
-// unchanged instead of needing to be (incompletely -- see the EXP bits)
-// reconstructed at export time.
+/**
+ * @brief One entry of an MPLS label stack.
+ *
+ * @original -x number_of_mpls_labels. An MPLS-encapsulated frame (EtherType
+ * 0x8847 unicast / 0x8848 multicast) carries one or more 4-byte label
+ * stack entries before the actual IP header; there is no explicit
+ * "next protocol" field, so -- following the same convention other MPLS-
+ * aware tools use -- the IP version nibble of the first byte after the
+ * label stack determines whether what follows is IPv4 or IPv6.
+ * Original: `tmp.mplsLabels[i] = *(((const u_int32_t *) (frame +
+ * datalink_size)) + i);` -- a raw, NOT byte-swapped, 4-byte memory copy of
+ * each MPLS shim header straight from the wire into a u_int32_t. Read
+ * this way (no ntohl()) and later written out the same way (another raw
+ * memcpy(), not htonl()) in ipfix_flow_to_flowset(), the net effect
+ * cancels out to a verbatim pass-through of the original wire bytes' top
+ * 3 octets (label(20 bits) | EXP(3 bits) | S(1 bit), dropping only the
+ * TTL octet) into the IPFIX mplsTopLabelStackSectionN field -- see
+ * export.cpp's write_mpls_labels(). So `section` here is exactly those
+ * top 3 octets (bits 31-8 of the 4-byte shim), stored verbatim rather
+ * than decomposed into a label number, so it can be passed through
+ * unchanged instead of needing to be (incompletely -- see the EXP bits)
+ * reconstructed at export time.
+ */
 struct MplsShimEntry {
-  std::uint32_t section;  // top 3 octets of the shim: label(20)|EXP(3)|S(1)
-  bool bottom_of_stack;
+  std::uint32_t section;  ///< The top 3 octets of the entry: the label (20 bits), EXP (3 bits) and S (1 bit); the TTL is dropped.
+  bool bottom_of_stack;   ///< true for the last entry of the stack (the S bit).
 };
 
-// Parses consecutive 4-byte MPLS label stack entries from the front of
-// `data`, stopping at the entry with the bottom-of-stack (S) bit set.
-// Returns std::nullopt for a truncated or pathologically deep (more than
-// 32 entries -- comfortably beyond anything a real network would ever
-// impose) label stack, the same way the rest of this project's parsing
-// functions signal "not a well-formed packet" rather than reading past
-// the end of `data`.
+/**
+ * @brief Reads the entries of an MPLS label stack, up to the one with the S bit.
+ *
+ * Parses consecutive 4-byte MPLS label stack entries from the front of
+ * `data`, stopping at the entry with the bottom-of-stack (S) bit set.
+ * Returns std::nullopt for a truncated or pathologically deep (more than
+ * 32 entries -- comfortably beyond anything a real network would ever
+ * impose) label stack, the same way the rest of this project's parsing
+ * functions signal "not a well-formed packet" rather than reading past
+ * the end of `data`.
+ *
+ * @param data The bytes, from the first entry.
+ * @param consumed The size of the stack in bytes; it is set only when the stack is read.
+ * @return The entries, or nothing when the stack is cut short or has more than 32 entries.
+ */
 std::optional<std::vector<MplsShimEntry>>
 parse_mpls_label_stack (std::span<const std::uint8_t> data, std::size_t &consumed) {
   std::vector<MplsShimEntry> labels;
@@ -2646,19 +2922,31 @@ parse_mpls_label_stack (std::span<const std::uint8_t> data, std::size_t &consume
   return labels;
 }
 
+/**
+ * @brief What classify_frame () finds out about a frame.
+ */
 struct FrameClassification {
-  softflow::AddressFamily af;
-  std::size_t ip_offset;                   // bytes to skip, from the start of ip_bytes, to reach the IP header
-  std::vector<std::uint32_t> mpls_labels;  // outermost label first; empty if not MPLS-encapsulated
-  std::size_t vlan_size = 0;               // 4 for an 802.1Q tagged Ethernet frame
-  std::uint16_t vlanid = 0;
-  std::array<std::array<std::uint8_t, 6>, 2> ethermac{};  // source, destination
+  softflow::AddressFamily af;                             ///< The family of the IP header.
+  std::size_t ip_offset;                                  ///< The bytes to skip, from the start of ip_bytes, to reach the IP header.
+  std::vector<std::uint32_t> mpls_labels;                 ///< The MPLS labels, outermost first; empty when the frame is not MPLS.
+  std::size_t vlan_size = 0;                              ///< The size of the 802.1Q tag: 4 for a tagged Ethernet frame, otherwise 0.
+  std::uint16_t vlanid = 0;                               ///< The VLAN ID without the priority bits; 0 for an untagged frame.
+  std::array<std::array<std::uint8_t, 6>, 2> ethermac{};  ///< The source and the destination Ethernet address.
 };
 
-// Shared by run_pcap_file() and run_live_capture(): classifies one
-// captured frame's address family (and, for MPLS-encapsulated frames, its
-// label stack) from its data-link header, mapping the original DATALINK
-// table's ft_off/ft_len fields onto this project's DatalinkKind.
+/**
+ * @brief Finds the address family of a frame, and its VLAN tag, MPLS labels and Ethernet addresses.
+ *
+ * Shared by run_pcap_file() and run_live_capture(): classifies one
+ * captured frame's address family (and, for MPLS-encapsulated frames, its
+ * label stack) from its data-link header, mapping the original DATALINK
+ * table's ft_off/ft_len fields onto this project's DatalinkKind.
+ *
+ * @param pkt The captured frame.
+ * @param dl_kind The kind of the data-link header.
+ * @param ip_bytes The bytes of the frame after the data-link header.
+ * @return The classification, or nothing when the frame is too short or is not IP (or MPLS with IP).
+ */
 std::optional<FrameClassification>
 classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_kind,
                 std::span<const std::uint8_t> ip_bytes) {
@@ -2721,10 +3009,22 @@ classify_frame (const softflow::CapturedPacket &pkt, softflow::DatalinkKind dl_k
   return FrameClassification{af, 0, {}, 0, 0, {}};
 }
 
-// =======================================================================
-// Original: softflowd.c's statistics(), called only when reading from a
-// pcap file (-r) in foreground mode (-d) -- see the call site in
-// run_pcap_file() below. Formatting intentionally mirrors the C version.
+/**
+ * @brief Prints the statistics of the flow table in the format of the C version.
+ *
+ * The "Flow table" line is left out for the tree lookup, the counters of libpcap are printed only when the handle has them, and the statistics of the expired flows only when there are some.
+ *
+ * @param s The statistics.
+ * @param active_flows The number of flows in the table.
+ * @param lookup The way flows are looked up (-F).
+ * @param usage The memory and the buckets of the table.
+ * @param out Where to print.
+ * @param handle The capture, for the counters of libpcap; null when there is none.
+ *
+ * @original softflowd.c's statistics(), called only when reading from a
+ * pcap file (-r) in foreground mode (-d) -- see the call site in
+ * run_pcap_file() below. Formatting intentionally mirrors the C version.
+ */
 void
 print_statistics (const softflow::FlowTableStats &s, std::size_t active_flows,
                   softflow::FlowLookup lookup,
@@ -2829,7 +3129,15 @@ print_statistics (const softflow::FlowTableStats &s, std::size_t active_flows,
 // run_pcap_file (original: softflowd.c's -r mode -- process a capture
 // file in a single pass, then print statistics and exit without forking)
 // =======================================================================
-// Original: softflowd.c's format_ethermac().
+
+/**
+ * @brief Writes an Ethernet address as text.
+ *
+ * @param mac The address.
+ * @return Six pairs of lowercase hexadecimal digits that are separated by colons.
+ *
+ * @original softflowd.c's format_ethermac().
+ */
 std::string
 format_ethermac (const std::array<std::uint8_t, 6> &mac) {
   char buf[32];
@@ -2838,7 +3146,14 @@ format_ethermac (const std::array<std::uint8_t, 6> &mac) {
   return buf;
 }
 
-// Original: softflowd.c's format_time() -- gmtime + "%Y-%m-%dT%H:%M:%S".
+/**
+ * @brief Writes a time in UTC.
+ *
+ * @param t The time.
+ * @return The time as YYYY-MM-DDTHH:MM:SS.
+ *
+ * @original softflowd.c's format_time() -- gmtime + "%Y-%m-%dT%H:%M:%S".
+ */
 std::string
 format_time (std::chrono::system_clock::time_point t) {
   const std::time_t tt = std::chrono::system_clock::to_time_t (t);
@@ -2852,8 +3167,16 @@ format_time (std::chrono::system_clock::time_point t) {
 std::string
 format_address (const softflow::IpAddress &addr);
 
-// Original: softflowd.c's format_flow_brief() -- used by the "ADD FLOW"
-// debug log line (-D).
+/**
+ * @brief Writes the key of a flow in one line, for the ADD FLOW line of -D.
+ *
+ * @param flow_seq The sequence number of the flow.
+ * @param key The key of the flow.
+ * @return The line.
+ *
+ * @original softflowd.c's format_flow_brief() -- used by the "ADD FLOW"
+ * debug log line (-D).
+ */
 std::string
 format_flow_brief (std::uint64_t flow_seq,
                    const softflow::FlowKey &key) {
@@ -2870,12 +3193,20 @@ format_flow_brief (std::uint64_t flow_seq,
   return buf;
 }
 
-// Original: softflowd.c's format_flow() -- used by the "EXPIRED" debug
-// log line (-D). Note flow_start.tv_usec/flow_last.tv_usec in the
-// original are rounded to milliseconds via `(usec + 500) / 1000`; this
-// project's TimePoint doesn't retain sub-millisecond precision from the
-// pcap timestamp the same way internally, so milliseconds are derived
-// from the TimePoint's own duration instead of a separate usec field.
+/**
+ * @brief Writes a flow and its key in one line, for the EXPIRED line of -D and for dump-flows.
+ *
+ * @param key The key of the flow.
+ * @param flow The flow.
+ * @return The line.
+ *
+ * @original softflowd.c's format_flow() -- used by the "EXPIRED" debug
+ * log line (-D). Note flow_start.tv_usec/flow_last.tv_usec in the
+ * original are rounded to milliseconds via `(usec + 500) / 1000`; this
+ * project's TimePoint doesn't retain sub-millisecond precision from the
+ * pcap timestamp the same way internally, so milliseconds are derived
+ * from the TimePoint's own duration instead of a separate usec field.
+ */
 std::string
 format_flow (const softflow::FlowKey &key,
              const softflow::Flow &flow) {
@@ -2916,20 +3247,21 @@ format_flow (const softflow::FlowKey &key,
   return buf;
 }
 
-// Original: softflowd.c's check_expired(), whose -D (verbose_flag) debug
-// output this reproduces exactly: "Starting expiry scan: mode %d" before
-// the scan, "Queuing flow seq:... (%p) for expiry reason %d" per flow
-// found to be expiring, "Finished scan %d flow(s) to be evicted"
-// afterward, "sent %d netflow packets" once export has been attempted
-// (if there was anything to send), and "EXPIRED: %s (%p)" (the *verbose*
-// format_flow(), not format_flow_brief()) per expired flow. mode mirrors
-// the original's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
-// CE_EXPIRE_FORCED(1).
-// Original: log.c. A process that is not a daemon logs to the standard error,
-// a daemon to syslog (LOG_DAEMON, with the PID, and the connection opened at
-// once, as it can not be after the chroot of the privilege drop).
+/**
+ * @brief Where the messages go: true for the standard error, false for syslog.
+ *
+ * @original log.c. A process that is not a daemon logs to the standard error,
+ * a daemon to syslog (LOG_DAEMON, with the PID, and the connection opened at
+ * once, as it can not be after the chroot of the privilege drop).
+ */
 bool log_to_stderr = true;
 
+/**
+ * @brief Chooses where the messages go, and opens syslog when they go there.
+ *
+ * @param ident The name that syslog shows.
+ * @param to_stderr true for the standard error, false for syslog.
+ */
 void
 loginit (const char *ident, bool to_stderr) {
   log_to_stderr = to_stderr;
@@ -2938,6 +3270,13 @@ loginit (const char *ident, bool to_stderr) {
   }
 }
 
+/**
+ * @brief Logs a message: a line on the standard error, or a message to syslog.
+ *
+ * @param level The syslog level; the standard error has no levels.
+ * @param fmt The format of the message, as for printf().
+ * @param ... The values for the format.
+ */
 void
 logit (int level, const char *fmt, ...)
   __attribute__ ((format (printf, 2, 3)));
@@ -2954,6 +3293,22 @@ logit (int level, const char *fmt, ...) {
   va_end (ap);
 }
 
+/**
+ * @brief Logs the start of a scan for expired flows (-D).
+ *
+ * @param debug true with -D; nothing is logged otherwise.
+ * @param mode kCeExpireNormal, kCeExpireAll or kCeExpireForced.
+ *
+ * @original softflowd.c's check_expired(), whose -D (verbose_flag) debug
+ * output this reproduces exactly: "Starting expiry scan: mode %d" before
+ * the scan, "Queuing flow seq:... (%p) for expiry reason %d" per flow
+ * found to be expiring, "Finished scan %d flow(s) to be evicted"
+ * afterward, "sent %d netflow packets" once export has been attempted
+ * (if there was anything to send), and "EXPIRED: %s (%p)" (the *verbose*
+ * format_flow(), not format_flow_brief()) per expired flow. mode mirrors
+ * the original's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
+ * CE_EXPIRE_FORCED(1).
+ */
 void
 log_expiry_debug_start (bool debug, int mode) {
   if (debug) {
@@ -2961,6 +3316,12 @@ log_expiry_debug_start (bool debug, int mode) {
   }
 }
 
+/**
+ * @brief Logs the flows that are to expire, and the end of the scan (-D).
+ *
+ * @param debug true with -D; nothing is logged otherwise.
+ * @param expired The flows that expire.
+ */
 void
 log_expiry_debug_queued (bool debug, const std::vector<softflow::ExportRecord> &expired) {
   if (!debug) {
@@ -2975,7 +3336,15 @@ log_expiry_debug_queued (bool debug, const std::vector<softflow::ExportRecord> &
   logit (LOG_DEBUG, "Finished scan %zu flow(s) to be evicted", expired.size());
 }
 
-// Original: only when there is a flow to send (num_expired > 0).
+/**
+ * @brief Logs how many packets the export of expired flows sent (-D).
+ *
+ * @param debug true with -D; nothing is logged otherwise.
+ * @param packets_sent The number of packets sent.
+ * @param flows The number of flows exported; nothing is logged when it is 0.
+ *
+ * @original only when there is a flow to send (num_expired \> 0).
+ */
 void
 log_expiry_debug_sent (bool debug, int packets_sent, std::size_t flows) {
   if (flows == 0) {
@@ -2986,6 +3355,12 @@ log_expiry_debug_sent (bool debug, int packets_sent, std::size_t flows) {
   }
 }
 
+/**
+ * @brief Logs each expired flow in full (-D).
+ *
+ * @param debug true with -D; nothing is logged otherwise.
+ * @param expired The flows that expired.
+ */
 void
 log_expiry_debug_expired (bool debug, const std::vector<softflow::ExportRecord> &expired) {
   if (!debug) {
@@ -2998,42 +3373,103 @@ log_expiry_debug_expired (bool debug, const std::vector<softflow::ExportRecord> 
   }
 }
 
-// Original: softflowd.c's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
-// CE_EXPIRE_FORCED(1), passed to check_expired() and echoed in its
-// "Starting expiry scan: mode %d" debug line.
+/**
+ * @brief The mode of the regular scan for expired flows.
+ *
+ * @original softflowd.c's CE_EXPIRE_NORMAL(0)/CE_EXPIRE_ALL(-1)/
+ * CE_EXPIRE_FORCED(1), passed to check_expired() and echoed in its
+ * "Starting expiry scan: mode %d" debug line.
+ */
 constexpr int kCeExpireNormal = 0;
-constexpr int kCeExpireAll = -1;
-constexpr int kCeExpireForced = 1;
+constexpr int kCeExpireAll = -1;    ///< The mode that expires every flow: the expire-all command, and the end of a run.
+constexpr int kCeExpireForced = 1;  ///< The mode of the forced scan, which expires the urgent flows and, when the table holds more than -m flows, the oldest ones.
 
+/**
+ * @brief What the control commands read and change.
+ */
 struct ControlState {
-  bool capturing = true;
-  bool shutting_down = false;
-  bool immediate_exit = false;
-  // Original: the shutdown and exit commands make main () return 1.
+  bool capturing = true;        ///< true while packets are taken from the capture; stop-gather clears it and start-gather sets it again.
+  bool shutting_down = false;   ///< true when the run is to end gracefully; the shutdown command sets it.
+  bool immediate_exit = false;  ///< true when the run is to end at once, without exporting the flows that are left; the exit command sets it.
+  /**
+   * @brief true when a control command ended the run, so that the exit status is 1.
+   *
+   * @original the shutdown and exit commands make main () return 1.
+   */
   bool stopped_by_controller = false;
-  int debug_level = 0;  // original: verbose_flag, set by debug+ and debug-
-  // Original: ft->param.system_boot_time, shown by statistics.
+  int debug_level = 0;  ///< The debug level: debug+ sets it to 1 and debug- to 0; it is verbose_flag of the C version.
+  /**
+   * @brief The wall-clock time when the exporter started, which the statistics command shows.
+   *
+   * @original ft-\>param.system_boot_time, shown by statistics.
+   */
   std::chrono::system_clock::time_point boot_wall = std::chrono::system_clock::now();
-  // Original: ft->param.expiry_interval, shown by timeouts.
+  /**
+   * @brief The interval between the scans for expired flows, which the timeouts command shows.
+   *
+   * @original ft-\>param.expiry_interval, shown by timeouts.
+   */
   std::chrono::seconds expiry_interval{0};
-  // Original: with -a (adjust_time), the time of the last packet is the
-  // current time of the expire-all command instead of gettimeofday ().
+  /**
+   * @brief true with -a: expire-all then takes the time of the last packet as the current time.
+   *
+   * @original with -a (adjust_time), the time of the last packet is the
+   * current time of the expire-all command instead of gettimeofday ().
+   */
   bool adjust_time = false;
-  softflow::TimePoint last_packet_mono{};
-  std::chrono::system_clock::time_point last_packet_wall{};
+  softflow::TimePoint last_packet_mono{};                    ///< The time of the last packet on Clock.
+  std::chrono::system_clock::time_point last_packet_wall{};  ///< The wall-clock time of the last packet.
 };
 
 // The control socket of softflowctl(8) for a capture file; defined below
 // with the control commands. serve_control_client() answers one client and
 // returns true when it asked to shut down or to exit.
 class ControlListener;
+/**
+ * @brief Deletes a ControlListener; it is the deleter of ControlListenerPtr.
+ */
 struct ControlListenerDeleter {
+  /**
+   * @brief Deletes the listener, which closes and removes the control socket.
+   *
+   * @param listener The listener.
+   */
   void operator() (ControlListener *listener) const;
 };
+/**
+ * @brief Owns a ControlListener; the control socket is closed and removed when the pointer goes.
+ */
 using ControlListenerPtr = std::unique_ptr<ControlListener, ControlListenerDeleter>;
+/**
+ * @brief Creates the control socket.
+ *
+ * @param path The path of the socket; an empty path is no socket (-c none).
+ * @return The listener.
+ */
 ControlListenerPtr open_control_listener (const std::string &path);
+/**
+ * @brief Gives the descriptor to wait on.
+ *
+ * @param listener The listener.
+ * @return The descriptor of the listening socket, or -1 when there is no socket.
+ */
 int control_listener_fd (const ControlListener &listener);
+/**
+ * @brief Gives the state that the clients of a listener change.
+ *
+ * @param listener The listener.
+ * @return The state.
+ */
 ControlState &control_listener_state (ControlListener &listener);
+/**
+ * @brief Answers one client of the control socket while a capture file is read.
+ *
+ * @param listener The listener.
+ * @param table The flow table.
+ * @param exporter The exporter.
+ * @param handle The capture, for the counters of libpcap.
+ * @return true when the client asked to shut down or to exit.
+ */
 bool serve_control_client (ControlListener &listener,
                            softflow::FlowTableRuntime &table,
                            ExportPipeline &exporter,
@@ -3047,9 +3483,15 @@ bool serve_control_client (ControlListener &listener,
 #define PRIVDROP_CHROOT_DIR "/var/empty"
 #endif
 
-// Original: drop_privs (). A daemon changes its root directory to an empty one
-// and its user to an unprivileged one once it has what it needs from the
-// system: the capture, the sockets and the files. Exits on failure.
+/**
+ * @brief Changes the root directory of a daemon to an empty one, and its user to an unprivileged one.
+ *
+ * It exits with 1 when it fails.
+ *
+ * @original drop_privs (). A daemon changes its root directory to an empty one
+ * and its user to an unprivileged one once it has what it needs from the
+ * system: the capture, the sockets and the files. Exits on failure.
+ */
 void
 drop_privs () {
   struct passwd *pw = getpwnam (PRIVDROP_USER);
@@ -3096,8 +3538,15 @@ drop_privs () {
   }
 }
 
-// Original: the two lines that main () logs when it starts collecting; the
-// capture file or the interface is the first %s of the second.
+/**
+ * @brief Logs that the collection of data starts, and the destinations.
+ *
+ * @param config The settings.
+ * @param source The capture file or the interface.
+ *
+ * @original the two lines that main () logs when it starts collecting; the
+ * capture file or the interface is the first %s of the second.
+ */
 void
 log_start (const DaemonConfig &config, const std::string &source) {
   logit (LOG_NOTICE, "%s v%s starting data collection", SOFTFLOWDPP_NAME,
@@ -3108,8 +3557,16 @@ log_start (const DaemonConfig &config, const std::string &source) {
   }
 }
 
-// Original: -g at the exit. The clocks of the export are not counted with the
-// threaded export (-M).
+/**
+ * @brief Logs the CPU clock ticks of the run, and of the export (-g).
+ *
+ * @param config The settings.
+ * @param cpu_start The value of std::clock () at the start.
+ * @param exporter The exporter, which counts its own ticks.
+ *
+ * @original -g at the exit. The clocks of the export are not counted with the
+ * threaded export (-M).
+ */
 void
 report_cpu_clocks (const DaemonConfig &config, std::clock_t cpu_start,
                    const ExportPipeline &exporter) {
@@ -3126,6 +3583,15 @@ report_cpu_clocks (const DaemonConfig &config, std::clock_t cpu_start,
   }
 }
 
+/**
+ * @brief Reads a capture file (-r), exports the flows, and prints the statistics at the end.
+ *
+ * @param config The settings.
+ * @return The exit status: 1 for an unsupported data-link type or when a control command ended the run, otherwise 0.
+ *
+ * @original softflowd.c's -r mode -- process a capture file in a single
+ * pass, then print statistics and exit without forking.
+ */
 int
 run_pcap_file (const DaemonConfig &config) {
   using namespace softflow;
@@ -3462,8 +3928,16 @@ run_pcap_file (const DaemonConfig &config) {
 // when running against a live interface, plus its control-socket
 // handling)
 // =======================================================================
-// Original: inet_ntop () for the addresses that softflowd.c's debug lines and
-// its dump-flows output print: IPv6 in the compressed form ("::1").
+
+/**
+ * @brief Writes an address as text.
+ *
+ * @param addr The address.
+ * @return The address in dotted decimal for IPv4, and in the compressed form of inet_ntop () for IPv6.
+ *
+ * @original inet_ntop () for the addresses that softflowd.c's debug lines and
+ * its dump-flows output print: IPv6 in the compressed form ("::1").
+ */
 std::string
 format_address (const softflow::IpAddress &addr) {
   using namespace softflow;
@@ -3473,9 +3947,20 @@ format_address (const softflow::IpAddress &addr) {
   return text.data();
 }
 
-// Original: accept_control ()'s replies, byte for byte. The reply is the text
-// the control client copies to its stdout. Every reply except the one for
-// help and for an unknown command starts with "softflowd[pid]: ".
+/**
+ * @brief Executes one control command and makes its reply.
+ *
+ * @param command The command word of softflowctl.
+ * @param table The flow table.
+ * @param state The state that the command changes.
+ * @param exporter The exporter.
+ * @param handle The capture, for the counters of libpcap; null when there is none.
+ * @return The text that the client prints.
+ *
+ * @original accept_control ()'s replies, byte for byte. The reply is the text
+ * the control client copies to its stdout. Every reply except the one for
+ * help and for an unknown command starts with "softflowd[pid]: ".
+ */
 std::string
 handle_control_command (const std::string &command,
                         softflow::FlowTableRuntime &table,
@@ -3642,13 +4127,24 @@ handle_control_command (const std::string &command,
   return prefix + text;
 }
 
-// Original: the control socket that softflowctl(8) connects to. The
-// listening socket and its filesystem entry are removed on every return path,
-// including an exception.
+/**
+ * @brief Listens on the control socket of softflowctl, and answers its clients.
+ *
+ * @original the control socket that softflowctl(8) connects to. The
+ * listening socket and its filesystem entry are removed on every return path,
+ * including an exception.
+ */
 class ControlListener {
 public:
-  // An empty path is no control socket (-c none): there is nothing to listen
-  // on, and poll () skips the descriptor -1.
+  /**
+   * @brief Creates the listening socket, after it removes a file that is in its place.
+   *
+   * An empty path is no control socket (-c none): there is nothing to listen
+   * on, and poll () skips the descriptor -1.
+   *
+   * @param path The path of the socket.
+   * @throw StartupError when the path is too long, or the socket cannot be made, bound or put to listen.
+   */
   explicit ControlListener (const std::string &path) : path_ (path) {
     if (path.empty()) {
       return;
@@ -3688,12 +4184,28 @@ public:
     }
   }
 
+  /**
+   * @brief Gives the descriptor of the listening socket.
+   *
+   * @return The descriptor, or -1 when there is no socket.
+   */
   int
   fd () const noexcept {
     return fd_;
   }
 
-  // Original: accept_control (). Accepts one client and answers its command.
+  /**
+   * @brief Accepts one client, reads its command and writes the reply.
+   *
+   * A client that sends nothing or something malformed is dropped.
+   *
+   * @param table The flow table.
+   * @param ctl_state The state that the command changes.
+   * @param exporter The exporter.
+   * @param handle The capture, for the counters of libpcap.
+   *
+   * @original accept_control (). Accepts one client and answers its command.
+   */
   void
   serve_client (softflow::FlowTableRuntime &table, ControlState &ctl_state,
                 ExportPipeline &exporter, const softflow::PcapHandle *handle) {
@@ -3721,7 +4233,7 @@ public:
     }
   }
 
-  ControlState replay_state;  // what a capture file's controller has asked for
+  ControlState replay_state;  ///< What the controller of a capture file has asked for.
 
 private:
   int fd_ = -1;
@@ -3756,8 +4268,18 @@ control_listener_state (ControlListener &listener) {
   return listener.replay_state;
 }
 
-// Original: setup_packet_capture () for a live capture. It is done before the
-// process forks, so that its errors are seen on the terminal.
+/**
+ * @brief Opens the capture of the interface (-i), before the process forks, so that its errors are seen on the terminal.
+ *
+ * The snapshot length is -C, or else 160 bytes when IPv6 flows are tracked and 96 bytes when not. The capture takes the packets in immediate mode, with a read timeout of 100 milliseconds.
+ *
+ * @param config The settings.
+ * @return The capture, or nothing when there is no interface (-R alone).
+ * @throw StartupError when the data-link type is not supported.
+ *
+ * @original setup_packet_capture () for a live capture. It is done before the
+ * process forks, so that its errors are seen on the terminal.
+ */
 std::optional<softflow::PcapHandle>
 open_live_capture (const DaemonConfig &config) {
   using namespace softflow;
@@ -3789,8 +4311,19 @@ open_live_capture (const DaemonConfig &config) {
   return handle;
 }
 
-// The capture and the control socket have been opened by the caller, before
-// it forked.
+/**
+ * @brief Captures packets from the interface, exports the flows and answers the control socket, until it is told to stop.
+ *
+ * It is stopped by the shutdown or exit command, by a signal, or by --max-runtime. The capture and the control socket have been opened by the caller before it forked.
+ *
+ * The capture and the control socket have been opened by the caller, before
+ * it forked.
+ *
+ * @param config The settings.
+ * @param handle The capture; nothing when only PSAMP is received (-R without -i).
+ * @param control_socket The control socket.
+ * @return The exit status: 1 when a control command ended the run, otherwise 0.
+ */
 int
 run_live_capture (const DaemonConfig &config,
                   std::optional<softflow::PcapHandle> handle,
@@ -4214,7 +4747,15 @@ run_live_capture (const DaemonConfig &config,
   return state.stopped_by_controller ? 1 : 0;
 }
 
-// Original: parse_mac_address(). "xx:xx:xx:xx:xx:xx" or "xx-xx-xx-xx-xx-xx".
+/**
+ * @brief Reads an Ethernet address of the form xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx.
+ *
+ * @param str The text.
+ * @param mac The address; it is set only when the text is read.
+ * @return true when six values were read.
+ *
+ * @original parse_mac_address(). "xx:xx:xx:xx:xx:xx" or "xx-xx-xx-xx-xx-xx".
+ */
 bool
 parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac) {
   unsigned int b[6];
@@ -4230,8 +4771,15 @@ parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac) {
   return true;
 }
 
-// Original: get_interface_mac(). The Ethernet address of a capture
-// interface, used as the direction MAC when -H is not given.
+/**
+ * @brief Gives the Ethernet address of an interface.
+ *
+ * @param ifname The name of the interface.
+ * @return The address, or nothing when the interface has none that can be found.
+ *
+ * @original get_interface_mac(). The Ethernet address of a capture
+ * interface, used as the direction MAC when -H is not given.
+ */
 std::optional<std::array<std::uint8_t, 6>>
 get_interface_mac (const std::string &ifname) {
   std::array<std::uint8_t, 6> mac{};
@@ -4273,8 +4821,12 @@ get_interface_mac (const std::string &ifname) {
 #endif
 }
 
-// Original: usage (). The text is that of the original; the additions of
-// this project follow it.
+/**
+ * @brief Prints the usage to the standard error, with the defaults of DaemonConfig.
+ *
+ * @original usage (). The text is that of the original; the additions of
+ * this project follow it.
+ */
 void
 print_usage () {
   const DaemonConfig defaults;

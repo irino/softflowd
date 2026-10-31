@@ -133,28 +133,41 @@
 
 #define IPFIX_mplsLabelStackSection_SIZE 3
 
+/** @brief IPFIX message header (RFC 7011, 3.1). */
 struct IPFIX_HEADER {
-  u_int16_t version, length;
-  u_int32_t export_time; /* in seconds */
-  u_int32_t sequence_number, observation_domain_id;
+  u_int16_t version;               /**< IPFIX version, 10 */
+  u_int16_t length;                /**< Length of the message in octets */
+  u_int32_t export_time;           /**< Seconds since the epoch */
+  u_int32_t sequence_number;       /**< Counter of the data records sent so far */
+  u_int32_t observation_domain_id; /**< Identifies the observation domain */
 } __packed;
+/** @brief Header of a set (RFC 7011, 3.3.2). */
 struct IPFIX_SET_HEADER {
-  u_int16_t set_id, length;
+  u_int16_t set_id; /**< Kind of the set: 2 for templates, 3 for option templates, 256 and above for data */
+  u_int16_t length; /**< Length of the set in octets, header included */
 } __packed;
+/** @brief Header of a template record (RFC 7011, 3.4.1). */
 struct IPFIX_TEMPLATE_RECORD_HEADER {
-  u_int16_t template_id, count;
+  u_int16_t template_id; /**< ID of the template */
+  u_int16_t count;       /**< Number of fields in the template */
 } __packed;
+/** @brief Header of a set that holds one template record. */
 struct IPFIX_TEMPLATE_SET_HEADER {
-  struct IPFIX_SET_HEADER c;
-  struct IPFIX_TEMPLATE_RECORD_HEADER r;
+  struct IPFIX_SET_HEADER c;             /**< Set header */
+  struct IPFIX_TEMPLATE_RECORD_HEADER r; /**< Template record header */
 } __packed;
 
+/** @brief Field specifier of a template (RFC 7011, 3.2). */
 struct IPFIX_FIELD_SPECIFIER {
-  u_int16_t ie, length;
+  u_int16_t ie;     /**< ID of the information element */
+  u_int16_t length; /**< Length of the field in octets */
 } __packed;
 
+/** @brief Header of a set that holds one options template record. */
 struct IPFIX_OPTION_TEMPLATE_SET_HEADER {
-  struct IPFIX_SET_HEADER c;
+  struct IPFIX_SET_HEADER c; /**< Set header */
+  /** The header of the options template record: i is the form of IPFIX and
+   * n that of NetFlow v9. */
   union {
     struct {
       struct IPFIX_TEMPLATE_RECORD_HEADER r;
@@ -168,9 +181,11 @@ struct IPFIX_OPTION_TEMPLATE_SET_HEADER {
   } u;
 } __packed;
 
+/** @brief Enterprise-specific field specifier of a template (RFC 7011, 3.2). */
 struct IPFIX_VENDOR_FIELD_SPECIFIER {
-  u_int16_t ie, length;
-  u_int32_t pen;
+  u_int16_t ie;     /**< ID of the information element, with the top bit set */
+  u_int16_t length; /**< Length of the field in octets */
+  u_int32_t pen;    /**< Private enterprise number */
 } __packed;
 #define REVERSE_PEN 29305
 

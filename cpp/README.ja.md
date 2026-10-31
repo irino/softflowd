@@ -32,6 +32,9 @@ cmake --build cpp/build --target doc      # HTMLはcpp/build/doc/html
 Doxygen(図にはGraphviz)が必要です。ソースのコメントはDoxygenコメントで、C++コードの
 働きを説明します。`@original`には、対応するC版の関数・変数の注記と、相違点を残しています。
 
+コメントのない宣言は警告になります。CI(ジョブ`cpp-doc`)は`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`で
+ビルドし、警告があると失敗します。宣言を追加するコミットの前に、同じ指定で試せます。
+
 ## テスト
 
 ```sh

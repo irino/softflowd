@@ -190,6 +190,42 @@ jobs:
       - name: Build, unit tests, comparison with the C version
         run: sh .github/scripts/cpp-test.sh ${{ matrix.ntopng == 'with' && 'ntopng' || '' }}
 
+  # The Doxygen comments of the C++ version (the .hpp and .cpp files of cpp/):
+  # a declaration that has no comment, or a comment that does not match its
+  # declaration, fails the job.  The job doc-c does the same for the C version,
+  # and the Rust version is not part of either.
+  cpp-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libpcap-dev libzmq3-dev pkg-config doxygen
+
+      - name: Generate the documentation, warnings are errors
+        run: |
+          cmake -S cpp -B cpp/build-doc -DSOFTFLOW_NTOPNG=ON \
+            -DSOFTFLOW_DOC_WARN_AS_ERROR=ON
+          cmake --build cpp/build-doc --target doc
+
+  # The Doxygen comments of the C version (the .c and .h files that Doxyfile
+  # lists): a struct or a member of a struct without a comment fails the job.
+  doc-c:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends doxygen
+
+      - name: Generate the documentation, warnings are errors
+        run: doxygen Doxyfile
+
   freebsd:
     runs-on: ubuntu-latest
     steps:

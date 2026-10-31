@@ -203,9 +203,10 @@ closefrom (int lowfd);
 #endif
 
 #ifndef HAVE_STRUCT_IP6_EXT
+/** @brief The generic IPv6 extension header, for a system that has no struct ip6_ext. */
 struct ip6_ext {
-  u_int8_t ip6e_nxt;
-  u_int8_t ip6e_len;
+  u_int8_t ip6e_nxt; /**< Next header */
+  u_int8_t ip6e_len; /**< Length in units of 8 octets, not counting the first 8 octets */
 } __packed;
 #endif
 

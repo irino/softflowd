@@ -1,0 +1,44 @@
+# Doxygen configuration of the C version.  `doxygen Doxyfile` writes the HTML
+# to doc-c/html and fails on a warning: a struct or a member of a struct
+# without a comment.  CI runs it (the job doc-c).
+#
+# The files have no \file comment, so Doxygen leaves out the functions, the
+# variables and the macros of the .c and .h files, with or without a comment,
+# and checks only the structs.  A \file comment in a file would bring them in,
+# and every undocumented one would then be a warning.
+#
+# Only the files whose copyright is Damien Miller or Hitoshi Irino are read:
+# convtime.c, convtime.h and daemon.c come from OpenBSD and have no Doxygen
+# comments, and neither do the files of compat/.  The C++ version in cpp/ and
+# the Rust version have their own documentation.
+PROJECT_NAME           = "softflowd"
+OUTPUT_DIRECTORY       = doc-c
+INPUT                  = common.h \
+                         export.c \
+                         export_common.c \
+                         export_common.h \
+                         freelist.c \
+                         freelist.h \
+                         ipfix.h \
+                         ipfix_fields.h \
+                         log.c \
+                         log.h \
+                         netflow.h \
+                         ntopng.c \
+                         psamp.c \
+                         psamp.h \
+                         softflowctl.c \
+                         softflowd.c \
+                         softflowd.h \
+                         treetype.h
+EXTRACT_STATIC         = YES
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+# The code that configure switches on, so that it is checked too.
+PREDEFINED             = ENABLE_PTHREAD ENABLE_NTOPNG ENABLE_IFNAME __packed=
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_NO_PARAMDOC       = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
