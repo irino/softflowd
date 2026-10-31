@@ -878,8 +878,6 @@ write_biflow_common_tail (ByteWriter &writer, const BiflowRecord &r, bool is_icm
 /**
  * @brief Writes a biflow record of an IPv4 flow: the forward fields in the order of write_v4_record(), the tail and the reverse fields.
  *
- * It writes the interface index and the flowDirection like write_common_fields().
- *
  * @param writer The buffer to append to.
  * @param r The record.
  * @param time_format The format of the start and end times (-A).
@@ -917,8 +915,6 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
 /**
  * @brief Writes a biflow record of an ICMP flow: the forward fields in the order of write_v4_icmp_record(), the tail and the reverse fields.
  *
- * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
- *
  * @param writer The buffer to append to.
  * @param r The record.
  * @param time_format The format of the start and end times (-A).
@@ -940,9 +936,9 @@ write_biflow_v4_icmp_record (ByteWriter &writer, const BiflowRecord &r,
     std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (0);
-  writer.put_u32 (0);
-  writer.put_u8 (0);
+  writer.put_u32 (tail.if_index);  // ingressInterface
+  writer.put_u32 (tail.if_index);  // egressInterface
+  writer.put_u8 (r.direction);     // flowDirection
   writer.put_u8 (r.flow_end_reason);
   writer.put_u16 (r.dst_port);  // forward icmpTypeCode == flow->port[i^1] == port[1] == dst_port
   writer.put_u8 (r.protocol);
@@ -954,8 +950,6 @@ write_biflow_v4_icmp_record (ByteWriter &writer, const BiflowRecord &r,
 
 /**
  * @brief Writes a biflow record of an IPv6 flow: the forward fields in the order of write_v6_record(), the tail and the reverse fields.
- *
- * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
  *
  * @param writer The buffer to append to.
  * @param r The record.
@@ -977,9 +971,9 @@ write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
     std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (0);
-  writer.put_u32 (0);
-  writer.put_u8 (0);
+  writer.put_u32 (tail.if_index);  // ingressInterface
+  writer.put_u32 (tail.if_index);  // egressInterface
+  writer.put_u8 (r.direction);     // flowDirection
   writer.put_u8 (r.flow_end_reason);
   writer.put_u16 (r.src_port);
   writer.put_u16 (r.dst_port);
@@ -993,8 +987,6 @@ write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
 
 /**
  * @brief Writes a biflow record of an ICMPv6 flow: the forward fields in the order of write_v6_icmp_record(), the tail and the reverse fields.
- *
- * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
  *
  * @param writer The buffer to append to.
  * @param r The record.
@@ -1017,9 +1009,9 @@ write_biflow_v6_icmp_record (ByteWriter &writer, const BiflowRecord &r,
     std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (0);
-  writer.put_u32 (0);
-  writer.put_u8 (0);
+  writer.put_u32 (tail.if_index);  // ingressInterface
+  writer.put_u32 (tail.if_index);  // egressInterface
+  writer.put_u8 (r.direction);     // flowDirection
   writer.put_u8 (r.flow_end_reason);
   writer.put_u16 (r.dst_port);
   writer.put_u8 (r.protocol);
