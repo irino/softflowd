@@ -170,7 +170,11 @@ ControlClient::send_command_raw (const std::string &command) {
 
 namespace {
 
-// Original: softflowctl.c's usage ().
+/**
+ * @brief Prints the usage to the standard error.
+ *
+ * @original softflowctl.c's usage ().
+ */
 void
 print_usage () {
   std::fprintf (stderr, "Usage: [-c ctlsock] softflowctl [command]\n");

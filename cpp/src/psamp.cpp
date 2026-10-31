@@ -7,21 +7,30 @@ namespace softflow {
 
 namespace {
 
-// Original: field_psamp[] -- selectionSequenceId, observationTimeMicroseconds,
-// sectionExportedOctets and dataLinkFrameSection, and their IPFIX IDs.
+/**
+ * @brief A field of the PSAMP template: the IPFIX information element and its length.
+ */
 struct FieldSpec {
-  std::uint16_t id;
-  std::uint16_t length;
+  std::uint16_t id;      ///< The ID of the IPFIX information element.
+  std::uint16_t length;  ///< The length of the field in bytes.
 };
+/**
+ * @brief The fields of the PSAMP template, in the order of the data record.
+ *
+ * They are selectionSequenceId (301, 8 bytes), observationTimeMicroseconds (324, 8 bytes), sectionExportedOctets (410, 2 bytes) and dataLinkFrameSection (315, kPsampFrameSectionSize bytes).
+ *
+ * @original field_psamp[] -- selectionSequenceId, observationTimeMicroseconds,
+ * sectionExportedOctets and dataLinkFrameSection, and their IPFIX IDs.
+ */
 constexpr FieldSpec kFields[] = {
   {301, 8},
   {324, 8},
   {410, 2},
   {315, static_cast<std::uint16_t> (kPsampFrameSectionSize)},
 };
-constexpr std::uint16_t kIpfixTemplateSetId = 2;
-constexpr std::size_t kHeaderSize = 16;
-constexpr std::size_t kSetHeaderSize = 4;
+constexpr std::uint16_t kIpfixTemplateSetId = 2;  ///< The set ID of a template set in IPFIX.
+constexpr std::size_t kHeaderSize = 16;           ///< The size of the IPFIX message header in bytes.
+constexpr std::size_t kSetHeaderSize = 4;         ///< The size of the header of a set in bytes.
 
 }  // namespace
 

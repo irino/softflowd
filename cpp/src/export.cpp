@@ -151,18 +151,23 @@ Netflow1Exporter::build_packets (
 
 namespace {
 
+/**
+ * @brief One direction of a flow, as one NetFlow v5 record takes it.
+ *
+ * The addresses point into the key of the exported flow, which has to outlive the record.
+ */
 struct Netflow5DirectionalRecord {
-  const IpAddress *src;
-  const IpAddress *dst;
-  std::uint16_t src_port;
-  std::uint16_t dst_port;
-  std::uint64_t octets;
-  std::uint64_t packets;
-  TimePoint first;
-  TimePoint last;
-  std::uint8_t protocol;
-  std::uint8_t tos;
-  std::uint8_t tcp_flags;
+  const IpAddress *src;    ///< The address of the end that sent the packets.
+  const IpAddress *dst;    ///< The address of the end that received the packets.
+  std::uint16_t src_port;  ///< The port of the sending end.
+  std::uint16_t dst_port;  ///< The port of the receiving end.
+  std::uint64_t octets;    ///< The octets sent in this direction.
+  std::uint64_t packets;   ///< The packets sent in this direction.
+  TimePoint first;         ///< The time of the first packet of the flow.
+  TimePoint last;          ///< The time of the last packet of the flow.
+  std::uint8_t protocol;   ///< The IP protocol number.
+  std::uint8_t tos;        ///< The type of service seen from the sending end.
+  std::uint8_t tcp_flags;  ///< The TCP flags seen from the sending end.
 };
 
 }  // namespace
@@ -300,23 +305,33 @@ Netflow5Exporter::build_packets (
 
 namespace {
 
-
-// Returns the (start, end) Information Element (type, length) pair for
-// the configured -A time_format, and writes the corresponding (start,
-// end) values for one record. Keeping the "which fields" and "which
-// values" logic paired up like this (rather than as two separately
-// maintained switches) makes it structurally impossible for the template
-// to describe a different encoding than what's actually written.
+/**
+ * @brief The start and the end time fields of a template: the information element ID and the length of each.
+ *
+ * Returns the (start, end) Information Element (type, length) pair for
+ * the configured -A time_format, and writes the corresponding (start,
+ * end) values for one record. Keeping the "which fields" and "which
+ * values" logic paired up like this (rather than as two separately
+ * maintained switches) makes it structurally impossible for the template
+ * to describe a different encoding than what's actually written.
+ */
 struct TimeFieldPair {
-  IpfixFieldSpec start_field;
-  IpfixFieldSpec end_field;
+  IpfixFieldSpec start_field;  ///< The field of the start of the flow.
+  IpfixFieldSpec end_field;    ///< The field of the end of the flow.
 };
 
-// Original: ipfix_fields.h's field_timesec/field_timemsec/field_timeusec/
-// field_timensec/field_timesysup all declare the Start field before the
-// End field (and compat/ipfix.c's copy_data_time() writes dt->u32.start
-// before dt->u32.end, i.e. the same order) -- start-then-end, not
-// end-then-start.
+/**
+ * @brief Gives the start and end time fields for a time format.
+ *
+ * @param format The time format of -A.
+ * @return The fields; flowStartSysUpTime and flowEndSysUpTime for SysUpTime, and the Seconds, Milliseconds, Microseconds or Nanoseconds pairs of the other formats.
+ *
+ * @original ipfix_fields.h's field_timesec/field_timemsec/field_timeusec/
+ * field_timensec/field_timesysup all declare the Start field before the
+ * End field (and compat/ipfix.c's copy_data_time() writes dt-\>u32.start
+ * before dt-\>u32.end, i.e. the same order) -- start-then-end, not
+ * end-then-start.
+ */
 TimeFieldPair
 time_field_pair (IpfixTimeFormat format) {
   switch (format) {
@@ -334,6 +349,19 @@ time_field_pair (IpfixTimeFormat format) {
   return {{22, 4}, {21, 4}};
 }
 
+/**
+ * @brief Writes the start and the end time of a flow in the encoding that time_field_pair() describes.
+ *
+ * SysUpTime gives 32-bit milliseconds since boot_time, Seconds 32-bit epoch seconds and Milliseconds 64-bit epoch milliseconds. Microseconds and Nanoseconds both give 64-bit NTP timestamps that are made from epoch microseconds.
+ *
+ * @param writer The buffer to append to.
+ * @param format The time format of -A.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ * @param first The time of the first packet of the flow.
+ * @param last The time of the last packet of the flow.
+ */
 void
 write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_time,
                    TimePoint now, std::chrono::system_clock::time_point wall_now,
@@ -364,38 +392,62 @@ write_time_values (ByteWriter &writer, IpfixTimeFormat format, TimePoint boot_ti
   }
 }
 
-// Original: field_vlan and field_ether of the flow template. -T vlan adds the
-// VLAN IDs and -T ether adds the Ethernet addresses as well. The fields are
-// those of the flow endpoint that sends (vlanId and sourceMacAddress) and of
-// the one that receives (postVlanId and postDestinationMacAddress).
+/**
+ * @brief The VLAN IDs and the Ethernet addresses of a record, as seen from the sending and the receiving end.
+ *
+ * @original field_vlan and field_ether of the flow template. -T vlan adds the
+ * VLAN IDs and -T ether adds the Ethernet addresses as well. The fields are
+ * those of the flow endpoint that sends (vlanId and sourceMacAddress) and of
+ * the one that receives (postVlanId and postDestinationMacAddress).
+ */
 struct L2Fields {
-  std::uint16_t vlan, post_vlan;
-  std::array<std::uint8_t, 6> src_mac, post_dst_mac;
+  std::uint16_t vlan;                        ///< The VLAN ID of the sending end (vlanId).
+  std::uint16_t post_vlan;                   ///< The VLAN ID of the receiving end (postVlanId).
+  std::array<std::uint8_t, 6> src_mac;       ///< The Ethernet address of the sending end (sourceMacAddress).
+  std::array<std::uint8_t, 6> post_dst_mac;  ///< The Ethernet address of the receiving end (postDestinationMacAddress).
 };
 
-// What follows the transport fields of a record: the VLAN and Ethernet
-// fields of the tracking level, then the MPLS labels.
+/**
+ * @brief What follows the transport fields of a record: the VLAN and Ethernet fields of the track level, then the MPLS labels.
+ *
+ * What follows the transport fields of a record: the VLAN and Ethernet
+ * fields of the tracking level, then the MPLS labels.
+ */
 struct TailFormat {
-  std::uint8_t mpls_label_count;
-  TrackLevel track_level;
-  std::uint32_t if_index;  // ingressInterface and egressInterface
+  std::uint8_t mpls_label_count;  ///< The number of mplsLabelStackSection fields (-x).
+  TrackLevel track_level;         ///< The track level (-T), which decides whether the VLAN IDs and the Ethernet addresses are written.
+  std::uint32_t if_index;         ///< The value of ingressInterface and egressInterface.
 };
 
+/**
+ * @brief Gives the size of the VLAN and Ethernet fields of a track level.
+ *
+ * @param level The track level.
+ * @return 0 below FullVlan, 4 bytes (two VLAN IDs) from FullVlan, and 16 bytes (the VLAN IDs and two Ethernet addresses) from FullVlanEther.
+ */
 std::size_t
 l2_size (TrackLevel level) {
   return (level >= TrackLevel::FullVlan ? std::size_t{4} : std::size_t{0}) +
          (level >= TrackLevel::FullVlanEther ? std::size_t{12} : std::size_t{0});
 }
 
-// Original: -x. Writes mpls_label_count 3-octet mplsLabelStackSectionN
-// fields (IANA Information Elements 70-79). Values are passed straight
-// through from MplsLabelStack -- see its doc comment and
-// softflowd.cpp's MplsShimEntry for why that's already exactly the right
-// 24-bit (label|EXP|S) value, verbatim from the original packet, with no
-// reconstruction needed here. Indices beyond the flow's actual label
-// count (fewer real labels than mpls_label_count) are zero-filled,
-// matching the original's raw, zero-initialized flow->mplsLabels[]
-// entries beyond the real captured depth.
+/**
+ * @brief Writes the MPLS label stack of a flow as a fixed number of 3-octet fields.
+ *
+ * @param writer The buffer to append to.
+ * @param labels The labels of the flow.
+ * @param mpls_label_count The number of fields to write; the labels that the flow does not have are written as zero.
+ *
+ * @original -x. Writes mpls_label_count 3-octet mplsLabelStackSectionN
+ * fields (IANA Information Elements 70-79). Values are passed straight
+ * through from MplsLabelStack -- see its doc comment and
+ * softflowd.cpp's MplsShimEntry for why that's already exactly the right
+ * 24-bit (label|EXP|S) value, verbatim from the original packet, with no
+ * reconstruction needed here. Indices beyond the flow's actual label
+ * count (fewer real labels than mpls_label_count) are zero-filled,
+ * matching the original's raw, zero-initialized flow-\>mplsLabels[]
+ * entries beyond the real captured depth.
+ */
 void
 write_mpls_labels (ByteWriter &writer, const MplsLabelStack &labels,
                    std::uint8_t mpls_label_count) {
@@ -407,6 +459,14 @@ write_mpls_labels (ByteWriter &writer, const MplsLabelStack &labels,
   }
 }
 
+/**
+ * @brief Writes the VLAN IDs and the Ethernet addresses of the track level, and then the MPLS labels.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record, which has l2 and mpls_labels.
+ * @param tail The track level, the number of MPLS labels and the interface index.
+ * @tparam Record IpfixDirectionalRecord or BiflowRecord.
+ */
 template <typename Record>
 void
 write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
@@ -427,6 +487,12 @@ write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
 
 // ---- Unidirectional (default, -b not given) record shape ----
 
+/**
+ * @brief Tells whether a protocol number is that of ICMP or of ICMPv6.
+ *
+ * @param protocol The IP protocol number.
+ * @return true for 1 and 58.
+ */
 bool
 is_icmp_protocol (std::uint8_t protocol) {
   constexpr std::uint8_t kProtoIcmp = 1;
@@ -434,38 +500,38 @@ is_icmp_protocol (std::uint8_t protocol) {
   return protocol == kProtoIcmp || protocol == kProtoIcmpV6;
 }
 
+/**
+ * @brief One direction of a flow, as a record of the unidirectional (no -b) template takes it.
+ *
+ * The addresses and the MPLS labels point into the exported flow, which has to outlive the record.
+ */
 struct IpfixDirectionalRecord {
-  const IpAddress *src;
-  const IpAddress *dst;
-  std::uint16_t src_port;
-  std::uint16_t dst_port;
-  std::uint64_t octets;
-  std::uint64_t packets;
-  TimePoint first;
-  TimePoint last;
-  std::uint8_t protocol;
-  std::uint8_t tos;
-  std::uint8_t tcp_flags;
-  std::uint8_t flow_end_reason;
-  std::uint8_t direction;  // Original: ipfix_flow_direction()'s fallback
-                           // of the canonical array index (0 or 1) when
-                           // no -H direction MAC is configured.
-  const MplsLabelStack *mpls_labels;
-  L2Fields l2;
-  bool first_in_flow;  // first record of its flow; see pack_interleaved()
+  const IpAddress *src;               ///< The address of the end that sent the packets.
+  const IpAddress *dst;               ///< The address of the end that received the packets.
+  std::uint16_t src_port;             ///< The port of the sending end; for ICMP, the ICMP type and code are in the port of the receiving end.
+  std::uint16_t dst_port;             ///< The port of the receiving end.
+  std::uint64_t octets;               ///< The octets sent in this direction.
+  std::uint64_t packets;              ///< The packets sent in this direction.
+  TimePoint first;                    ///< The time of the first packet of the flow.
+  TimePoint last;                     ///< The time of the last packet of the flow.
+  std::uint8_t protocol;              ///< The IP protocol number.
+  std::uint8_t tos;                   ///< The type of service seen from the sending end.
+  std::uint8_t tcp_flags;             ///< The TCP flags seen from the sending end.
+  std::uint8_t flow_end_reason;       ///< The flowEndReason of the flow.
+  std::uint8_t direction;             ///< The flowDirection; as ipfix_flow_direction() of the C version, it is the index (0 or 1) of the end when no -H direction MAC is given.
+  const MplsLabelStack *mpls_labels;  ///< The MPLS labels of the flow.
+  L2Fields l2;                        ///< The VLAN IDs and the Ethernet addresses, from the sending end.
+  bool first_in_flow;                 ///< true for the first record that is made from a flow; see pack_interleaved().
 };
 
-// Original: ipfix_flow_to_template_index()/valuate_icmp() route ICMP and
-// ICMPv6 flows to their own template (icmpTypeCode instead of a
-// source/destination port pair). Unlike an earlier version of this file,
-// records are kept in ONE list, in original per-flow order (both
-// directions of a given flow adjacent, flows in expiry order) --
-// matching send_ipfix_flows()'s single interleaved pass over `flows[]`,
-// where Sets are opened/closed based on whichever (address family,
-// ICMP-ness) each flow's *next* record happens to have, not grouped
-// ahead of time. Pre-grouping by family/ICMP-ness (as an earlier version
-// of this function did) changes packet boundaries and Set ordering
-// whenever a capture mixes address families or ICMP/non-ICMP flows.
+/**
+ * @brief Makes the VLAN and Ethernet fields of one end of a flow.
+ *
+ * @param key The key of the flow.
+ * @param flow The flow; it is not used.
+ * @param i The index (0 or 1) of the sending end.
+ * @return The fields, with the end i as the sending end and the other end as the receiving end.
+ */
 L2Fields
 l2_fields (const FlowKey &key, const Flow &flow, std::size_t i) {
   (void) flow;
@@ -473,10 +539,19 @@ l2_fields (const FlowKey &key, const Flow &flow, std::size_t i) {
                   key.ethermac()[i ^ 1]};
 }
 
-// Original: ipfix_flow_direction(). With a direction MAC the flowDirection
-// is egress (1) when the source MAC of endpoint i is the direction MAC and
-// ingress (0) when its destination MAC is; otherwise it is the endpoint
-// index i.
+/**
+ * @brief Decides the flowDirection of one end of a flow.
+ *
+ * @param key The key of the flow.
+ * @param i The index (0 or 1) of the end.
+ * @param mac The direction MAC address of -H, if there is one.
+ * @return 1 (egress) or 0 (ingress) when the direction MAC address is the Ethernet address of the end or of the other end, and otherwise the index i.
+ *
+ * @original ipfix_flow_direction(). With a direction MAC the flowDirection
+ * is egress (1) when the source MAC of endpoint i is the direction MAC and
+ * ingress (0) when its destination MAC is; otherwise it is the endpoint
+ * index i.
+ */
 std::uint8_t
 flow_direction (const FlowKey &key, std::size_t i,
                 const std::optional<std::array<std::uint8_t, 6>> &mac) {
@@ -491,6 +566,25 @@ flow_direction (const FlowKey &key, std::size_t i,
   return static_cast<std::uint8_t> (i);
 }
 
+/**
+ * @brief Turns flows into a list of unidirectional records: one record for each direction that carried octets, with the two directions of a flow next to each other.
+ *
+ * @param records The flows, in the order of their expiry.
+ * @param out The list to append to.
+ * @param direction_mac The direction MAC address of -H, if there is one.
+ *
+ * @original ipfix_flow_to_template_index()/valuate_icmp() route ICMP and
+ * ICMPv6 flows to their own template (icmpTypeCode instead of a
+ * source/destination port pair). Unlike an earlier version of this file,
+ * records are kept in ONE list, in original per-flow order (both
+ * directions of a given flow adjacent, flows in expiry order) --
+ * matching send_ipfix_flows()'s single interleaved pass over `flows[]`,
+ * where Sets are opened/closed based on whichever (address family,
+ * ICMP-ness) each flow's *next* record happens to have, not grouped
+ * ahead of time. Pre-grouping by family/ICMP-ness (as an earlier version
+ * of this function did) changes packet boundaries and Set ordering
+ * whenever a capture mixes address families or ICMP/non-ICMP flows.
+ */
 void
 flatten (std::span<const ExportRecord> records,
          std::vector<IpfixDirectionalRecord> &out,
@@ -528,13 +622,23 @@ flatten (std::span<const ExportRecord> records,
   }
 }
 
-// Original: field_common -- octetDeltaCount, packetDeltaCount,
-// ingressInterface, egressInterface, flowDirection, flowEndReason. Written
-// identically regardless of address family or ICMP-ness, between the
-// address fields/timestamps and the transport-or-ICMP fields.
-//
-// ingressInterface/egressInterface are the index of -i idx:interface (0 when
-// there is none, as for a capture file).
+/**
+ * @brief Writes the fields that every unidirectional record has after the addresses and the times: octetDeltaCount, packetDeltaCount, ingressInterface, egressInterface, flowDirection and flowEndReason.
+ *
+ * The octet and packet counts are limited to 32 bits.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param if_index The interface index.
+ *
+ * @original field_common -- octetDeltaCount, packetDeltaCount,
+ * ingressInterface, egressInterface, flowDirection, flowEndReason. Written
+ * identically regardless of address family or ICMP-ness, between the
+ * address fields/timestamps and the transport-or-ICMP fields.
+ *
+ * ingressInterface/egressInterface are the index of -i idx:interface (0 when
+ * there is none, as for a capture file).
+ */
 void
 write_common_fields (ByteWriter &writer, const IpfixDirectionalRecord &r,
                      std::uint32_t if_index) {
@@ -548,6 +652,17 @@ write_common_fields (ByteWriter &writer, const IpfixDirectionalRecord &r,
   writer.put_u8 (r.flow_end_reason);                     // flowEndReason
 }
 
+/**
+ * @brief Writes a unidirectional record of an IPv4 flow: the addresses, the times, the common fields, the ports, the protocol, the TCP flags, the IP version, the ToS and the tail.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_v4_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                  IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
@@ -565,6 +680,17 @@ write_v4_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   write_tail (writer, r, tail);
 }
 
+/**
+ * @brief Writes a unidirectional record of an IPv6 flow, in the order of write_v4_record() and with the IP version 6.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_v6_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                  IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
@@ -582,11 +708,23 @@ write_v6_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   write_tail (writer, r, tail);
 }
 
-// Original: field_icmp4/field_icmp6 -- icmpTypeCode replaces the
-// source/destination port pair and there is no tcpControlBits field.
-// dst_port already carries (icmp_type << 8 | icmp_code) -- see
-// PacketParser's ICMP handling in softflowd.cpp -- matching the original's
-// `di[i]->icmpTypeCode = flow->port[i ^ 1]`.
+/**
+ * @brief Writes a unidirectional record of an ICMP flow: the addresses, the times, the common fields, icmpTypeCode, the protocol, the IP version 4, the ToS and the tail.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ *
+ * @original field_icmp4/field_icmp6 -- icmpTypeCode replaces the
+ * source/destination port pair and there is no tcpControlBits field.
+ * dst_port already carries (icmp_type \<\< 8 | icmp_code) -- see
+ * PacketParser's ICMP handling in softflowd.cpp -- matching the original's
+ * `di[i]-\>icmpTypeCode = flow-\>port[i ^ 1]`.
+ */
 void
 write_v4_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                       IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
@@ -602,6 +740,17 @@ write_v4_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
   write_tail (writer, r, tail);
 }
 
+/**
+ * @brief Writes a unidirectional record of an ICMPv6 flow, in the order of write_v4_icmp_record() and with the IP version 6.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_v6_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
                       IpfixTimeFormat time_format, const TailFormat &tail, TimePoint boot_time,
@@ -619,25 +768,40 @@ write_v6_icmp_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
 
 // ---- Biflow (-b) record shape: one record per flow, not per direction ----
 
+/**
+ * @brief A whole flow, with both directions, as a record of the biflow (-b) template takes it.
+ *
+ * The addresses and the MPLS labels point into the exported flow, which has to outlive the record.
+ */
 struct BiflowRecord {
-  const IpAddress *src;  // FlowKey's canonical addr()[0] -- the "forward" direction
-  const IpAddress *dst;
-  std::uint16_t src_port;
-  std::uint16_t dst_port;
-  std::uint8_t protocol;
-  std::uint8_t tos;      // forward (flow.tos[0])
-  std::uint8_t rev_tos;  // reverse (flow.tos[1])
-  std::uint8_t flow_end_reason;
-  std::uint8_t direction;  // flowDirection of the forward endpoint
-  std::uint64_t fwd_octets, fwd_packets;
-  std::uint8_t fwd_tcp_flags;
-  std::uint64_t rev_octets, rev_packets;
-  std::uint8_t rev_tcp_flags;
-  TimePoint first, last;
-  const MplsLabelStack *mpls_labels;
-  L2Fields l2;
+  const IpAddress *src;               ///< The address of the first end of the key (addr()[0]), the forward direction.
+  const IpAddress *dst;               ///< The address of the second end of the key.
+  std::uint16_t src_port;             ///< The port of the first end.
+  std::uint16_t dst_port;             ///< The port of the second end.
+  std::uint8_t protocol;              ///< The IP protocol number.
+  std::uint8_t tos;                   ///< The ToS of the forward direction (flow.tos[0]).
+  std::uint8_t rev_tos;               ///< The ToS of the reverse direction (flow.tos[1]).
+  std::uint8_t flow_end_reason;       ///< The flowEndReason of the flow.
+  std::uint8_t direction;             ///< The flowDirection of the forward end.
+  std::uint64_t fwd_octets;           ///< The octets from the first end to the second.
+  std::uint64_t fwd_packets;          ///< The packets from the first end to the second.
+  std::uint8_t fwd_tcp_flags;         ///< The TCP flags seen from the first end.
+  std::uint64_t rev_octets;           ///< The octets from the second end to the first.
+  std::uint64_t rev_packets;          ///< The packets from the second end to the first.
+  std::uint8_t rev_tcp_flags;         ///< The TCP flags seen from the second end.
+  TimePoint first;                    ///< The time of the first packet of the flow.
+  TimePoint last;                     ///< The time of the last packet of the flow.
+  const MplsLabelStack *mpls_labels;  ///< The MPLS labels of the flow.
+  L2Fields l2;                        ///< The VLAN IDs and the Ethernet addresses, from the first end.
 };
 
+/**
+ * @brief Turns flows into a list of biflow records: one record for each flow that has packets in either direction.
+ *
+ * @param records The flows, in the order of their expiry.
+ * @param out The list to append to.
+ * @param direction_mac The direction MAC address of -H, if there is one.
+ */
 void
 flatten_biflow (std::span<const ExportRecord> records,
                 std::vector<BiflowRecord> &out,
@@ -672,21 +836,31 @@ flatten_biflow (std::span<const ExportRecord> records,
   }
 }
 
-// Original: ipfix_flow_to_flowset()'s bi_flag branch writes ONE record per
-// flow (frecnum=1, always i=0 -- "forward" is always FlowKey's canonical
-// addr()[0]/port()[0]) with the SAME field layout/order as the
-// unidirectional case (address, time, common(18), transport-or-icmp) --
-// see write_v4_record()/write_v4_icmp_record() -- followed by a
-// Reverse-Information-Element tail: reverse octetDeltaCount(4),
-// packetDeltaCount(4), ipClassOfService(1) [field_bicommon], then EITHER
-// reverse tcpControlBits(1) [field_bitransport] OR reverse icmpTypeCode(2)
-// [field_biicmp4/6] depending on protocol -- never both. flowDirection is
-// always 0 here (ipfix_flow_direction()'s fallback for i=0, the only
-// index this loop ever uses).
-//
-// The reverse part is encoded for the reverse direction (i=1), so the
-// reverse icmpTypeCode is `flow->port[i ^ 1]` == port[0] in the original,
-// not the port[1] of the forward icmpTypeCode.
+/**
+ * @brief Writes the reverse fields that end a biflow record: the octets, the packets and the ToS of the reverse direction, and then the reverse icmpTypeCode for ICMP or else the reverse TCP flags.
+ *
+ * The octet and packet counts are limited to 32 bits.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param is_icmp true for an ICMP or ICMPv6 flow.
+ *
+ * @original ipfix_flow_to_flowset()'s bi_flag branch writes ONE record per
+ * flow (frecnum=1, always i=0 -- "forward" is always FlowKey's canonical
+ * addr()[0]/port()[0]) with the SAME field layout/order as the
+ * unidirectional case (address, time, common(18), transport-or-icmp) --
+ * see write_v4_record()/write_v4_icmp_record() -- followed by a
+ * Reverse-Information-Element tail: reverse octetDeltaCount(4),
+ * packetDeltaCount(4), ipClassOfService(1) [field_bicommon], then EITHER
+ * reverse tcpControlBits(1) [field_bitransport] OR reverse icmpTypeCode(2)
+ * [field_biicmp4/6] depending on protocol -- never both. flowDirection is
+ * always 0 here (ipfix_flow_direction()'s fallback for i=0, the only
+ * index this loop ever uses).
+ *
+ * The reverse part is encoded for the reverse direction (i=1), so the
+ * reverse icmpTypeCode is `flow-\>port[i ^ 1]` == port[0] in the original,
+ * not the port[1] of the forward icmpTypeCode.
+ */
 void
 write_biflow_common_tail (ByteWriter &writer, const BiflowRecord &r, bool is_icmp) {
   writer.put_u32 (static_cast<std::uint32_t> (
@@ -701,6 +875,19 @@ write_biflow_common_tail (ByteWriter &writer, const BiflowRecord &r, bool is_icm
   }
 }
 
+/**
+ * @brief Writes a biflow record of an IPv4 flow: the forward fields in the order of write_v4_record(), the tail and the reverse fields.
+ *
+ * It writes the interface index and the flowDirection like write_common_fields().
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
                         IpfixTimeFormat time_format,
@@ -727,6 +914,19 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
   write_biflow_common_tail (writer, r, /*is_icmp=*/false);
 }
 
+/**
+ * @brief Writes a biflow record of an ICMP flow: the forward fields in the order of write_v4_icmp_record(), the tail and the reverse fields.
+ *
+ * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_biflow_v4_icmp_record (ByteWriter &writer, const BiflowRecord &r,
                              IpfixTimeFormat time_format,
@@ -752,6 +952,19 @@ write_biflow_v4_icmp_record (ByteWriter &writer, const BiflowRecord &r,
   write_biflow_common_tail (writer, r, /*is_icmp=*/true);
 }
 
+/**
+ * @brief Writes a biflow record of an IPv6 flow: the forward fields in the order of write_v6_record(), the tail and the reverse fields.
+ *
+ * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
                         IpfixTimeFormat time_format,
@@ -778,6 +991,19 @@ write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
   write_biflow_common_tail (writer, r, /*is_icmp=*/false);
 }
 
+/**
+ * @brief Writes a biflow record of an ICMPv6 flow: the forward fields in the order of write_v6_icmp_record(), the tail and the reverse fields.
+ *
+ * The interfaces and the flowDirection are written as 0; the interface index of @p tail is not used.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record.
+ * @param time_format The format of the start and end times (-A).
+ * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
+ * @param boot_time The time when the exporter started, which SysUpTime counts from.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now.
+ */
 void
 write_biflow_v6_icmp_record (ByteWriter &writer, const BiflowRecord &r,
                              IpfixTimeFormat time_format,

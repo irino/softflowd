@@ -19,40 +19,44 @@ namespace softflow {
 
 namespace {
 
-constexpr std::uint8_t kMsgVersion = 4;      // ZMQ_MSG_VERSION
-constexpr std::uint8_t kFlagIsTlv = 1 << 1;  // NTOPNG_FLAG_IS_TLV
+constexpr std::uint8_t kMsgVersion = 4;      ///< The version in the header of a message; ZMQ_MSG_VERSION in the C version.
+constexpr std::uint8_t kFlagIsTlv = 1 << 1;  ///< The header flag that tells that the payload is in the TLV format; NTOPNG_FLAG_IS_TLV in the C version.
 
 // nDPI serializer, TLV format.
-constexpr std::uint8_t kTlvVersion = 1;
-constexpr std::uint8_t kTlvFormatTlv = 1;
-constexpr std::uint8_t kTlvEndOfRecord = 1;
-constexpr std::uint8_t kTlvUint8 = 2;
-constexpr std::uint8_t kTlvUint16 = 3;
-constexpr std::uint8_t kTlvUint32 = 4;
-constexpr std::uint8_t kTlvUint64 = 5;
-constexpr std::uint8_t kTlvString = 11;
+constexpr std::uint8_t kTlvVersion = 1;      ///< The version of the TLV format, the first byte of a payload.
+constexpr std::uint8_t kTlvFormatTlv = 1;    ///< The format byte that follows the version: TLV.
+constexpr std::uint8_t kTlvEndOfRecord = 1;  ///< The marker that ends a record.
+constexpr std::uint8_t kTlvUint8 = 2;        ///< The type of an unsigned integer of 1 byte.
+constexpr std::uint8_t kTlvUint16 = 3;       ///< The type of an unsigned integer of 2 bytes.
+constexpr std::uint8_t kTlvUint32 = 4;       ///< The type of an unsigned integer of 4 bytes.
+constexpr std::uint8_t kTlvUint64 = 5;       ///< The type of an unsigned integer of 8 bytes.
+constexpr std::uint8_t kTlvString = 11;      ///< The type of a string.
 
 // NetFlow v9 element ids understood by ntopng.
-constexpr std::uint32_t kInBytes = 1;
-constexpr std::uint32_t kInPkts = 2;
-constexpr std::uint32_t kProtocol = 4;
-constexpr std::uint32_t kTcpFlags = 6;
-constexpr std::uint32_t kL4SrcPort = 7;
-constexpr std::uint32_t kIpv4SrcAddr = 8;
-constexpr std::uint32_t kL4DstPort = 11;
-constexpr std::uint32_t kIpv4DstAddr = 12;
-constexpr std::uint32_t kLastSwitched = 21;
-constexpr std::uint32_t kFirstSwitched = 22;
-constexpr std::uint32_t kOutBytes = 23;
-constexpr std::uint32_t kOutPkts = 24;
-constexpr std::uint32_t kIpv6SrcAddr = 27;
-constexpr std::uint32_t kIpv6DstAddr = 28;
-constexpr std::uint32_t kInSrcMac = 56;
-constexpr std::uint32_t kOutDstMac = 57;
-constexpr std::uint32_t kSrcVlan = 58;
-constexpr std::uint32_t kDstVlan = 59;
+constexpr std::uint32_t kInBytes = 1;         ///< IN_BYTES (1): the octets from the first end to the second.
+constexpr std::uint32_t kInPkts = 2;          ///< IN_PKTS (2): the packets from the first end to the second.
+constexpr std::uint32_t kProtocol = 4;        ///< PROTOCOL (4): the IP protocol number.
+constexpr std::uint32_t kTcpFlags = 6;        ///< TCP_FLAGS (6): the TCP flags seen from the first end.
+constexpr std::uint32_t kL4SrcPort = 7;       ///< L4_SRC_PORT (7): the port of the first end.
+constexpr std::uint32_t kIpv4SrcAddr = 8;     ///< IPV4_SRC_ADDR (8): the IPv4 address of the first end, as a string.
+constexpr std::uint32_t kL4DstPort = 11;      ///< L4_DST_PORT (11): the port of the second end.
+constexpr std::uint32_t kIpv4DstAddr = 12;    ///< IPV4_DST_ADDR (12): the IPv4 address of the second end, as a string.
+constexpr std::uint32_t kLastSwitched = 21;   ///< LAST_SWITCHED (21): the time of the last packet, in seconds since the epoch.
+constexpr std::uint32_t kFirstSwitched = 22;  ///< FIRST_SWITCHED (22): the time of the first packet, in seconds since the epoch.
+constexpr std::uint32_t kOutBytes = 23;       ///< OUT_BYTES (23): the octets from the second end to the first.
+constexpr std::uint32_t kOutPkts = 24;        ///< OUT_PKTS (24): the packets from the second end to the first.
+constexpr std::uint32_t kIpv6SrcAddr = 27;    ///< IPV6_SRC_ADDR (27): the IPv6 address of the first end, as a string.
+constexpr std::uint32_t kIpv6DstAddr = 28;    ///< IPV6_DST_ADDR (28): the IPv6 address of the second end, as a string.
+constexpr std::uint32_t kInSrcMac = 56;       ///< IN_SRC_MAC (56): the Ethernet address of the first end, as a string.
+constexpr std::uint32_t kOutDstMac = 57;      ///< OUT_DST_MAC (57): the Ethernet address of the second end, as a string.
+constexpr std::uint32_t kSrcVlan = 58;        ///< SRC_VLAN (58): the VLAN ID of the first end.
+constexpr std::uint32_t kDstVlan = 59;        ///< DST_VLAN (59): the VLAN ID of the second end.
 
-// The payload of a message, a buffer of fixed capacity as in the original.
+/**
+ * @brief The payload of one ntopng message, in the TLV format of the nDPI serializer.
+ *
+ * The payload of a message, a buffer of fixed capacity as in the original.
+ */
 class Tlv {
 public:
   Tlv() {
@@ -60,20 +64,41 @@ public:
     buf_.push_back (kTlvFormatTlv);
   }
 
+  /**
+   * @brief The number of bytes in the payload so far.
+   *
+   * @return The size.
+   */
   std::size_t
   size () const noexcept {
     return buf_.size();
   }
+  /**
+   * @brief Cuts the payload back to a size, to drop a record that was written only in part.
+   *
+   * @param n The number of bytes to keep.
+   */
   void
   truncate (std::size_t n) {
     buf_.resize (n);
   }
+  /**
+   * @brief Moves the payload out; the object is not to be used afterwards.
+   *
+   * @return The payload.
+   */
   std::vector<std::uint8_t>
   take () {
     return std::move (buf_);
   }
 
-  // Returns false if the item does not fit.
+  /**
+   * @brief Appends an unsigned integer item. The key and the value are each written with the smallest of 1, 2, 4 or 8 bytes that holds them.
+   *
+   * @param key The element ID.
+   * @param value The value.
+   * @return false when the item does not fit in kNtopngMaxTlvSize; nothing is appended then.
+   */
   bool
   put_uint (std::uint32_t key, std::uint64_t value) {
     const int kb = uint_bytes (key);
@@ -87,6 +112,13 @@ public:
     return true;
   }
 
+  /**
+   * @brief Appends a string item: the key, a 2-byte length and the characters.
+   *
+   * @param key The element ID.
+   * @param value The string; at most 65535 bytes.
+   * @return false when the string is too long or the item does not fit in kNtopngMaxTlvSize; nothing is appended then.
+   */
   bool
   put_string (std::uint32_t key, const std::string &value) {
     const int kb = uint_bytes (key);
@@ -100,6 +132,11 @@ public:
     return true;
   }
 
+  /**
+   * @brief Appends the marker that ends a record.
+   *
+   * @return false when the payload has no room for the marker.
+   */
   bool
   end_record () {
     if (buf_.size() >= kMaxSize) {
@@ -137,6 +174,12 @@ private:
   std::vector<std::uint8_t> buf_;
 };
 
+/**
+ * @brief Writes an address as text.
+ *
+ * @param addr The address.
+ * @return The address in dotted decimal for IPv4 and in the form of inet_ntop() for IPv6.
+ */
 std::string
 format_address (const IpAddress &addr) {
   std::array<char, INET6_ADDRSTRLEN> text{};
@@ -145,6 +188,12 @@ format_address (const IpAddress &addr) {
   return text.data();
 }
 
+/**
+ * @brief Writes an Ethernet address as text.
+ *
+ * @param mac The address.
+ * @return Six pairs of lowercase hexadecimal digits that are separated by colons.
+ */
 std::string
 format_mac (const std::array<std::uint8_t, 6> &mac) {
   char text[3 * 6];
@@ -153,8 +202,21 @@ format_mac (const std::array<std::uint8_t, 6> &mac) {
   return text;
 }
 
-// Original: add_tlv_flow(). Ports and counters are plain integers, addresses
-// and MAC addresses are strings. Returns false if the record does not fit.
+/**
+ * @brief Appends one flow as a record: the ports, the counters, the times, the TCP flags, the protocol and the addresses, and the VLAN IDs and the Ethernet addresses depending on the track level.
+ *
+ * The first end of the key is the source: IN is from the first end to the second, and OUT is from the second to the first.
+ *
+ * @param t The payload to append to.
+ * @param r The flow and its key.
+ * @param level The track level: the VLAN IDs are written from FullVlan, the Ethernet addresses from FullVlanEther.
+ * @param now The current time on Clock.
+ * @param wall_now The wall-clock time that corresponds to @p now; the times of the flow are made from it.
+ * @return false when the record does not fit in the payload; the payload may then hold a part of the record.
+ *
+ * @original add_tlv_flow(). Ports and counters are plain integers, addresses
+ * and MAC addresses are strings. Returns false if the record does not fit.
+ */
 bool
 add_flow (Tlv &t, const ExportRecord &r, TrackLevel level, TimePoint now,
           std::chrono::system_clock::time_point wall_now) {
