@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file log.c
+ * @brief The log of the program: to the standard error in the foreground and to
+ *   syslog otherwise.
+ */
+
 #include "common.h"
 #include "log.h"
 #include <stdarg.h>

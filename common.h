@@ -22,12 +22,20 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file common.h
+ * @brief Definitions shared by every source file: system headers, fallbacks for
+ *   what a platform lacks, packet-header constants and helper macros.
+ */
+
 #ifndef _SFD_COMMON_H
 #define _SFD_COMMON_H
 
 #include "config.h"
 
+/** Makes the BSD-style struct ip, tcphdr and udphdr visible on Linux. */
 #define _BSD_SOURCE     /* Needed for BSD-style struct ip,tcp,udp on Linux */
+/** The recommended replacement of _BSD_SOURCE on Linux. */
 #define _DEFAULT_SOURCE /* It is recommended to use instead of _BSD_SOURCE on Linux */
 
 #include <sys/types.h>
@@ -97,6 +105,10 @@
  * the legacy direct pointer casting, kept to check regressions against it; it
  * needs __typeof__, which is a GNU extension. */
 #ifndef ENABLE_DIRECT_COPIES
+/**
+ * Copy sizeof (obj) bytes from src to dst; both may be unaligned. obj is
+ * used only for sizeof and is not evaluated.
+ */
 #define MEMCPY(dst, src, obj) memcpy ((dst), (src), sizeof (obj))
 #else
 #define MEMCPY(dst, src, obj) \
@@ -104,48 +116,71 @@
 #endif
 
 /* The name of the program */
+/** The name of the program. */
 #define PROGNAME "softflowd"
 
 /* The name of the program */
+/** The version of the C version of the program. */
 #define PROGVER "1.1.1"
 
 /* Default pidfile */
+/** Default path of the pid file. */
 #define DEFAULT_PIDFILE "/var/run/" PROGNAME ".pid"
 
 /* Default control socket */
+/** Default path of the control socket. */
 #define DEFAULT_CTLSOCK "/var/run/" PROGNAME ".ctl"
 
+/**
+ * Embed the string msg in the object file, as the ident of the OpenBSD
+ * sources does.
+ */
 #define RCSID(msg)                              \
   static /**/ const char *const flowd_rcsid[] = \
     {(const char *) flowd_rcsid, "\100(#)" msg}
 
 #ifndef IP_OFFMASK
+/**
+ * Mask of the fragment offset in the flags and offset field of an IPv4
+ * header.
+ */
 #define IP_OFFMASK 0x1fff /* mask for fragmenting bits */
 #endif
 #ifndef IPV6_VERSION
+/** Version 6 in the upper 4 bits of the first octet of an IPv6 header. */
 #define IPV6_VERSION 0x60
 #endif
 #ifndef IPV6_VERSION_MASK
+/** Mask of the version in the first octet of an IPv6 header. */
 #define IPV6_VERSION_MASK 0xf0
 #endif
 #ifndef IPV6_FLOWINFO_MASK
+/**
+ * Mask of the traffic class and the flow label of an IPv6 header, in
+ * network byte order.
+ */
 #define IPV6_FLOWINFO_MASK ntohl (0x0fffffff)
 #endif
 #ifndef IPV6_FLOWLABEL_MASK
+/** Mask of the flow label of an IPv6 header, in network byte order. */
 #define IPV6_FLOWLABEL_MASK ntohl (0x000fffff)
 #endif
 
 #ifndef _PATH_DEVNULL
+/** Path of the null device. */
 #define _PATH_DEVNULL "/dev/null"
 #endif
 
 #ifndef MIN
+/** The smaller of a and b; each is evaluated twice. */
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 #ifndef MAX
+/** The larger of a and b; each is evaluated twice. */
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #endif
 #ifndef offsetof
+/** Offset in octets of member in type, for a system that has no offsetof. */
 #define offsetof(type, member) ((size_t) &((type *) 0)->member)
 #endif
 
@@ -190,14 +225,26 @@ typedef OUR_CFG_U_INT64_T u_int64_t;
 #include <bsd/unistd.h>
 #endif
 #ifndef HAVE_STRLCPY
+/**
+ * Copy src to dst of size siz, always NUL-terminated (for a system that
+ * has no strlcpy ()). Returns the length of src.
+ */
 size_t
 strlcpy (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_STRLCAT
+/**
+ * Append src to dst of size siz, always NUL-terminated (for a system
+ * that has no strlcat ()). Returns the length that it tried to create.
+ */
 size_t
 strlcat (char *dst, const char *src, size_t siz);
 #endif
 #ifndef HAVE_CLOSEFROM
+/**
+ * Close all the file descriptors from lowfd up (for a system that has no
+ * closefrom ()).
+ */
 void
 closefrom (int lowfd);
 #endif
@@ -226,19 +273,24 @@ setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 
 #ifndef ETH_ALEN
 // https://cdn.kernel.org/pub/linux/kernel/people/marcelo/linux-2.4/include/linux/if_ether.h
+/** Octets in an Ethernet address. */
 #define ETH_ALEN 6 /* Octets in one ethernet addr   */
 #endif             /* ETH_ALEN */
 
 #ifndef ETH_P_MPLS_UC
+/** EtherType of MPLS unicast. */
 #define ETH_P_MPLS_UC 0x8847 /* MPLS Unicast traffic         */
 #endif                       /* ETH_P_MPLS_UC */
 #ifndef MPLS_LS_S_MASK
+/** Mask of the bottom-of-stack bit in an MPLS label stack entry. */
 #define MPLS_LS_S_MASK 0x00000100
 #endif /* MPLS_LS_S_MASK */
 #ifndef MPLS_LS_S_SHIFT
+/** Shift of the bottom-of-stack bit in an MPLS label stack entry. */
 #define MPLS_LS_S_SHIFT 8
 #endif           /* MPLS_LS_S_SHIFT */
 #ifndef IFNAMSIZ /* defined in <net/if.h> in linux */
+/** Size of the buffer of an interface name, with the terminating NUL. */
 #define IFNAMSIZ 16
 #endif /* IFNAMSIZ */
 
@@ -249,6 +301,11 @@ setresuid (uid_t __ruid, uid_t __euid, uid_t __suid);
 
 /* Set 'now' to last_packet_time (-a) or real wall-clock time.
  * Exporters must call this before computing export_time to ensure reproducibility. */
+/**
+ * Set now to the time of the last packet with -a, otherwise to the
+ * wall-clock time. The exporters call it before they compute
+ * export_time, so that the output can be reproduced.
+ */
 #define SET_EXPORT_NOW(now, param)       \
   do {                                   \
     if ((param)->adjust_time)            \

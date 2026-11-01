@@ -23,6 +23,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file ntopng.c
+ * @brief The export of flows to ntopng (-v ntopng): the ZeroMQ connection, the
+ *   messages and the TLV format of the nDPI serializer that carries the
+ *   flows.
+ */
+
 #include "common.h"
 #include "log.h"
 #include "treetype.h"
@@ -41,38 +48,86 @@
  * Older ntopng (up to 5.x) can be fed with the JSON export in
  * compat/ntopng-json.c.
  */
+/** Version of the message header (zmq_msg_hdr_v4). */
 #define NTOPNG_MSG_VERSION 4
+/** Flag of the message header: the payload is in the TLV format. */
 #define NTOPNG_FLAG_IS_TLV (1 << 1)
+/** Largest payload of a message in octets; ntopng accepts up to 128 KB. */
 #define NTOPNG_MAX_TLV_SIZE 16384 /* ntopng accepts up to 128 KB */
+/**
+ * Milliseconds that the queued messages get to be sent when the
+ * connection is closed.
+ */
 #define NTOPNG_LINGER_MS 3000     /* wait for the queued messages at exit */
 
+/** Version of the TLV format, the first octet of the payload. */
 #define TLV_VERSION 1
+/** Format of the payload, the second octet: TLV. */
 #define TLV_FORMAT_TLV 1
+/** Type of the item that ends a record, that is, a flow. */
 #define TLV_END_OF_RECORD 1
+/** Type of a value that is an unsigned integer of 1 octet. */
 #define TLV_UINT8 2
+/** Type of a value that is an unsigned integer of 2 octets. */
 #define TLV_UINT16 3
+/** Type of a value that is an unsigned integer of 4 octets. */
 #define TLV_UINT32 4
+/** Type of a value that is an unsigned integer of 8 octets. */
 #define TLV_UINT64 5
+/**
+ * Type of a value that is a string: 2 octets of length and the
+ * characters.
+ */
 #define TLV_STRING 11
 
 /* NetFlow v9 element ids understood by ntopng */
+/**
+ * NetFlow v9 element ID of the octets from the source to the
+ * destination.
+ */
 #define NTOPNG_IN_BYTES 1
+/**
+ * NetFlow v9 element ID of the packets from the source to the
+ * destination.
+ */
 #define NTOPNG_IN_PKTS 2
+/** NetFlow v9 element ID of the IP protocol. */
 #define NTOPNG_PROTOCOL 4
+/** NetFlow v9 element ID of the TCP flags. */
 #define NTOPNG_TCP_FLAGS 6
+/** NetFlow v9 element ID of the source port. */
 #define NTOPNG_L4_SRC_PORT 7
+/** NetFlow v9 element ID of the IPv4 source address. */
 #define NTOPNG_IPV4_SRC_ADDR 8
+/** NetFlow v9 element ID of the destination port. */
 #define NTOPNG_L4_DST_PORT 11
+/** NetFlow v9 element ID of the IPv4 destination address. */
 #define NTOPNG_IPV4_DST_ADDR 12
+/** NetFlow v9 element ID of the time of the last packet, epoch seconds. */
 #define NTOPNG_LAST_SWITCHED 21
+/** NetFlow v9 element ID of the time of the first packet, epoch seconds. */
 #define NTOPNG_FIRST_SWITCHED 22
+/**
+ * NetFlow v9 element ID of the octets from the destination to the
+ * source.
+ */
 #define NTOPNG_OUT_BYTES 23
+/**
+ * NetFlow v9 element ID of the packets from the destination to the
+ * source.
+ */
 #define NTOPNG_OUT_PKTS 24
+/** NetFlow v9 element ID of the IPv6 source address. */
 #define NTOPNG_IPV6_SRC_ADDR 27
+/** NetFlow v9 element ID of the IPv6 destination address. */
 #define NTOPNG_IPV6_DST_ADDR 28
+/** NetFlow v9 element ID of the source MAC address. */
 #define NTOPNG_IN_SRC_MAC 56
+/** NetFlow v9 element ID of the destination MAC address. */
 #define NTOPNG_OUT_DST_MAC 57
+/** NetFlow v9 element ID of the source VLAN ID. */
 #define NTOPNG_SRC_VLAN 58
+/** NetFlow v9 element ID of the destination VLAN ID. */
 #define NTOPNG_DST_VLAN 59
 
 /* struct zmq_msg_hdr_v4: 36 bytes, the two bytes after flags are padding */
@@ -88,6 +143,10 @@ struct NTOPNG_MSG_HEADER {
   u_int32_t source_id;         /**< Identifies the exporter, host byte order, read as is by ntopng */
 } __attribute__ ((packed));
 
+/**
+ * Compile-time check that struct NTOPNG_MSG_HEADER is 36 octets: the
+ * array has a negative size if it is not.
+ */
 typedef char
   ntopng_msg_header_size_check[(sizeof (struct NTOPNG_MSG_HEADER) == 36) ? 1
                                                                          : -1];
@@ -101,6 +160,10 @@ struct TLV {
 
 /*
  * Connect to NTOPNG collector
+ */
+/**
+ * Connect a ZeroMQ PUB socket to the ntopng at host and port. On success
+ * zmq is filled in. Returns 0, or errno if it fails.
  */
 int
 connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
@@ -136,6 +199,11 @@ connect_ntopng (const char *host, const char *port, struct ZMQ *zmq) {
  * sent, but at most for the linger time: without it the flows exported at
  * shutdown are lost when the process exits.
  */
+/**
+ * Close the ZeroMQ socket and context of zmq. The queued messages get
+ * NTOPNG_LINGER_MS to be sent; without it the flows exported at shutdown
+ * are lost when the process exits.
+ */
 void
 close_ntopng (struct ZMQ *zmq) {
   int linger = NTOPNG_LINGER_MS;
@@ -147,6 +215,10 @@ close_ntopng (struct ZMQ *zmq) {
   zmq->context = NULL;
 }
 
+/**
+ * Start a payload in buf of size octets: write the version and the
+ * format, and set the length.
+ */
 static void
 tlv_init (struct TLV *t, u_int8_t *buf, size_t size) {
   t->buf = buf;
@@ -156,6 +228,7 @@ tlv_init (struct TLV *t, u_int8_t *buf, size_t size) {
   t->len = 2;
 }
 
+/** Append the low bytes octets of v to the payload of t in big endian. */
 static void
 tlv_put_be (struct TLV *t, u_int64_t v, int bytes) {
   int i;
@@ -165,6 +238,10 @@ tlv_put_be (struct TLV *t, u_int64_t v, int bytes) {
 }
 
 /* Smallest of 1, 2, 4 or 8 bytes holding v, as the nDPI serializer does */
+/**
+ * The smallest of 1, 2, 4 and 8 octets that holds v, as the nDPI
+ * serializer chooses.
+ */
 static int
 tlv_uint_bytes (u_int64_t v) {
   return v <= 0xff ? 1 : v <= 0xffff        ? 2
@@ -172,6 +249,7 @@ tlv_uint_bytes (u_int64_t v) {
                                             : 8;
 }
 
+/** The TLV type of an unsigned integer of bytes octets. */
 static u_int8_t
 tlv_uint_type (int bytes) {
   return bytes == 1   ? TLV_UINT8
@@ -181,6 +259,10 @@ tlv_uint_type (int bytes) {
 }
 
 /* Returns 0 on success, -1 if the item does not fit in the buffer */
+/**
+ * Append an item to the payload of t: the integer value under the
+ * integer key. Returns 0, or -1 if the item does not fit in the buffer.
+ */
 static int
 tlv_put_uint (struct TLV *t, u_int32_t key, u_int64_t value) {
   int kb = tlv_uint_bytes (key);
@@ -194,6 +276,10 @@ tlv_put_uint (struct TLV *t, u_int32_t key, u_int64_t value) {
   return 0;
 }
 
+/**
+ * Append an item to the payload of t: the string value under the integer
+ * key. Returns 0, or -1 if the item does not fit in the buffer.
+ */
 static int
 tlv_put_string (struct TLV *t, u_int32_t key, const char *value) {
   size_t slen = strlen (value);
@@ -209,6 +295,10 @@ tlv_put_string (struct TLV *t, u_int32_t key, const char *value) {
   return 0;
 }
 
+/**
+ * Append the end of a record to the payload of t. Returns 0, or -1 if
+ * there is no room.
+ */
 static int
 tlv_end_record (struct TLV *t) {
   if (t->len >= t->size)
@@ -221,6 +311,11 @@ tlv_end_record (struct TLV *t) {
  * Append one flow as a TLV record. Ports and counters are plain integers
  * in host byte order, addresses and MAC addresses are strings.
  * Returns 0 on success, -1 if the record does not fit in the buffer.
+ */
+/**
+ * Append one flow as a TLV record to t. Ports and counters are integers
+ * in host byte order; addresses and MAC addresses are strings. Returns
+ * 0, or -1 if the record does not fit in the buffer.
  */
 static int
 add_tlv_flow (struct SENDPARAMETER *sp, struct FLOW *flow, struct TLV *t) {
@@ -277,6 +372,12 @@ add_tlv_flow (struct SENDPARAMETER *sp, struct FLOW *flow, struct TLV *t) {
   return tlv_end_record (t);
 }
 
+/**
+ * Build one message from the flows of sp from start_at_flow on, as many
+ * as fit in NTOPNG_MAX_TLV_SIZE, and send it to every destination.
+ * Returns the index of the next flow to send; a flow that never fits is
+ * skipped.
+ */
 static int
 send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   struct NTOPNG_MSG_HEADER header;
@@ -325,6 +426,10 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   return flow;
 }
 
+/**
+ * Send the flows of sp to ntopng, in as many messages as they need.
+ * Updates the counters of records and packets sent.
+ */
 int
 send_ntopng (struct SENDPARAMETER sp) {
   int flow = 0;

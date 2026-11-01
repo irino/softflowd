@@ -1,11 +1,7 @@
 # Doxygen configuration of the C version.  `doxygen Doxyfile` writes the HTML
-# to doc-c/html and fails on a warning: a struct or a member of a struct
-# without a comment.  CI runs it (the job doc-c).
-#
-# The files have no \file comment, so Doxygen leaves out the functions, the
-# variables and the macros of the .c and .h files, with or without a comment,
-# and checks only the structs.  A \file comment in a file would bring them in,
-# and every undocumented one would then be a warning.
+# to doc-c/html and fails on a warning: a struct, a member of a struct, a
+# function, a variable, a macro or a type without a comment.  CI runs it (the
+# job doc-c).
 #
 # Only the files whose copyright is Damien Miller or Hitoshi Irino are read:
 # convtime.c, convtime.h and daemon.c come from OpenBSD and have no Doxygen
@@ -32,10 +28,26 @@ INPUT                  = common.h \
                          softflowd.h \
                          treetype.h
 EXTRACT_STATIC         = YES
+# KEY_ADD is a macro that softflowd.c defines inside a function, where Doxygen
+# cannot attach a comment to it.
+EXCLUDE_SYMBOLS        = KEY_ADD
 ENABLE_PREPROCESSING   = YES
-MACRO_EXPANSION        = NO
-# The code that configure switches on, so that it is checked too.
-PREDEFINED             = ENABLE_PTHREAD ENABLE_NTOPNG ENABLE_IFNAME __packed=
+# Only the macros named in PREDEFINED are expanded: the attributes, and the
+# macros that define a function or generate the code of a tree, which Doxygen
+# would take for a function or a variable of a strange name.
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+# The code that configure switches on, so that it is checked too: the threads,
+# ntopng and the interface name; and the default exporter (COMPAT_EXPORT 0,
+# not the compat one of the sentinels 1 and 2).
+PREDEFINED             = ENABLE_PTHREAD ENABLE_NTOPNG ENABLE_IFNAME \
+                         COMPAT_EXPORT=0 COMPAT_EXPORT_STATIC=1 \
+                         COMPAT_EXPORT_STATIC_SEPARATE=2 \
+                         "__packed=" "__attribute__(x)=" \
+                         "EXPORT_ENC_HTON(a,b,c)=" "EXPORT_ENC_COPY(a,b,c)=" \
+                         "EXPORT_ENC_BYTE(a,b)=" \
+                         "FLOW_PROTOTYPE(a,b,c,d)=" "FLOW_GENERATE(a,b,c,d)=" \
+                         "EXPIRY_PROTOTYPE(a,b,c,d)=" "EXPIRY_GENERATE(a,b,c,d)="
 # No Graphviz: newer Doxygen (1.15) tries to run dot unless it is told not to,
 # and a runner without Graphviz would fail.
 HAVE_DOT               = NO

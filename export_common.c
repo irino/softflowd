@@ -22,6 +22,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file export_common.c
+ * @brief What the NetFlow v9 and IPFIX exporters share: the conversion of time to
+ *   NTP, the flow direction, the template of a flow and the packing of flows
+ *   into packets.
+ */
+
 #include "export_common.h"
 #include "ipfix.h"
 #include "common.h"

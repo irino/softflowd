@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file psamp.h
+ * @brief The information element IDs, the template ID and the layouts of the
+ *   PSAMP records.
+ */
+
 #ifndef _PSAMP_H
 #define _PSAMP_H
 
@@ -29,13 +35,21 @@
 
 /** @name IPFIX information element IDs used by the PSAMP record
  * @{ */
+/** IPFIX information element selectionSequenceId (IANA ID 301). */
 #define PSAMP_selectionSequenceId 301
+/** IPFIX information element selectorAlgorithm (IANA ID 304). */
 #define PSAMP_selectorAlgorithm 304
+/** IPFIX information element samplingPacketInterval (IANA ID 305). */
 #define PSAMP_samplingPacketInterval 305
+/** IPFIX information element samplingPacketSpace (IANA ID 306). */
 #define PSAMP_samplingPacketSpace 306
+/** IPFIX information element digestHashValue (IANA ID 326). */
 #define PSAMP_digestHashValue 326
+/** IPFIX information element observationTimeMicroseconds (IANA ID 324). */
 #define PSAMP_observationTimeMicroseconds 324
+/** IPFIX information element dataLinkFrameSection (IANA ID 315). */
 #define PSAMP_dataLinkFrameSection 315
+/** IPFIX information element sectionExportedOctets (IANA ID 410). */
 #define PSAMP_sectionExportedOctets 410
 /** @} */
 

@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file export_common.h
+ * @brief Declarations shared by the NetFlow v9 and IPFIX exporters: template IDs,
+ *   the template re-send interval and the conversion of time to NTP.
+ */
+
 #ifndef _EXPORT_COMMON_H
 #define _EXPORT_COMMON_H
 
@@ -35,18 +41,30 @@
 #include "ipfix.h"
 #include "softflowd.h"
 
+/** bi_flag: export each direction of a flow as a flow of its own. */
 #define IPFIX_BIFLAG_OFF 0
+/** bi_flag: export both directions of a flow as one Biflow (RFC 5103). */
 #define IPFIX_BIFLAG_ON 1
 
 /* Template IDs and template re-send interval (packets); shared with NetFlow v9
  */
+/** Template ID of the IPv4 flow template. */
 #define IPFIX_SOFTFLOWD_V4_TEMPLATE_ID 1024
+/** Template ID of the ICMPv4 flow template. */
 #define IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID 1025
+/** Template ID of the IPv6 flow template. */
 #define IPFIX_SOFTFLOWD_V6_TEMPLATE_ID 2048
+/** Template ID of the ICMPv6 flow template. */
 #define IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID 2049
+/** Template ID of the options template. */
 #define IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID 256
+/** Number of packets after which the templates are sent again. */
 #define IPFIX_DEFAULT_TEMPLATE_INTERVAL 16
 
+/**
+ * Largest size in octets of an IPFIX or NetFlow v9 packet that softflowd
+ * builds.
+ */
 #define IPFIX_SOFTFLOWD_MAX_PACKET_SIZE 1428
 
 /** @brief A time as a 64-bit NTP timestamp. */

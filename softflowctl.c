@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file softflowctl.c
+ * @brief softflowctl, the client of the control socket of softflowd: it sends a
+ *   command and prints the reply.
+ */
+
 #include "common.h"
 
 /**

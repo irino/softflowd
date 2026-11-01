@@ -22,18 +22,33 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file freelist.c
+ * @brief A freelist of fixed-size allocations that hands out entries from batches
+ *   it allocates and takes them back.
+ */
+
 #include "common.h"
 #include "freelist.h"
 #include "log.h"
 
 #ifndef roundup
+/** Round x up to a multiple of y. */
 #define roundup(x, y) ((((x) + (y) - 1)/(y))*(y))
 #endif /* roundup */
 
 #undef FREELIST_DEBUG
 #ifdef FREELIST_DEBUG
+/**
+ * Log a debug message of the freelist with logit (); nothing without
+ * FREELIST_DEBUG.
+ */
 # define FLOGIT(a) logit a
 #else
+/**
+ * Log a debug message of the freelist with logit (); nothing without
+ * FREELIST_DEBUG.
+ */
 # define FLOGIT(a)
 #endif
 

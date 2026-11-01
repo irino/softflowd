@@ -22,13 +22,24 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file freelist.h
+ * @brief The interface of the freelist of fixed-size allocations.
+ */
+
 #ifndef _FREELIST_H
 #define _FREELIST_H
 
 #include "common.h"
 
+/** Largest number of entries that a freelist holds. */
 #define FREELIST_MAX_ALLOC	0x1000000
+/** The size of an entry is rounded up to a multiple of this. */
 #define FREELIST_ALLOC_ALIGN	16
+/**
+ * Number of entries of the first batch; every later batch doubles the
+ * total.
+ */
 #define FREELIST_INITIAL_ALLOC	16
 
 /** Simple freelist of fixed-sized allocations */

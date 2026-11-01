@@ -22,6 +22,14 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file softflowd.c
+ * @brief softflowd, a flow-based traffic analyser: it reads packets from an
+ *   interface or a capture file, tracks them as flows, expires the flows and
+ *   exports them as NetFlow or IPFIX; the control socket, the daemon set-up
+ *   and the command line are here too.
+ */
+
 /*
  * This is software implementation of Cisco's NetFlow(tm) traffic
  * reporting system. It operates by listening (via libpcap) on a
@@ -74,7 +82,12 @@
 #if !defined(LINUX) && defined(HAVE_IFADDRS_H)
 #include <net/if_dl.h>
 #endif
+/**
+ * The value that getopt_long () returns for --flow-lookup, which has no
+ * short option.
+ */
 #define OPT_FLOW_LOOKUP 256         /* --flow-lookup has no short option */
+/** Upper limit of the number of buckets of the flow table. */
 #define FLOW_MAX_BUCKETS (1U << 24) /* upper bound of the flow table size */
 
 /* Global variables */
@@ -149,6 +162,10 @@ struct DATALINK {
 };
 
 /* Datalink types that we know about */
+/**
+ * The datalink types that softflowd reads, and where the headers are in
+ * each.
+ */
 static const struct DATALINK lt[] = {
   {DLT_EN10MB, 14, 12, 2, 1, 0xffffffff, 0x0800, 0x86dd},
   {DLT_PPP, 5, 3, 2, 1, 0xffffffff, 0x0021, 0x0057},
@@ -229,6 +246,10 @@ get_interface_mac (const char *ifname, u_int8_t mac[6]) {
 }
 
 /* Netflow send functions */
+/**
+ * Type of the functions that export the flows of one version of NetFlow
+ * or IPFIX; the argument holds the flows to send.
+ */
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
 
 #ifdef ENABLE_PTHREAD
@@ -285,6 +306,10 @@ struct NETFLOW_SENDER {
 /* Known NetFlow export functions (nf[0] is default).
  * Which source file defines the send_* functions depends on
  * --enable-compat-export (see softflowd.h). */
+/**
+ * The versions that can be exported and the functions that export them;
+ * nf[0] (NetFlow v5) is the default.
+ */
 static const struct NETFLOW_SENDER nf[] = {
   {5, send_netflow_v5, NULL, 0},
   {1, send_netflow_v1, NULL, 0},
@@ -2806,6 +2831,10 @@ usage (void) {
 
 /* Empty fallback where common.h does not define __dead (non-GNU C, non-BSD). */
 #ifndef __dead
+/**
+ * Marks a function that does not return; empty where common.h does not
+ * define it.
+ */
 #define __dead
 #endif
 /**

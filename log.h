@@ -22,6 +22,11 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file log.h
+ * @brief The interface of the log of the program.
+ */
+
 #ifndef _LOG_H
 #define _LOG_H
 

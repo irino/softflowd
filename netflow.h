@@ -23,6 +23,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file netflow.h
+ * @brief The layouts on the wire of the NetFlow v1, v5 and v9 headers and of the
+ *   v1 and v5 flow records.
+ */
+
 #ifndef _NETFLOW_H
 #define _NETFLOW_H
 
@@ -62,6 +68,7 @@ struct NETFLOW5_HEADER {
   u_int16_t sampling_interval;       /**< The sampling mode in the top 2 bits and the interval in the other 14 bits; 1 and the rate of -s with -s, otherwise 0 */
 } __packed;
 
+/** Size in octets of the NetFlow v1 header. */
 #define NETFLOW1_HEADER_SIZE 16
 
 /**
@@ -92,13 +99,21 @@ struct NETFLOW5_FLOW {
 };
 
 /* Maximum number of flows per packet */
+/** Largest number of flow records in a NetFlow v1 packet. */
 #define NETFLOW1_MAXFLOWS 24
+/** Largest number of flow records in a NetFlow v5 packet. */
 #define NETFLOW5_MAXFLOWS 30
+/**
+ * Largest size in octets of a NetFlow v5 packet: the header and the
+ * largest number of flow records.
+ */
 #define NETFLOW5_MAXPACKET_SIZE      \
   (sizeof (struct NETFLOW5_HEADER) + \
    (NETFLOW5_MAXFLOWS * sizeof (struct NETFLOW5_FLOW)))
 
+/** Set ID of a template set of NetFlow v9. */
 #define NETFLOW9_TEMPLATE_SET_ID 0
+/** Set ID of an options template set of NetFlow v9. */
 #define NETFLOW9_OPTION_TEMPLATE_SET_ID 1
 
 /** @brief Cisco NetFlow v9 header format (20 octets). */

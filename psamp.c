@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file psamp.c
+ * @brief PSAMP (RFC 5476): the export of sampled packets as IPFIX records (-v
+ *   psamp) and the receiving of them.
+ */
+
 #include "common.h"
 #include "log.h"
 #include "export_common.h"

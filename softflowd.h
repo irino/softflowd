@@ -22,6 +22,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file softflowd.h
+ * @brief The structures and constants that the parts of softflowd share: the
+ *   flow, the parameters of the flow table, the export targets and the
+ *   prototypes of the senders.
+ */
+
 #ifndef _SOFTFLOWD_H
 #define _SOFTFLOWD_H
 #include "common.h"
@@ -41,7 +48,13 @@ extern int use_thread;
 #include <zmq.h>
 // The version field in NetFow and IPFIX headers is 16 bits unsiged int.
 // If the version number is over 0x7fff0000, it is unique number in softflowd.
+/**
+ * Version number that selects the export to ntopng (-v ntopng). It is
+ * above the 16 bits of the version field of NetFlow, so that it never
+ * collides with a real version.
+ */
 #define SOFTFLOWD_NF_VERSION_NTOPNG (0x7fff0001)
+/** The name of the export to ntopng as -v takes it. */
 #define SOFTFLOWD_NF_VERSION_NTOPNG_STRING "ntopng"
 #ifdef ENABLE_NTOPNG_JSON
 #define SOFTFLOWD_NF_VERSION_NTOPNG_JSON (0x7fff0002)
@@ -56,37 +69,72 @@ struct ZMQ {
 
 /* User to setuid to and directory to chroot to when we drop privs */
 #ifndef PRIVDROP_USER
+/** User that the daemon changes to when it drops its privileges. */
 #define PRIVDROP_USER "nobody"
 #endif
 
 #ifndef PRIVDROP_CHROOT_DIR
+/**
+ * Directory that the daemon changes the root to when it drops its
+ * privileges.
+ */
 #define PRIVDROP_CHROOT_DIR "/var/empty"
 #endif
 /*
  * Capture length for libpcap: Must fit the link layer header, plus
  * a maximally sized ip/ipv6 header and most of a TCP header
  */
+/**
+ * Capture length of libpcap for IPv4. It must fit the link layer header,
+ * an IP header of maximum size and most of a TCP header.
+ */
 #define LIBPCAP_SNAPLEN_V4 96
+/**
+ * Capture length of libpcap for IPv6. It must fit the link layer header,
+ * an IPv6 header of maximum size and most of a TCP header.
+ */
 #define LIBPCAP_SNAPLEN_V6 160
 
 /*
  * Timeouts
  */
+/** Default timeout in seconds of an open TCP connection (-t tcp). */
 #define DEFAULT_TCP_TIMEOUT 3600
+/**
+ * Default timeout in seconds of a TCP connection after an RST from one
+ * or both endpoints (-t tcp.rst).
+ */
 #define DEFAULT_TCP_RST_TIMEOUT 120
+/**
+ * Default timeout in seconds of a TCP connection after a FIN from both
+ * endpoints (-t tcp.fin).
+ */
 #define DEFAULT_TCP_FIN_TIMEOUT 300
+/** Default timeout in seconds of a UDP flow (-t udp). */
 #define DEFAULT_UDP_TIMEOUT 300
+/** Default timeout in seconds of an ICMP flow (-t icmp). */
 #define DEFAULT_ICMP_TIMEOUT 300
+/**
+ * Default general timeout in seconds, applied to all traffic unless
+ * another timeout overrides it (-t general).
+ */
 #define DEFAULT_GENERAL_TIMEOUT 3600
+/** Default maximum lifetime in seconds of a flow (-t maxlife): 7 days. */
 #define DEFAULT_MAXIMUM_LIFETIME (3600 * 24 * 7)
+/**
+ * Default interval in seconds between the scans for the flows to expire
+ * (-t expint).
+ */
 #define DEFAULT_EXPIRY_INTERVAL 60
 
 /*
  * Default maximum number of flow to track simultaneously
  * 8192 corresponds to just under 1Mb of flow data
  */
+/** Default maximum number of flows tracked at a time (-m). */
 #define DEFAULT_MAX_FLOWS 8192
 
+/** Version number of IPFIX in the message header. */
 #define NF_VERSION_IPFIX 10
 
 /** Store a couple of statistics, maybe more in the future */
@@ -107,32 +155,58 @@ enum {
                            9-tuple */
 };
 
+/** Largest number of export destinations. */
 #define SOFTFLOWD_MAX_DESTINATIONS 16
 
 /* Copy tv_sec and tv_usec individually to support platforms where
  * pcap_pkthdr.ts is a struct bpf_timeval (e.g. OpenBSD). */
+/**
+ * Copy the time stamp src of a pcap packet header to the struct timeval
+ * dst, member by member.
+ */
 #define PCAP_TS_TO_TIMEVAL(dst, src) \
   do {                               \
     (dst).tv_sec = (src).tv_sec;     \
     (dst).tv_usec = (src).tv_usec;   \
   } while (0)
 
+/** printf format of an Ethernet address, to be used with FORMAT_ETHERMAC. */
 #define PRI_ETHERMAC "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x"
+/**
+ * The six octets of the Ethernet address em, as the arguments of
+ * PRI_ETHERMAC.
+ */
 #define FORMAT_ETHERMAC(em) em[0], em[1], em[2], em[3], em[4], em[5]
 
 /* Return values from process_packet */
+/** Result of process_packet (): the packet was processed. */
 #define PP_OK 0
+/** Result of process_packet (): the packet is bad or too short. */
 #define PP_BAD_PACKET -2
+/** Result of process_packet (): memory for a flow could not be allocated. */
 #define PP_MALLOC_FAIL -3
 
 /* check_expired() modes */
+/** Mode of check_expired (): normal expiry processing. */
 #define CE_EXPIRE_NORMAL 0 /* Normal expiry processing */
+/** Mode of check_expired (): expire all the flows at once. */
 #define CE_EXPIRE_ALL -1   /* Expire all flows immediately */
+/**
+ * Mode of check_expired (): expire only the flows that are marked for
+ * forced expiry.
+ */
 #define CE_EXPIRE_FORCED 1 /* Only expire force-expired flows */
 
+/**
+ * Largest interval of -I in days: what fits in the 32 bits of the
+ * milliseconds of sysUpTime.
+ */
 #define BOOTTIME_MAX_DAY 49
+/** Largest interval of -I in hours. */
 #define BOOTTIME_MAX_HOUR 1193
+/** Largest interval of -I in minutes. */
 #define BOOTTIME_MAX_MIN 71582
+/** Largest interval of -I in seconds. */
 #define BOOTTIME_MAX_SEC 4294944
 
 /**

@@ -22,6 +22,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file export.c
+ * @brief The encoder-based exporter (the default) of NetFlow v1, v5, v9 and
+ *   IPFIX: the encoders of the fields, the templates and the senders of the
+ *   fixed-format v1 and v5 records.
+ */
+
 #include "export_common.h"
 #include "ipfix.h"
 #include "ipfix_fields.h"
@@ -30,6 +37,10 @@
 #include "psamp.h"
 #include "softflowd.h"
 
+/**
+ * Number of the entries of the field table a, an array of struct
+ * EXPORT_FIELD_SPECIFIER_ENCODER.
+ */
 #define EXPORT_NFIELDS_ENC(a) \
   (sizeof (a) / sizeof (struct EXPORT_FIELD_SPECIFIER_ENCODER))
 
@@ -362,6 +373,11 @@ enc_flowDirection (u_char *dst, u_int16_t length,
 }
 
 /* NetFlow v1/v5 fixed data records: same IEs as field_netflow_v1v5_common[]. */
+/**
+ * The first fields of a NetFlow v1 or v5 record, the same in both, with
+ * their encoders: addresses, next hop, interfaces, packets, octets,
+ * times and ports.
+ */
 static const struct EXPORT_FIELD_SPECIFIER_ENCODER
   field_netflow_v1v5_common_enc[] = {
     {{IPFIX_sourceIPv4Address, 4}, enc_sourceIPv4Address},
@@ -377,6 +393,10 @@ static const struct EXPORT_FIELD_SPECIFIER_ENCODER
     {{IPFIX_destinationTransportPort, 2}, enc_destinationTransportPort},
 };
 
+/**
+ * The last fields of a NetFlow v1 record, with their encoders: protocol,
+ * type of service, TCP flags and padding.
+ */
 static const struct EXPORT_FIELD_SPECIFIER_ENCODER field_netflowv1_tail_enc[] = {
   {{IPFIX_paddingOctets, 2}, enc_zero},
   {{IPFIX_protocolIdentifier, 1}, enc_protocolIdentifier},
@@ -385,6 +405,11 @@ static const struct EXPORT_FIELD_SPECIFIER_ENCODER field_netflowv1_tail_enc[] = 
   {{IPFIX_paddingOctets, 7}, enc_zero},
 };
 
+/**
+ * The last fields of a NetFlow v5 record, with their encoders: TCP
+ * flags, protocol, type of service, AS numbers, prefix lengths and
+ * padding.
+ */
 static const struct EXPORT_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = {
   {{IPFIX_paddingOctets, 1}, enc_zero},
   {{IPFIX_tcpControlBits, 1}, enc_tcpControlBits},

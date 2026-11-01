@@ -22,6 +22,12 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/**
+ * @file treetype.h
+ * @brief The tree types of the flow table and of the expiry queue, mapped to the
+ *   BSD sys/tree.h macros.
+ */
+
 /* Select our tree types for various data structures */
 
 #if defined(FLOW_RB)
