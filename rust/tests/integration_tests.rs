@@ -1,20 +1,16 @@
-use std::net::{UdpSocket, IpAddr, Ipv4Addr};
+use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
-use std::fs::File;
-use std::io::{Write, BufReader, BufRead};
-use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 
-use rsoftflowd::common::{
-    Flow, FlowKey, TimeVal, ExpiryReason, TrackLevel, FlowTrackParameters
-};
+use rsoftflowd::common::{ExpiryReason, Flow, FlowKey, FlowTrackParameters, TimeVal, TrackLevel};
+use rsoftflowd::control::{ControlCommand, start_control_server};
+use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
 use rsoftflowd::packet_parser::parse_packet;
-use rsoftflowd::exporter::{
-    Destination, ExportSocket, NetflowTarget, SendParameter, send_flows
-};
-use rsoftflowd::control::{start_control_server, ControlCommand};
 
 // -------------------------------------------------------------
 // Test 1: rsoftflowd and rsoftflowctl connection
@@ -34,7 +30,8 @@ fn test_control_server_connection() {
         if let Ok(cmd) = cmd_rx.recv() {
             match cmd {
                 ControlCommand::Statistics { resp } => {
-                    resp.send("Number of active flows: 42\n".to_string()).unwrap();
+                    resp.send("Number of active flows: 42\n".to_string())
+                        .unwrap();
                 }
                 _ => panic!("Unexpected command"),
             }
@@ -43,11 +40,15 @@ fn test_control_server_connection() {
 
     // Connect from client side
     let mut stream = UnixStream::connect(socket_path).expect("Failed to connect to control socket");
-    stream.write_all(b"statistics\n").expect("Failed to send command");
+    stream
+        .write_all(b"statistics\n")
+        .expect("Failed to send command");
 
     let mut reader = BufReader::new(stream);
     let mut response = String::new();
-    reader.read_line(&mut response).expect("Failed to read response");
+    reader
+        .read_line(&mut response)
+        .expect("Failed to read response");
 
     assert_eq!(response, "Number of active flows: 42\n");
 
@@ -119,6 +120,8 @@ fn test_pcap_file_reading() {
     let raw_packet = capture.next_packet().expect("Failed to read packet");
     let caplen = raw_packet.header.caplen;
     let len = raw_packet.header.len;
+    // tv_sec is not an i64 on every target, so the cast is needed there.
+    #[allow(clippy::unnecessary_cast)]
     let timestamp = TimeVal {
         tv_sec: raw_packet.header.ts.tv_sec as i64,
         tv_usec: raw_packet.header.ts.tv_usec as i32,
@@ -129,14 +132,15 @@ fn test_pcap_file_reading() {
 
     let parsed = parse_packet(
         linktype,
-        &raw_packet.data,
+        raw_packet.data,
         caplen,
         len,
         TrackLevel::Full,
         0,
         false,
         timestamp,
-    ).expect("Failed to parse packet");
+    )
+    .expect("Failed to parse packet");
 
     assert_eq!(parsed.af, 2); // AF_INET
     assert_eq!(parsed.protocol, 6); // TCP
@@ -157,7 +161,10 @@ fn make_dummy_flow() -> Flow {
     let key = FlowKey {
         af: 2,
         protocol: 6, // TCP
-        addr: [IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)), IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200))],
+        addr: [
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)),
+        ],
         port: [12345, 80],
         vlanid: [0, 0],
         ethermac: [[0; 6]; 2],
@@ -167,8 +174,14 @@ fn make_dummy_flow() -> Flow {
 
     Flow {
         flow_seq: 1,
-        flow_start: TimeVal { tv_sec: 1600000000, tv_usec: 0 },
-        flow_last: TimeVal { tv_sec: 1600000010, tv_usec: 0 },
+        flow_start: TimeVal {
+            tv_sec: 1600000000,
+            tv_usec: 0,
+        },
+        flow_last: TimeVal {
+            tv_sec: 1600000010,
+            tv_usec: 0,
+        },
         octets: [1000, 500],
         packets: [10, 5],
         tcp_flags: [0x02, 0x10], // SYN, ACK
@@ -186,11 +199,15 @@ fn make_dummy_flow() -> Flow {
 fn test_exporter_version(version: u16) -> Vec<u8> {
     // Bind receiver UDP socket
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
-    let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
 
     // Bind sender UDP socket
     let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
-    send_socket.connect(recv_addr).expect("Failed to connect to receiver socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
 
     let targets = NetflowTarget {
         destinations: vec![Destination {
@@ -203,10 +220,18 @@ fn test_exporter_version(version: u16) -> Vec<u8> {
 
     let flow = make_dummy_flow();
     let flow_refs = vec![&flow];
-    let mut param = FlowTrackParameters::default();
-    param.system_boot_time = TimeVal { tv_sec: 1599999900, tv_usec: 0 };
-    param.adjust_time = true;
-    param.last_packet_time = TimeVal { tv_sec: 1600000010, tv_usec: 0 };
+    let mut param = FlowTrackParameters {
+        system_boot_time: TimeVal {
+            tv_sec: 1599999900,
+            tv_usec: 0,
+        },
+        adjust_time: true,
+        last_packet_time: TimeVal {
+            tv_sec: 1600000010,
+            tv_usec: 0,
+        },
+        ..Default::default()
+    };
 
     let sp = SendParameter {
         flows: &flow_refs,
@@ -220,8 +245,12 @@ fn test_exporter_version(version: u16) -> Vec<u8> {
     assert!(count > 0, "send_flows returned error or 0 packets");
 
     let mut buf = [0u8; 2048];
-    recv_socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive exported Netflow/IPFIX packet");
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (received_len, _) = recv_socket
+        .recv_from(&mut buf)
+        .expect("Failed to receive exported Netflow/IPFIX packet");
 
     buf[..received_len].to_vec()
 }
@@ -265,10 +294,14 @@ fn test_exporter_ipfix() {
 #[test]
 fn test_exporter_ipfix_biflow() {
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
-    let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
 
     let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
-    send_socket.connect(recv_addr).expect("Failed to connect to receiver socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
 
     let targets = NetflowTarget {
         destinations: vec![Destination {
@@ -281,11 +314,19 @@ fn test_exporter_ipfix_biflow() {
 
     let flow = make_dummy_flow();
     let flow_refs = vec![&flow];
-    let mut param = FlowTrackParameters::default();
-    param.bidirection = true;
-    param.system_boot_time = TimeVal { tv_sec: 1599999900, tv_usec: 0 };
-    param.adjust_time = true;
-    param.last_packet_time = TimeVal { tv_sec: 1600000010, tv_usec: 0 };
+    let mut param = FlowTrackParameters {
+        system_boot_time: TimeVal {
+            tv_sec: 1599999900,
+            tv_usec: 0,
+        },
+        bidirection: true,
+        adjust_time: true,
+        last_packet_time: TimeVal {
+            tv_sec: 1600000010,
+            tv_usec: 0,
+        },
+        ..Default::default()
+    };
 
     let sp = SendParameter {
         flows: &flow_refs,
@@ -299,8 +340,12 @@ fn test_exporter_ipfix_biflow() {
     assert!(count > 0, "send_flows returned error or 0 packets");
 
     let mut buf = [0u8; 2048];
-    recv_socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive IPFIX biflow packet");
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (received_len, _) = recv_socket
+        .recv_from(&mut buf)
+        .expect("Failed to receive IPFIX biflow packet");
     assert!(received_len >= 16);
     let version = BigEndian::read_u16(&buf[0..2]);
     assert_eq!(version, 10);
@@ -316,8 +361,7 @@ fn test_packet_parser_dlt_ppp() {
         0x45, 0x00, 0x00, 0x28, // v4, ihl=5, total_len=40
         0x12, 0x34, 0x00, 0x00, // id, flags
         0x40, 0x11, 0x00, 0x00, // ttl=64, proto=UDP(17), chksum
-        192, 168, 1, 10,
-        192, 168, 1, 20,
+        192, 168, 1, 10, 192, 168, 1, 20,
     ];
     ppp_packet.extend_from_slice(&ip_header);
     // UDP header (8 bytes)
@@ -329,7 +373,10 @@ fn test_packet_parser_dlt_ppp() {
     ];
     ppp_packet.extend_from_slice(&udp_header);
 
-    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 0 };
+    let timestamp = TimeVal {
+        tv_sec: 1600000000,
+        tv_usec: 0,
+    };
     let parsed = parse_packet(
         rsoftflowd::packet_parser::DLT_PPP,
         &ppp_packet,
@@ -339,7 +386,8 @@ fn test_packet_parser_dlt_ppp() {
         0,
         false,
         timestamp,
-    ).expect("Failed to parse DLT_PPP packet");
+    )
+    .expect("Failed to parse DLT_PPP packet");
 
     assert_eq!(parsed.af, 2);
     assert_eq!(parsed.protocol, 17);
@@ -354,23 +402,22 @@ fn test_packet_parser_dlt_pflog() {
     pflog_packet[1] = 2; // AF_INET = 2
 
     let ip_header: [u8; 20] = [
-        0x45, 0x00, 0x00, 0x28,
-        0x12, 0x34, 0x00, 0x00,
-        0x40, 0x11, 0x00, 0x00,
-        10, 0, 0, 1,
-        10, 0, 0, 2,
+        0x45, 0x00, 0x00, 0x28, 0x12, 0x34, 0x00, 0x00, 0x40, 0x11, 0x00, 0x00, 10, 0, 0, 1, 10, 0,
+        0, 2,
     ];
     pflog_packet.extend_from_slice(&ip_header);
 
     let udp_header: [u8; 8] = [
         0x04, 0x00, // sport 1024
         0x08, 0x00, // dport 2048
-        0x00, 0x14,
-        0x00, 0x00,
+        0x00, 0x14, 0x00, 0x00,
     ];
     pflog_packet.extend_from_slice(&udp_header);
 
-    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 0 };
+    let timestamp = TimeVal {
+        tv_sec: 1600000000,
+        tv_usec: 0,
+    };
     let parsed = parse_packet(
         rsoftflowd::packet_parser::DLT_PFLOG,
         &pflog_packet,
@@ -380,7 +427,8 @@ fn test_packet_parser_dlt_pflog() {
         0,
         false,
         timestamp,
-    ).expect("Failed to parse DLT_PFLOG packet");
+    )
+    .expect("Failed to parse DLT_PFLOG packet");
 
     assert_eq!(parsed.af, 2);
     assert_eq!(parsed.protocol, 17);
@@ -391,10 +439,14 @@ fn test_packet_parser_dlt_pflog() {
 #[test]
 fn test_psamp_exporter() {
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
-    let recv_addr = recv_socket.local_addr().expect("Failed to get local address");
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
 
     let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
-    send_socket.connect(recv_addr).expect("Failed to connect to receiver socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
 
     let targets = NetflowTarget {
         destinations: vec![Destination {
@@ -406,19 +458,20 @@ fn test_psamp_exporter() {
     };
 
     let dummy_packet = [0x45; 64];
-    let timestamp = TimeVal { tv_sec: 1600000000, tv_usec: 500 };
-    let sent = rsoftflowd::exporter::psamp::send_psamp(
-        &dummy_packet,
-        64,
-        timestamp,
-        &targets,
-        1,
-    );
+    let timestamp = TimeVal {
+        tv_sec: 1600000000,
+        tv_usec: 500,
+    };
+    let sent = rsoftflowd::exporter::psamp::send_psamp(&dummy_packet, 64, timestamp, &targets, 1);
     assert!(sent >= 0);
 
     let mut buf = [0u8; 2048];
-    recv_socket.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive PSAMP packet");
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (received_len, _) = recv_socket
+        .recv_from(&mut buf)
+        .expect("Failed to receive PSAMP packet");
     assert!(received_len >= 16);
     let version = BigEndian::read_u16(&buf[0..2]);
     assert_eq!(version, 10);

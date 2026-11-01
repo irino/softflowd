@@ -1,7 +1,7 @@
+use crate::common::{Flow, FlowTracker};
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc::Sender;
 use std::thread;
-use crate::common::{FlowTracker, Flow};
 
 pub enum ControlCommand {
     Statistics { resp: Sender<String> },
@@ -54,7 +54,10 @@ pub fn start_control_server(
                                 "timeouts" => ControlCommand::Timeouts { resp: tx },
                                 "help" => ControlCommand::Help { resp: tx },
                                 _ => {
-                                    let _ = (&stream).write_all(format!("Unknown control command \"{}\"\n", cmd_str).as_bytes());
+                                    let _ = (&stream).write_all(
+                                        format!("Unknown control command \"{}\"\n", cmd_str)
+                                            .as_bytes(),
+                                    );
                                     return;
                                 }
                             };
@@ -83,7 +86,10 @@ fn format_time(t: i64) -> String {
 }
 
 fn format_ethermac(mac: &[u8; 6]) -> String {
-    format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+    format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+    )
 }
 
 pub fn format_flow(flow: &Flow) -> String {
@@ -128,8 +134,14 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
     let p = &tracker.param;
 
     let start_time_str = format_time(p.system_boot_time.tv_sec);
-    out.push_str(&format!("Accumulated statistics since {} UTC:\n", start_time_str));
-    out.push_str(&format!("Number of active flows: {}\n", tracker.flows.len()));
+    out.push_str(&format!(
+        "Accumulated statistics since {} UTC:\n",
+        start_time_str
+    ));
+    out.push_str(&format!(
+        "Number of active flows: {}\n",
+        tracker.flows.len()
+    ));
     out.push_str(&format!("Packets processed: {}\n", p.total_packets));
     if p.non_sampled_packets > 0 {
         out.push_str(&format!("Packets non-sampled: {}\n", p.non_sampled_packets));
@@ -141,7 +153,10 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
         p.non_ip_packets,
         p.bad_packets
     ));
-    out.push_str(&format!("Flows expired: {} ({} forced)\n", p.flows_expired, p.flows_force_expired));
+    out.push_str(&format!(
+        "Flows expired: {} ({} forced)\n",
+        p.flows_expired, p.flows_force_expired
+    ));
     out.push_str(&format!(
         "Flows exported: {} ({} records) in {} packets ({} failures)\n",
         p.flows_exported, p.records_sent, p.packets_sent, p.flows_dropped
@@ -172,7 +187,7 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
         out.push_str(&format!("Packets dropped by interface: {}\n", ifdrop));
     }
 
-    out.push_str("\n");
+    out.push('\n');
 
     if p.flows_expired > 0 {
         out.push_str("Expired flow statistics:  minimum       average       maximum\n");
@@ -188,7 +203,7 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
             "  Duration:          {:12.2}s {:12.2}s {:12.2}s\n",
             p.duration.min, p.duration.mean, p.duration.max
         ));
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("Expired flow reasons:\n");
         out.push_str(&format!(
@@ -206,7 +221,7 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
         if tracker.flow_lookup == crate::common::FlowLookupMode::Hash {
             out.push_str(&format!(" collision = {:9}\n", p.expired_collision));
         }
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
         for i in 0..256 {
@@ -283,7 +298,7 @@ pub fn render_dump_flows(tracker: &FlowTracker) -> String {
                 ));
             }
         }
-        out.push_str("\n");
+        out.push('\n');
     }
     out
 }

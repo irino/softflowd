@@ -75,11 +75,19 @@ pub struct RsoftflowdArgs {
     pub timeouts: Vec<String>,
 
     /// Don't daemonise (run in foreground)
-    #[arg(short = 'd', long = "foreground", help = "Don't daemonise (run in foreground)")]
+    #[arg(
+        short = 'd',
+        long = "foreground",
+        help = "Don't daemonise (run in foreground)"
+    )]
     pub dont_fork: bool,
 
     /// Debug mode: foreground + verbosity + track v6 flows
-    #[arg(short = 'D', long = "debug", help = "Debug mode: foreground + verbosity + track v6 flows")]
+    #[arg(
+        short = 'D',
+        long = "debug",
+        help = "Debug mode: foreground + verbosity + track v6 flows"
+    )]
     pub debug: bool,
 
     /// NetFlow export packet version (1|5|9|10|psamp)
@@ -103,7 +111,12 @@ pub struct RsoftflowdArgs {
     pub collector: Option<String>,
 
     /// Set TTL/hoplimit for export datagrams
-    #[arg(short = 'L', long = "hoplimit", value_name = "hoplimit", help = "Set TTL/hoplimit for export datagrams")]
+    #[arg(
+        short = 'L',
+        long = "hoplimit",
+        value_name = "hoplimit",
+        help = "Set TTL/hoplimit for export datagrams"
+    )]
     pub hoplimit: Option<i32>,
 
     /// Set flow tracking level (default: full)
@@ -139,15 +152,30 @@ pub struct RsoftflowdArgs {
     pub sampling_rate: u32,
 
     /// Specify length for packet capture (snaplen)
-    #[arg(short = 'C', long = "snaplen", value_name = "capture_length", help = "Specify length for packet capture (snaplen)")]
+    #[arg(
+        short = 'C',
+        long = "snaplen",
+        value_name = "capture_length",
+        help = "Specify length for packet capture (snaplen)"
+    )]
     pub capture_length: Option<u32>,
 
     /// Specify send interface name (Linux only)
-    #[arg(short = 'S', long = "send-interface", value_name = "send_interface_name", help = "Specify send interface name (Linux only)")]
+    #[arg(
+        short = 'S',
+        long = "send-interface",
+        value_name = "send_interface_name",
+        help = "Specify send interface name (Linux only)"
+    )]
     pub send_interface: Option<String>,
 
     /// Specify Exporter IP (IPv4 or IPv6) address
-    #[arg(short = 'e', long = "exporter-ip", value_name = "address", help = "Specify Exporter IP (IPv4 or IPv6) address")]
+    #[arg(
+        short = 'e',
+        long = "exporter-ip",
+        value_name = "address",
+        help = "Specify Exporter IP (IPv4 or IPv6) address"
+    )]
     pub exporter_ip: Option<String>,
 
     /// Require the whole TCP/UDP/ICMP header instead of only the fields used
@@ -170,15 +198,28 @@ pub struct RsoftflowdArgs {
     pub flow_lookup: String,
 
     /// Load balancing mode for multiple destinations
-    #[arg(short = 'l', long = "load-balance", help = "Load balancing mode for multiple destinations")]
+    #[arg(
+        short = 'l',
+        long = "load-balance",
+        help = "Load balancing mode for multiple destinations"
+    )]
     pub load_balance: bool,
 
     /// Track IPv6 flows, regardless of whether selected NetFlow export protocol supports it
-    #[arg(short = '6', long = "track-ipv6", help = "Track IPv6 flows, regardless of whether selected NetFlow export protocol supports it")]
+    #[arg(
+        short = '6',
+        long = "track-ipv6",
+        help = "Track IPv6 flows, regardless of whether selected NetFlow export protocol supports it"
+    )]
     pub always_v6: bool,
 
     /// Specify MAC Address to determine direction (requires -T ether)
-    #[arg(short = 'H', long = "direction-mac", value_name = "MAC", help = "Specify MAC Address to determine direction (requires -T ether)")]
+    #[arg(
+        short = 'H',
+        long = "direction-mac",
+        value_name = "MAC",
+        help = "Specify MAC Address to determine direction (requires -T ether)"
+    )]
     pub direction_mac: Option<String>,
 
     /// Specify absolute time format for exporting records (sec|milli|micro|nano)
@@ -192,15 +233,29 @@ pub struct RsoftflowdArgs {
     pub time_format: Option<String>,
 
     /// Libpcap buffer size in bytes
-    #[arg(short = 'B', long = "pcap-buffer-size", value_name = "bytes", help = "Libpcap buffer size in bytes")]
+    #[arg(
+        short = 'B',
+        long = "pcap-buffer-size",
+        value_name = "bytes",
+        help = "Libpcap buffer size in bytes"
+    )]
     pub buffer_size: Option<usize>,
 
     /// Bidirectional mode in IPFIX (-b work with -v 10)
-    #[arg(short = 'b', long = "bidirectional", help = "Bidirectional mode in IPFIX (-b work with -v 10)")]
+    #[arg(
+        short = 'b',
+        long = "bidirectional",
+        help = "Bidirectional mode in IPFIX (-b work with -v 10)"
+    )]
     pub bidirection: bool,
 
     /// Specify port number for PSAMP receive mode
-    #[arg(short = 'R', long = "psamp-port", value_name = "receive_port", help = "Specify port number for PSAMP receive mode")]
+    #[arg(
+        short = 'R',
+        long = "psamp-port",
+        value_name = "receive_port",
+        help = "Specify port number for PSAMP receive mode"
+    )]
     pub recv_port: Option<u16>,
 
     /// Enable multithread
@@ -212,23 +267,45 @@ pub struct RsoftflowdArgs {
     pub no_promisc: bool,
 
     /// Specify number of MPLS labels (1 to 10)
-    #[arg(short = 'x', long = "mpls-labels", value_name = "labels", help = "Specify number of MPLS labels (1 to 10)")]
+    #[arg(
+        short = 'x',
+        long = "mpls-labels",
+        value_name = "labels",
+        help = "Specify number of MPLS labels (1 to 10)"
+    )]
     pub max_num_label: Option<u32>,
 
     /// Specify seconds for reinitialize boot time
-    #[arg(short = 'I', long = "reinit-interval", value_name = "seconds", help = "Specify seconds for reinitialize boot time")]
+    #[arg(
+        short = 'I',
+        long = "reinit-interval",
+        value_name = "seconds",
+        help = "Specify seconds for reinitialize boot time"
+    )]
     pub boot_time_reinit: Option<String>,
 
     /// Gauge cpu clock for benchmark
-    #[arg(short = 'g', long = "gauge-cpu-clock", help = "Gauge cpu clock (total and export) for benchmark")]
+    #[arg(
+        short = 'g',
+        long = "gauge-cpu-clock",
+        help = "Gauge cpu clock (total and export) for benchmark"
+    )]
     pub gauge_clock: bool,
 
     /// BPF filter expression
-    #[arg(value_name = "bpf_program", trailing_var_arg = true, help = "BPF filter expression")]
+    #[arg(
+        value_name = "bpf_program",
+        trailing_var_arg = true,
+        help = "BPF filter expression"
+    )]
     pub bpf_expression: Vec<String>,
 
     /// Adjusting time for reading pcap file (-a work with -r)
-    #[arg(short = 'a', long = "adjust-time", help = "Adjusting time for reading pcap file (-a work with -r)")]
+    #[arg(
+        short = 'a',
+        long = "adjust-time",
+        help = "Adjusting time for reading pcap file (-a work with -r)"
+    )]
     pub adjust_time: bool,
 }
 
@@ -317,7 +394,13 @@ mod tests {
 
     #[test]
     fn test_softflowctl_args() {
-        let args = RsoftflowctlArgs::try_parse_from(["rsoftflowctl", "-c", "/tmp/test.sock", "statistics"]).unwrap();
+        let args = RsoftflowctlArgs::try_parse_from([
+            "rsoftflowctl",
+            "-c",
+            "/tmp/test.sock",
+            "statistics",
+        ])
+        .unwrap();
         assert_eq!(args.ctlsock, "/tmp/test.sock");
         assert_eq!(args.command, "statistics");
     }

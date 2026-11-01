@@ -226,6 +226,35 @@ jobs:
       - name: Generate the documentation, warnings are errors
         run: doxygen Doxyfile
 
+  # The Rust version in rust/ (rsoftflowd and rsoftflowctl): the format of
+  # the source, the warnings of clippy (all of them are errors) and the tests.
+  # The stable toolchain is installed because the Rust version uses edition
+  # 2024, which needs Rust 1.85 or newer.
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpcap-dev
+          rustup toolchain install stable --profile minimal \
+            --component rustfmt --component clippy
+          rustup default stable
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy, warnings are errors
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test
+
   freebsd:
     runs-on: ubuntu-latest
     steps:

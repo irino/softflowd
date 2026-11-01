@@ -1,20 +1,20 @@
-use std::net::{IpAddr, UdpSocket, TcpStream, ToSocketAddrs};
+use clap::Parser;
+use nix::sys::signal::{self, SigAction, SigHandler, Signal};
+use std::net::{IpAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::{Duration, Instant};
-use clap::Parser;
-use nix::sys::signal::{self, SigAction, SigHandler, Signal};
 
 use rsoftflowd::common::{
-    FlowTracker, Flow, FlowKey, TimeVal, ExpiryReason, ExpiryKey, TrackLevel, FlowLookupMode
+    ExpiryKey, ExpiryReason, Flow, FlowKey, FlowLookupMode, FlowTracker, TimeVal, TrackLevel,
 };
-use rsoftflowd::opts::RsoftflowdArgs;
-use rsoftflowd::packet_parser::{parse_packet, ParsedPacket};
-use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
 use rsoftflowd::control::{
-    ControlCommand, start_control_server, render_statistics, render_dump_flows,
-    render_timeouts, render_help
+    ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
+    start_control_server,
 };
+use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
+use rsoftflowd::opts::RsoftflowdArgs;
+use rsoftflowd::packet_parser::{ParsedPacket, parse_packet};
 
 fn parse_interface_spec(s: &str) -> (u16, String) {
     if let Some((idx_str, name)) = s.split_once(':') {
@@ -52,7 +52,7 @@ fn parse_duration(s: &str) -> Option<i32> {
 }
 
 fn parse_mac_address(mac_str: &str) -> Option<[u8; 6]> {
-    let parts: Vec<&str> = mac_str.split(|c| c == ':' || c == '-').collect();
+    let parts: Vec<&str> = mac_str.split([':', '-']).collect();
     if parts.len() != 6 {
         return None;
     }
@@ -147,7 +147,11 @@ fn drop_privileges() {
             if let Some(pw) = nix::unistd::User::from_name("nobody").ok().flatten() {
                 let _ = nix::unistd::setgid(pw.gid);
                 let _ = nix::unistd::setuid(pw.uid);
-                log::info!("Dropped privileges to nobody (uid: {}, gid: {})", pw.uid, pw.gid);
+                log::info!(
+                    "Dropped privileges to nobody (uid: {}, gid: {})",
+                    pw.uid,
+                    pw.gid
+                );
             } else {
                 log::warn!("Could not find 'nobody' user to drop privileges");
             }
@@ -186,9 +190,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         log::LevelFilter::Info
     };
-    env_logger::Builder::new()
-        .filter(None, log_level)
-        .init();
+    env_logger::Builder::new().filter(None, log_level).init();
 
     // 2. Daemonize if requested
     if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
@@ -240,7 +242,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         fn clock() -> libc::clock_t;
     }
     let boottime = unsafe { clock() };
-    let track_level = TrackLevel::from_str(&args.track_level)
+    let track_level = TrackLevel::from_name(&args.track_level)
         .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
     let (user_ifidx, capture_dev) = if let Some(ref if_spec) = args.interface {
@@ -270,7 +272,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tracker = FlowTracker::new(args.max_flows);
     tracker.param.track_level = track_level;
-    tracker.param.sample_rate = if args.sampling_rate < 2 { 0 } else { args.sampling_rate };
+    tracker.param.sample_rate = if args.sampling_rate < 2 {
+        0
+    } else {
+        args.sampling_rate
+    };
     if let Some(ref ifname) = capture_dev {
         tracker.param.interface_name = ifname.clone();
     }
@@ -281,7 +287,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     apply_timeouts(&mut tracker, &args.timeouts);
 
-    if let Some(mode) = FlowLookupMode::from_str(&args.flow_lookup) {
+    if let Some(mode) = FlowLookupMode::from_name(&args.flow_lookup) {
         tracker.set_flow_lookup(mode);
     } else {
         log::error!("Invalid flow lookup mode: {}", args.flow_lookup);
@@ -341,15 +347,17 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(socket_addr) = addrs.next() {
                         let proto = args.transport_protocol.to_lowercase();
                         let socket = match proto.as_str() {
-                            "tcp" => {
-                                match TcpStream::connect(socket_addr) {
-                                    Ok(s) => ExportSocket::Tcp(s),
-                                    Err(e) => {
-                                        log::error!("Failed to connect to TCP collector {}: {}", socket_addr, e);
-                                        std::process::exit(1);
-                                    }
+                            "tcp" => match TcpStream::connect(socket_addr) {
+                                Ok(s) => ExportSocket::Tcp(s),
+                                Err(e) => {
+                                    log::error!(
+                                        "Failed to connect to TCP collector {}: {}",
+                                        socket_addr,
+                                        e
+                                    );
+                                    std::process::exit(1);
                                 }
-                            }
+                            },
                             _ => {
                                 // Default UDP
                                 let s = UdpSocket::bind("0.0.0.0:0")?;
@@ -361,8 +369,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 // Bind to specific device if requested (Linux only)
                                 #[cfg(target_os = "linux")]
                                 if let Some(ref send_if) = args.send_interface {
-                                    if let Err(e) = rsoftflowd::net_util_unsafe::bind_socket_to_device(&s, send_if) {
-                                        log::error!("Failed to bind to interface {}: {}", send_if, e);
+                                    if let Err(e) =
+                                        rsoftflowd::net_util_unsafe::bind_socket_to_device(
+                                            &s, send_if,
+                                        )
+                                    {
+                                        log::error!(
+                                            "Failed to bind to interface {}: {}",
+                                            send_if,
+                                            e
+                                        );
                                         std::process::exit(1);
                                     }
                                 }
@@ -415,7 +431,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcap_file_mode = args.pcap_file.is_some();
     tracker.param.adjust_time = args.adjust_time;
 
-    let pcap_stats: std::sync::Arc<std::sync::Mutex<Option<(u64, u64, u64)>>> = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let pcap_stats: std::sync::Arc<std::sync::Mutex<Option<(u64, u64, u64)>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
 
     // Start background packet receiver thread to read from PCAP
     let (packet_tx, packet_rx) = channel::<ParsedPacket>();
@@ -449,19 +466,30 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(raw_packet) => {
                         let caplen = raw_packet.header.caplen;
                         let len = raw_packet.header.len;
+                        // tv_sec is not an i64 on every target, so the cast is needed there.
+                        #[allow(clippy::unnecessary_cast)]
                         let timestamp = TimeVal {
                             tv_sec: raw_packet.header.ts.tv_sec as i64,
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
                         let data = raw_packet.data.to_vec();
-                        drop(raw_packet);
 
                         if let Ok(st) = capture.stats() {
                             let mut s = pcap_stats_clone.lock().unwrap();
-                            *s = Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
+                            *s =
+                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        if let Some(parsed) = parse_packet(linktype, &data, caplen, len, track_level, max_num_label, full_l4hdr, timestamp) {
+                        if let Some(parsed) = parse_packet(
+                            linktype,
+                            &data,
+                            caplen,
+                            len,
+                            track_level,
+                            max_num_label,
+                            full_l4hdr,
+                            timestamp,
+                        ) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
@@ -469,7 +497,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         log::info!("End of PCAP file reached.");
                         if let Ok(st) = capture.stats() {
                             let mut s = pcap_stats_clone.lock().unwrap();
-                            *s = Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
+                            *s =
+                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
                         break;
                     }
@@ -512,19 +541,30 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(raw_packet) => {
                         let caplen = raw_packet.header.caplen;
                         let len = raw_packet.header.len;
+                        // tv_sec is not an i64 on every target, so the cast is needed there.
+                        #[allow(clippy::unnecessary_cast)]
                         let timestamp = TimeVal {
                             tv_sec: raw_packet.header.ts.tv_sec as i64,
                             tv_usec: raw_packet.header.ts.tv_usec as i32,
                         };
                         let data = raw_packet.data.to_vec();
-                        drop(raw_packet);
 
                         if let Ok(st) = capture.stats() {
                             let mut s = pcap_stats_clone.lock().unwrap();
-                            *s = Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
+                            *s =
+                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        if let Some(parsed) = parse_packet(linktype, &data, caplen, len, track_level, max_num_label, full_l4hdr, timestamp) {
+                        if let Some(parsed) = parse_packet(
+                            linktype,
+                            &data,
+                            caplen,
+                            len,
+                            track_level,
+                            max_num_label,
+                            full_l4hdr,
+                            timestamp,
+                        ) {
                             let _ = packet_tx_clone.send(parsed);
                         }
                     }
@@ -614,7 +654,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ControlCommand::SendTemplate { resp } => {
                     rsoftflowd::exporter::export_common::ipfix_resend_template();
-                    let _ = resp.send(format!("{}Template will be sent at next flow export\n", prefix));
+                    let _ = resp.send(format!(
+                        "{}Template will be sent at next flow export\n",
+                        prefix
+                    ));
                 }
                 ControlCommand::Timeouts { resp } => {
                     let timeouts_str = render_timeouts(&tracker);
@@ -663,7 +706,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // In offline PCAP file mode, if the packet channel is empty and thread has finished, we exit!
-        if (pcap_file_mode && channel_disconnected) || GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
+        if (pcap_file_mode && channel_disconnected)
+            || GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst)
+        {
             log::info!("Shutting down. Processing remaining flows.");
             flush_all_flows(&mut tracker, &targets, if_index);
             // Print stats to stdout before exit as C softflowd does
@@ -696,7 +741,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let total_clocks = unsafe { clock() } - boottime;
         eprintln!("cpu clocks: {}", total_clocks);
-        eprintln!("cpu clocks (export): {} ({} calls)", tracker.param.export_clocks, tracker.param.export_calls);
+        eprintln!(
+            "cpu clocks (export): {} ({} calls)",
+            tracker.param.export_clocks, tracker.param.export_calls
+        );
     }
 
     std::process::exit(0);
@@ -728,11 +776,13 @@ fn process_parsed_packet(
     }
 
     // Sampling
-    if tracker.param.sample_rate > 0 {
-        if (tracker.param.total_packets + tracker.param.non_sampled_packets) % tracker.param.sample_rate as u64 > 0 {
-            tracker.param.non_sampled_packets += 1;
-            return;
-        }
+    if tracker.param.sample_rate > 0
+        && (tracker.param.total_packets + tracker.param.non_sampled_packets)
+            % tracker.param.sample_rate as u64
+            > 0
+    {
+        tracker.param.non_sampled_packets += 1;
+        return;
     }
 
     tracker.param.total_packets += 1;
@@ -865,7 +915,9 @@ fn update_flow_expiry(
         expires_at = 0; // immediate
         reason = ExpiryReason::OverBytes;
         flow.flow_end_reason = 2; // Lack of resources / overbytes
-    } else if param.maximum_lifetime != 0 && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 >= param.maximum_lifetime {
+    } else if param.maximum_lifetime != 0
+        && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 >= param.maximum_lifetime
+    {
         expires_at = 0;
         reason = ExpiryReason::MaxLife;
         flow.flow_end_reason = 1; // Active timeout
@@ -902,7 +954,10 @@ fn update_flow_expiry(
         expires_at = expires_at.min(max_expiry);
     }
 
-    let new_expiry = ExpiryKey { expires_at, flow_seq: flow.flow_seq };
+    let new_expiry = ExpiryKey {
+        expires_at,
+        flow_seq: flow.flow_seq,
+    };
     flow.expiry_key = Some(new_expiry);
     flow.expiry_reason = reason;
 
@@ -938,8 +993,8 @@ fn accumulate_stats(tracker: &mut FlowTracker, flow: &Flow) {
     tracker.param.flows_expired += 1;
     tracker.param.flows_pp[flow.key.protocol as usize % 256] += 1;
 
-    let duration_sec = (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as f64 +
-        ((flow.flow_last.tv_usec - flow.flow_start.tv_usec) as f64 / 1_000_000.0);
+    let duration_sec = (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as f64
+        + ((flow.flow_last.tv_usec - flow.flow_start.tv_usec) as f64 / 1_000_000.0);
     let duration_sec = duration_sec.max(0.0);
 
     let n = tracker.param.flows_expired as f64;
@@ -972,8 +1027,16 @@ fn accumulate_stats(tracker: &mut FlowTracker, flow: &Flow) {
     }
 }
 
-fn scan_expiries(tracker: &mut FlowTracker, targets: &NetflowTarget, force_all: bool, ifidx: u16) -> usize {
-    log::debug!("Starting expiry scan: mode {}", if force_all { 1 } else { 0 });
+fn scan_expiries(
+    tracker: &mut FlowTracker,
+    targets: &NetflowTarget,
+    force_all: bool,
+    ifidx: u16,
+) -> usize {
+    log::debug!(
+        "Starting expiry scan: mode {}",
+        if force_all { 1 } else { 0 }
+    );
 
     let now_sec = if tracker.param.adjust_time && tracker.param.last_packet_time.tv_sec > 0 {
         tracker.param.last_packet_time.tv_sec as u32

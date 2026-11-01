@@ -1,12 +1,14 @@
-use std::net::{UdpSocket, TcpStream};
-use std::os::unix::io::{AsRawFd, RawFd};
 use crate::common::{Flow, FlowTrackParameters, TimeVal};
+use std::net::{TcpStream, UdpSocket};
+use std::os::unix::io::{AsRawFd, RawFd};
 
-pub mod export_common;
 pub mod export;
+pub mod export_common;
 pub mod psamp;
 
-pub use export::{send_flows, send_netflow_v1, send_netflow_v5, send_netflow_v9, send_ipfix, send_ipfix_bi};
+pub use export::{
+    send_flows, send_ipfix, send_ipfix_bi, send_netflow_v1, send_netflow_v5, send_netflow_v9,
+};
 pub use export_common::ipfix_resend_template as resend_template;
 
 pub enum ExportSocket {
@@ -49,7 +51,11 @@ pub struct NetflowTarget {
 }
 
 impl NetflowTarget {
-    pub fn send_multi_destinations(&self, packet: &[u8], sent_counter: &mut u64) -> std::io::Result<()> {
+    pub fn send_multi_destinations(
+        &self,
+        packet: &[u8],
+        sent_counter: &mut u64,
+    ) -> std::io::Result<()> {
         if self.destinations.is_empty() {
             return Ok(());
         }

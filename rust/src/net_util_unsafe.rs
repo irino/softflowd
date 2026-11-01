@@ -1,10 +1,11 @@
+use std::ffi::CString;
 use std::net::UdpSocket;
 use std::os::unix::io::AsRawFd;
-use std::ffi::CString;
 
 #[cfg(target_os = "linux")]
 pub fn bind_socket_to_device(socket: &UdpSocket, device: &str) -> std::io::Result<()> {
-    let device_name = CString::new(device).map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
+    let device_name =
+        CString::new(device).map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
 
     let result = unsafe {
         libc::setsockopt(

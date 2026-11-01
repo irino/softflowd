@@ -1,7 +1,7 @@
-use std::io::Write;
-use byteorder::{BigEndian, WriteBytesExt};
 use crate::common::TimeVal;
 use crate::exporter::NetflowTarget;
+use byteorder::{BigEndian, WriteBytesExt};
+use std::io::Write;
 
 const PSAMP_SOFTFLOWD_TEMPLATE_ID: u16 = 3072;
 const PSAMP_SELECTION_SEQUENCE_ID: u16 = 301;
@@ -16,23 +16,33 @@ fn write_psamp_template(packet: &mut Vec<u8>) {
     packet.write_u16::<BigEndian>(2).unwrap();
     // Length: 4 (set header) + 4 (template record header) + 4 * 4 (fields) = 24
     packet.write_u16::<BigEndian>(24).unwrap();
-    packet.write_u16::<BigEndian>(PSAMP_SOFTFLOWD_TEMPLATE_ID).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_SOFTFLOWD_TEMPLATE_ID)
+        .unwrap();
     packet.write_u16::<BigEndian>(4).unwrap(); // 4 fields
 
     // 1. selectionSequenceId (8 bytes)
-    packet.write_u16::<BigEndian>(PSAMP_SELECTION_SEQUENCE_ID).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_SELECTION_SEQUENCE_ID)
+        .unwrap();
     packet.write_u16::<BigEndian>(8).unwrap();
 
     // 2. observationTimeMicroseconds (8 bytes)
-    packet.write_u16::<BigEndian>(PSAMP_OBSERVATION_TIME_MICROSECONDS).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_OBSERVATION_TIME_MICROSECONDS)
+        .unwrap();
     packet.write_u16::<BigEndian>(8).unwrap();
 
     // 3. sectionExportedOctets (2 bytes)
-    packet.write_u16::<BigEndian>(PSAMP_SECTION_EXPORTED_OCTETS).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_SECTION_EXPORTED_OCTETS)
+        .unwrap();
     packet.write_u16::<BigEndian>(2).unwrap();
 
     // 4. dataLinkFrameSection (variable size in template: e.g. 120 bytes max or similar. In C, it is 1400 - headers = 1374 bytes)
-    packet.write_u16::<BigEndian>(PSAMP_DATA_LINK_FRAME_SECTION).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_DATA_LINK_FRAME_SECTION)
+        .unwrap();
     packet.write_u16::<BigEndian>(128).unwrap(); // Fixed frame capture length in template
 }
 
@@ -60,7 +70,9 @@ pub fn send_psamp(
         packet.write_u16::<BigEndian>(10).unwrap(); // Version (IPFIX)
         packet.write_u16::<BigEndian>(0).unwrap(); // Length (fill at end)
         packet.write_u32::<BigEndian>(tv.tv_sec as u32).unwrap();
-        packet.write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32).unwrap();
+        packet
+            .write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32)
+            .unwrap();
         packet.write_u32::<BigEndian>(0).unwrap(); // Observation Domain ID
 
         write_psamp_template(&mut packet);
@@ -79,11 +91,15 @@ pub fn send_psamp(
     packet.write_u16::<BigEndian>(10).unwrap(); // Version
     packet.write_u16::<BigEndian>(0).unwrap(); // Length
     packet.write_u32::<BigEndian>(tv.tv_sec as u32).unwrap();
-    packet.write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32).unwrap();
+    packet
+        .write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32)
+        .unwrap();
     packet.write_u32::<BigEndian>(0).unwrap();
 
     // Data Set Header
-    packet.write_u16::<BigEndian>(PSAMP_SOFTFLOWD_TEMPLATE_ID).unwrap();
+    packet
+        .write_u16::<BigEndian>(PSAMP_SOFTFLOWD_TEMPLATE_ID)
+        .unwrap();
     packet.write_u16::<BigEndian>(0).unwrap(); // Set length (fill later)
     let set_start = packet.len() - 4;
 

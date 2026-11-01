@@ -1,22 +1,21 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use std::net::IpAddr;
 use crate::common::{Flow, FlowTrackParameters, TrackLevel};
 use crate::exporter::{
     SendParameter,
     export_common::{
-        conv_unix_to_ntp, export_build_flow_header, get_pkts_until_template,
-        ipfix_flow_direction, ipfix_flow_to_template_index, set_pkts_until_template,
-        decrement_pkts_until_template, IPFIX_DEFAULT_TEMPLATE_INTERVAL,
+        IPFIX_DEFAULT_TEMPLATE_INTERVAL, IPFIX_OPTION_TEMPLATE_SET_ID,
         IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID, IPFIX_SOFTFLOWD_ICMPV6_TEMPLATE_ID,
-        IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, IPFIX_SOFTFLOWD_V4_TEMPLATE_ID,
-        IPFIX_SOFTFLOWD_V6_TEMPLATE_ID, IPFIX_TEMPLATE_SET_ID,
-        IPFIX_OPTION_TEMPLATE_SET_ID, IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID,
-        NETFLOW9_TEMPLATE_SET_ID, NETFLOW9_OPTION_TEMPLATE_SET_ID, REVERSE_PEN,
-        TMPLICMPV4, TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6, valuate_icmp,
+        IPFIX_SOFTFLOWD_MAX_PACKET_SIZE, IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID,
+        IPFIX_SOFTFLOWD_V4_TEMPLATE_ID, IPFIX_SOFTFLOWD_V6_TEMPLATE_ID, IPFIX_TEMPLATE_SET_ID,
+        NETFLOW9_OPTION_TEMPLATE_SET_ID, NETFLOW9_TEMPLATE_SET_ID, REVERSE_PEN, TMPLICMPV4,
+        TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6, conv_unix_to_ntp, decrement_pkts_until_template,
+        export_build_flow_header, get_pkts_until_template, ipfix_flow_direction,
+        ipfix_flow_to_template_index, set_pkts_until_template, valuate_icmp,
     },
 };
+use std::net::IpAddr;
 
 const IPFIX_MPLS_TOP_LABEL_STACK_SECTION: u16 = 70;
 const IPFIX_MPLS_LABEL_STACK_SECTION_SIZE: usize = 3;
@@ -179,7 +178,8 @@ fn enc_flowEndSeconds(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
 }
 
 fn enc_flowStartMilliSeconds(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
-    let ms = (ctx.flow.flow_start.tv_sec as u64) * 1000 + (ctx.flow.flow_start.tv_usec as u64) / 1000;
+    let ms =
+        (ctx.flow.flow_start.tv_sec as u64) * 1000 + (ctx.flow.flow_start.tv_usec as u64) / 1000;
     dst[..8].copy_from_slice(&ms.to_be_bytes());
 }
 
@@ -226,14 +226,19 @@ fn enc_nf9OptionScopeInterface(dst: &mut [u8], _length: usize, ctx: &ExportCtx) 
 }
 
 fn enc_samplingInterval(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
-    let rate = if ctx.sp.param.sample_rate > 1 { ctx.sp.param.sample_rate } else { 1 };
+    let rate = if ctx.sp.param.sample_rate > 1 {
+        ctx.sp.param.sample_rate
+    } else {
+        1
+    };
     let bytes = rate.to_be_bytes();
     let n = length.min(4);
     dst[..n].copy_from_slice(&bytes[4 - n..]);
 }
 
 fn enc_systemInitTimeMilliseconds(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
-    let ms = (ctx.sp.param.system_boot_time.tv_sec as u64) * 1000 + (ctx.sp.param.system_boot_time.tv_usec as u64) / 1000;
+    let ms = (ctx.sp.param.system_boot_time.tv_sec as u64) * 1000
+        + (ctx.sp.param.system_boot_time.tv_usec as u64) / 1000;
     dst[..8].copy_from_slice(&ms.to_be_bytes());
 }
 
@@ -243,14 +248,22 @@ fn enc_meteringProcessId(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
 }
 
 fn enc_samplingPacketInterval(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
-    let rate = if ctx.sp.param.sample_rate > 1 { ctx.sp.param.sample_rate } else { 1 };
+    let rate = if ctx.sp.param.sample_rate > 1 {
+        ctx.sp.param.sample_rate
+    } else {
+        1
+    };
     let bytes = rate.to_be_bytes();
     let n = length.min(4);
     dst[..n].copy_from_slice(&bytes[4 - n..]);
 }
 
 fn enc_samplingPacketSpace(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
-    let space = if ctx.sp.param.sample_rate > 0 { ctx.sp.param.sample_rate - 1 } else { 0 };
+    let space = if ctx.sp.param.sample_rate > 0 {
+        ctx.sp.param.sample_rate - 1
+    } else {
+        0
+    };
     let bytes = space.to_be_bytes();
     let n = length.min(4);
     dst[..n].copy_from_slice(&bytes[4 - n..]);
@@ -279,7 +292,11 @@ fn enc_exporterAddress(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
 }
 
 fn enc_ipVersion(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
-    dst[0] = if ctx.flow.key.af == libc::AF_INET as u16 { 4 } else { 6 };
+    dst[0] = if ctx.flow.key.af == libc::AF_INET as u16 {
+        4
+    } else {
+        6
+    };
 }
 
 fn enc_flowDirection(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
@@ -291,40 +308,145 @@ fn enc_flowDirection(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
 // -------------------------------------------------------------------
 
 const FIELD_NETFLOW_V1V5_COMMON: [FieldSpecEncoder; 11] = [
-    FieldSpecEncoder { ie: 8, length: 4, encoder: enc_sourceIPv4Address },
-    FieldSpecEncoder { ie: 12, length: 4, encoder: enc_destinationIPv4Address },
-    FieldSpecEncoder { ie: 15, length: 4, encoder: enc_zero }, // NextHop
-    FieldSpecEncoder { ie: 10, length: 2, encoder: enc_ifidx16 },
-    FieldSpecEncoder { ie: 14, length: 2, encoder: enc_ifidx16 },
-    FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount },
-    FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount },
-    FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime },
-    FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime },
-    FieldSpecEncoder { ie: 7, length: 2, encoder: enc_sourceTransportPort },
-    FieldSpecEncoder { ie: 11, length: 2, encoder: enc_destinationTransportPort },
+    FieldSpecEncoder {
+        ie: 8,
+        length: 4,
+        encoder: enc_sourceIPv4Address,
+    },
+    FieldSpecEncoder {
+        ie: 12,
+        length: 4,
+        encoder: enc_destinationIPv4Address,
+    },
+    FieldSpecEncoder {
+        ie: 15,
+        length: 4,
+        encoder: enc_zero,
+    }, // NextHop
+    FieldSpecEncoder {
+        ie: 10,
+        length: 2,
+        encoder: enc_ifidx16,
+    },
+    FieldSpecEncoder {
+        ie: 14,
+        length: 2,
+        encoder: enc_ifidx16,
+    },
+    FieldSpecEncoder {
+        ie: 2,
+        length: 4,
+        encoder: enc_packetDeltaCount,
+    },
+    FieldSpecEncoder {
+        ie: 1,
+        length: 4,
+        encoder: enc_octetDeltaCount,
+    },
+    FieldSpecEncoder {
+        ie: 22,
+        length: 4,
+        encoder: enc_flowStartSysUpTime,
+    },
+    FieldSpecEncoder {
+        ie: 21,
+        length: 4,
+        encoder: enc_flowEndSysUpTime,
+    },
+    FieldSpecEncoder {
+        ie: 7,
+        length: 2,
+        encoder: enc_sourceTransportPort,
+    },
+    FieldSpecEncoder {
+        ie: 11,
+        length: 2,
+        encoder: enc_destinationTransportPort,
+    },
 ];
 
 const FIELD_NETFLOWV1_TAIL: [FieldSpecEncoder; 5] = [
-    FieldSpecEncoder { ie: 210, length: 2, encoder: enc_zero },
-    FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
-    FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
-    FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
-    FieldSpecEncoder { ie: 210, length: 7, encoder: enc_zero },
+    FieldSpecEncoder {
+        ie: 210,
+        length: 2,
+        encoder: enc_zero,
+    },
+    FieldSpecEncoder {
+        ie: 4,
+        length: 1,
+        encoder: enc_protocolIdentifier,
+    },
+    FieldSpecEncoder {
+        ie: 5,
+        length: 1,
+        encoder: enc_ipClassOfService,
+    },
+    FieldSpecEncoder {
+        ie: 6,
+        length: 1,
+        encoder: enc_tcpControlBits,
+    },
+    FieldSpecEncoder {
+        ie: 210,
+        length: 7,
+        encoder: enc_zero,
+    },
 ];
 
 const FIELD_NETFLOWV5_TAIL: [FieldSpecEncoder; 9] = [
-    FieldSpecEncoder { ie: 210, length: 1, encoder: enc_zero },
-    FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
-    FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
-    FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
-    FieldSpecEncoder { ie: 16, length: 2, encoder: enc_zero }, // bgpSourceAs
-    FieldSpecEncoder { ie: 17, length: 2, encoder: enc_zero }, // bgpDestAs
-    FieldSpecEncoder { ie: 9, length: 1, encoder: enc_zero },  // srcMask
-    FieldSpecEncoder { ie: 13, length: 1, encoder: enc_zero }, // dstMask
-    FieldSpecEncoder { ie: 210, length: 2, encoder: enc_zero },
+    FieldSpecEncoder {
+        ie: 210,
+        length: 1,
+        encoder: enc_zero,
+    },
+    FieldSpecEncoder {
+        ie: 6,
+        length: 1,
+        encoder: enc_tcpControlBits,
+    },
+    FieldSpecEncoder {
+        ie: 4,
+        length: 1,
+        encoder: enc_protocolIdentifier,
+    },
+    FieldSpecEncoder {
+        ie: 5,
+        length: 1,
+        encoder: enc_ipClassOfService,
+    },
+    FieldSpecEncoder {
+        ie: 16,
+        length: 2,
+        encoder: enc_zero,
+    }, // bgpSourceAs
+    FieldSpecEncoder {
+        ie: 17,
+        length: 2,
+        encoder: enc_zero,
+    }, // bgpDestAs
+    FieldSpecEncoder {
+        ie: 9,
+        length: 1,
+        encoder: enc_zero,
+    }, // srcMask
+    FieldSpecEncoder {
+        ie: 13,
+        length: 1,
+        encoder: enc_zero,
+    }, // dstMask
+    FieldSpecEncoder {
+        ie: 210,
+        length: 2,
+        encoder: enc_zero,
+    },
 ];
 
-fn emit_group(fields: &[FieldSpecEncoder], packet: &mut [u8], mut offset: usize, ctx: &ExportCtx) -> usize {
+fn emit_group(
+    fields: &[FieldSpecEncoder],
+    packet: &mut [u8],
+    mut offset: usize,
+    ctx: &ExportCtx,
+) -> usize {
     for f in fields {
         (f.encoder)(&mut packet[offset..offset + f.length], f.length, ctx);
         offset += f.length;
@@ -343,7 +465,11 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
     let gauge_clock = sp.param.gauge_clock;
     let start = if gauge_clock { unsafe { clock() } } else { 0 };
 
-    let tail_fields = if version == 1 { &FIELD_NETFLOWV1_TAIL[..] } else { &FIELD_NETFLOWV5_TAIL[..] };
+    let tail_fields = if version == 1 {
+        &FIELD_NETFLOWV1_TAIL[..]
+    } else {
+        &FIELD_NETFLOWV5_TAIL[..]
+    };
     let maxflows = if version == 1 { 24 } else { 30 };
 
     let mut packet = vec![0u8; 1500];
@@ -379,7 +505,11 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
             if flow.octets[k] == 0 {
                 continue;
             }
-            let ctx = ExportCtx { sp: &sp, flow, i: k };
+            let ctx = ExportCtx {
+                sp: &sp,
+                flow,
+                i: k,
+            };
             offset = emit_group(&FIELD_NETFLOW_V1V5_COMMON, &mut packet, offset, &ctx);
             offset = emit_group(tail_fields, &mut packet, offset, &ctx);
             j += 1;
@@ -410,7 +540,11 @@ fn send_fixed_packet(sp: &mut SendParameter, packet: &mut [u8], offset: usize, c
     packet[2..4].copy_from_slice(&count_bytes);
 
     let mut sent = 0;
-    if sp.target.send_multi_destinations(&packet[..offset], &mut sent).is_err() {
+    if sp
+        .target
+        .send_multi_destinations(&packet[..offset], &mut sent)
+        .is_err()
+    {
         return -1;
     }
     sp.param.flows_exported += count as u64;
@@ -437,27 +571,95 @@ struct ExportTemplate {
     data_len: usize,
 }
 
-fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> [ExportTemplate; TMPLMAX] {
+fn build_templates(
+    param: &FlowTrackParameters,
+    bi_flag: bool,
+    version: u16,
+) -> [ExportTemplate; TMPLMAX] {
     let mut tmpls = Vec::with_capacity(TMPLMAX);
 
     if version == 9 {
         let v4_fields = vec![
-            FieldSpecEncoder { ie: 8, length: 4, encoder: enc_sourceIPv4Address },
-            FieldSpecEncoder { ie: 12, length: 4, encoder: enc_destinationIPv4Address },
-            FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime },
-            FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime },
-            FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount },
-            FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount },
-            FieldSpecEncoder { ie: 10, length: 4, encoder: enc_ifidx32 },
-            FieldSpecEncoder { ie: 14, length: 4, encoder: enc_ifidx32 },
-            FieldSpecEncoder { ie: 7, length: 2, encoder: enc_nf9_sourceTransportPort },
-            FieldSpecEncoder { ie: 11, length: 2, encoder: enc_nf9_destinationTransportPort },
-            FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
-            FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
-            FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion },
-            FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
-            FieldSpecEncoder { ie: 32, length: 2, encoder: enc_nf9_icmpTypeCode },
-            FieldSpecEncoder { ie: 58, length: 2, encoder: enc_vlanId },
+            FieldSpecEncoder {
+                ie: 8,
+                length: 4,
+                encoder: enc_sourceIPv4Address,
+            },
+            FieldSpecEncoder {
+                ie: 12,
+                length: 4,
+                encoder: enc_destinationIPv4Address,
+            },
+            FieldSpecEncoder {
+                ie: 21,
+                length: 4,
+                encoder: enc_flowEndSysUpTime,
+            },
+            FieldSpecEncoder {
+                ie: 22,
+                length: 4,
+                encoder: enc_flowStartSysUpTime,
+            },
+            FieldSpecEncoder {
+                ie: 1,
+                length: 4,
+                encoder: enc_octetDeltaCount,
+            },
+            FieldSpecEncoder {
+                ie: 2,
+                length: 4,
+                encoder: enc_packetDeltaCount,
+            },
+            FieldSpecEncoder {
+                ie: 10,
+                length: 4,
+                encoder: enc_ifidx32,
+            },
+            FieldSpecEncoder {
+                ie: 14,
+                length: 4,
+                encoder: enc_ifidx32,
+            },
+            FieldSpecEncoder {
+                ie: 7,
+                length: 2,
+                encoder: enc_nf9_sourceTransportPort,
+            },
+            FieldSpecEncoder {
+                ie: 11,
+                length: 2,
+                encoder: enc_nf9_destinationTransportPort,
+            },
+            FieldSpecEncoder {
+                ie: 4,
+                length: 1,
+                encoder: enc_protocolIdentifier,
+            },
+            FieldSpecEncoder {
+                ie: 6,
+                length: 1,
+                encoder: enc_tcpControlBits,
+            },
+            FieldSpecEncoder {
+                ie: 60,
+                length: 1,
+                encoder: enc_ipVersion,
+            },
+            FieldSpecEncoder {
+                ie: 5,
+                length: 1,
+                encoder: enc_ipClassOfService,
+            },
+            FieldSpecEncoder {
+                ie: 32,
+                length: 2,
+                encoder: enc_nf9_icmpTypeCode,
+            },
+            FieldSpecEncoder {
+                ie: 58,
+                length: 2,
+                encoder: enc_vlanId,
+            },
         ];
         let v4_len = v4_fields.iter().map(|f| f.length).sum::<usize>();
         let v4_tmpl = ExportTemplate {
@@ -468,22 +670,86 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
         };
 
         let v6_fields = vec![
-            FieldSpecEncoder { ie: 27, length: 16, encoder: enc_sourceIPv6Address },
-            FieldSpecEncoder { ie: 28, length: 16, encoder: enc_destinationIPv6Address },
-            FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime },
-            FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime },
-            FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount },
-            FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount },
-            FieldSpecEncoder { ie: 10, length: 4, encoder: enc_ifidx32 },
-            FieldSpecEncoder { ie: 14, length: 4, encoder: enc_ifidx32 },
-            FieldSpecEncoder { ie: 7, length: 2, encoder: enc_nf9_sourceTransportPort },
-            FieldSpecEncoder { ie: 11, length: 2, encoder: enc_nf9_destinationTransportPort },
-            FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier },
-            FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits },
-            FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion },
-            FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService },
-            FieldSpecEncoder { ie: 32, length: 2, encoder: enc_nf9_icmpTypeCode },
-            FieldSpecEncoder { ie: 58, length: 2, encoder: enc_vlanId },
+            FieldSpecEncoder {
+                ie: 27,
+                length: 16,
+                encoder: enc_sourceIPv6Address,
+            },
+            FieldSpecEncoder {
+                ie: 28,
+                length: 16,
+                encoder: enc_destinationIPv6Address,
+            },
+            FieldSpecEncoder {
+                ie: 21,
+                length: 4,
+                encoder: enc_flowEndSysUpTime,
+            },
+            FieldSpecEncoder {
+                ie: 22,
+                length: 4,
+                encoder: enc_flowStartSysUpTime,
+            },
+            FieldSpecEncoder {
+                ie: 1,
+                length: 4,
+                encoder: enc_octetDeltaCount,
+            },
+            FieldSpecEncoder {
+                ie: 2,
+                length: 4,
+                encoder: enc_packetDeltaCount,
+            },
+            FieldSpecEncoder {
+                ie: 10,
+                length: 4,
+                encoder: enc_ifidx32,
+            },
+            FieldSpecEncoder {
+                ie: 14,
+                length: 4,
+                encoder: enc_ifidx32,
+            },
+            FieldSpecEncoder {
+                ie: 7,
+                length: 2,
+                encoder: enc_nf9_sourceTransportPort,
+            },
+            FieldSpecEncoder {
+                ie: 11,
+                length: 2,
+                encoder: enc_nf9_destinationTransportPort,
+            },
+            FieldSpecEncoder {
+                ie: 4,
+                length: 1,
+                encoder: enc_protocolIdentifier,
+            },
+            FieldSpecEncoder {
+                ie: 6,
+                length: 1,
+                encoder: enc_tcpControlBits,
+            },
+            FieldSpecEncoder {
+                ie: 60,
+                length: 1,
+                encoder: enc_ipVersion,
+            },
+            FieldSpecEncoder {
+                ie: 5,
+                length: 1,
+                encoder: enc_ipClassOfService,
+            },
+            FieldSpecEncoder {
+                ie: 32,
+                length: 2,
+                encoder: enc_nf9_icmpTypeCode,
+            },
+            FieldSpecEncoder {
+                ie: 58,
+                length: 2,
+                encoder: enc_vlanId,
+            },
         ];
         let v6_len = v6_fields.iter().map(|f| f.length).sum::<usize>();
         let v6_tmpl = ExportTemplate {
@@ -508,68 +774,212 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
         let mut fields = Vec::new();
         // IP Addrs
         if v6 {
-            fields.push(FieldSpecEncoder { ie: 27, length: 16, encoder: enc_sourceIPv6Address });
-            fields.push(FieldSpecEncoder { ie: 28, length: 16, encoder: enc_destinationIPv6Address });
+            fields.push(FieldSpecEncoder {
+                ie: 27,
+                length: 16,
+                encoder: enc_sourceIPv6Address,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 28,
+                length: 16,
+                encoder: enc_destinationIPv6Address,
+            });
         } else {
-            fields.push(FieldSpecEncoder { ie: 8, length: 4, encoder: enc_sourceIPv4Address });
-            fields.push(FieldSpecEncoder { ie: 12, length: 4, encoder: enc_destinationIPv4Address });
+            fields.push(FieldSpecEncoder {
+                ie: 8,
+                length: 4,
+                encoder: enc_sourceIPv4Address,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 12,
+                length: 4,
+                encoder: enc_destinationIPv4Address,
+            });
         }
 
         // Time fields
         if param.time_format == b's' {
-            fields.push(FieldSpecEncoder { ie: 150, length: 4, encoder: enc_flowStartSeconds });
-            fields.push(FieldSpecEncoder { ie: 151, length: 4, encoder: enc_flowEndSeconds });
+            fields.push(FieldSpecEncoder {
+                ie: 150,
+                length: 4,
+                encoder: enc_flowStartSeconds,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 151,
+                length: 4,
+                encoder: enc_flowEndSeconds,
+            });
         } else if param.time_format == b'm' {
-            fields.push(FieldSpecEncoder { ie: 152, length: 8, encoder: enc_flowStartMilliSeconds });
-            fields.push(FieldSpecEncoder { ie: 153, length: 8, encoder: enc_flowEndMilliSeconds });
+            fields.push(FieldSpecEncoder {
+                ie: 152,
+                length: 8,
+                encoder: enc_flowStartMilliSeconds,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 153,
+                length: 8,
+                encoder: enc_flowEndMilliSeconds,
+            });
         } else if param.time_format == b'M' || param.time_format == b'n' {
-            fields.push(FieldSpecEncoder { ie: 154, length: 8, encoder: enc_flowStartMicroSeconds });
-            fields.push(FieldSpecEncoder { ie: 155, length: 8, encoder: enc_flowEndMicroSeconds });
+            fields.push(FieldSpecEncoder {
+                ie: 154,
+                length: 8,
+                encoder: enc_flowStartMicroSeconds,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 155,
+                length: 8,
+                encoder: enc_flowEndMicroSeconds,
+            });
         } else {
-            fields.push(FieldSpecEncoder { ie: 22, length: 4, encoder: enc_flowStartSysUpTime });
-            fields.push(FieldSpecEncoder { ie: 21, length: 4, encoder: enc_flowEndSysUpTime });
+            fields.push(FieldSpecEncoder {
+                ie: 22,
+                length: 4,
+                encoder: enc_flowStartSysUpTime,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 21,
+                length: 4,
+                encoder: enc_flowEndSysUpTime,
+            });
         }
 
         // Common fields
-        fields.push(FieldSpecEncoder { ie: 1, length: 4, encoder: enc_octetDeltaCount });
-        fields.push(FieldSpecEncoder { ie: 2, length: 4, encoder: enc_packetDeltaCount });
-        fields.push(FieldSpecEncoder { ie: 10, length: 4, encoder: enc_ifidx32 });
-        fields.push(FieldSpecEncoder { ie: 14, length: 4, encoder: enc_ifidx32 });
-        fields.push(FieldSpecEncoder { ie: 61, length: 1, encoder: enc_flowDirection });
-        fields.push(FieldSpecEncoder { ie: 136, length: 1, encoder: enc_flowEndReason });
+        fields.push(FieldSpecEncoder {
+            ie: 1,
+            length: 4,
+            encoder: enc_octetDeltaCount,
+        });
+        fields.push(FieldSpecEncoder {
+            ie: 2,
+            length: 4,
+            encoder: enc_packetDeltaCount,
+        });
+        fields.push(FieldSpecEncoder {
+            ie: 10,
+            length: 4,
+            encoder: enc_ifidx32,
+        });
+        fields.push(FieldSpecEncoder {
+            ie: 14,
+            length: 4,
+            encoder: enc_ifidx32,
+        });
+        fields.push(FieldSpecEncoder {
+            ie: 61,
+            length: 1,
+            encoder: enc_flowDirection,
+        });
+        fields.push(FieldSpecEncoder {
+            ie: 136,
+            length: 1,
+            encoder: enc_flowEndReason,
+        });
 
         // Transport / ICMP
         if icmp {
             let ie = if v6 { 139 } else { 32 };
-            fields.push(FieldSpecEncoder { ie, length: 2, encoder: enc_icmpTypeCode });
-            fields.push(FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier });
-            fields.push(FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion });
-            fields.push(FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService });
+            fields.push(FieldSpecEncoder {
+                ie,
+                length: 2,
+                encoder: enc_icmpTypeCode,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 4,
+                length: 1,
+                encoder: enc_protocolIdentifier,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 60,
+                length: 1,
+                encoder: enc_ipVersion,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 5,
+                length: 1,
+                encoder: enc_ipClassOfService,
+            });
         } else {
-            fields.push(FieldSpecEncoder { ie: 7, length: 2, encoder: enc_sourceTransportPort });
-            fields.push(FieldSpecEncoder { ie: 11, length: 2, encoder: enc_destinationTransportPort });
-            fields.push(FieldSpecEncoder { ie: 4, length: 1, encoder: enc_protocolIdentifier });
-            fields.push(FieldSpecEncoder { ie: 6, length: 1, encoder: enc_tcpControlBits });
-            fields.push(FieldSpecEncoder { ie: 60, length: 1, encoder: enc_ipVersion });
-            fields.push(FieldSpecEncoder { ie: 5, length: 1, encoder: enc_ipClassOfService });
+            fields.push(FieldSpecEncoder {
+                ie: 7,
+                length: 2,
+                encoder: enc_sourceTransportPort,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 11,
+                length: 2,
+                encoder: enc_destinationTransportPort,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 4,
+                length: 1,
+                encoder: enc_protocolIdentifier,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 6,
+                length: 1,
+                encoder: enc_tcpControlBits,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 60,
+                length: 1,
+                encoder: enc_ipVersion,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 5,
+                length: 1,
+                encoder: enc_ipClassOfService,
+            });
         }
 
         if param.track_level >= TrackLevel::FullVlan {
-            fields.push(FieldSpecEncoder { ie: 58, length: 2, encoder: enc_vlanId });
-            fields.push(FieldSpecEncoder { ie: 59, length: 2, encoder: enc_postVlanId });
+            fields.push(FieldSpecEncoder {
+                ie: 58,
+                length: 2,
+                encoder: enc_vlanId,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 59,
+                length: 2,
+                encoder: enc_postVlanId,
+            });
         }
         if param.track_level >= TrackLevel::FullVlanEther {
-            fields.push(FieldSpecEncoder { ie: 56, length: 6, encoder: enc_sourceMacAddress });
-            fields.push(FieldSpecEncoder { ie: 57, length: 6, encoder: enc_postDestinationMacAddress });
+            fields.push(FieldSpecEncoder {
+                ie: 56,
+                length: 6,
+                encoder: enc_sourceMacAddress,
+            });
+            fields.push(FieldSpecEncoder {
+                ie: 57,
+                length: 6,
+                encoder: enc_postDestinationMacAddress,
+            });
         }
 
         let mut bi_fields = Vec::new();
         if bi_flag {
-            bi_fields.push(FieldSpecEncoder { ie: 1 | 0x8000, length: 4, encoder: enc_octetDeltaCount });
-            bi_fields.push(FieldSpecEncoder { ie: 2 | 0x8000, length: 4, encoder: enc_packetDeltaCount });
-            bi_fields.push(FieldSpecEncoder { ie: 5 | 0x8000, length: 1, encoder: enc_ipClassOfService });
+            bi_fields.push(FieldSpecEncoder {
+                ie: 1 | 0x8000,
+                length: 4,
+                encoder: enc_octetDeltaCount,
+            });
+            bi_fields.push(FieldSpecEncoder {
+                ie: 2 | 0x8000,
+                length: 4,
+                encoder: enc_packetDeltaCount,
+            });
+            bi_fields.push(FieldSpecEncoder {
+                ie: 5 | 0x8000,
+                length: 1,
+                encoder: enc_ipClassOfService,
+            });
             if !icmp {
-                bi_fields.push(FieldSpecEncoder { ie: 6 | 0x8000, length: 1, encoder: enc_tcpControlBits });
+                bi_fields.push(FieldSpecEncoder {
+                    ie: 6 | 0x8000,
+                    length: 1,
+                    encoder: enc_tcpControlBits,
+                });
             }
         }
 
@@ -585,10 +995,21 @@ fn build_templates(param: &FlowTrackParameters, bi_flag: bool, version: u16) -> 
         });
     }
 
-    [tmpls[0].clone(), tmpls[1].clone(), tmpls[2].clone(), tmpls[3].clone()]
+    [
+        tmpls[0].clone(),
+        tmpls[1].clone(),
+        tmpls[2].clone(),
+        tmpls[3].clone(),
+    ]
 }
 
-fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_flag: bool, version: u16, sp: &SendParameter) {
+fn put_templates(
+    packet: &mut Vec<u8>,
+    tmpls: &[ExportTemplate; TMPLMAX],
+    bi_flag: bool,
+    version: u16,
+    sp: &SendParameter,
+) {
     if version == 9 {
         let tmpl_list = [&tmpls[TMPLV4], &tmpls[TMPLV6]];
         for tmpl in tmpl_list {
@@ -627,7 +1048,8 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         packet.extend_from_slice(&[0u8; 3]);
 
         let opt_tmpl_len = (packet.len() - opt_tmpl_start) as u16;
-        packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2].copy_from_slice(&opt_tmpl_len.to_be_bytes());
+        packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2]
+            .copy_from_slice(&opt_tmpl_len.to_be_bytes());
 
         // NetFlow v9 Option Data Record (Set ID: 256)
         let opt_data_start = packet.len();
@@ -641,7 +1063,8 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         packet.extend_from_slice(&[0u8; 3]);
 
         let opt_data_len = (packet.len() - opt_data_start) as u16;
-        packet[opt_data_len_offset..opt_data_len_offset + 2].copy_from_slice(&opt_data_len.to_be_bytes());
+        packet[opt_data_len_offset..opt_data_len_offset + 2]
+            .copy_from_slice(&opt_data_len.to_be_bytes());
         return;
     }
 
@@ -652,7 +1075,8 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         packet.extend_from_slice(&0u16.to_be_bytes());
 
         packet.extend_from_slice(&tmpl.template_id.to_be_bytes());
-        let count = (tmpl.fields.len() + tmpl.bi_fields.len() + sp.param.max_num_label as usize) as u16;
+        let count =
+            (tmpl.fields.len() + tmpl.bi_fields.len() + sp.param.max_num_label as usize) as u16;
         packet.extend_from_slice(&count.to_be_bytes());
 
         for f in &tmpl.fields {
@@ -705,7 +1129,8 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
         packet.extend_from_slice(&len.to_be_bytes());
     }
     let opt_tmpl_len = (packet.len() - opt_tmpl_start) as u16;
-    packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2].copy_from_slice(&opt_tmpl_len.to_be_bytes());
+    packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2]
+        .copy_from_slice(&opt_tmpl_len.to_be_bytes());
 
     // IPFIX Option Data Record (Set ID: 256)
     let opt_data_start = packet.len();
@@ -716,11 +1141,20 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
     let pid = std::process::id();
     packet.extend_from_slice(&pid.to_be_bytes());
 
-    let boot_ms = (sp.param.system_boot_time.tv_sec as u64) * 1000 + (sp.param.system_boot_time.tv_usec as u64) / 1000;
+    let boot_ms = (sp.param.system_boot_time.tv_sec as u64) * 1000
+        + (sp.param.system_boot_time.tv_usec as u64) / 1000;
     packet.extend_from_slice(&boot_ms.to_be_bytes());
 
-    let interval = if sp.param.sample_rate > 1 { sp.param.sample_rate } else { 1 };
-    let space = if sp.param.sample_rate > 0 { sp.param.sample_rate - 1 } else { 0 };
+    let interval = if sp.param.sample_rate > 1 {
+        sp.param.sample_rate
+    } else {
+        1
+    };
+    let space = if sp.param.sample_rate > 0 {
+        sp.param.sample_rate - 1
+    } else {
+        0
+    };
     packet.extend_from_slice(&interval.to_be_bytes());
     packet.extend_from_slice(&space.to_be_bytes());
 
@@ -735,7 +1169,8 @@ fn put_templates(packet: &mut Vec<u8>, tmpls: &[ExportTemplate; TMPLMAX], bi_fla
     packet.extend_from_slice(&[0u8; 40]);
 
     let opt_data_len = (packet.len() - opt_data_start) as u16;
-    packet[opt_data_len_offset..opt_data_len_offset + 2].copy_from_slice(&opt_data_len.to_be_bytes());
+    packet[opt_data_len_offset..opt_data_len_offset + 2]
+        .copy_from_slice(&opt_data_len.to_be_bytes());
 }
 
 pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
@@ -799,7 +1234,13 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
         while i + j < num_flows {
             let flow = sp.flows[i + j];
             let af = flow.key.af;
-            let icmp_flag = if version == 9 { 0 } else if valuate_icmp(flow) { 1 } else { 0 };
+            let icmp_flag = if version == 9 {
+                0
+            } else if valuate_icmp(flow) {
+                1
+            } else {
+                0
+            };
 
             if dh_offset.is_none() || af != last_af || icmp_flag != last_icmp_flag {
                 if let Some(dh_off) = dh_offset {
@@ -818,7 +1259,11 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
 
                 last_valid = packet.len();
                 let tmplindex = if version == 9 {
-                    if af == libc::AF_INET as u16 { TMPLV4 } else { TMPLV6 }
+                    if af == libc::AF_INET as u16 {
+                        TMPLV4
+                    } else {
+                        TMPLV6
+                    }
                 } else {
                     ipfix_flow_to_template_index(flow)
                 };
@@ -832,7 +1277,11 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
             }
 
             let tmplindex = if version == 9 {
-                if af == libc::AF_INET as u16 { TMPLV4 } else { TMPLV6 }
+                if af == libc::AF_INET as u16 {
+                    TMPLV4
+                } else {
+                    TMPLV6
+                }
             } else {
                 ipfix_flow_to_template_index(flow)
             };
@@ -845,12 +1294,20 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                 if !bi_flag && flow.octets[dir] == 0 {
                     continue;
                 }
-                let ctx = ExportCtx { sp: &sp, flow, i: dir };
+                let ctx = ExportCtx {
+                    sp: &sp,
+                    flow,
+                    i: dir,
+                };
                 let old_len = flow_bytes.len();
                 flow_bytes.resize(old_len + tmpl.data_len, 0);
                 let mut off = emit_group(&tmpl.fields, &mut flow_bytes, old_len, &ctx);
                 if bi_flag && dir == 0 {
-                    let bictx = ExportCtx { sp: &sp, flow, i: 1 };
+                    let bictx = ExportCtx {
+                        sp: &sp,
+                        flow,
+                        i: 1,
+                    };
                     off = emit_group(&tmpl.bi_fields, &mut flow_bytes, off, &bictx);
                 }
                 for k in 0..sp.param.max_num_label as usize {
@@ -861,7 +1318,9 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                 flow_written += 1;
             }
 
-            if flow_written == 0 || packet.len() + flow_bytes.len() > IPFIX_SOFTFLOWD_MAX_PACKET_SIZE {
+            if flow_written == 0
+                || packet.len() + flow_bytes.len() > IPFIX_SOFTFLOWD_MAX_PACKET_SIZE
+            {
                 if last_valid > 0 {
                     packet.truncate(last_valid);
                     dh_offset = None;
@@ -906,7 +1365,11 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
         }
 
         let mut sent = 0;
-        if sp.target.send_multi_destinations(&packet, &mut sent).is_err() {
+        if sp
+            .target
+            .send_multi_destinations(&packet, &mut sent)
+            .is_err()
+        {
             return -1;
         }
 

@@ -1,6 +1,6 @@
+use crate::common::{TimeVal, TrackLevel};
+use byteorder::{BigEndian, ByteOrder};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use byteorder::{ByteOrder, BigEndian};
-use crate::common::{TrackLevel, TimeVal};
 
 // Standard Datalink Types
 pub const DLT_EN10MB: i32 = 1;
@@ -44,6 +44,8 @@ pub struct ParsedPacket {
     pub raw_packet: Vec<u8>,
 }
 
+// The arguments mirror the C version, which passes the same values.
+#[allow(clippy::too_many_arguments)]
 pub fn parse_packet(
     linktype: i32,
     pkt: &[u8],
@@ -79,9 +81,9 @@ pub fn parse_packet(
                 if caplen < offset + 4 {
                     return None;
                 }
-                let tci = u16::from_be_bytes([pkt[offset], pkt[offset+1]]);
+                let tci = u16::from_be_bytes([pkt[offset], pkt[offset + 1]]);
                 vlan_id = tci & 0x0FFF;
-                ethertype = u16::from_be_bytes([pkt[offset+2], pkt[offset+3]]);
+                ethertype = u16::from_be_bytes([pkt[offset + 2], pkt[offset + 3]]);
                 offset += 4;
             }
 
@@ -91,7 +93,12 @@ pub fn parse_packet(
                     if caplen < offset + 4 {
                         return None;
                     }
-                    let shim = u32::from_be_bytes([pkt[offset], pkt[offset+1], pkt[offset+2], pkt[offset+3]]);
+                    let shim = u32::from_be_bytes([
+                        pkt[offset],
+                        pkt[offset + 1],
+                        pkt[offset + 2],
+                        pkt[offset + 3],
+                    ]);
                     mpls_labels.push(shim);
                     offset += 4;
                     // Check Bottom of Stack bit (bit 8 from right, shifted by 8)
@@ -237,8 +244,18 @@ pub fn parse_packet(
 
         let ip_src_bytes = &pkt[offset + 12..offset + 16];
         let ip_dst_bytes = &pkt[offset + 16..offset + 20];
-        src_ip = IpAddr::V4(Ipv4Addr::new(ip_src_bytes[0], ip_src_bytes[1], ip_src_bytes[2], ip_src_bytes[3]));
-        dst_ip = IpAddr::V4(Ipv4Addr::new(ip_dst_bytes[0], ip_dst_bytes[1], ip_dst_bytes[2], ip_dst_bytes[3]));
+        src_ip = IpAddr::V4(Ipv4Addr::new(
+            ip_src_bytes[0],
+            ip_src_bytes[1],
+            ip_src_bytes[2],
+            ip_src_bytes[3],
+        ));
+        dst_ip = IpAddr::V4(Ipv4Addr::new(
+            ip_dst_bytes[0],
+            ip_dst_bytes[1],
+            ip_dst_bytes[2],
+            ip_dst_bytes[3],
+        ));
 
         let frag_field = u16::from_be_bytes([pkt[offset + 6], pkt[offset + 7]]);
         let frag_offset = frag_field & 0x1FFF;
@@ -258,7 +275,12 @@ pub fn parse_packet(
             return None;
         }
 
-        let flow_field = u32::from_be_bytes([pkt[offset], pkt[offset + 1], pkt[offset + 2], pkt[offset + 3]]);
+        let flow_field = u32::from_be_bytes([
+            pkt[offset],
+            pkt[offset + 1],
+            pkt[offset + 2],
+            pkt[offset + 3],
+        ]);
         tos = ((flow_field & 0x0FF00000) >> 20) as u8;
         ip6_flowlabel = flow_field & 0x000FFFFF;
 
@@ -279,7 +301,7 @@ pub fn parse_packet(
                 if remain < 2 {
                     break;
                 }
-                let ext_len = ((pkt[next_header_offset + 1] as usize + 1) << 3) as usize;
+                let ext_len = (pkt[next_header_offset + 1] as usize + 1) << 3;
                 if remain < ext_len {
                     break;
                 }
@@ -290,7 +312,8 @@ pub fn parse_packet(
                     break;
                 }
                 is_frag = true;
-                let frag_offlg = u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
+                let frag_offlg =
+                    u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
                 let frag_offset = frag_offlg & 0xFFF8;
                 if frag_offset != 0 {
                     is_first = false;
@@ -317,16 +340,24 @@ pub fn parse_packet(
             IPPROTO_TCP => {
                 let min_len = if full_l4hdr_check { 20 } else { 14 };
                 if remain >= min_len {
-                    src_port = u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
-                    dst_port = u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
+                    src_port =
+                        u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
+                    dst_port = u16::from_be_bytes([
+                        pkt[next_header_offset + 2],
+                        pkt[next_header_offset + 3],
+                    ]);
                     tcp_flags = pkt[next_header_offset + 13];
                 }
             }
             IPPROTO_UDP => {
                 let min_len = if full_l4hdr_check { 8 } else { 4 };
                 if remain >= min_len {
-                    src_port = u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
-                    dst_port = u16::from_be_bytes([pkt[next_header_offset + 2], pkt[next_header_offset + 3]]);
+                    src_port =
+                        u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);
+                    dst_port = u16::from_be_bytes([
+                        pkt[next_header_offset + 2],
+                        pkt[next_header_offset + 3],
+                    ]);
                 }
             }
             IPPROTO_ICMP => {

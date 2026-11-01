@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicI32, Ordering};
 use crate::common::{Flow, FlowTrackParameters, TimeVal};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 pub const IPFIX_SOFTFLOWD_V4_TEMPLATE_ID: u16 = 1024;
 pub const IPFIX_SOFTFLOWD_ICMPV4_TEMPLATE_ID: u16 = 1025;
@@ -91,7 +91,11 @@ pub fn valuate_icmp(flow: &Flow) -> bool {
         || (flow.key.af == libc::AF_INET6 as u16 && flow.key.protocol == libc::IPPROTO_ICMPV6 as u8)
 }
 
-pub fn export_build_flow_header(packet: &mut Vec<u8>, version: u16, param: &FlowTrackParameters) -> usize {
+pub fn export_build_flow_header(
+    packet: &mut Vec<u8>,
+    version: u16,
+    param: &FlowTrackParameters,
+) -> usize {
     let now = crate::exporter::get_active_now(param);
     let sys_uptime = now.sub_ms(&param.system_boot_time);
 
@@ -103,7 +107,9 @@ pub fn export_build_flow_header(packet: &mut Vec<u8>, version: u16, param: &Flow
             packet.extend_from_slice(&(now.tv_sec as u32).to_be_bytes());
             packet.extend_from_slice(&((now.tv_usec * 1000) as u32).to_be_bytes());
             if version == 5 {
-                packet.extend_from_slice(&((param.flows_exported + param.records_sent) as u32).to_be_bytes());
+                packet.extend_from_slice(
+                    &((param.flows_exported + param.records_sent) as u32).to_be_bytes(),
+                );
                 packet.push(0); // engine_type
                 packet.push(0); // engine_id
                 let sampling = if param.sample_rate > 0 {
@@ -120,15 +126,20 @@ pub fn export_build_flow_header(packet: &mut Vec<u8>, version: u16, param: &Flow
             packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder for flows count
             packet.extend_from_slice(&sys_uptime.to_be_bytes());
             packet.extend_from_slice(&(now.tv_sec as u32).to_be_bytes());
-            packet.extend_from_slice(&((param.flows_exported + param.records_sent) as u32).to_be_bytes());
+            packet.extend_from_slice(
+                &((param.flows_exported + param.records_sent) as u32).to_be_bytes(),
+            );
             packet.extend_from_slice(&0u32.to_be_bytes()); // observation domain id
             packet.len()
         }
-        _ => { // IPFIX (10)
+        _ => {
+            // IPFIX (10)
             packet.extend_from_slice(&10u16.to_be_bytes());
             packet.extend_from_slice(&0u16.to_be_bytes()); // placeholder for length
             packet.extend_from_slice(&(now.tv_sec as u32).to_be_bytes());
-            packet.extend_from_slice(&((param.flows_exported + param.records_sent) as u32).to_be_bytes());
+            packet.extend_from_slice(
+                &((param.flows_exported + param.records_sent) as u32).to_be_bytes(),
+            );
             packet.extend_from_slice(&0u32.to_be_bytes()); // observation domain id
             packet.len()
         }

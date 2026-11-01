@@ -1,5 +1,5 @@
-use std::net::IpAddr;
 use std::collections::{BTreeMap, HashMap};
+use std::net::IpAddr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TrackLevel {
@@ -12,7 +12,8 @@ pub enum TrackLevel {
 }
 
 impl TrackLevel {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse the argument of `-T` (case-insensitive).
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "ip" => Some(TrackLevel::IpOnly),
             "proto" => Some(TrackLevel::IpProto),
@@ -43,7 +44,10 @@ pub struct TimeVal {
 
 impl TimeVal {
     pub fn zero() -> Self {
-        TimeVal { tv_sec: 0, tv_usec: 0 }
+        TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        }
     }
 
     pub fn sub_ms(&self, other: &TimeVal) -> u32 {
@@ -63,7 +67,7 @@ impl TimeVal {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FlowKey {
-    pub af: u16,                // libc::AF_INET (2) or libc::AF_INET6 (10)
+    pub af: u16, // libc::AF_INET (2) or libc::AF_INET6 (10)
     pub protocol: u8,
     pub addr: [IpAddr; 2],      // addr[0] <= addr[1]
     pub port: [u16; 2],         // Canonical matching addr
@@ -74,6 +78,8 @@ pub struct FlowKey {
 }
 
 impl FlowKey {
+    // The arguments mirror the C version, which passes the same values.
+    #[allow(clippy::too_many_arguments)]
     pub fn canonical(
         af: u16,
         protocol: u8,
@@ -129,9 +135,7 @@ impl FlowKey {
 
         let depth = mpls_labels.len().min(10);
         key.mpls_label_depth = depth as u32;
-        for i in 0..depth {
-            key.mpls_labels[i] = mpls_labels[i];
-        }
+        key.mpls_labels[..depth].copy_from_slice(&mpls_labels[..depth]);
 
         (key, ndx)
     }
@@ -356,7 +360,8 @@ pub enum FlowLookupMode {
 }
 
 impl FlowLookupMode {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse the argument of `-F` (case-insensitive).
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "tree" => Some(FlowLookupMode::Tree),
             "hash-tree" => Some(FlowLookupMode::HashTree),
@@ -385,8 +390,10 @@ pub struct FlowTracker {
 
 impl FlowTracker {
     pub fn new(max_flows: u32) -> Self {
-        let mut param = FlowTrackParameters::default();
-        param.max_flows = max_flows;
+        let param = FlowTrackParameters {
+            max_flows,
+            ..Default::default()
+        };
         // Compute nbuckets as power of two >= max_flows
         let mut nbuckets = 1024u32;
         while nbuckets < max_flows && nbuckets < (1 << 24) {
@@ -421,7 +428,11 @@ impl FlowTracker {
 
     pub fn table_usage(&self) -> (u32, u32) {
         if self.flow_lookup == FlowLookupMode::Hash {
-            let used = self.flow_slots.values().filter(|k| self.flows.contains_key(*k)).count() as u32;
+            let used = self
+                .flow_slots
+                .values()
+                .filter(|k| self.flows.contains_key(*k))
+                .count() as u32;
             let maxdepth = if used > 0 { 1 } else { 0 };
             (used, maxdepth)
         } else if self.flow_lookup == FlowLookupMode::Tree {
