@@ -2577,10 +2577,15 @@ PARITY_CTL_FLOWS = ["statistics", "dump-flows", "timeouts", "expire-all", "stati
 
 
 def parity_make_pcaps(directory: str) -> Dict[str, str]:
-    """smoke (240 packets, 40 flows), vlan (802.1Q tags and MACs), slow (10 s apart), many (600 flows)."""
+    """smoke (240 packets, 40 flows), smoke6 (the same flows over IPv6), vlan (802.1Q tags and MACs),
+    slow (10 s apart), many (600 flows), loopback (the same address at both ends)."""
     smoke = os.path.join(directory, "smoke.pcap")
     subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "tools", "gen_ci_smoke_pcap.py"),
                     smoke], check=True, stdout=subprocess.DEVNULL)
+    # IPv6 (TCP, UDP and ICMPv6), so that the Biflow records of IPv6 are compared too.
+    smoke6 = os.path.join(directory, "smoke6.pcap")
+    subprocess.run([sys.executable, os.path.join(PROJECT_ROOT, "tools", "gen_ci_smoke_pcap.py"),
+                    "-6", smoke6], check=True, stdout=subprocess.DEVNULL)
     with open(smoke, "rb") as f:
         data = f.read()
 
@@ -2591,7 +2596,7 @@ def parity_make_pcaps(directory: str) -> Dict[str, str]:
             yield ts, us, origlen, bytearray(data[off + 16:off + 16 + caplen])
             off += 16 + caplen
 
-    paths = {"smoke": smoke}
+    paths = {"smoke": smoke, "smoke6": smoke6}
     out = bytearray(data[:24])
     for n, (ts, us, origlen, pkt) in enumerate(packets()):
         vid = 100 + (n % 3) * 7 + (0x2000 if n % 5 == 0 else 0)
@@ -3012,6 +3017,110 @@ def parity_expire_all_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str,
     return False
 
 
+def parity_ipfix_records(datagrams: List[bytes]) -> List[Tuple]:
+    """The data records of IPFIX messages as sorted tuples of (name or id, value) pairs: the templates are
+    read from the same messages. The fields that differ from run to run (the times) are left out."""
+    templates: Dict[int, List[Tuple[int, int, int]]] = {}
+    out = []
+    skip = {21, 22, 150, 151, 152, 153, 154, 155, 156, 157}
+    for d in datagrams:
+        off = 16
+        while off + 4 <= len(d):
+            sid, slen = struct.unpack(">HH", d[off:off + 4])
+            body = d[off + 4:off + slen]
+            if sid == 2:
+                pos = 0
+                while pos + 4 <= len(body):
+                    tid, count = struct.unpack(">HH", body[pos:pos + 4])
+                    pos += 4
+                    fields = []
+                    for _ in range(count):
+                        ie, ln = struct.unpack(">HH", body[pos:pos + 4])
+                        pos += 4
+                        pen = 0
+                        if ie & 0x8000:
+                            pen = struct.unpack(">I", body[pos:pos + 4])[0]
+                            pos += 4
+                        fields.append((ie & 0x7fff, ln, pen))
+                    templates[tid] = fields
+            elif sid >= 256 and sid in templates:
+                size = sum(f[1] for f in templates[sid])
+                for r in range(len(body) // size if size else 0):
+                    rec, pos = [], r * size
+                    for ie, ln, pen in templates[sid]:
+                        if ie not in skip or pen:
+                            rec.append(((ie, pen), body[pos:pos + ln]))
+                        pos += ln
+                    out.append(tuple(rec))
+            off += slen if slen else 4
+    return sorted(out)
+
+
+def parity_live_ifidx(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """-i IDX:INTERFACE together with -b on lo: the interface index and the direction that the Biflow
+    records carry (the packets of both directions have the same address, as on any loopback)."""
+    ok = True
+    for ifidx, extra in (("7", []), ("7", ["-T", "ether"]), ("7", ["-T", "ether", "-H", "02:00:00:00:00:01"])):
+        socks, paths, procs = [], [os.path.join(SUITE_TMP_DIR, f"liveif_{n}.ctl") for n in "ab"], []
+        for _ in range(2):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.bind(("127.0.0.1", 0))
+            socks.append(s)
+        for daemon, path, s in ((a_daemon, paths[0], socks[0]), (b_daemon, paths[1], socks[1])):
+            procs.append(subprocess.Popen(
+                [daemon, "-d", "-c", path, "-i", f"{ifidx}:lo", "-b", "-v", "10", "-n",
+                 f"127.0.0.1:{s.getsockname()[1]}"] + extra + ["udp and port 41100"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        time.sleep(1.5)
+        echo = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        echo.bind(("127.0.0.1", 41100))
+        echo.settimeout(1)
+        for i in range(6):
+            c = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            c.bind(("127.0.0.1", 30100 + i))
+            c.settimeout(1)
+            for n in range(1 + i % 3):
+                c.sendto(b"q" * (20 + i), ("127.0.0.1", 41100))
+                try:
+                    _, peer = echo.recvfrom(2000)
+                    echo.sendto(b"r" * (30 + n), peer)
+                    c.recvfrom(2000)
+                except socket.timeout:
+                    pass
+            c.close()
+        echo.close()
+        time.sleep(1.5)
+        for proc, ctl, path in zip(procs, (ctl_a, ctl_b), paths):
+            subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+        for proc in procs:
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        got = []
+        for s in socks:
+            s.setblocking(False)
+            data = []
+            while True:
+                try:
+                    data.append(s.recv(65535))
+                except BlockingIOError:
+                    break
+            got.append(parity_ipfix_records(data))
+            s.close()
+        label = f"-i {ifidx}:lo -b {' '.join(extra)}".strip()
+        if got[0] and got[0] == got[1]:
+            print_green(f"    - live on lo, {label}: MATCHED ({len(got[0])} Biflow records)")
+        else:
+            ok = False
+            print_red(f"    - live on lo, {label}: DIFFERENT (A {len(got[0])} records, B {len(got[1])} records)")
+            for x, y in zip(got[0], got[1]):
+                if x != y:
+                    print(f"        A: {x}\n        B: {y}")
+                    break
+    return ok
+
+
 def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
     """The times of a live capture are those of libpcap, as phdr->ts in the original: (1) the packets that
     are read together keep their time, and (2) with -a the time of the last packet is the current time, so
@@ -3143,8 +3252,8 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
 
 
 # Command lines that the C version reports as an error (or accepts in an odd way), for parity_cli_errors ().
-# {pcap} is the capture file and {ctl} a control socket path. The statistics of -v psamp are not compared on
-# purpose: the C++ version does not count "Packets processed" for it.
+# {pcap} is the capture file and {ctl} a control socket path. (The statistics of -v psamp are compared too, in
+# parity_statistics (): the C++ version counts "Packets processed" and the ignored packets as the C version does.)
 PARITY_CLI_ERROR_CASES = [
     [], ["-h"], ["--help"], ["-z"], ["--bogus"], ["-i"], ["-r"], ["-t"], ["-X"],
     ["-i", "lo", "-r", "{pcap}"], ["-r", "{pcap}", "-i", "lo"], ["-r", "{pcap}", "-r", "{pcap}"],
@@ -3537,6 +3646,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
         ok = parity_expire_all_time(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
         if parity_can_capture_lo():
             ok = parity_live(a_daemon, b_daemon, ctl_a, ctl_b) and ok
+            ok = parity_live_ifidx(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_time(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_gauge(a_daemon, b_daemon, ctl_a, ctl_b) and ok
             ok = parity_live_log(a_daemon, b_daemon, ctl_a, ctl_b) and ok

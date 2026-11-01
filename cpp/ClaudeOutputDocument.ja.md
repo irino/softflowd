@@ -83,6 +83,8 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
 | シグナル | `SIGTERM`と`SIGINT`は、フォアグラウンドでもフローをexpireして終了コード0で終了し、制御ソケットを消します。`SIGUSR1`は`stats: tracked=... total_packets=...`を、`SIGHUP`は`SIGHUP received (config reload not implemented)`をログに出し、プロセスは続きます。どれも即座に終了していたC版(フォアグラウンドの`SIGTERM`・`SIGINT`を含む)も、これに合わせて直しました |
 | ZeroMQとfork | `-v ntopng`のZeroMQソケットは、forkの後、権限分離の前に作ります。C版は`daemon ()`の前に作っていたため、デーモンは何もエクスポートしませんでした(ZeroMQのI/Oスレッドはforkで引き継がれません)。C版も直しました。失敗は`logit ()`でログに出します |
 | CI | `.github/workflows/build.yml`のジョブ`cpp-test`(ZeroMQなし/あり)が`.github/scripts/cpp-test.sh`を実行します。ビルド、`ctest`、`compat --strict --psamp`、デーモンの検査です。ZeroMQありでは、C版を`--enable-ntopng`でビルドして`--ntopng-bin`に渡します。JSON対応のないビルドでは`-v ntopng-json`をスキップします |
+| ICMPとIPv6のBiflow | ICMPとIPv6のBiflowのレコードが持つインターフェースインデックスとフロー方向を、C版と同じにしました(flowDirectionのバイトが違っていました)。C版との比較は、`-b -T ether -H`をIPv4のサンプル(`smoke`)とIPv6のサンプル(`gen_ci_smoke_pcap.py -6`で作る`smoke6`)で、さらに`lo`のライブキャプチャの`-i 7:lo -b`(レコードのifIndex・方向・カウンタ。`-T ether`と`-H`の有無とも)で確認します |
+| Doxygen | `cpp/`のコメント(`.cpp`、`.hpp`)はDoxygenコメントで、C版についての注記は`@original`です。`cmake --build cpp/build --target doc`でHTMLを作り、`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`なら警告でビルドが失敗します。C版も同じです。`doxygen Doxyfile`は、著作権がDamien MillerかHitoshi Irinoの`.c`と`.h`(`convtime.*`、`daemon.c`、`compat/`を除く)を、`@file`コメントつきで読み、コメントのない構造体・メンバー・関数・変数・マクロ・型は警告です。`.github/workflows/build.yml`のジョブ`cpp-doc`と`doc-c`が実行し、警告でジョブが失敗します。Rust版は対象外です |
 | `-g` | cpu clocksは、キャプチャファイルでもライブでも、停止時に報告します(標準エラー。デーモンはsyslog)。`-M`ではエクスポートのclockは"n/a"です。compatの測定は、既定のビルドがサニタイザ付きのため、最適化ビルドで行います |
 
 ### 既知の差と未完了の項目
