@@ -36,6 +36,9 @@ ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = NO
 # The code that configure switches on, so that it is checked too.
 PREDEFINED             = ENABLE_PTHREAD ENABLE_NTOPNG ENABLE_IFNAME __packed=
+# No Graphviz: newer Doxygen (1.15) tries to run dot unless it is told not to,
+# and a runner without Graphviz would fail.
+HAVE_DOT               = NO
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
 QUIET                  = YES
