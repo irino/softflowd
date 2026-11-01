@@ -107,10 +107,16 @@ summary statistics before exiting.
 Specify an alternate location to store the process ID when in daemon
 mode. Default is */var/run/softflowd.pid*
 
+The daemon cannot remove the pid file when it exits; see **Privilege
+Separation**.
+
 **-c** *ctlsock*, **\--control-socket** *ctlsock*
 
 Specify an alternate location for the remote control socket in daemon
 mode. Default is */var/run/softflowd.ctl*
+
+The daemon cannot remove the control socket when it exits; see
+**Privilege Separation**.
 
 **-m** *max_flows*, **\--max-flows** *max_flows*
 
@@ -473,12 +479,16 @@ instances of **softflowd** on a single machine.
 
 This file stores the process ID when **softflowd** is in daemon mode.
 This location may be overridden using the **-p** command-line option.
+The file is left in place when the daemon exits, and the next start
+replaces it.
 
 */var/run/softflowd.ctl*
 
 This is the remote control socket. **softflowd** listens on this socket
 for commands from *softflowctl*(8). This location may be overridden
-using the **-c** command-line option.
+using the **-c** command-line option. The socket is left in place when
+the daemon exits, and the next start replaces it. *softflowctl*(8) gets
+a refused connection from a socket that is left.
 
 **BUGS**
 

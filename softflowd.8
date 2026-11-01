@@ -181,10 +181,16 @@ exiting.
 Specify an alternate location to store the process ID when in daemon mode.
 Default is
 .Pa /var/run/softflowd.pid
+.Pp
+The daemon cannot remove the pid file when it exits; see
+.Sx Privilege Separation .
 .It Fl c Ar ctlsock , Fl \-control-socket Ar ctlsock
 Specify an alternate location for the remote control socket in daemon mode.
 Default is
 .Pa /var/run/softflowd.ctl
+.Pp
+The daemon cannot remove the control socket when it exits; see
+.Sx Privilege Separation .
 .It Fl m Ar max_flows , Fl \-max-flows Ar max_flows
 Specify the maximum number of flows to concurrently track.
 The value must be 1 or more.
@@ -607,6 +613,8 @@ is in daemon mode.
 This location may be overridden using the
 .Fl p
 command-line option.
+The file is left in place when the daemon exits, and the next start
+replaces it.
 .It Pa /var/run/softflowd.ctl
 This is the remote control socket.
 .Nm
@@ -615,6 +623,10 @@ listens on this socket for commands from
 This location may be overridden using the
 .Fl c
 command-line option.
+The socket is left in place when the daemon exits, and the next start
+replaces it.
+.Xr softflowctl 8
+gets a refused connection from a socket that is left.
 .El
 .Sh BUGS
 Currently
