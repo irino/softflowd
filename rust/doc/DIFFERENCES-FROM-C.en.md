@@ -37,6 +37,8 @@ changes when a patch is applied.
 | D10 | Overflow eviction: C keeps the previous flowEndReason, Rust writes lack of resources | 2026-11-02 | open | | |
 | D11 | NetFlow v9 option template: C has interfaceName (IE 82), Rust has not | 2026-11-02 | open | | |
 | D12 | compat step 5: most byte-for-byte checks differ (see the text) | 2026-11-02 | open | | |
+| D13 | Command line (part of D3): wrong `-t` options are accepted, and a large time panics | 2026-11-02 | fixed | 0012 Reject the wrong -t options as the C version does | 2026-11-02, the 75 cases of D3 run again: the cases of `-t` no longer differ (exit status differs in 38 cases, was 47); unit tests of `parse_duration` and `apply_timeouts` |
+| D14 | Command line (part of D3): `-T port` panics; C accepts it | 2026-11-02 | fixed | 0013 Accept -T port in the Rust version | 2026-11-02, the 75 cases of D3 run again: no panic is left (exit status differs in 37 cases, was 38); a test of the names of the levels |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
 | R2 | No Rust job in CI | 2026-11-02 | fixed | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02, the commands run locally on a clean checkout |
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
@@ -134,6 +136,10 @@ exit status compared (text of messages was not compared).  47 differ:
 | Rust panics (exit 101) | 2 | `-T port`, `-t maxlife=99999999999` |
 
 The 28 cases not listed here have the same exit status.
+
+After patch 0012 (D13, the `-t` cases): 38 cases differ; 20 are C 1 against
+Rust 2, 10 are accepted by Rust, 7 are accepted by C and 1 panics (`-T port`).
+After patch 0013 (D14, `-T port`): 37 cases differ and none panics.
 In the "Rust accepts" group wrong input is only logged, and the daemon goes
 on or exits with 0.  Which of the other two groups are wanted
 (clap's exit status 2 against the C exit status 1) is a decision, not a bug.

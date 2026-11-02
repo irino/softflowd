@@ -17,6 +17,7 @@ impl TrackLevel {
         match s.to_ascii_lowercase().as_str() {
             "ip" => Some(TrackLevel::IpOnly),
             "proto" => Some(TrackLevel::IpProto),
+            "port" => Some(TrackLevel::IpProtoPort),
             "full" => Some(TrackLevel::Full),
             "vlan" => Some(TrackLevel::FullVlan),
             "ether" => Some(TrackLevel::FullVlanEther),
@@ -28,7 +29,7 @@ impl TrackLevel {
         match self {
             TrackLevel::IpOnly => "ip",
             TrackLevel::IpProto => "proto",
-            TrackLevel::IpProtoPort => "full", // Historically "full" maps to IpProtoPort for key representation
+            TrackLevel::IpProtoPort => "port",
             TrackLevel::Full => "full",
             TrackLevel::FullVlan => "vlan",
             TrackLevel::FullVlanEther => "ether",

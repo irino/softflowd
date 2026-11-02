@@ -35,6 +35,8 @@
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
 | D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 未解消 | | |
 | D12 | compat のステップ 5: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
+| D13 | コマンドライン (D3 の一部): 不正な `-t` を受理し、大きな時間で panic する | 2026-11-02 | 解消 | 0012 Reject the wrong -t options as the C version does | 2026-11-02、D3 の 75 件を再実行: `-t` の件は C と同じになった(終了ステータスが違うのは 38 件、以前は 47 件)。`parse_duration` と `apply_timeouts` の単体テスト |
+| D14 | コマンドライン (D3 の一部): `-T port` が panic する。C は受理する | 2026-11-02 | 解消 | 0013 Accept -T port in the Rust version | 2026-11-02、D3 の 75 件を再実行: panic は残っていない(終了ステータスが違うのは 37 件、以前は 38 件)。レベル名のテスト |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
@@ -128,6 +130,10 @@ C の処理は `softflowd.c` の `flow_update_expiry()` です。
 | Rust が panic (終了 101) | 2 | `-T port`、`-t maxlife=99999999999` |
 
 ここに挙げていない 28 件は終了ステータスが同じです。
+
+パッチ 0012 の後 (D13、`-t` の件): 違うのは 38 件で、C が 1 で Rust が 2 が 20 件、
+Rust が受理が 10 件、C が受理が 7 件、panic が 1 件(`-T port`)です。
+パッチ 0013 の後 (D14、`-T port`): 違うのは 37 件で、panic はありません。
 「Rust は受理」の群では、不正な入力がログに出るだけで、デーモンは動き続けるか
 終了 0 で終わります。ほかの 2 群のうち、どれを揃えるか(clap の終了 2 と C の
 終了 1)は不具合ではなく方針の判断です。

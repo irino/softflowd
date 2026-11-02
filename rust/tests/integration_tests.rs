@@ -494,3 +494,17 @@ fn test_flow_end_reason_values() {
     assert_eq!(FLOW_END_REASON_FORCE_END, 4);
     assert_eq!(FLOW_END_REASON_LACK_OF_RESOURCE, 5);
 }
+
+// -------------------------------------------------------------
+// Test: the names of the flow tracking levels (-T) of the C version
+// -------------------------------------------------------------
+#[test]
+fn test_track_level_names() {
+    for name in ["ip", "proto", "port", "full", "vlan", "ether"] {
+        let level = TrackLevel::from_name(name).unwrap_or_else(|| panic!("{name} is not a level"));
+        assert_eq!(level.to_str(), name);
+    }
+    // The names are not case sensitive, as in the C version.
+    assert_eq!(TrackLevel::from_name("PORT"), Some(TrackLevel::IpProtoPort));
+    assert_eq!(TrackLevel::from_name("bogus"), None);
+}
