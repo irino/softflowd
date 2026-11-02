@@ -25,16 +25,18 @@ changes when a patch is applied.
 
 | ID | Summary | Found | Status | Fixed in | Verified |
 |----|---------|-------|--------|----------|----------|
-| D1 | NetFlow v9: extra elements differ | 2026-11-02 | open | | |
+| D1 | NetFlow v9: extra elements differ | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, compat `--strict` C against Rust: NetFlow v9 MATCHED for the IPv4 and IPv6 pcaps (24 records each); `tests/netflow9_templates.rs` fails on the old code |
 | D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | fixed | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02, compat `--strict` C against Rust: IPFIX MATCHED for the IPv4 and IPv6 pcaps (24 records each) |
 | D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
 | D4 | No ntopng | 2026-11-02 | open | | |
 | D5 | Program name and version not unified | 2026-11-02 | open | | |
 | D6 | Log format differs | 2026-11-02 | open | | |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
-| D8 | compat step 5 not reached (not measured) | 2026-11-02 | open | | |
+| D8 | compat step 5 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 5 ran for the first time (its result is D12) |
 | D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | open | | |
 | D10 | Overflow eviction: C keeps the previous flowEndReason, Rust writes lack of resources | 2026-11-02 | open | | |
+| D11 | NetFlow v9 option template: C has interfaceName (IE 82), Rust has not | 2026-11-02 | open | | |
+| D12 | compat step 5: most byte-for-byte checks differ (see the text) | 2026-11-02 | open | | |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
 | R2 | No Rust job in CI | 2026-11-02 | fixed | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02, the commands run locally on a clean checkout |
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
@@ -177,6 +179,44 @@ code around `softflowd.c:1734`).  The Rust version writes lack of resources
 (`evict_oldest_flow()`).  C sets lack of resources for a hash collision and
 for flows over the byte limit.  Which one is wanted is a decision; C may have
 simply forgotten the case.
+
+### D11. NetFlow v9 option template (source)
+
+The v9 option template of the C version has the scope interface and three
+option fields: samplingInterval (34), samplingAlgorithm (35) and interfaceName
+(82, 16 bytes) (`ipfix_fields.h`, `field_nf9option`).  The Rust version writes
+the first two only (`put_templates()`, the `version == 9` branch).  How much it
+changes the size of the first v9 datagram was not isolated; see D12.
+
+### D12. Byte-for-byte comparison, compat step 5 (measured)
+
+Step 5 ran for the first time on 2026-11-02, after 0011 made step 3 pass.
+Command: the one in "How to reproduce" with `--a` and `--b` and `--strict`
+(C against Rust).  The causes were not analyzed; this is what was seen.
+
+- Datagrams: "exported datagrams: 125 of 140 runs differ".
+  - With `-m N` (flows that are expired by the size of the table) C sends
+    many datagrams and Rust sends one, for NetFlow v1, v5, v9 and IPFIX
+    (for example `-v 5 -a -m 5`: 36 datagrams from C, 1 from Rust).
+  - NetFlow v5: byte 19 of the second datagram differs; bytes 16 to 19 of
+    the v5 header are the flow sequence number.
+  - NetFlow v9 and IPFIX: the first datagram differs in size (`-v 9 -a`: C 1360
+    bytes, Rust 1388; `-v 10 -a -T ether`: C 1312, Rust 1376).  D11 is one
+    known difference of the v9 option template; the rest is not known.
+- Packet statistics (5 tests): in 4 of them Rust shows 0 for the packets that
+  are not IP or that are too short and C counts them; in the fifth (`-v psamp`,
+  not IP) the number of the packets read differs (C 240, Rust 235).
+- Command lines: 75 of 75 differ when the text of the messages is compared
+  too (D3 compares the exit status only); `-t general=0`, `-t bogus=1`,
+  `-t tcp`, `-t tcp=` and `-t tcp=xyz` exit with 0 in Rust and 1 in C.
+- Also different: the CPU clocks of `-g` (2 tests, and 2 more on the loopback
+  interface), the daemon (privileges, syslog), and the replies of the control
+  commands `exit` and `shutdown`.  In the live tests on the loopback interface
+  the log lines of these commands and the behavior on SIGHUP, SIGINT, SIGTERM
+  and SIGUSR1 differ too.
+- The same: `-M` exports the same datagrams as without it; the expire-all
+  at the end of a file (`-a`); the idle expiry (`-t expint=3`); packets that
+  are read together; the statistics of `-a` on a live interface.
 
 ## Repository state (source)
 

@@ -23,16 +23,18 @@
 
 | ID | 内容 | 発見 | 状態 | 修正パッチ | 確認 |
 |----|------|------|------|------------|------|
-| D1 | NetFlow v9: 追加要素が違う | 2026-11-02 | 未解消 | | |
+| D1 | NetFlow v9: 追加要素が違う | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも NetFlow v9 が MATCHED (各 24 レコード)。`tests/netflow9_templates.rs` は旧コードで失敗する |
 | D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 解消 | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも IPFIX が MATCHED (各 24 レコード) |
 | D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 未解消 | | |
 | D4 | ntopng がない | 2026-11-02 | 未解消 | | |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 未解消 | | |
 | D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
-| D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 未解消 | | |
+| D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
 | D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 未解消 | | |
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
+| D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 未解消 | | |
+| D12 | compat のステップ 5: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
@@ -169,6 +171,44 @@ flowEndReason を設定せず、フローは前の値のままです(`softflowd.
 Rust は `evict_oldest_flow()` で lack of resources を書きます。C は、ハッシュの
 衝突とバイト数超過では lack of resources を設定しています。どちらにするかは
 判断が要ります。C が単に書き忘れた可能性があります。
+
+### D11. NetFlow v9 のオプションテンプレート (ソース)
+
+C の v9 オプションテンプレートは、スコープ(インターフェース)と 3 つの
+オプションフィールドを持ちます: samplingInterval (34)、samplingAlgorithm (35)、
+interfaceName (82、16 バイト) (`ipfix_fields.h` の `field_nf9option`)。
+Rust は最初の 2 つだけを書きます(`put_templates()` の `version == 9` の分岐)。
+v9 の最初のデータグラムの大きさにどれだけ影響するかは切り分けていません。
+D12 を見てください。
+
+### D12. バイト単位の比較、compat のステップ 5 (実測)
+
+ステップ 5 は、0011 でステップ 3 が通るようになったため、2026-11-02 に初めて
+動きました。コマンドは「再現手順」のものに `--a`、`--b`、`--strict` を付けた
+もの(C と Rust の比較)です。原因は分析していません。見えたことを書きます。
+
+- データグラム: 「エクスポートされるデータグラムは 140 実行中 125 が違う」。
+  - `-m N`(テーブルの大きさで期限切れにするフロー)では、C は多数の
+    データグラムを送り、Rust は 1 つを送ります。NetFlow v1、v5、v9、IPFIX
+    のすべてです(例: `-v 5 -a -m 5` は C が 36 データグラム、Rust が 1)。
+  - NetFlow v5: 2 番目のデータグラムの 19 バイト目が違います。v5 ヘッダの
+    16〜19 バイト目はフローのシーケンス番号です。
+  - NetFlow v9 と IPFIX: 最初のデータグラムの大きさが違います(`-v 9 -a`:
+    C は 1360 バイト、Rust は 1388。`-v 10 -a -T ether`: C は 1312、Rust は
+    1376)。v9 のオプションテンプレートの既知の差分が D11 で、残りは不明です。
+- パケット統計(5 テスト): 4 テストで、IP でないパケットや短すぎるパケットを
+  Rust は 0 と表示し、C は数えます。5 つ目(`-v psamp`、IP でない)では、
+  読んだパケット数が違います(C は 240、Rust は 235)。
+- コマンドライン: メッセージの文言まで比べると 75 件すべてが違います(D3 は
+  終了ステータスだけを比べています)。`-t general=0`、`-t bogus=1`、`-t tcp`、
+  `-t tcp=`、`-t tcp=xyz` は、Rust が終了 0、C が終了 1 です。
+- ほかにも違います: `-g` の CPU クロック(2 テストと、ループバックでの 2 テスト)、
+  デーモン(権限、syslog)、制御コマンド `exit` と `shutdown` の応答。
+  ループバックのライブテストでは、これらのコマンドのログ行と、SIGHUP、
+  SIGINT、SIGTERM、SIGUSR1 の挙動も違います。
+- 一致したもの: `-M` の有無でデータグラムが同じこと、ファイル末尾での
+  expire-all (`-a`)、idle の期限切れ (`-t expint=3`)、まとめて読んだパケット、
+  ライブでの `-a` の統計。
 
 ## リポジトリの状態 (ソース)
 

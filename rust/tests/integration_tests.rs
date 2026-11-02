@@ -7,10 +7,13 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
+mod common;
+use common::make_dummy_flow;
+
 use rsoftflowd::common::{
-    ExpiryReason, FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW,
-    FLOW_END_REASON_FORCE_END, FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE,
-    Flow, FlowKey, FlowTrackParameters, TimeVal, TrackLevel,
+    FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW, FLOW_END_REASON_FORCE_END,
+    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, FlowTrackParameters, TimeVal,
+    TrackLevel,
 };
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
@@ -161,45 +164,6 @@ fn test_pcap_file_reading() {
 // -------------------------------------------------------------
 // Test 3: Exporter versions packet frame generation
 // -------------------------------------------------------------
-fn make_dummy_flow() -> Flow {
-    let key = FlowKey {
-        af: 2,
-        protocol: 6, // TCP
-        addr: [
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 200)),
-        ],
-        port: [12345, 80],
-        vlanid: [0, 0],
-        ethermac: [[0; 6]; 2],
-        mpls_label_depth: 0,
-        mpls_labels: [0; 10],
-    };
-
-    Flow {
-        flow_seq: 1,
-        flow_start: TimeVal {
-            tv_sec: 1600000000,
-            tv_usec: 0,
-        },
-        flow_last: TimeVal {
-            tv_sec: 1600000010,
-            tv_usec: 0,
-        },
-        octets: [1000, 500],
-        packets: [10, 5],
-        tcp_flags: [0x02, 0x10], // SYN, ACK
-        tos: [0x10, 0x00],
-        ip6_flowlabel: [0, 0],
-        src_mac: [0; 6],
-        dst_mac: [0; 6],
-        flow_end_reason: FLOW_END_REASON_END_OF_FLOW,
-        key,
-        expiry_key: None,
-        expiry_reason: ExpiryReason::General,
-    }
-}
-
 fn test_exporter_version(version: u16) -> Vec<u8> {
     // Bind receiver UDP socket
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
