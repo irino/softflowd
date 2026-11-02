@@ -1,0 +1,36 @@
+name: AI coding task
+description: Request an implementation in rust/ by the Gemini Issue Agent
+title: "[AI] "
+labels: ["ai-task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe a focused task for the Rust version (rust/). The Gemini agent treats this
+        content as untrusted input, inspects the repository, changes files under rust/ only,
+        runs cargo fmt, clippy and tests, and opens a PR. One fix per issue.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be implemented or fixed?
+      placeholder: Describe the expected behavior in English.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that define completion.
+      placeholder: |
+        - ...
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and constraints
+      description: Relevant files, the C code to follow, the ID of the row of rust/doc/DIFFERENCES-FROM-C.en.md, or non-goals.
+    validations:
+      required: false

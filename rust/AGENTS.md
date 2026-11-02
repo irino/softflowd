@@ -55,3 +55,10 @@
 |tests    |Test code                                                                |
 |doc      |Documents (the differences from the C version)                           |
 |man      |Man pages and the extra roff text used by build.rs                       |
+
+## Issues for the AI agent
+- An Issue made with the form "AI coding task" (label `ai-task`) starts the Gemini Issue Agent
+  (`.github/GEMINI-ISSUE-AGENT.en.md`, `.ja.md`).
+- The agent changes files under `rust/` only, and its pull request is reviewed and merged by the maintainer.
+- Write one fix per Issue, in English, with a Goal, acceptance criteria that can be observed, and the context
+  (the C file to follow, the row of `doc/DIFFERENCES-FROM-C.en.md`).
