@@ -17,9 +17,15 @@
 - Format: cargo fmt
 - Lint: cargo clippy --all-targets -- -D warnings
 - Test: cargo test
-- Toolchain: Rust 1.85 or newer (edition 2024) and libpcap-dev.
+- Toolchain: the version pinned in `rust-toolchain.toml` (rustup installs it) and libpcap-dev.
+  The minimum is Rust 1.88 (`rust-version`; the code uses let chains).
+  Raise the pinned version in a patch of its own, with the fixes that the newer clippy asks for.
 - CI (`.github/workflows/build.yml`, job `rust`) runs `cargo fmt --check`, clippy with `-D warnings` and `cargo test`.
   Run the same three commands in `rust/` before a patch.
+- Pre-commit check: `git config core.hooksPath .githooks` once per clone.
+  `.githooks/pre-commit` checks the clang-format of the staged C changes
+  (the check that was there before), and runs the three commands above for a commit that changes the source of `rust/`.
+  Skip it for one commit with `git commit --no-verify` (CI still runs).
 - Comparison with the C version: `python3 tools/softflowd_test_collector.py compat --skip-cpp`
   (see the commands in `doc/DIFFERENCES-FROM-C.en.md`).
 

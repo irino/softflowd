@@ -25,7 +25,9 @@ NetFlow コレクタが必要なら、関連プロジェクト "flowd"
 
 ## ビルド
 
-Rust 1.85 以上 (edition 2024) と libpcap (`libpcap-dev`) が必要です。
+Rust の版は `rust-toolchain.toml` で固定しています。`rust/` で最初に `cargo` を
+実行すると rustup が入れます。最低版は Rust 1.88 です。libpcap
+(`libpcap-dev`) も必要です。
 
 ```sh
 cd rust
@@ -41,6 +43,17 @@ cargo test
 ```
 
 CI(`.github/workflows/build.yml` のジョブ `rust`)がこの 3 つを実行します。
+
+Rust のソースを変える commit のたびに実行するには、clone ごとに 1 回、
+リポジトリの最上位で次のコマンドを実行してフックを有効にします。
+
+```sh
+git config core.hooksPath .githooks
+```
+
+このフックは、ステージした C の変更の clang-format 検査(従来からの検査)も
+そのまま行います。`git commit --no-verify` で 1 回の commit だけ省略できます。
+CI は実行されます。
 
 C 版との比較は `tools/softflowd_test_collector.py compat` です。コマンドは
 [doc/DIFFERENCES-FROM-C.ja.md](doc/DIFFERENCES-FROM-C.ja.md) にあります。

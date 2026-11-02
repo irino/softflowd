@@ -2,8 +2,12 @@
 # Reject a commit whose staged changes are not clang-formatted.
 # Only the changed lines are checked (git clang-format), so the existing
 # code that does not match .clang-format does not block commits.
+# For a commit that changes the source of the Rust version (rust/), the same
+# checks as the CI job "rust" run too: cargo fmt, clippy and the tests.
+# They run on the working tree, so changes that are not staged are checked.
 # Enable once per clone:  git config core.hooksPath .githooks
 # Fix and re-stage with:  git clang-format --staged  (then git add -u)
+# Skip both for one commit:  git commit --no-verify  (CI still runs)
 
 command -v git-clang-format >/dev/null 2>&1 || {
   echo "pre-commit: git-clang-format not found (install clang-format)" >&2
@@ -12,9 +16,29 @@ command -v git-clang-format >/dev/null 2>&1 || {
 
 out=$(git clang-format --staged --diff --extensions c,h 2>&1)
 case "$out" in
-  *"no modified files to format"* | *"did not modify any files"* | "") exit 0 ;;
+  *"no modified files to format"* | *"did not modify any files"* | "") ;;
+  *)
+    echo "pre-commit: staged changes are not clang-formatted:" >&2
+    echo "$out" >&2
+    echo "Run: git clang-format --staged   (then git add -u and commit again)" >&2
+    exit 1
+    ;;
 esac
-echo "pre-commit: staged changes are not clang-formatted:" >&2
-echo "$out" >&2
-echo "Run: git clang-format --staged   (then git add -u and commit again)" >&2
-exit 1
+
+# The Rust version: only a commit of its source needs the checks.
+rust_pattern='^rust/(src/|tests/|build\.rs$|Cargo\.(toml|lock)$|rust-toolchain\.toml$)'
+if git diff --cached --name-only | grep -Eq "$rust_pattern"; then
+  command -v cargo >/dev/null 2>&1 || {
+    echo "pre-commit: cargo not found (see rust/README.en.md)" >&2
+    exit 1
+  }
+  echo "pre-commit: the commit changes the Rust version; running its checks"
+  cd "$(git rev-parse --show-toplevel)/rust" &&
+    cargo fmt --check &&
+    cargo clippy --all-targets -- -D warnings &&
+    cargo test || {
+    echo "pre-commit: the checks of the Rust version failed" >&2
+    echo "Fix them, or skip them with: git commit --no-verify" >&2
+    exit 1
+  }
+fi

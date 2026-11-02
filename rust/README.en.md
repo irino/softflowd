@@ -25,7 +25,9 @@ works with rsoftflowd.
 
 ## Build
 
-Needs Rust 1.85 or newer (edition 2024) and libpcap (`libpcap-dev`).
+The version of Rust is pinned in `rust-toolchain.toml`; rustup installs it at
+the first `cargo` run in `rust/`. The minimum is Rust 1.88. libpcap
+(`libpcap-dev`) is needed.
 
 ```sh
 cd rust
@@ -41,6 +43,16 @@ cargo test
 ```
 
 CI (the job `rust` of `.github/workflows/build.yml`) runs these three commands.
+
+To run them before every commit that changes the Rust source, enable the hook
+once per clone (from the top of the repository):
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook also keeps its earlier check of the clang-format of the staged C
+changes. `git commit --no-verify` skips it for one commit; CI still runs.
 
 The comparison with the C version is `tools/softflowd_test_collector.py
 compat`; the commands are in

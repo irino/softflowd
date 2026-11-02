@@ -228,8 +228,9 @@ jobs:
 
   # The Rust version in rust/ (rsoftflowd and rsoftflowctl): the format of
   # the source, the warnings of clippy (all of them are errors) and the tests.
-  # The stable toolchain is installed because the Rust version uses edition
-  # 2024, which needs Rust 1.85 or newer.
+  # The version of Rust is the one of rust/rust-toolchain.toml, not the newest
+  # stable: a newer clippy has new lints that break the build without a
+  # change of the source.
   rust:
     runs-on: ubuntu-latest
     defaults:
@@ -242,9 +243,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libpcap-dev
-          rustup toolchain install stable --profile minimal \
+          version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          rustup toolchain install "$version" --profile minimal \
             --component rustfmt --component clippy
-          rustup default stable
 
       - name: Format
         run: cargo fmt --check

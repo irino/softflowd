@@ -41,7 +41,8 @@
 | R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 未解消 | | |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
-| R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 未解消 | | |
+| R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`manual_is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 解消 | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02、Rust 1.91.1 で CI ジョブの 3 つの cargo コマンド: fmt、clippy、テスト 18 件が成功。CI のジョブ自体はまだ動かしていない |
+| R10 | commit の前に Rust 版を検査するものがない | 2026-11-02 | 解消 | 0010 Add the checks of the Rust version to the pre-commit hook | 2026-11-02、作業用の clone で確認(R10 の本文を参照) |
 
 「解消」は、パッチで直したことを表し、「確認」に確認方法を書きます。
 解消した行は消さずに残します。履歴を残すことが目的です。
@@ -200,3 +201,10 @@ Rust は `evict_oldest_flow()` で lack of resources を書きます。C は、�
   `src/bin/rsoftflowd.rs`(10 か所)の `collapsible_if` と
   `manual_is_multiple_of` も出ました。畳んだ `if` は let chains を使い、
   Rust 1.88 以上が必要です。
+- **R10**: R9 のような失敗が、push した後でしか分かりませんでした。既存の
+  `.githooks/pre-commit` は C の変更の clang-format だけを検査していました。
+  パッチはその検査をそのまま残し、Rust の検査を足します。作業用の clone で、
+  clang-format 18 と Rust 1.91.1 で確認しました: 整形されていない C ファイルは
+  commit が止まる。整形されていない Rust ファイルも止まる。ドキュメントだけの
+  commit では cargo を実行しない。正しい Rust の変更では 3 つの cargo コマンドが
+  走って commit される。

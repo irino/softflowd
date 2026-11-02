@@ -1,0 +1,7 @@
+# The one place that says which Rust is used: by rustup in this directory,
+# and by the CI job "rust" (it reads the channel below).  Raise the version in
+# a patch of its own, together with the fixes that the newer clippy asks for.
+[toolchain]
+channel = "1.91.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

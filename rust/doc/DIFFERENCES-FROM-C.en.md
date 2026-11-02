@@ -43,7 +43,8 @@ changes when a patch is applied.
 | R6 | The main part of the daemon is in the binary | 2026-11-02 | open | | |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
-| R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | open | | |
+| R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |
+| R10 | Nothing checks the Rust version before a commit | 2026-11-02 | fixed | 0010 Add the checks of the Rust version to the pre-commit hook | 2026-11-02, tried in a scratch clone (see the text of R10) |
 
 "fixed" means that a patch fixed it and "Verified" says how it was checked.
 Do not delete a fixed row; the history is the point.
@@ -209,3 +210,10 @@ date.
   `collapsible_if` in `src/bin/rsoftflowd.rs` (10 places) and
   `manual_is_multiple_of` as well.  The collapsed `if` uses let chains, which
   need Rust 1.88.
+- **R10**: a failure like R9 was only seen after the push.  The existing
+  `.githooks/pre-commit` only checked the clang-format of C changes; the
+  patch keeps that check as it is and adds the Rust checks.  Tried in a
+  scratch clone with clang-format 18 and Rust 1.91.1: a badly formatted C
+  file stops the commit; a badly formatted Rust file stops the commit; a
+  commit of documents only runs neither cargo; a correct Rust change runs
+  the three cargo commands and is committed.
