@@ -61,10 +61,10 @@ pub fn start_control_server(
                                     return;
                                 }
                             };
-                            if cmd_tx.send(cmd).is_ok() {
-                                if let Ok(resp_str) = rx.recv() {
-                                    let _ = (&stream).write_all(resp_str.as_bytes());
-                                }
+                            if cmd_tx.send(cmd).is_ok()
+                                && let Ok(resp_str) = rx.recv()
+                            {
+                                let _ = (&stream).write_all(resp_str.as_bytes());
                             }
                         }
                     });

@@ -26,13 +26,15 @@ changes when a patch is applied.
 | ID | Summary | Found | Status | Fixed in | Verified |
 |----|---------|-------|--------|----------|----------|
 | D1 | NetFlow v9: extra elements differ | 2026-11-02 | open | | |
-| D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | open | | |
+| D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | fixed | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02, compat `--strict` C against Rust: IPFIX MATCHED for the IPv4 and IPv6 pcaps (24 records each) |
 | D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
 | D4 | No ntopng | 2026-11-02 | open | | |
 | D5 | Program name and version not unified | 2026-11-02 | open | | |
 | D6 | Log format differs | 2026-11-02 | open | | |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
 | D8 | compat step 5 not reached (not measured) | 2026-11-02 | open | | |
+| D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | open | | |
+| D10 | Overflow eviction: C keeps the previous flowEndReason, Rust writes lack of resources | 2026-11-02 | open | | |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
 | R2 | No Rust job in CI | 2026-11-02 | fixed | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02, the commands run locally on a clean checkout |
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
@@ -41,6 +43,7 @@ changes when a patch is applied.
 | R6 | The main part of the daemon is in the binary | 2026-11-02 | open | | |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
+| R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | open | | |
 
 "fixed" means that a patch fixed it and "Verified" says how it was checked.
 Do not delete a fixed row; the history is the point.
@@ -157,6 +160,23 @@ difference has not been listed.
 The byte for byte comparison stops at the failing step 3, so it was not run.
 It needs D1 and D2 fixed first.
 
+### D9. Maximum lifetime comparison (source)
+
+A flow is expired by `maxlife` when its age is greater than the limit in C
+(`softflowd.c`, `flow_update_expiry()`: `... > ft->param.maximum_lifetime`) and
+when it is greater than or equal to the limit in Rust
+(`src/bin/rsoftflowd.rs`: `... >= param.maximum_lifetime`).  Not run; the
+effect is one second at the boundary.
+
+### D10. flowEndReason on overflow eviction (source)
+
+When flows are expired because the table is full (`R_OVERFLOWS` in C) the C
+version does not set flowEndReason and the flow keeps its previous value (the
+code around `softflowd.c:1734`).  The Rust version writes lack of resources
+(`evict_oldest_flow()`).  C sets lack of resources for a hash collision and
+for flows over the byte limit.  Which one is wanted is a decision; C may have
+simply forgotten the case.
+
 ## Repository state (source)
 
 IDs R1 to R8 of the Status table.  The state is the one on the "Measured on"
@@ -183,3 +203,9 @@ date.
   `tools/` duplicate it was checked: only `tools/deprecated/collector.pl` and
   `tools/deprecated/benchmark_export.sh`, which `collect` and `bench` replace,
   do.
+- **R9**: the `rust` job of CI installed the newest stable Rust, whose clippy
+  has new lints.  The log showed `collapsible_if` in `src/control.rs` and
+  `src/exporter/export_common.rs`; a local run with Rust 1.91.1 showed
+  `collapsible_if` in `src/bin/rsoftflowd.rs` (10 places) and
+  `manual_is_multiple_of` as well.  The collapsed `if` uses let chains, which
+  need Rust 1.88.

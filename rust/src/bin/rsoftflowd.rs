@@ -6,7 +6,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rsoftflowd::common::{
-    ExpiryKey, ExpiryReason, Flow, FlowKey, FlowLookupMode, FlowTracker, TimeVal, TrackLevel,
+    ExpiryKey, ExpiryReason, FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW,
+    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowKey, FlowLookupMode,
+    FlowTracker, TimeVal, TrackLevel,
 };
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
@@ -18,10 +20,10 @@ use rsoftflowd::packet_parser::{ParsedPacket, parse_packet};
 
 fn parse_interface_spec(s: &str) -> (u16, String) {
     if let Some((idx_str, name)) = s.split_once(':') {
-        if !idx_str.is_empty() {
-            if let Ok(idx) = idx_str.parse::<u16>() {
-                return (idx, name.to_string());
-            }
+        if !idx_str.is_empty()
+            && let Ok(idx) = idx_str.parse::<u16>()
+        {
+            return (idx, name.to_string());
         }
         return (0, name.to_string());
     }
@@ -171,17 +173,17 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Invalid maximum flows\n");
         std::process::exit(1);
     }
-    if let Some(hl) = args.hoplimit {
-        if !(0..=255).contains(&hl) {
-            eprintln!("Invalid hop limit\n");
-            std::process::exit(1);
-        }
+    if let Some(hl) = args.hoplimit
+        && !(0..=255).contains(&hl)
+    {
+        eprintln!("Invalid hop limit\n");
+        std::process::exit(1);
     }
-    if let Some(labels) = args.max_num_label {
-        if !(1..=10).contains(&labels) {
-            eprintln!("Invalid number of MPLS label (1 to 10)\n");
-            std::process::exit(1);
-        }
+    if let Some(labels) = args.max_num_label
+        && !(1..=10).contains(&labels)
+    {
+        eprintln!("Invalid number of MPLS label (1 to 10)\n");
+        std::process::exit(1);
     }
 
     // 1. Logging setup
@@ -216,15 +218,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Write PID file
     if let Some(ref path) = pidfile_path {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if let Ok(pid) = content.trim().parse::<i32>() {
-                if pid > 0 {
-                    let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
-                    if res.is_ok() || res.err() == Some(nix::errno::Errno::EPERM) {
-                        eprintln!("Already running under pid {}", pid);
-                        std::process::exit(1);
-                    }
-                }
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Ok(pid) = content.trim().parse::<i32>()
+            && pid > 0
+        {
+            let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
+            if res.is_ok() || res.err() == Some(nix::errno::Errno::EPERM) {
+                eprintln!("Already running under pid {}", pid);
+                std::process::exit(1);
             }
         }
         if let Err(e) = std::fs::write(path, format!("{}\n", std::process::id())) {
@@ -264,10 +265,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         0
     };
 
-    if args.debug {
-        if let Some(ref dev) = capture_dev {
-            eprintln!("Using {} (idx: {})", dev, if_index);
-        }
+    if args.debug
+        && let Some(ref dev) = capture_dev
+    {
+        eprintln!("Using {} (idx: {})", dev, if_index);
     }
 
     let mut tracker = FlowTracker::new(args.max_flows);
@@ -280,10 +281,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref ifname) = capture_dev {
         tracker.param.interface_name = ifname.clone();
     }
-    if let Some(ref exp_ip_str) = args.exporter_ip {
-        if let Ok(ip) = exp_ip_str.parse::<IpAddr>() {
-            tracker.param.exporter_ip = Some(ip);
-        }
+    if let Some(ref exp_ip_str) = args.exporter_ip
+        && let Ok(ip) = exp_ip_str.parse::<IpAddr>()
+    {
+        tracker.param.exporter_ip = Some(ip);
     }
     apply_timeouts(&mut tracker, &args.timeouts);
 
@@ -368,19 +369,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 // Bind to specific device if requested (Linux only)
                                 #[cfg(target_os = "linux")]
-                                if let Some(ref send_if) = args.send_interface {
-                                    if let Err(e) =
+                                if let Some(ref send_if) = args.send_interface
+                                    && let Err(e) =
                                         rsoftflowd::net_util_unsafe::bind_socket_to_device(
                                             &s, send_if,
                                         )
-                                    {
-                                        log::error!(
-                                            "Failed to bind to interface {}: {}",
-                                            send_if,
-                                            e
-                                        );
-                                        std::process::exit(1);
-                                    }
+                                {
+                                    log::error!("Failed to bind to interface {}: {}", send_if, e);
+                                    std::process::exit(1);
                                 }
 
                                 ExportSocket::Udp(s)
@@ -777,9 +773,8 @@ fn process_parsed_packet(
 
     // Sampling
     if tracker.param.sample_rate > 0
-        && (tracker.param.total_packets + tracker.param.non_sampled_packets)
-            % tracker.param.sample_rate as u64
-            > 0
+        && !(tracker.param.total_packets + tracker.param.non_sampled_packets)
+            .is_multiple_of(tracker.param.sample_rate as u64)
     {
         tracker.param.non_sampled_packets += 1;
         return;
@@ -825,27 +820,26 @@ fn process_parsed_packet(
     // Hash lookup mode: expire resident flow on collision
     if tracker.flow_lookup == FlowLookupMode::Hash {
         let slot = key.hash_index(tracker.nbuckets);
-        if let Some(resident_key) = tracker.flow_slots.get(&slot).cloned() {
-            if resident_key != key {
-                if let Some(mut resident_flow) = tracker.flows.remove(&resident_key) {
-                    if let Some(exp_key) = resident_flow.expiry_key {
-                        tracker.expiries.remove(&exp_key);
-                    }
-                    resident_flow.expiry_reason = ExpiryReason::Collision;
-                    resident_flow.flow_end_reason = 2; // Lack of resources
-                    tracker.param.flows_force_expired += 1;
-                    accumulate_stats(tracker, &resident_flow);
-                    let flow_refs = vec![&resident_flow];
-                    let sp = SendParameter {
-                        flows: &flow_refs,
-                        target: targets,
-                        ifidx,
-                        param: &mut tracker.param,
-                        verbose: false,
-                    };
-                    let _ = send_flows(sp);
-                }
+        if let Some(resident_key) = tracker.flow_slots.get(&slot).cloned()
+            && resident_key != key
+            && let Some(mut resident_flow) = tracker.flows.remove(&resident_key)
+        {
+            if let Some(exp_key) = resident_flow.expiry_key {
+                tracker.expiries.remove(&exp_key);
             }
+            resident_flow.expiry_reason = ExpiryReason::Collision;
+            resident_flow.flow_end_reason = FLOW_END_REASON_LACK_OF_RESOURCE;
+            tracker.param.flows_force_expired += 1;
+            accumulate_stats(tracker, &resident_flow);
+            let flow_refs = vec![&resident_flow];
+            let sp = SendParameter {
+                flows: &flow_refs,
+                target: targets,
+                ifidx,
+                param: &mut tracker.param,
+                verbose: false,
+            };
+            let _ = send_flows(sp);
         }
         tracker.flow_slots.insert(slot, key.clone());
     }
@@ -868,7 +862,7 @@ fn process_parsed_packet(
             ip6_flowlabel: [0, 0],
             src_mac: parsed.src_mac,
             dst_mac: parsed.dst_mac,
-            flow_end_reason: 0,
+            flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
             key: key.clone(),
             expiry_key: None,
             expiry_reason: ExpiryReason::General,
@@ -909,18 +903,20 @@ fn update_flow_expiry(
 
     let mut expires_at = flow.flow_last.tv_sec as u32 + param.general_timeout as u32;
     let mut reason = ExpiryReason::General;
+    // A flow that matches no branch below ends by the general timeout.
+    flow.flow_end_reason = FLOW_END_REASON_IDLE_TIMEOUT;
 
     // Standard flow expiry logic
     if flow.octets[0] > (1 << 31) || flow.octets[1] > (1 << 31) {
         expires_at = 0; // immediate
         reason = ExpiryReason::OverBytes;
-        flow.flow_end_reason = 2; // Lack of resources / overbytes
+        flow.flow_end_reason = FLOW_END_REASON_LACK_OF_RESOURCE;
     } else if param.maximum_lifetime != 0
         && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 >= param.maximum_lifetime
     {
         expires_at = 0;
         reason = ExpiryReason::MaxLife;
-        flow.flow_end_reason = 1; // Active timeout
+        flow.flow_end_reason = FLOW_END_REASON_ACTIVE_TIMEOUT;
     } else if flow.key.protocol == 6 {
         // TCP
         let rst = (flow.tcp_flags[0] & 0x04) != 0 || (flow.tcp_flags[1] & 0x04) != 0;
@@ -929,24 +925,24 @@ fn update_flow_expiry(
         if rst && param.tcp_rst_timeout > 0 {
             expires_at = flow.flow_last.tv_sec as u32 + param.tcp_rst_timeout as u32;
             reason = ExpiryReason::TcpRst;
-            flow.flow_end_reason = 3; // End of flow
+            flow.flow_end_reason = FLOW_END_REASON_END_OF_FLOW;
         } else if fin && param.tcp_fin_timeout > 0 {
             expires_at = flow.flow_last.tv_sec as u32 + param.tcp_fin_timeout as u32;
             reason = ExpiryReason::TcpFin;
-            flow.flow_end_reason = 3;
+            flow.flow_end_reason = FLOW_END_REASON_END_OF_FLOW;
         } else if param.tcp_timeout > 0 {
             expires_at = flow.flow_last.tv_sec as u32 + param.tcp_timeout as u32;
             reason = ExpiryReason::Tcp;
-            flow.flow_end_reason = 4; // Idle timeout
+            flow.flow_end_reason = FLOW_END_REASON_IDLE_TIMEOUT;
         }
     } else if flow.key.protocol == 17 && param.udp_timeout > 0 {
         expires_at = flow.flow_last.tv_sec as u32 + param.udp_timeout as u32;
         reason = ExpiryReason::Udp;
-        flow.flow_end_reason = 4;
+        flow.flow_end_reason = FLOW_END_REASON_IDLE_TIMEOUT;
     } else if (flow.key.protocol == 1 || flow.key.protocol == 58) && param.icmp_timeout > 0 {
         expires_at = flow.flow_last.tv_sec as u32 + param.icmp_timeout as u32;
         reason = ExpiryReason::Icmp;
-        flow.flow_end_reason = 4;
+        flow.flow_end_reason = FLOW_END_REASON_IDLE_TIMEOUT;
     }
 
     if param.maximum_lifetime != 0 && expires_at != 0 {
@@ -977,7 +973,7 @@ fn evict_oldest_flow(tracker: &mut FlowTracker) {
             }
             tracker.param.flows_force_expired += 1;
             flow.expiry_reason = ExpiryReason::Overflows;
-            flow.flow_end_reason = 2; // Lack of resources
+            flow.flow_end_reason = FLOW_END_REASON_LACK_OF_RESOURCE;
             // Accumulate statistics
             accumulate_stats(tracker, &flow);
             log::debug!(

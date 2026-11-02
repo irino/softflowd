@@ -55,14 +55,15 @@ pub fn conv_unix_to_ntp(tv: TimeVal) -> NtpTime {
 }
 
 pub fn ipfix_flow_direction(flow: &Flow, i: usize, param: &FlowTrackParameters) -> u8 {
-    if param.direction_mac_set && param.track_level >= crate::common::TrackLevel::FullVlanEther {
-        if let Some(dir_mac) = param.direction_mac {
-            if flow.key.ethermac[i] == dir_mac {
-                return 1; // EGRESS
-            }
-            if flow.key.ethermac[i ^ 1] == dir_mac {
-                return 2; // INGRESS
-            }
+    if param.direction_mac_set
+        && param.track_level >= crate::common::TrackLevel::FullVlanEther
+        && let Some(dir_mac) = param.direction_mac
+    {
+        if flow.key.ethermac[i] == dir_mac {
+            return 1; // EGRESS
+        }
+        if flow.key.ethermac[i ^ 1] == dir_mac {
+            return 2; // INGRESS
         }
     }
     i as u8

@@ -148,6 +148,19 @@ impl FlowKey {
     }
 }
 
+/// IPFIX flowEndReason values (information element 136, IANA IPFIX registry).
+///
+/// Original: `IPFIX_flowEndReason_*` in `ipfix.h` of the C version.
+pub const FLOW_END_REASON_IDLE_TIMEOUT: u8 = 0x01;
+/// flowEndReason: active timeout.
+pub const FLOW_END_REASON_ACTIVE_TIMEOUT: u8 = 0x02;
+/// flowEndReason: end of flow detected (TCP RST or both FINs).
+pub const FLOW_END_REASON_END_OF_FLOW: u8 = 0x03;
+/// flowEndReason: forced end.
+pub const FLOW_END_REASON_FORCE_END: u8 = 0x04;
+/// flowEndReason: lack of resources.
+pub const FLOW_END_REASON_LACK_OF_RESOURCE: u8 = 0x05;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ExpiryReason {
     General = 0,

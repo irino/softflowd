@@ -7,7 +7,11 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
-use rsoftflowd::common::{ExpiryReason, Flow, FlowKey, FlowTrackParameters, TimeVal, TrackLevel};
+use rsoftflowd::common::{
+    ExpiryReason, FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW,
+    FLOW_END_REASON_FORCE_END, FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE,
+    Flow, FlowKey, FlowTrackParameters, TimeVal, TrackLevel,
+};
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
 use rsoftflowd::packet_parser::parse_packet;
@@ -189,7 +193,7 @@ fn make_dummy_flow() -> Flow {
         ip6_flowlabel: [0, 0],
         src_mac: [0; 6],
         dst_mac: [0; 6],
-        flow_end_reason: 3, // End of flow
+        flow_end_reason: FLOW_END_REASON_END_OF_FLOW,
         key,
         expiry_key: None,
         expiry_reason: ExpiryReason::General,
@@ -513,4 +517,16 @@ fn test_flow_lookup_modes() {
 
     let stats = rsoftflowd::control::render_statistics(&tracker, Some((10, 0, 0)));
     assert!(stats.contains("Flow table: hash"));
+}
+
+// -------------------------------------------------------------
+// Test: flowEndReason values follow the IANA IPFIX registry
+// -------------------------------------------------------------
+#[test]
+fn test_flow_end_reason_values() {
+    assert_eq!(FLOW_END_REASON_IDLE_TIMEOUT, 1);
+    assert_eq!(FLOW_END_REASON_ACTIVE_TIMEOUT, 2);
+    assert_eq!(FLOW_END_REASON_END_OF_FLOW, 3);
+    assert_eq!(FLOW_END_REASON_FORCE_END, 4);
+    assert_eq!(FLOW_END_REASON_LACK_OF_RESOURCE, 5);
 }

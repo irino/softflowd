@@ -24,13 +24,15 @@
 | ID | 内容 | 発見 | 状態 | 修正パッチ | 確認 |
 |----|------|------|------|------------|------|
 | D1 | NetFlow v9: 追加要素が違う | 2026-11-02 | 未解消 | | |
-| D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 未解消 | | |
+| D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 解消 | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも IPFIX が MATCHED (各 24 レコード) |
 | D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 未解消 | | |
 | D4 | ntopng がない | 2026-11-02 | 未解消 | | |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 未解消 | | |
 | D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 未解消 | | |
+| D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 未解消 | | |
+| D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
@@ -39,6 +41,7 @@
 | R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 未解消 | | |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
+| R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 未解消 | | |
 
 「解消」は、パッチで直したことを表し、「確認」に確認方法を書きます。
 解消した行は消さずに残します。履歴を残すことが目的です。
@@ -151,6 +154,21 @@ Rust は `env_logger` の行(`[時刻 LEVEL rsoftflowd] ...`)を出し、C は
 バイト単位の比較はステップ 3 の失敗で止まるため、実行していません。
 D1 と D2 を直してから測ります。
 
+### D9. 最大寿命の比較 (ソース)
+
+`maxlife` で期限切れになる条件が、C ではフローの経過時間が上限より大きいとき
+(`softflowd.c` の `flow_update_expiry()`: `... > ft->param.maximum_lifetime`)、
+Rust では上限以上のとき(`src/bin/rsoftflowd.rs`: `... >= param.maximum_lifetime`)
+です。実行はしていません。影響は境界での 1 秒です。
+
+### D10. 過負荷で追い出すときの flowEndReason (ソース)
+
+テーブルが満杯でフローを期限切れにするとき(C の `R_OVERFLOWS`)、C は
+flowEndReason を設定せず、フローは前の値のままです(`softflowd.c:1734` 付近)。
+Rust は `evict_oldest_flow()` で lack of resources を書きます。C は、ハッシュの
+衝突とバイト数超過では lack of resources を設定しています。どちらにするかは
+判断が要ります。C が単に書き忘れた可能性があります。
+
 ## リポジトリの状態 (ソース)
 
 状態表の R1〜R8 です。状態は「測定日」時点のものです。
@@ -176,3 +194,9 @@ D1 と D2 を直してから測ります。
   重複しているのは `tools/deprecated/collector.pl` と
   `tools/deprecated/benchmark_export.sh` だけです(`collect` と `bench` に
   置き換え済み)。
+- **R9**: CI の `rust` ジョブは最新の stable の Rust を入れ、その clippy に新しい
+  lint がありました。ログでは `src/control.rs` と `src/exporter/export_common.rs`
+  の `collapsible_if` が出ていました。手元の Rust 1.91.1 では、
+  `src/bin/rsoftflowd.rs`(10 か所)の `collapsible_if` と
+  `manual_is_multiple_of` も出ました。畳んだ `if` は let chains を使い、
+  Rust 1.88 以上が必要です。
