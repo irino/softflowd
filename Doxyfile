@@ -26,6 +26,8 @@ INPUT                  = common.h \
                          netsock.c \
                          netsock.h \
                          ntopng.c \
+                         options.c \
+                         options.h \
                          psamp.c \
                          psamp.h \
                          softflowctl.c \
