@@ -36,14 +36,28 @@
 
 #ifdef ENABLE_PTHREAD
 /** Protects export_threads_outstanding */
-pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
 /** Signalled when the last export thread ends */
 static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;
 /** Number of running export threads (-M) */
-int export_threads_outstanding = 0;
-struct FLOW
-  *send_expired_flows; /**< Expired flows handed to the export thread */
+static int export_threads_outstanding = 0;
 
+/**
+ * @brief Context for threaded export (-M): unlike netflow_send_func_t, this
+ * wrapper's signature actually matches what pthread_create() invokes
+ * (void *(*)(void *)), and it owns a deep copy of both the flows and
+ * the SENDPARAMETER referencing them, so the sending thread never
+ * touches memory the main thread may concurrently reuse via
+ * flow_put(). sp.flows points at owned_flows: the export function only
+ * reads it, and threaded_send alone frees the array and the flow copies
+ * after that call returns, so no return path of an export function can
+ * leak them. */
+struct THREADED_SENDPARAMETER {
+  struct SENDPARAMETER sp;   /**< The parameters of the export; sp.flows points at owned_flows */
+  netflow_send_func_t *func; /**< The export function to run */
+  struct FLOW **owned_flows; /**< The copies of the flows, which threaded_send () frees */
+  int num_flows;             /**< Number of entries of owned_flows */
+};
 /**
  * @brief Block until every detached export thread (-M) has finished.
  *
@@ -65,7 +79,7 @@ wait_for_export_threads (void) {
  * @param arg struct THREADED_SENDPARAMETER, which is freed here.
  * @return NULL.
  */
-void *
+static void *
 threaded_send (void *arg) {
   struct THREADED_SENDPARAMETER *tsp = (struct THREADED_SENDPARAMETER *) arg;
   int i;
@@ -80,6 +94,50 @@ threaded_send (void *arg) {
     pthread_cond_signal (&export_threads_cond);
   pthread_mutex_unlock (&export_threads_mutex);
   return NULL;
+}
+
+/**
+ * @brief Export flows from a detached thread (-M).
+ *
+ * The flows are copied first: the caller hands the originals back to
+ * flow_put () as soon as this returns, and they may be reused for new flows
+ * before the thread gets to read them. struct FLOW holds no pointers of its
+ * own (its "expiry" back-link was already cleared by the caller), so a plain
+ * struct copy is a complete copy. threaded_send () frees the copies.
+ *
+ * @param sp   The parameters of the export; sp.flows are the flows to copy.
+ * @param func The export function to run in the thread.
+ * @return 1, as the thread has started; the result of func is not available.
+ */
+int
+send_threaded (struct SENDPARAMETER sp, netflow_send_func_t *func) {
+  pthread_t write_thread = 0;
+  struct THREADED_SENDPARAMETER *tsp = malloc (sizeof (*tsp));
+  int i;
+
+  tsp->sp = sp;
+  /* sp.flows is the array of copies made below; threaded_send frees it, see
+   * the comment of struct THREADED_SENDPARAMETER. */
+  tsp->owned_flows = calloc (sp.num_flows, sizeof (*tsp->owned_flows));
+  tsp->sp.flows = tsp->owned_flows;
+  for (i = 0; i < sp.num_flows; i++) {
+    tsp->owned_flows[i] = malloc (sizeof (*tsp->owned_flows[i]));
+    *tsp->owned_flows[i] = *sp.flows[i];
+  }
+  tsp->num_flows = sp.num_flows;
+  tsp->func = func;
+  pthread_mutex_lock (&export_threads_mutex);
+  export_threads_outstanding++;
+  pthread_mutex_unlock (&export_threads_mutex);
+  if (pthread_create (&write_thread, NULL, threaded_send, tsp) < 0) {
+    perror ("pthread_create error");
+    exit (1);
+  }
+  if (pthread_detach (write_thread) != 0) {
+    perror ("pthread_detach error");
+    exit (1);
+  }
+  return 1;
 }
 #endif /* ENABLE_PTHREAD */
 

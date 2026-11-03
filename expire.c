@@ -270,37 +270,7 @@ check_expired (struct FLOWTRACK *ft, struct NETFLOW_TARGET *target,
       }
 #ifdef ENABLE_PTHREAD
       if (use_thread) {
-        pthread_t write_thread = 0;
-        struct THREADED_SENDPARAMETER *tsp = malloc (sizeof (*tsp));
-
-        tsp->sp = sp;
-        /* sp.flows is the array of copies made below; threaded_send
-         * frees it, see the comment above. */
-        tsp->owned_flows = calloc (num_expired, sizeof (*tsp->owned_flows));
-        tsp->sp.flows = tsp->owned_flows;
-        for (i = 0; i < num_expired; i++) {
-          /* Deep copy: expired_flows[i] is about to be handed back to
-           * flow_put() below and may be reused for a new flow before
-           * this thread gets to read it. struct FLOW holds no pointers
-           * of its own (its "expiry" back-link was already cleared
-           * above), so a plain struct copy is a complete copy. */
-          tsp->owned_flows[i] = malloc (sizeof (*tsp->owned_flows[i]));
-          *tsp->owned_flows[i] = *expired_flows[i];
-        }
-        tsp->num_flows = num_expired;
-        tsp->func = func;
-        pthread_mutex_lock (&export_threads_mutex);
-        export_threads_outstanding++;
-        pthread_mutex_unlock (&export_threads_mutex);
-        if (pthread_create (&write_thread, NULL, threaded_send, tsp) < 0) {
-          perror ("pthread_create error");
-          exit (1);
-        }
-        if (pthread_detach (write_thread) != 0) {
-          perror ("pthread_detach error");
-          exit (1);
-        }
-        r = 1;
+        r = send_threaded (sp, func);
       } else
 #endif /* ENABLE_PTHREAD */
       {

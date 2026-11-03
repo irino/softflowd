@@ -324,18 +324,18 @@ parse_hostport (const char *s, struct sockaddr *addr,
 /**
  * @brief Resolve a comma-separated list of host:port destinations.
  *
- * @param s        Comma-separated list.
+ * @param s        Comma-separated list; it is modified (strsep).
  * @param dest     Destination array to fill.
  * @param max_dest Size of dest.
  * @return Number of destinations parsed.
  */
 int
-parse_hostports (const char *s, struct DESTINATION *dest,
+parse_hostports (char *s, struct DESTINATION *dest,
                  int max_dest) {
   int i = 0;
   char *hostport;
-  for (hostport = strsep ((char **) &s, ","); hostport != NULL && i < max_dest;
-       hostport = strsep ((char **) &s, ",")) {
+  for (hostport = strsep (&s, ","); hostport != NULL && i < max_dest;
+       hostport = strsep (&s, ",")) {
     dest[i].sslen = sizeof (dest[i].ss);
     parse_hostport (hostport, (struct sockaddr *) &dest[i].ss, &dest[i].sslen);
     i++;

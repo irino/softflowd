@@ -51,7 +51,7 @@ die_usage (const char *fmt, ...);
 void
 set_timeout (struct FLOWTRACK *ft, const char *to_spec);
 int
-parse_hostports (const char *s, struct DESTINATION *dest,
+parse_hostports (char *s, struct DESTINATION *dest,
                  int max_dest);
 int
 parse_mac_address (const char *str, u_int8_t mac[6]);

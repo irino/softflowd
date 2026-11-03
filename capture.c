@@ -64,7 +64,7 @@ int use_thread;                   /**< Non-zero when threaded export (-M) is ena
 u_char packet_data[1500];         /**< Copy of the latest captured packet (threaded
                              capture) */
 struct pcap_pkthdr packet_header; /**< libpcap header of packet_data */
-#endif /* ENABLE_PTHREAD */
+#endif                            /* ENABLE_PTHREAD */
 
 /**
  * @brief Auto-detect the MAC address of an interface.

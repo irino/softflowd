@@ -41,25 +41,6 @@
  */
 typedef int (netflow_send_func_t) (struct SENDPARAMETER);
 
-#ifdef ENABLE_PTHREAD
-/**
- * @brief Context for threaded export (-M): unlike netflow_send_func_t, this
- * wrapper's signature actually matches what pthread_create() invokes
- * (void *(*)(void *)), and it owns a deep copy of both the flows and
- * the SENDPARAMETER referencing them, so the sending thread never
- * touches memory the main thread may concurrently reuse via
- * flow_put(). sp.flows points at owned_flows: the export function only
- * reads it, and threaded_send alone frees the array and the flow copies
- * after that call returns, so no return path of an export function can
- * leak them. */
-struct THREADED_SENDPARAMETER {
-  struct SENDPARAMETER sp;   /**< The parameters of the export; sp.flows points at owned_flows */
-  netflow_send_func_t *func; /**< The export function to run */
-  struct FLOW **owned_flows; /**< The copies of the flows, which threaded_send () frees */
-  int num_flows;             /**< Number of entries of owned_flows */
-};
-#endif /* ENABLE_PTHREAD */
-
 /** @brief An export version and the functions that send it. */
 struct NETFLOW_SENDER {
   int version;                     /**< The version, as -v gives it */
@@ -73,14 +54,10 @@ lookup_netflow_sender (int version);
 #ifdef ENABLE_PTHREAD
 void
 wait_for_export_threads (void);
-void *
-threaded_send (void *arg);
+int
+send_threaded (struct SENDPARAMETER sp, netflow_send_func_t *func);
 #endif /* ENABLE_PTHREAD */
 /** The versions that can be exported; nf[0] is the default. */
 extern const struct NETFLOW_SENDER nf[];
-#ifdef ENABLE_PTHREAD
-extern pthread_mutex_t export_threads_mutex;
-extern int export_threads_outstanding;
-#endif /* ENABLE_PTHREAD */
 
 #endif /* _SENDER_H */

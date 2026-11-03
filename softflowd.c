@@ -82,7 +82,7 @@
  * The value that getopt_long () returns for --flow-lookup, which has no
  * short option.
  */
-#define OPT_FLOW_LOOKUP 256         /* --flow-lookup has no short option */
+#define OPT_FLOW_LOOKUP 256 /* --flow-lookup has no short option */
 
 /* Global variables */
 int verbose_flag = 0;   /**< Debugging flag */
