@@ -10,6 +10,8 @@
 PROJECT_NAME           = "softflowd"
 OUTPUT_DIRECTORY       = doc-c
 INPUT                  = common.h \
+                         expire.c \
+                         expire.h \
                          export.c \
                          export_common.c \
                          export_common.h \
