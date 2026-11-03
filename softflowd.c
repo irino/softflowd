@@ -26,8 +26,10 @@
  * @file softflowd.c
  * @brief softflowd, a flow-based traffic analyser: it reads packets from an
  *   interface or a capture file, tracks them as flows, expires the flows and
- *   exports them as NetFlow or IPFIX; the control socket, the daemon set-up
- *   and the command line are here too.
+ *   exports them as NetFlow or IPFIX. This file holds the entry point, which
+ *   parses the command line and runs the main loop, the signal handlers and
+ *   the daemon set-up; the other parts are in capture.c, control.c, expire.c,
+ *   flow.c, format.c, netsock.c, options.c, packet.c, sender.c and stats.c.
  */
 
 /*
@@ -52,9 +54,6 @@
 
 #include "softflowd.h"
 #include "common.h"
-#include "convtime.h"
-#include "freelist.h"
-#include "export_common.h"
 #include "ipfix.h"
 #include "log.h"
 #include "netflow.h"
@@ -72,27 +71,13 @@
 #include "sender.h"
 #include "stats.h"
 #include <getopt.h>
-#include <stdarg.h> /* va_start and va_end for die_usage() */
-#include <netinet/icmp6.h>
 #include <netinet/in.h>
 #include <pcap.h>
-#ifdef HAVE_XXHASH
-#include <xxhash.h>
-#endif /* HAVE_XXHASH */
 #ifdef LINUX
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <sys/ioctl.h>
-#ifdef HAVE_LINUX_DCCP_H
-#include <linux/dccp.h> /* struct dccp_hdr */
-#endif
 #endif /* LINUX */
-#ifdef HAVE_IFADDRS_H
-#include <ifaddrs.h>
-#endif /* HAVE_IFADDRS_H */
-#if !defined(LINUX) && defined(HAVE_IFADDRS_H)
-#include <net/if_dl.h>
-#endif
+
 /**
  * The value that getopt_long () returns for --flow-lookup, which has no
  * short option.
