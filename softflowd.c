@@ -64,6 +64,7 @@
 #include "format.h"
 #include "netsock.h"
 #include "options.h"
+#include "sender.h"
 #include <getopt.h>
 #include <stdarg.h> /* va_start and va_end for die_usage() */
 #include <netinet/icmp6.h>
@@ -109,12 +110,6 @@ unsigned long export_calls = 0;
 pthread_mutex_t read_mutex; /**< Protects packet_header/packet_data handed to
                                the processing thread */
 pthread_cond_t read_cond;   /**< Signalled when a new packet is available */
-/** Protects export_threads_outstanding */
-static pthread_mutex_t export_threads_mutex = PTHREAD_MUTEX_INITIALIZER;
-/** Signalled when the last export thread ends */
-static pthread_cond_t export_threads_cond = PTHREAD_COND_INITIALIZER;
-/** Number of running export threads (-M) */
-static int export_threads_outstanding = 0;
 /** Signalled when the processing thread has finished the handed-over packet */
 static pthread_cond_t slot_cond = PTHREAD_COND_INITIALIZER;
 /** Non-zero while packet_data holds a packet that is not processed yet
@@ -123,25 +118,10 @@ static int packet_ready = 0;
 /** Set under read_mutex to make process_packet_loop() return */
 static int reader_stop = 0;
 
-/**
- * @brief Block until every detached export thread (-M) has finished.
- *
- * Detached export threads outlive the check_expired() call that spawns them, so
- * this must run before the process tears down.
- */
-static void
-wait_for_export_threads (void) {
-  pthread_mutex_lock (&export_threads_mutex);
-  while (export_threads_outstanding > 0)
-    pthread_cond_wait (&export_threads_cond, &export_threads_mutex);
-  pthread_mutex_unlock (&export_threads_mutex);
-}
 int use_thread;                   /**< Non-zero when threaded export (-M) is enabled */
 u_char packet_data[1500];         /**< Copy of the latest captured packet (threaded
                              capture) */
 struct pcap_pkthdr packet_header; /**< libpcap header of packet_data */
-struct FLOW
-  *send_expired_flows; /**< Expired flows handed to the export thread */
 #endif                 /* ENABLE_PTHREAD */
 
 /* Signal handler flags */
@@ -247,103 +227,6 @@ get_interface_mac (const char *ifname, u_int8_t mac[6]) {
   freeifaddrs (ifap);
   return (found);
 #endif /* LINUX */
-}
-
-/* Netflow send functions */
-/**
- * Type of the functions that export the flows of one version of NetFlow
- * or IPFIX; the argument holds the flows to send.
- */
-typedef int (netflow_send_func_t) (struct SENDPARAMETER);
-
-#ifdef ENABLE_PTHREAD
-/**
- * @brief Context for threaded export (-M): unlike netflow_send_func_t, this
- * wrapper's signature actually matches what pthread_create() invokes
- * (void *(*)(void *)), and it owns a deep copy of both the flows and
- * the SENDPARAMETER referencing them, so the sending thread never
- * touches memory the main thread may concurrently reuse via
- * flow_put(). sp.flows points at owned_flows: the export function only
- * reads it, and threaded_send alone frees the array and the flow copies
- * after that call returns, so no return path of an export function can
- * leak them. */
-struct THREADED_SENDPARAMETER {
-  struct SENDPARAMETER sp;   /**< The parameters of the export; sp.flows points at owned_flows */
-  netflow_send_func_t *func; /**< The export function to run */
-  struct FLOW **owned_flows; /**< The copies of the flows, which threaded_send () frees */
-  int num_flows;             /**< Number of entries of owned_flows */
-};
-
-/**
- * @brief Thread entry point: run one export function, then free its flow copies
- * (-M).
- *
- * @param arg struct THREADED_SENDPARAMETER, which is freed here.
- * @return NULL.
- */
-static void *
-threaded_send (void *arg) {
-  struct THREADED_SENDPARAMETER *tsp = (struct THREADED_SENDPARAMETER *) arg;
-  int i;
-
-  tsp->func (tsp->sp);
-  for (i = 0; i < tsp->num_flows; i++)
-    free (tsp->owned_flows[i]);
-  free (tsp->owned_flows);
-  free (tsp);
-  pthread_mutex_lock (&export_threads_mutex);
-  if (--export_threads_outstanding == 0)
-    pthread_cond_signal (&export_threads_cond);
-  pthread_mutex_unlock (&export_threads_mutex);
-  return NULL;
-}
-#endif /* ENABLE_PTHREAD */
-
-/** @brief An export version and the functions that send it. */
-struct NETFLOW_SENDER {
-  int version;                     /**< The version, as -v gives it */
-  netflow_send_func_t *func;       /**< Sends the flows of the version */
-  netflow_send_func_t *bidir_func; /**< Sends biflow records (-b); NULL when the version has no such function */
-  int v6_capable;                  /**< Non-zero when the version can carry IPv6 flows */
-};
-
-/* Known NetFlow export functions (nf[0] is default).
- * Which source file defines the send_* functions depends on
- * --enable-compat-export (see softflowd.h). */
-/**
- * The versions that can be exported and the functions that export them;
- * nf[0] (NetFlow v5) is the default.
- */
-static const struct NETFLOW_SENDER nf[] = {
-  {5, send_netflow_v5, NULL, 0},
-  {1, send_netflow_v1, NULL, 0},
-  {9, send_netflow_v9, NULL, 1},
-  {NF_VERSION_IPFIX, send_ipfix, send_ipfix_bi, 1},
-#ifdef ENABLE_NTOPNG
-  {SOFTFLOWD_NF_VERSION_NTOPNG, send_ntopng, NULL, 1},
-#ifdef ENABLE_NTOPNG_JSON
-  {SOFTFLOWD_NF_VERSION_NTOPNG_JSON, send_ntopng_json, NULL, 1},
-#endif
-#endif
-};
-
-/**
- * @brief Find the export function set for an export version.
- *
- * @param version Export version (1, 5, 9, NF_VERSION_IPFIX, or
- * SOFTFLOWD_NF_VERSION_NTOPNG, or SOFTFLOWD_NF_VERSION_NTOPNG_JSON).
- * @return Matching entry of the nf[] table, or NULL if the version is unknown.
- */
-static const struct NETFLOW_SENDER *
-lookup_netflow_sender (int version) {
-  size_t i;
-  int r;
-  for (i = 0, r = version; i < sizeof (nf) / sizeof (struct NETFLOW_SENDER);
-       i++) {
-    if (nf[i].version == r)
-      return &nf[i];
-  }
-  return NULL;
 }
 
 /**
@@ -1296,67 +1179,6 @@ process_packet (struct CB_CTXT *cb_ctxt,
     flow_update_expiry (ft, flow);
 
   return (PP_OK);
-}
-
-/**
- * @brief Subtract two timevals.
- *
- * @param t1 Minuend.
- * @param t2 Subtrahend.
- * @return t1 - t2 in milliseconds.
- */
-u_int32_t
-timeval_sub_ms (const struct timeval *t1, const struct timeval *t2) {
-  struct timeval res;
-
-  res.tv_sec = t1->tv_sec - t2->tv_sec;
-  res.tv_usec = t1->tv_usec - t2->tv_usec;
-  if (res.tv_usec < 0) {
-    res.tv_usec += 1000000L;
-    res.tv_sec--;
-  }
-  return ((u_int32_t) res.tv_sec * 1000 + (u_int32_t) res.tv_usec / 1000);
-}
-
-/**
- * @brief Send a packet to the destinations of a target.
- *
- * Pending socket errors (e.g. from ICMP) are cleared before each send.
- *
- * @param num_destinations Number of entries in destinations.
- * @param destinations     Destination sockets.
- * @param is_loadbalance   Non-zero to send to one destination per call (round
- * robin) instead of all.
- * @param packet           Packet to send.
- * @param size             Length of packet in bytes.
- * @param verbose          Non-zero to log the packet length at debug level.
- * @return -1 if a send failed, 1 in load-balance mode, otherwise the number of
- * destinations.
- */
-int
-send_multi_destinations (int num_destinations,
-                         struct DESTINATION *destinations,
-                         u_int8_t is_loadbalance, u_int8_t *packet, int size,
-                         int verbose) {
-  struct DESTINATION *dest;
-  int i, err;
-  socklen_t errsz;
-  static u_int64_t sent = 0;
-  if (verbose)
-    logit (LOG_DEBUG, "Sending flow packet len = %d", size);
-  for (i = 0; i < num_destinations; i++) {
-    if (!is_loadbalance ||
-        (is_loadbalance && ((int) (sent % num_destinations) == i))) {
-      dest = &destinations[i];
-      errsz = sizeof (err);
-      getsockopt (dest->sock, SOL_SOCKET, SO_ERROR, &err,
-                  &errsz);  // Clear ICMP errors
-      if (send (dest->sock, packet, (size_t) size, 0) == -1)
-        return (-1);
-    }
-  }
-  sent++;
-  return is_loadbalance ? 1 : i;
 }
 
 /**

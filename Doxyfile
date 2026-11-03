@@ -30,6 +30,8 @@ INPUT                  = common.h \
                          options.h \
                          psamp.c \
                          psamp.h \
+                         sender.c \
+                         sender.h \
                          softflowctl.c \
                          softflowd.c \
                          softflowd.h \
