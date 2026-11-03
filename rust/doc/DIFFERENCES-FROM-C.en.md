@@ -33,7 +33,7 @@ changes when a patch is applied.
 | D6 | Log format differs | 2026-11-02 | open | | |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
 | D8 | compat step 5 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 5 ran for the first time (its result is D12) |
-| D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | open | | |
+| D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | fixed | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02, unit test maximum_lifetime_expiry_boundary passes (fails on old code) |
 | D10 | Overflow eviction: C keeps the previous flowEndReason, Rust writes lack of resources | 2026-11-02 | open | | |
 | D11 | NetFlow v9 option template: C has interfaceName (IE 82), Rust has not | 2026-11-02 | open | | |
 | D12 | compat step 5: most byte-for-byte checks differ (see the text) | 2026-11-02 | open | | |
