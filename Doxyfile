@@ -23,6 +23,8 @@ INPUT                  = common.h \
                          log.c \
                          log.h \
                          netflow.h \
+                         netsock.c \
+                         netsock.h \
                          ntopng.c \
                          psamp.c \
                          psamp.h \
