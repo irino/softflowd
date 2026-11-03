@@ -12,6 +12,8 @@ OUTPUT_DIRECTORY       = doc-c
 INPUT                  = capture.c \
                          capture.h \
                          common.h \
+                         control.c \
+                         control.h \
                          expire.c \
                          expire.h \
                          export.c \
