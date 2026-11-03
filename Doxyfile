@@ -32,6 +32,8 @@ INPUT                  = common.h \
                          ntopng.c \
                          options.c \
                          options.h \
+                         packet.c \
+                         packet.h \
                          psamp.c \
                          psamp.h \
                          sender.c \
