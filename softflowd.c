@@ -60,6 +60,7 @@
 #include "netflow.h"
 #include "psamp.h"
 #include "treetype.h"
+#include "globals.h"
 #include <getopt.h>
 #include <stdarg.h> /* va_start and va_end for die_usage() */
 #include <netinet/icmp6.h>
@@ -91,16 +92,16 @@
 #define FLOW_MAX_BUCKETS (1U << 24) /* upper bound of the flow table size */
 
 /* Global variables */
-static int verbose_flag = 0;   /**< Debugging flag */
-static u_int16_t if_index = 0; /**< "manual" interface index */
-static int track_level;        /**< Flow tracking level (TRACK_*) */
+int verbose_flag = 0;   /**< Debugging flag */
+u_int16_t if_index = 0; /**< "manual" interface index */
+int track_level;        /**< Flow tracking level (TRACK_*) */
 /** Capture length; 0 selects a default from LIBPCAP_SNAPLEN_V4/V6 */
-static int snaplen = 0;
-static int gauge_clock = 0; /**< -g: report cpu clocks */
+int snaplen = 0;
+int gauge_clock = 0; /**< -g: report cpu clocks */
 /** cpu clocks spent in the export function */
-static clock_t export_clocks = 0;
+clock_t export_clocks = 0;
 /** Number of calls to the export function */
-static unsigned long export_calls = 0;
+unsigned long export_calls = 0;
 #ifdef ENABLE_PTHREAD
 pthread_mutex_t read_mutex; /**< Protects packet_header/packet_data handed to
                                the processing thread */
@@ -143,7 +144,7 @@ struct FLOW
 /* Signal handler flags */
 /** Set by the signal handler to the received signal number to request a
  * graceful shutdown. */
-static volatile sig_atomic_t graceful_shutdown_request = 0;
+volatile sig_atomic_t graceful_shutdown_request = 0;
 /** Set by SIGUSR1: log the number of the tracked flows and of the packets. */
 static volatile sig_atomic_t stats_log_request = 0;
 /** Set by SIGHUP: log that a reload of the configuration is not implemented. */

@@ -15,6 +15,7 @@ INPUT                  = common.h \
                          export_common.h \
                          freelist.c \
                          freelist.h \
+                         globals.h \
                          ipfix.h \
                          ipfix_fields.h \
                          log.c \
