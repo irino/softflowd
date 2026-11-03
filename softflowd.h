@@ -443,7 +443,8 @@ struct CB_CTXT {
   int want_v6;                   /**< Non-zero if IPv6 flows are wanted */
 };
 
-/* Prototype for functions shared from softflowd.c */
+/* Prototypes for functions shared by the parts of softflowd: they are
+ * defined in sender.c and capture.c. */
 u_int32_t
 timeval_sub_ms (const struct timeval *t1, const struct timeval *t2);
 int

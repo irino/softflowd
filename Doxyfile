@@ -9,7 +9,9 @@
 # the Rust version have their own documentation.
 PROJECT_NAME           = "softflowd"
 OUTPUT_DIRECTORY       = doc-c
-INPUT                  = common.h \
+INPUT                  = capture.c \
+                         capture.h \
+                         common.h \
                          expire.c \
                          expire.h \
                          export.c \
