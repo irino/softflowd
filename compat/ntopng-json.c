@@ -144,15 +144,23 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   header.version = 2;
   header.msg_id = htonl (msg_id++);
 
-  json_used += snprintf (json + json_used, MAX_JSON_SIZE - json_used, "[");
+  {
+    int n = snprintf (json + json_used, MAX_JSON_SIZE - json_used, "[");
+    if (n < 0 || n >= MAX_JSON_SIZE - json_used)
+      return flow;
+    json_used += n;
+  }
 
   while (flow < sp->num_flows) {
     int separator = 0;
     int size;
 
-    if (!first)
-      separator =
-        snprintf (json + json_used, MAX_JSON_SIZE - json_used, ",\n");
+    if (!first) {
+      int n = snprintf (json + json_used, MAX_JSON_SIZE - json_used, ",\n");
+      if (n < 0 || n >= MAX_JSON_SIZE - json_used)
+        break; /* separator does not fit, send current packet */
+      separator = n;
+    }
     size = add_json_flow (sp, sp->flows[flow],
                           json + json_used + separator,
                           MAX_JSON_SIZE - json_used - separator);
@@ -170,7 +178,12 @@ send_ntopng_message (struct SENDPARAMETER *sp, int start_at_flow) {
   }
   if (first) /* nothing to send */
     return flow;
-  json_used += snprintf (json + json_used, MAX_JSON_SIZE - json_used, "]");
+  {
+    int n = snprintf (json + json_used, MAX_JSON_SIZE - json_used, "]");
+    if (n < 0 || n >= MAX_JSON_SIZE - json_used)
+      return flow;
+    json_used += n;
+  }
 
   header.size = htons (json_used);
 
