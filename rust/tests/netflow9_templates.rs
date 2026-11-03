@@ -48,6 +48,39 @@ fn nf9_templates(packet: &[u8]) -> Vec<(u16, Vec<u16>)> {
     templates
 }
 
+fn nf9_option_template(packet: &[u8]) -> (Vec<u16>, Vec<u16>) {
+    let mut scope_fields = Vec::new();
+    let mut option_fields = Vec::new();
+    let mut off = 20; // the header of NetFlow v9
+    while off + 4 <= packet.len() {
+        let set_id = BigEndian::read_u16(&packet[off..]);
+        let set_len = BigEndian::read_u16(&packet[off + 2..]) as usize;
+        assert!(set_len >= 4 && off + set_len <= packet.len());
+        if set_id == 1 {
+            let end = off + set_len;
+            let mut p = off + 4;
+            while p + 6 <= end {
+                let _template_id = BigEndian::read_u16(&packet[p..]);
+                let scope_len = BigEndian::read_u16(&packet[p + 2..]) as usize;
+                let option_len = BigEndian::read_u16(&packet[p + 4..]) as usize;
+                p += 6;
+                let scope_end = p + scope_len;
+                while p + 4 <= scope_end {
+                    scope_fields.push(BigEndian::read_u16(&packet[p..]));
+                    p += 4;
+                }
+                let option_end = p + option_len;
+                while p + 4 <= option_end {
+                    option_fields.push(BigEndian::read_u16(&packet[p..]));
+                    p += 4;
+                }
+            }
+        }
+        off += set_len;
+    }
+    (scope_fields, option_fields)
+}
+
 // NetFlow v9 uses the same templates as IPFIX, as the C version does: IPv4,
 // ICMPv4, IPv6 and ICMPv6, all with flowDirection (61) and flowEndReason
 // (136), and the ICMP type and code (32 or 139) only in the ICMP templates.
@@ -67,6 +100,16 @@ fn test_netflow_v9_templates_follow_the_c_version() {
             "template {id}: the ICMP type and code"
         );
     }
+}
+
+#[test]
+fn test_netflow_v9_option_template_has_interface_name() {
+    let packet = export_netflow_v9();
+    let (scope_fields, option_fields) = nf9_option_template(&packet);
+    assert_eq!(scope_fields, vec![1]); // scope: interface
+    assert!(option_fields.contains(&34), "no samplingInterval");
+    assert!(option_fields.contains(&35), "no samplingAlgorithm");
+    assert!(option_fields.contains(&82), "no interfaceName");
 }
 
 // Sends one flow as NetFlow v9 to a local socket and returns the packet.

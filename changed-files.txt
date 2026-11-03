@@ -1,3 +1,4 @@
 rust/doc/DIFFERENCES-FROM-C.en.md
 rust/doc/DIFFERENCES-FROM-C.ja.md
-rust/src/bin/rsoftflowd.rs
+rust/src/exporter/export.rs
+rust/tests/netflow9_templates.rs

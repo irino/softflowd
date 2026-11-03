@@ -33,7 +33,7 @@
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
 | D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 解消 | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02、単体テスト maximum_lifetime_expiry_boundary が成功 (旧コードでは失敗) |
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
-| D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 未解消 | | |
+| D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 解消 | 0015 Add interfaceName to the NetFlow v9 option template | 2026-11-02、NetFlow v9 のオプションテンプレートに interfaceName が含まれることを確認する単体テストが成功 (旧コードでは失敗) |
 | D12 | compat のステップ 5: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
 | D13 | コマンドライン (D3 の一部): 不正な `-t` を受理し、大きな時間で panic する | 2026-11-02 | 解消 | 0012 Reject the wrong -t options as the C version does | 2026-11-02、D3 の 75 件を再実行: `-t` の件は C と同じになった(終了ステータスが違うのは 38 件、以前は 47 件)。`parse_duration` と `apply_timeouts` の単体テスト |
 | D14 | コマンドライン (D3 の一部): `-T port` が panic する。C は受理する | 2026-11-02 | 解消 | 0013 Accept -T port in the Rust version | 2026-11-02、D3 の 75 件を再実行: panic は残っていない(終了ステータスが違うのは 37 件、以前は 38 件)。レベル名のテスト |
