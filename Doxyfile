@@ -37,6 +37,8 @@ INPUT                  = common.h \
                          softflowctl.c \
                          softflowd.c \
                          softflowd.h \
+                         stats.c \
+                         stats.h \
                          treetype.h
 EXTRACT_STATIC         = YES
 # KEY_ADD is a macro that softflowd.c defines inside a function, where Doxygen
