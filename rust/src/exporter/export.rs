@@ -847,7 +847,7 @@ fn put_templates(
         packet.extend_from_slice(&0u16.to_be_bytes());
         packet.extend_from_slice(&IPFIX_SOFTFLOWD_OPTION_TEMPLATE_ID.to_be_bytes());
         packet.extend_from_slice(&4u16.to_be_bytes()); // scope_length
-        packet.extend_from_slice(&8u16.to_be_bytes()); // option_length
+        packet.extend_from_slice(&12u16.to_be_bytes()); // option_length (3 fields * 4 = 12)
 
         packet.extend_from_slice(&1u16.to_be_bytes()); // scope: interface
         packet.extend_from_slice(&4u16.to_be_bytes());
@@ -856,7 +856,8 @@ fn put_templates(
         packet.extend_from_slice(&4u16.to_be_bytes());
         packet.extend_from_slice(&35u16.to_be_bytes()); // samplingAlgorithm
         packet.extend_from_slice(&1u16.to_be_bytes());
-        packet.extend_from_slice(&[0u8; 3]);
+        packet.extend_from_slice(&82u16.to_be_bytes()); // interfaceName
+        packet.extend_from_slice(&16u16.to_be_bytes());
 
         let opt_tmpl_len = (packet.len() - opt_tmpl_start) as u16;
         packet[opt_tmpl_len_offset..opt_tmpl_len_offset + 2]
@@ -869,9 +870,19 @@ fn put_templates(
         packet.extend_from_slice(&0u16.to_be_bytes());
 
         packet.extend_from_slice(&(sp.ifidx as u32).to_be_bytes());
-        packet.extend_from_slice(&sp.param.sample_rate.to_be_bytes());
-        packet.push(1);
-        packet.extend_from_slice(&[0u8; 3]);
+        let rate = if sp.param.sample_rate > 1 {
+            sp.param.sample_rate
+        } else {
+            1
+        };
+        packet.extend_from_slice(&rate.to_be_bytes());
+        packet.push(1); // samplingAlgorithm: deterministic (1)
+
+        let mut ifname_buf = [0u8; 16];
+        let name_bytes = sp.param.interface_name.as_bytes();
+        let copy_len = name_bytes.len().min(15);
+        ifname_buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+        packet.extend_from_slice(&ifname_buf);
 
         let opt_data_len = (packet.len() - opt_data_start) as u16;
         packet[opt_data_len_offset..opt_data_len_offset + 2]
