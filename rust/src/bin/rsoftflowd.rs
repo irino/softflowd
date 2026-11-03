@@ -926,7 +926,7 @@ fn update_flow_expiry(
         reason = ExpiryReason::OverBytes;
         flow.flow_end_reason = FLOW_END_REASON_LACK_OF_RESOURCE;
     } else if param.maximum_lifetime != 0
-        && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 >= param.maximum_lifetime
+        && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 > param.maximum_lifetime
     {
         expires_at = 0;
         reason = ExpiryReason::MaxLife;
@@ -1178,5 +1178,88 @@ mod tests {
         }
         // The names are case sensitive, as in the C version.
         assert!(timeouts(&["TCP=5"]).is_err());
+    }
+
+    #[test]
+    fn maximum_lifetime_expiry_boundary() {
+        let mut expiries = std::collections::BTreeMap::new();
+        let param = rsoftflowd::common::FlowTrackParameters {
+            maximum_lifetime: 60,
+            udp_timeout: 300,
+            ..Default::default()
+        };
+
+        let key = FlowKey::canonical(
+            2,  // AF_INET
+            17, // UDP
+            "192.168.0.1".parse().unwrap(),
+            "192.168.0.2".parse().unwrap(),
+            1234,
+            5678,
+            0,
+            0,
+            [0; 6],
+            [0; 6],
+            &[],
+            TrackLevel::Full,
+        )
+        .0;
+
+        // Flow age equals maximum_lifetime (60 seconds)
+        let mut flow_equal = Flow {
+            flow_seq: 1,
+            flow_start: TimeVal {
+                tv_sec: 1000,
+                tv_usec: 0,
+            },
+            flow_last: TimeVal {
+                tv_sec: 1060,
+                tv_usec: 0,
+            },
+            octets: [100, 0],
+            packets: [1, 0],
+            tcp_flags: [0, 0],
+            tos: [0, 0],
+            ip6_flowlabel: [0, 0],
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
+            flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
+            key: key.clone(),
+            expiry_key: None,
+            expiry_reason: ExpiryReason::General,
+        };
+
+        update_flow_expiry(&mut expiries, &param, &mut flow_equal);
+        assert_ne!(flow_equal.expiry_reason, ExpiryReason::MaxLife);
+        assert_ne!(flow_equal.flow_end_reason, FLOW_END_REASON_ACTIVE_TIMEOUT);
+
+        // Flow age is 1 second older than maximum_lifetime (61 seconds)
+        let mut flow_older = Flow {
+            flow_seq: 2,
+            flow_start: TimeVal {
+                tv_sec: 1000,
+                tv_usec: 0,
+            },
+            flow_last: TimeVal {
+                tv_sec: 1061,
+                tv_usec: 0,
+            },
+            octets: [100, 0],
+            packets: [1, 0],
+            tcp_flags: [0, 0],
+            tos: [0, 0],
+            ip6_flowlabel: [0, 0],
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
+            flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
+            key,
+            expiry_key: None,
+            expiry_reason: ExpiryReason::General,
+        };
+
+        update_flow_expiry(&mut expiries, &param, &mut flow_older);
+        assert_eq!(flow_older.expiry_reason, ExpiryReason::MaxLife);
+        assert_eq!(flow_older.flow_end_reason, FLOW_END_REASON_ACTIVE_TIMEOUT);
+        assert_eq!(flow_older.expiry_key.unwrap().expires_at, 0);
     }
 }

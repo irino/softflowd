@@ -31,7 +31,7 @@
 | D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
-| D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 未解消 | | |
+| D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 解消 | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02、単体テスト maximum_lifetime_expiry_boundary が成功 (旧コードでは失敗) |
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
 | D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 未解消 | | |
 | D12 | compat のステップ 5: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
