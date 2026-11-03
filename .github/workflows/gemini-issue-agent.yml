@@ -34,7 +34,7 @@ jobs:
        github.event.comment.user.login == github.repository_owner &&
        startsWith(github.event.comment.body, '/retry'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
       issues: write
@@ -60,6 +60,17 @@ jobs:
           } > "$RUNNER_TEMP/start-comment.md"
           gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/start-comment.md" || true
 
+      - name: Upload diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-diagnostics-${{ github.event.issue.number }}
+          path: |
+            ${{ runner.temp }}/agent.log
+            ${{ runner.temp }}/cargo-validation-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -72,6 +83,19 @@ jobs:
           version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust/rust-toolchain.toml)
           rustup toolchain install "$version" --profile minimal \
             --component rustfmt --component clippy
+
+      - name: Cache Cargo dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git/db
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock', 'rust/rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Install Gemini SDK
         run: |
@@ -90,7 +114,7 @@ jobs:
           echo "[agent] Running Gemini Issue Agent... / Gemini Issue Agent を実行中..."
           python .github/scripts/gemini_issue_agent.py \
             --report-output "$RUNNER_TEMP/agent-report.json" \
-            --patch-output "$RUNNER_TEMP/agent.patch"
+            --patch-output "$RUNNER_TEMP/agent.patch" 2>&1 | tee "$RUNNER_TEMP/agent.log"
 
       - name: Validate and request bounded repairs
         id: validation
