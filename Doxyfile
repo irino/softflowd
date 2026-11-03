@@ -13,6 +13,8 @@ INPUT                  = common.h \
                          export.c \
                          export_common.c \
                          export_common.h \
+                         format.c \
+                         format.h \
                          freelist.c \
                          freelist.h \
                          globals.h \

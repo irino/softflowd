@@ -61,6 +61,7 @@
 #include "psamp.h"
 #include "treetype.h"
 #include "globals.h"
+#include "format.h"
 #include <getopt.h>
 #include <stdarg.h> /* va_start and va_end for die_usage() */
 #include <netinet/icmp6.h>
@@ -486,9 +487,6 @@ expiry_compare (struct EXPIRY *a, struct EXPIRY *b) {
 EXPIRY_PROTOTYPE (EXPIRIES, EXPIRY, trp, expiry_compare);
 EXPIRY_GENERATE (EXPIRIES, EXPIRY, trp, expiry_compare);
 
-static const char *
-format_flow_brief (struct FLOW *flow);
-
 /**
  * @brief Hash the identity fields of a flow.
  *
@@ -803,104 +801,6 @@ expiry_get (struct FLOWTRACK *ft) {
 static void
 expiry_put (struct FLOWTRACK *ft, struct EXPIRY *expiry) {
   return freelist_put (&ft->expiry_freelist, expiry);
-}
-
-#if 0
-/* Dump a packet */
-static void
-dump_packet (const u_int8_t *p, int len) {
-  char buf[1024], tmp[3];
-  int i;
-
-  for (*buf = '\0', i = 0; i < len; i++) {
-    snprintf (tmp, sizeof (tmp), "%02x%s", p[i], i % 2 ? " " : "");
-    if (strlcat (buf, tmp, sizeof (buf) - 4) >= sizeof (buf) - 4) {
-      strlcat (buf, "...", sizeof (buf));
-      break;
-    }
-  }
-  logit (LOG_INFO, "packet len %d: %s", len, buf);
-}
-#endif
-
-/**
- * @brief Format a time in an ISO-like format.
- *
- * @param t Time to format.
- * @return Pointer to a string valid until the next call.
- */
-static const char *
-format_time (time_t t) {
-  struct tm *tm;
-  static char buf[32];
-
-  tm = gmtime (&t);
-  strftime (buf, sizeof (buf), "%Y-%m-%dT%H:%M:%S", tm);
-
-  return (buf);
-}
-
-/**
- * @brief Format a flow in a verbose form for logging.
- *
- * @param flow Flow to format.
- * @return Pointer to a string valid until the next call.
- */
-static const char *
-format_flow (struct FLOW *flow) {
-  char addr1[64], addr2[64], start_time[32], fin_time[32];
-  static char buf[4096];
-
-  inet_ntop (flow->af, &flow->addr[0], addr1, sizeof (addr1));
-  inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
-
-  snprintf (start_time, sizeof (start_time), "%s",
-            format_time (flow->flow_start.tv_sec));
-  snprintf (fin_time, sizeof (fin_time), "%s",
-            format_time (flow->flow_last.tv_sec));
-
-  snprintf (buf, sizeof (buf),
-            "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
-            "octets>:%u packets>:%u octets<:%u packets<:%u "
-            "start:%s.%03lld finish:%s.%03lld tcp>:%02x tcp<:%02x "
-            "flowlabel>:%08x flowlabel<:%08x "
-            "vlan>:%u vlan<:%u ether:" PRI_ETHERMAC " <> " PRI_ETHERMAC,
-            flow->flow_seq, addr1, ntohs (flow->port[0]), addr2,
-            ntohs (flow->port[1]), (int) flow->protocol, flow->octets[0],
-            flow->packets[0], flow->octets[1], flow->packets[1], start_time,
-            (long long) ((flow->flow_start.tv_usec + 500) / 1000), fin_time,
-            (long long) ((flow->flow_last.tv_usec + 500) / 1000),
-            flow->tcp_flags[0], flow->tcp_flags[1], flow->ip6_flowlabel[0],
-            flow->ip6_flowlabel[1], flow->vlanid[0], flow->vlanid[1],
-            FORMAT_ETHERMAC (flow->ethermac[0]),
-            FORMAT_ETHERMAC (flow->ethermac[1]));
-
-  return (buf);
-}
-
-/**
- * @brief Format a flow in a brief form for logging.
- *
- * @param flow Flow to format.
- * @return Pointer to a string valid until the next call.
- */
-static const char *
-format_flow_brief (struct FLOW *flow) {
-  char addr1[64], addr2[64];
-  static char buf[4096];
-
-  inet_ntop (flow->af, &flow->addr[0], addr1, sizeof (addr1));
-  inet_ntop (flow->af, &flow->addr[1], addr2, sizeof (addr2));
-
-  snprintf (buf, sizeof (buf),
-            "seq:%" PRIu64 " [%s]:%hu <> [%s]:%hu proto:%u "
-            "vlan>:%u vlan<:%u  ether:" PRI_ETHERMAC " <> " PRI_ETHERMAC " ",
-            flow->flow_seq, addr1, ntohs (flow->port[0]), addr2,
-            ntohs (flow->port[1]), (int) flow->protocol, flow->vlanid[0],
-            flow->vlanid[1], FORMAT_ETHERMAC (flow->ethermac[0]),
-            FORMAT_ETHERMAC (flow->ethermac[1]));
-
-  return (buf);
 }
 
 /** Offset just past a member of a struct, i.e. the bytes needed to read it. */
