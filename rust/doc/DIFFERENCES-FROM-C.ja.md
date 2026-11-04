@@ -27,7 +27,7 @@
 | D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 解消 | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも IPFIX が MATCHED (各 24 レコード) |
 | D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 未解消 | | |
 | D4 | ntopng がない | 2026-11-02 | 未解消 | | |
-| D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 未解消 | | |
+| D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
 | D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
@@ -144,9 +144,7 @@ Rust が受理が 10 件、C が受理が 7 件、panic が 1 件(`-T port`)で�
 
 ### D5. プログラム名とバージョン (ソース)
 
-`Cargo.toml` の `softflowd` と `softflowctl` の別名は、1 行の `include!` です。
-バージョンは Rust が 0.1.0 です。usage、syslog の ident、`rust/man/*.8` の
-名前はまだ揃っていません。
+`Cargo.toml` から `softflowd` と `softflowctl` の別名を削除しました。`rsoftflowd` と `rsoftflowctl` だけがビルドされます。
 
 ### D6. ログ (実測)
 
