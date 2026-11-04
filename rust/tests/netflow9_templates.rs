@@ -8,6 +8,7 @@
 mod common;
 
 use std::net::UdpSocket;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use byteorder::{BigEndian, ByteOrder};
@@ -112,8 +113,11 @@ fn test_netflow_v9_option_template_has_interface_name() {
     assert!(option_fields.contains(&82), "no interfaceName");
 }
 
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
 // Sends one flow as NetFlow v9 to a local socket and returns the packet.
 fn export_netflow_v9() -> Vec<u8> {
+    let _guard = TEST_LOCK.lock().unwrap();
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind the receiver");
     let recv_addr = recv_socket.local_addr().unwrap();
     let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind the sender");
