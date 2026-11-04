@@ -172,6 +172,8 @@ jobs:
       - name: Generate final patch
         run: |
           echo "[patch] Generating final patch from working tree... / 作業ツリーから最終パッチを生成中..."
+          echo "[patch] Current git status:"
+          git status --porcelain --untracked-files=all
           git status --porcelain --untracked-files=all | while IFS= read -r line; do
             if [[ "$line" =~ ^\?\?\ (.*) ]]; then
               git add -N -- "${BASH_REMATCH[1]}"
@@ -179,10 +181,20 @@ jobs:
           done
           git diff --binary HEAD > "$RUNNER_TEMP/agent.patch"
           if [ ! -s "$RUNNER_TEMP/agent.patch" ]; then
-            echo "[patch] Error: No changes produced / エラー: 変更が生成されませんでした" >&2
+            echo "[patch] Error: No changes produced by the agent / エラー: エージェントによる変更が生成されませんでした" >&2
+            echo "[patch] Detailed working tree status:"
+            git status
+            if [ -f "$RUNNER_TEMP/agent-report.json" ]; then
+              echo "[patch] Agent report JSON contents:"
+              cat "$RUNNER_TEMP/agent-report.json"
+            else
+              echo "[patch] No agent report JSON found."
+            fi
             exit 1
           fi
           echo "[patch] Patch generated: $(wc -c < "$RUNNER_TEMP/agent.patch") bytes / パッチ生成完了: $(wc -c < "$RUNNER_TEMP/agent.patch") バイト"
+          echo "[patch] Changed files summary:"
+          git diff --name-status HEAD
 
       - name: Upload agent artifacts
         uses: actions/upload-artifact@v4
