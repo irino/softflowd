@@ -29,7 +29,7 @@ changes when a patch is applied.
 | D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | fixed | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02, compat `--strict` C against Rust: IPFIX MATCHED for the IPv4 and IPv6 pcaps (24 records each) |
 | D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
 | D4 | No ntopng | 2026-11-02 | open | | |
-| D5 | Program name and version not unified | 2026-11-02 | open | | |
+| D5 | Program name and version not unified | 2026-11-02 | fixed | 0016 Remove alias binaries | 2026-11-02, cargo build generates only rsoftflowd and rsoftflowctl |
 | D6 | Log format differs | 2026-11-02 | open | | |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
 | D8 | compat step 5 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 5 ran for the first time (its result is D12) |
@@ -91,7 +91,7 @@ See `tools/softflowd_test_collector.py` for the other options.
 
 In the failing tests the first 13 columns of every record (times, addresses,
 ports, protocol, flags, packets, bytes) are identical.  Only the extra
-information elements differ.
+information elements elements differ.
 
 ## Differences
 
@@ -150,9 +150,8 @@ No reference to ntopng in `rust/src`.  The C version has `ntopng.c`.
 
 ### D5. Program name and version (source)
 
-The `softflowd` and `softflowctl` aliases in `Cargo.toml` are one-line
-`include!` files.  Version: Rust 0.1.0.  The names in the usage, the syslog
-ident and `rust/man/*.8` are not unified yet.
+The `softflowd` and `softflowctl` aliases in `Cargo.toml` were removed; only
+`rsoftflowd` and `rsoftflowctl` are built.
 
 ### D6. Logging (measured)
 
