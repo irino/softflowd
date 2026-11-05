@@ -30,7 +30,7 @@ MAX_RETRIES_PER_MODEL = 3
 # toolchain file.
 WRITE_ROOT = "rust"
 WRITE_DENIED = ("rust/target", "rust/rust-toolchain.toml")
-INITIAL_RETRY_DELAY = 30.0
+INITIAL_RETRY_DELAY = 60.0
 
 SYSTEM_PROMPT = """You are an autonomous senior Rust engineer working on the Rust version (the rust/ directory) of softflowd in a public GitHub repository.
 All reasoning, tool arguments, and tool interactions must be in English.
@@ -211,6 +211,11 @@ def is_model_not_found(exc: Exception) -> bool:
     return "not found" in text_lower or "is not supported" in text_lower or "does not exist" in text_lower
 
 
+def is_per_day_limit_exceeded(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "per day limit exceeded" in text or "per day" in text or "daily limit" in text or "requests per day" in text
+
+
 def load_models(path: str) -> list[dict[str, Any]]:
     config = (ROOT / path).resolve()
     if not config.is_relative_to(ROOT) or not config.is_file():
@@ -264,9 +269,16 @@ def generate(
                     break
                 elif is_transient_error(exc):
                     status, _ = get_error_info(exc)
+                    if is_per_day_limit_exceeded(exc):
+                        print(
+                            f"[agent] [EN] Model '{model}' daily quota exceeded (per day limit exceeded): {exc}. Switching immediately to next model.\n"
+                            f"[agent] [JA] モデル '{model}' は1日の制限 (per day limit exceeded) に達しました: {exc}。すぐに次のモデルに切り替えます。",
+                            file=sys.stderr,
+                        )
+                        break
                     if attempt < MAX_RETRIES_PER_MODEL:
-                        delay = min(INITIAL_RETRY_DELAY * (2 ** (attempt - 1)), 30.0)
-                        delay *= random.uniform(0.8, 1.2)  # Jitter
+                        base_delay = INITIAL_RETRY_DELAY * (2 ** (attempt - 1))
+                        delay = base_delay + random.uniform(0.0, 15.0)  # Positive jitter only, always > 60s
                         print(
                             f"[agent] [EN] Transient API error on model '{model}' (status={status}): {exc}. Retrying in {delay:.1f}s (attempt {attempt}/{MAX_RETRIES_PER_MODEL})...\n"
                             f"[agent] [JA] モデル '{model}' で一時的なAPIエラー (status={status}): {exc}。{delay:.1f}秒後に再試行します (試行 {attempt}/{MAX_RETRIES_PER_MODEL})...",
