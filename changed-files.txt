@@ -1,3 +1,0 @@
-rust/Cargo.toml
-rust/doc/DIFFERENCES-FROM-C.en.md
-rust/doc/DIFFERENCES-FROM-C.ja.md

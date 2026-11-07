@@ -262,17 +262,19 @@ jobs:
           git apply --check --whitespace=nowarn "$PATCH_FILE"
 
           # Extract changed files and check for forbidden paths (.github, secrets, etc.)
-          git apply --numstat "$PATCH_FILE" | awk '{print $3}' > changed-files.txt
-          if grep -E '(^\.github/|^\.git/|(^|/)\.env|(^|/)secrets?([./]|$))' changed-files.txt; then
+          # Keep the list out of the workspace: "git add -A" below would commit it.
+          CHANGED="$RUNNER_TEMP/changed-files.txt"
+          git apply --numstat "$PATCH_FILE" | awk '{print $3}' > "$CHANGED"
+          if grep -E '(^\.github/|^\.git/|(^|/)\.env|(^|/)secrets?([./]|$))' "$CHANGED"; then
             echo "[pr] Error: Forbidden file changes detected in patch! / エラー: 禁止されたファイルへの変更が検出されました！" >&2
             exit 1
           fi
           # The agent may change the Rust version only.
-          if grep -Ev '^rust/' changed-files.txt; then
+          if grep -Ev '^rust/' "$CHANGED"; then
             echo "[pr] Error: The patch changes files outside rust/! / エラー: rust/ の外のファイルが変更されています！" >&2
             exit 1
           fi
-          if grep -E '^rust/(target/|rust-toolchain\.toml$)' changed-files.txt; then
+          if grep -E '^rust/(target/|rust-toolchain\.toml$)' "$CHANGED"; then
             echo "[pr] Error: The patch changes a file that the agent must not change! / エラー: 変更してはいけないファイルが含まれています！" >&2
             exit 1
           fi
