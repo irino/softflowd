@@ -2,7 +2,7 @@
 //
 // The exporters of NetFlow v1, v5, v9 and IPFIX. What they share is in
 // export_common.cpp, and PSAMP, like the C version, has a file of its own.
-#include "softflow/export.hpp"
+#include "softflowd_cpp/export.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -10,7 +10,7 @@
 #include <unistd.h>  // getpid() -- see write_options_set()
 #include <utility>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 // ---------------------------------------------------------------------------
 // NetFlow v1
@@ -441,7 +441,7 @@ l2_size (TrackLevel level) {
  * @original -x. Writes mpls_label_count 3-octet mplsLabelStackSectionN
  * fields (IANA Information Elements 70-79). Values are passed straight
  * through from MplsLabelStack -- see its doc comment and
- * softflowd.cpp's MplsShimEntry for why that's already exactly the right
+ * packet.cpp's MplsShimEntry for why that's already exactly the right
  * 24-bit (label|EXP|S) value, verbatim from the original packet, with no
  * reconstruction needed here. Indices beyond the flow's actual label
  * count (fewer real labels than mpls_label_count) are zero-filled,
@@ -1617,4 +1617,4 @@ IpfixExporter::build_packets (
   return packets;
 }
 
-}  // namespace softflow
+}  // namespace softflowd_cpp

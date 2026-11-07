@@ -15,9 +15,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "softflow/softflowctl.hpp"
+#include "softflowd_cpp/softflowctl.hpp"
 
-using namespace softflow;
+using namespace softflowd_cpp;
 
 namespace {
 

@@ -65,7 +65,7 @@ Options:
                               (--enable-ntopng --enable-ntopng-json).  Off by default
     --ntopng-bin PATH       : softflowd to check with --ntopng instead of building one (with
                               --skip-build softflowd-ntopng in the build directory is used)
-    --ntopng-cpp-bin PATH   : softflowd+ built with -DSOFTFLOW_NTOPNG=ON, whose -v ntopng messages
+    --ntopng-cpp-bin PATH   : softflowd+ built with -DSOFTFLOWD_CPP_NTOPNG=ON, whose -v ntopng messages
                               --ntopng compares byte for byte with those of the C build (default:
                               build one, or with --skip-build softflowd+-ntopng in the build
                               directory; with --skip-cpp or if it is missing, not compared)
@@ -2349,7 +2349,7 @@ def ntopng_resolve_daemon(args: argparse.Namespace, build_dir: str) -> Optional[
 
 
 def ntopng_resolve_cpp_daemon(args: argparse.Namespace, build_dir: str) -> Optional[str]:
-    """The softflowd+ built with -DSOFTFLOW_NTOPNG=ON, or None if there is none."""
+    """The softflowd+ built with -DSOFTFLOWD_CPP_NTOPNG=ON, or None if there is none."""
     if args.ntopng_cpp_bin:
         return args.ntopng_cpp_bin
     if args.skip_cpp:
@@ -2357,10 +2357,10 @@ def ntopng_resolve_cpp_daemon(args: argparse.Namespace, build_dir: str) -> Optio
     daemon = os.path.join(build_dir, "softflowd+-ntopng")
     if args.skip_build:
         return daemon if os.path.exists(daemon) else None
-    print("  -> Configuring and building C++ ntopng (-DSOFTFLOW_NTOPNG=ON)...")
+    print("  -> Configuring and building C++ ntopng (-DSOFTFLOWD_CPP_NTOPNG=ON)...")
     out = os.path.join(SUITE_TMP_DIR, "build-cpp-ntopng")
     if run_command(["cmake", "-S", os.path.join(PROJECT_ROOT, "cpp"), "-B", out,
-                    "-DSOFTFLOW_NTOPNG=ON"]).returncode != 0 \
+                    "-DSOFTFLOWD_CPP_NTOPNG=ON"]).returncode != 0 \
             or run_command(["cmake", "--build", out, "-j"]).returncode != 0:
         print_yellow("Warning: the C++ version with ntopng support could not be built "
                      "(libzmq is needed); it is not compared.")
@@ -3794,7 +3794,7 @@ def compat_main():
     parser.add_argument(
         "--ntopng-cpp-bin",
         default=None,
-        help="softflowd+ built with -DSOFTFLOW_NTOPNG=ON for --ntopng, whose -v ntopng "
+        help="softflowd+ built with -DSOFTFLOWD_CPP_NTOPNG=ON for --ntopng, whose -v ntopng "
              "messages are compared byte for byte with those of the C build "
              "(default: build one, or with --skip-build use softflowd+-ntopng)"
     )

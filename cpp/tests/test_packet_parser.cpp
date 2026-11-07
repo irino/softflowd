@@ -2,9 +2,9 @@
 #include <cstdio>
 #include <vector>
 
-#include "softflow/softflowd.hpp"
+#include "softflowd_cpp/softflowd.hpp"
 
-using namespace softflow;
+using namespace softflowd_cpp;
 
 namespace {
 

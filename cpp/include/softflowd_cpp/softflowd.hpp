@@ -43,7 +43,7 @@ extern "C" {
 #include <pcap/pcap.h>
 }
 
-namespace softflow {
+namespace softflowd_cpp {
 
 // ---------------------------------------------------------------------
 // Common types (original: common.h, and the top of softflowd.h)
@@ -161,7 +161,7 @@ struct IpAddress {
  * shim, TTL octet dropped -- stored verbatim rather than decomposed, so
  * it can be passed straight through to the IPFIX
  * mplsTopLabelStackSectionN field unchanged. See
- * softflowd.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
+ * packet.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
  */
 using MplsLabelStack = std::vector<std::uint32_t>;
 
@@ -249,7 +249,8 @@ public:
      */
   const std::array<IpAddress, 2> &
   addr () const noexcept {
-    return addr_; }
+    return addr_;
+  }
   /**
      * @brief The ports of the two ends.
      *
@@ -257,7 +258,8 @@ public:
      */
   const std::array<std::uint16_t, 2> &
   port () const noexcept {
-    return port_; }
+    return port_;
+  }
   /**
      * @brief The IP protocol number.
      *
@@ -265,7 +267,8 @@ public:
      */
   std::uint8_t
   protocol () const noexcept {
-    return protocol_; }
+    return protocol_;
+  }
   /**
      * @brief The type of service.
      *
@@ -273,7 +276,8 @@ public:
      */
   std::uint8_t
   tos () const noexcept {
-    return tos_; }
+    return tos_;
+  }
   /**
      * @brief The VLAN IDs of the two ends.
      *
@@ -282,18 +286,18 @@ public:
   const std::array<std::uint16_t, 2> &
   vlanid () const noexcept {
     return vlanid_;
-    }
-    /**
+  }
+  /**
      * @brief The Ethernet addresses of the two ends.
      *
      * @return The addresses, in canonical order.
      */
-    const std::array<std::array<std::uint8_t, 6>, 2> &
-    ethermac () const noexcept {
-      return ethermac_;
-    }
+  const std::array<std::array<std::uint8_t, 6>, 2> &
+  ethermac () const noexcept {
+    return ethermac_;
+  }
 
-    /**
+  /**
      * @brief Orders two keys; with operator== it serves both backends of the flow table.
      *
      * Defaulted \<=\> gives both operator== (used by the hash-based backend)
@@ -312,19 +316,21 @@ public:
      *
      * @return The three-way ordering.
      */
-    friend auto operator<=>(const FlowKey&, const FlowKey&) = default;
-    /**
+  friend auto
+  operator<=> (const FlowKey &, const FlowKey &) = default;
+  /**
      * @brief Compares two keys for equality.
      *
      * @return true when all the fields are equal.
      */
-    friend bool operator==(const FlowKey&, const FlowKey&) = default;
+  friend bool
+  operator== (const FlowKey &, const FlowKey &) = default;
 
 private:
   /**
      * @brief Creates an empty key; make_canonical() is the only way to make a usable one.
      */
-  FlowKey() = default;
+  FlowKey () = default;
 
   std::array<IpAddress, 2> addr_{};                        ///< The addresses of the two ends.
   std::array<std::uint16_t, 2> port_{};                    ///< The ports of the two ends.
@@ -437,13 +443,13 @@ struct ExpiryEntry {
  */
 inline long long
 expiry_epoch_seconds (const Flow &flow, TimePoint expires_at) {
-    if (flow.reason == ExpiryReason::OverBytes || flow.reason == ExpiryReason::MaxLife) {
-        return 0;
-    }
-    const auto wall = flow.wall_last +
-                      std::chrono::duration_cast<std::chrono::system_clock::duration> (
-                          expires_at - flow.flow_last);
-    return std::chrono::duration_cast<std::chrono::seconds> (wall.time_since_epoch()).count();
+  if (flow.reason == ExpiryReason::OverBytes || flow.reason == ExpiryReason::MaxLife) {
+    return 0;
+  }
+  const auto wall = flow.wall_last +
+                    std::chrono::duration_cast<std::chrono::system_clock::duration> (
+                      expires_at - flow.flow_last);
+  return std::chrono::duration_cast<std::chrono::seconds> (wall.time_since_epoch()).count();
 }
 
 /**
@@ -478,7 +484,8 @@ public:
      */
   void
   put_u8 (std::uint8_t v) {
-    buf_.push_back (v); }
+    buf_.push_back (v);
+  }
 
   /**
      * @brief Appends a 16-bit value, big-endian.
@@ -489,68 +496,76 @@ public:
   put_u16 (std::uint16_t v) {
     buf_.push_back (static_cast<std::uint8_t> (v >> 8));
     buf_.push_back (static_cast<std::uint8_t> (v));
-    }
+  }
 
-    /**
+  /**
      * @brief Appends a 32-bit value, big-endian.
      *
      * @param v The value.
      */
-    void put_u32(std::uint32_t v) {
-        buf_.push_back(static_cast<std::uint8_t>(v >> 24));
-        buf_.push_back(static_cast<std::uint8_t>(v >> 16));
-        buf_.push_back(static_cast<std::uint8_t>(v >> 8));
-        buf_.push_back(static_cast<std::uint8_t>(v));
-    }
+  void
+  put_u32 (std::uint32_t v) {
+    buf_.push_back (static_cast<std::uint8_t> (v >> 24));
+    buf_.push_back (static_cast<std::uint8_t> (v >> 16));
+    buf_.push_back (static_cast<std::uint8_t> (v >> 8));
+    buf_.push_back (static_cast<std::uint8_t> (v));
+  }
 
-    /**
+  /**
      * @brief Appends a 64-bit value, big-endian.
      *
      * @param v The value.
      */
-    void put_u64(std::uint64_t v) {
-        for (int shift = 56; shift >= 0; shift -= 8) {
-            buf_.push_back(
-                static_cast<std::uint8_t>(v >> static_cast<unsigned>(shift)));
-        }
+  void
+  put_u64 (std::uint64_t v) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+      buf_.push_back (
+        static_cast<std::uint8_t> (v >> static_cast<unsigned> (shift)));
     }
+  }
 
-    /**
+  /**
      * @brief Appends bytes as they are.
      *
      * @param bytes The bytes.
      */
-    void put_bytes(std::span<const std::uint8_t> bytes) {
-        buf_.insert(buf_.end(), bytes.begin(), bytes.end());
-    }
+  void
+  put_bytes (std::span<const std::uint8_t> bytes) {
+    buf_.insert (buf_.end(), bytes.begin(), bytes.end());
+  }
 
-    /**
+  /**
      * @brief Appends the 4 octets of an IPv4 address.
      *
      * Appends the first 4 (IPv4) or 16 (IPv6) bytes of an IpAddress.
      *
      * @param addr The address.
      */
-    void put_ipv4(const IpAddress& addr) {
-        put_bytes(std::span<const std::uint8_t>(addr.bytes.data(), 4));
-    }
-    /**
+  void
+  put_ipv4 (const IpAddress &addr) {
+    put_bytes (std::span<const std::uint8_t> (addr.bytes.data(), 4));
+  }
+  /**
      * @brief Appends the 16 octets of an IPv6 address.
      *
      * @param addr The address.
      */
-    void put_ipv6(const IpAddress& addr) {
-        put_bytes(std::span<const std::uint8_t>(addr.bytes.data(), 16));
-    }
+  void
+  put_ipv6 (const IpAddress &addr) {
+    put_bytes (std::span<const std::uint8_t> (addr.bytes.data(), 16));
+  }
 
-    /**
+  /**
      * @brief The number of bytes written.
      *
      * @return The size.
      */
-    std::size_t size() const noexcept { return buf_.size(); }
+  std::size_t
+  size () const noexcept {
+    return buf_.size();
+  }
 
-    /**
+  /**
      * @brief Overwrites 2 bytes that were written before, big-endian.
      *
      * Overwrites 2 or 4 bytes previously written at `offset`, big-endian.
@@ -563,44 +578,52 @@ public:
      * @param v The new value.
      * @throw std::out_of_range when @p offset is outside of what was written.
      */
-    void patch_u16(std::size_t offset, std::uint16_t v) {
-        if (offset + 2 > buf_.size()) {
-            throw std::out_of_range("ByteWriter::patch_u16: offset out of range");
-        }
-        buf_[offset] = static_cast<std::uint8_t>(v >> 8);
-        buf_[offset + 1] = static_cast<std::uint8_t>(v);
+  void
+  patch_u16 (std::size_t offset, std::uint16_t v) {
+    if (offset + 2 > buf_.size()) {
+      throw std::out_of_range ("ByteWriter::patch_u16: offset out of range");
     }
-    /**
+    buf_[offset] = static_cast<std::uint8_t> (v >> 8);
+    buf_[offset + 1] = static_cast<std::uint8_t> (v);
+  }
+  /**
      * @brief Overwrites 4 bytes that were written before, big-endian.
      *
      * @param offset Where the 4 bytes start.
      * @param v The new value.
      * @throw std::out_of_range when @p offset is outside of what was written.
      */
-    void patch_u32(std::size_t offset, std::uint32_t v) {
-        if (offset + 4 > buf_.size()) {
-            throw std::out_of_range("ByteWriter::patch_u32: offset out of range");
-        }
-        buf_[offset] = static_cast<std::uint8_t>(v >> 24);
-        buf_[offset + 1] = static_cast<std::uint8_t>(v >> 16);
-        buf_[offset + 2] = static_cast<std::uint8_t>(v >> 8);
-        buf_[offset + 3] = static_cast<std::uint8_t>(v);
+  void
+  patch_u32 (std::size_t offset, std::uint32_t v) {
+    if (offset + 4 > buf_.size()) {
+      throw std::out_of_range ("ByteWriter::patch_u32: offset out of range");
     }
+    buf_[offset] = static_cast<std::uint8_t> (v >> 24);
+    buf_[offset + 1] = static_cast<std::uint8_t> (v >> 16);
+    buf_[offset + 2] = static_cast<std::uint8_t> (v >> 8);
+    buf_[offset + 3] = static_cast<std::uint8_t> (v);
+  }
 
-    /**
+  /**
      * @brief The bytes written so far.
      *
      * @return The buffer.
      */
-    const std::vector<std::uint8_t>& bytes() const noexcept { return buf_; }
-    /**
+  const std::vector<std::uint8_t> &
+  bytes () const noexcept {
+    return buf_;
+  }
+  /**
      * @brief Hands over the buffer; the writer is left empty.
      *
      * @return The buffer.
      */
-    std::vector<std::uint8_t> take() { return std::move(buf_); }
+  std::vector<std::uint8_t>
+  take () {
+    return std::move (buf_);
+  }
 
-    /**
+  /**
      * @brief Discards everything written after a size.
      *
      * Discards everything written after `new_size` bytes. Used to roll
@@ -612,18 +635,19 @@ public:
      * @param new_size The number of bytes to keep.
      * @throw std::out_of_range when @p new_size is more than what was written.
      */
-    void truncate(std::size_t new_size) {
-        if (new_size > buf_.size()) {
-            throw std::out_of_range("ByteWriter::truncate: new_size exceeds current size");
-        }
-        buf_.resize(new_size);
+  void
+  truncate (std::size_t new_size) {
+    if (new_size > buf_.size()) {
+      throw std::out_of_range ("ByteWriter::truncate: new_size exceeds current size");
     }
+    buf_.resize (new_size);
+  }
 
 private:
   std::vector<std::uint8_t> buf_;  ///< The bytes written so far.
 };
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
 /**
  * @brief The hash of a FlowKey, for the hash-based backend of the flow table.
@@ -635,7 +659,7 @@ private:
  * tree-rotation logic to maintain at all.
  */
 template <>
-struct std::hash<softflow::FlowKey> {
+struct std::hash<softflowd_cpp::FlowKey> {
   /**
      * @brief Hashes a flow key, over all its fields.
      *
@@ -643,7 +667,7 @@ struct std::hash<softflow::FlowKey> {
      * @return The hash.
      */
   std::size_t
-  operator() (const softflow::FlowKey &k) const noexcept {
+  operator() (const softflowd_cpp::FlowKey &k) const noexcept {
     std::size_t h = std::hash<std::uint8_t>{}(k.protocol());
     auto mix = [&h] (std::size_t v) {
       h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -666,10 +690,10 @@ struct std::hash<softflow::FlowKey> {
     }
     mix (std::hash<std::uint8_t>{}(k.tos()));
     return h;
-    }
+  }
 };
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief The container that holds the flows of a FlowTable.
@@ -800,7 +824,7 @@ struct StatAccumulator {
       max = value;
     ++n;
     mean += (value - mean) / static_cast<double> (n);
-    }
+  }
 };
 
 /**
@@ -951,7 +975,7 @@ public:
   /**
      * @brief Destroys the table with its flows.
      */
-  ~FlowTable() = default;
+  ~FlowTable () = default;
 
   /**
      * @brief Adds a packet to its flow, which is created when it is new, and schedules the expiry of the flow.
@@ -1114,7 +1138,8 @@ public:
      */
   std::size_t
   size () const noexcept {
-    return flows_.size(); }
+    return flows_.size();
+  }
   /**
      * @brief The most flows that are tracked.
      *
@@ -1122,7 +1147,8 @@ public:
      */
   std::size_t
   max_flows () const noexcept {
-    return max_flows_; }
+    return max_flows_;
+  }
   /**
      * @brief The counters of the table.
      *
@@ -1130,7 +1156,8 @@ public:
      */
   const FlowTableStats &
   stats () const noexcept {
-    return stats_; }
+    return stats_;
+  }
 
   /**
      * @brief Adds the outcome of an export to the statistics.
@@ -1153,8 +1180,8 @@ public:
     stats_.records_sent += records;
     stats_.packets_sent += packets;
     stats_.flows_dropped += failures;
-    }
-    /**
+  }
+  /**
      * @brief Counts a packet that does not become a flow as processed.
      *
      * @original flow_cb () and process_packet () count the packets that do not
@@ -1162,43 +1189,52 @@ public:
      * counted as processed, one that is not IP is counted as ignored, and one
      * that is too short for its headers is counted as ignored and as processed.
      */
-    void
-    count_packet_without_flow () noexcept {
-      stats_.total_packets += 1;
-    }
-    /**
+  void
+  count_packet_without_flow () noexcept {
+    stats_.total_packets += 1;
+  }
+  /**
      * @brief Counts a packet that is not IP as ignored.
      */
-    void
-    count_non_ip_packet () noexcept {
-      stats_.non_ip_packets += 1;
-    }
-    /**
+  void
+  count_non_ip_packet () noexcept {
+    stats_.non_ip_packets += 1;
+  }
+  /**
      * @brief Counts a packet that is too short for its headers as ignored and as processed.
      */
-    void
-    count_bad_packet () noexcept {
-      stats_.bad_packets += 1;
-      stats_.total_packets += 1;
-    }
-    /**
+  void
+  count_bad_packet () noexcept {
+    stats_.bad_packets += 1;
+    stats_.total_packets += 1;
+  }
+  /**
      * @brief The -T level.
      *
      * @return The level.
      */
-    TrackLevel track_level() const noexcept { return track_level_; }
-    /**
+  TrackLevel
+  track_level () const noexcept {
+    return track_level_;
+  }
+  /**
      * @brief The timeouts.
      *
      * @return The timeouts.
      */
-    const FlowTimeouts& timeouts() const noexcept { return timeouts_; }
-    /**
+  const FlowTimeouts &
+  timeouts () const noexcept {
+    return timeouts_;
+  }
+  /**
      * @brief The container of the flows.
      *
      * @return The backend.
      */
-    static constexpr FlowIndexBackend backend() noexcept { return Backend; }
+  static constexpr FlowIndexBackend
+  backend () noexcept {
+    return Backend;
+  }
 
 private:
   /**
@@ -1573,7 +1609,8 @@ public:
   explicit PacketParser (TrackLevel track_level,
                          bool full_l4hdr_check = false)
       : track_level_ (track_level),
-        full_l4hdr_check_ (full_l4hdr_check) {}
+        full_l4hdr_check_ (full_l4hdr_check) {
+  }
 
   /**
      * @brief Parses one packet.
@@ -1597,7 +1634,8 @@ public:
      */
   TrackLevel
   track_level () const noexcept {
-    return track_level_; }
+    return track_level_;
+  }
 
 private:
   /**
@@ -1676,7 +1714,7 @@ flow_direction (const FlowKey &key, const ParsedPacket &packet);
  */
 class PcapError : public std::runtime_error {
 public:
-    using std::runtime_error::runtime_error;
+  using std::runtime_error::runtime_error;
 };
 
 /**
@@ -1702,14 +1740,16 @@ enum class DatalinkKind {
  * @param pcap_dlt The DLT_ value.
  * @return The kind.
  */
-DatalinkKind classify_datalink(int pcap_dlt);
+DatalinkKind
+classify_datalink (int pcap_dlt);
 /**
  * @brief The size of the link-layer header that comes before the IP header.
  *
  * @param kind The kind.
  * @return The size in octets.
  */
-std::size_t datalink_header_len(DatalinkKind kind);
+std::size_t
+datalink_header_len (DatalinkKind kind);
 
 /**
  * @brief A captured packet with its lengths and times.
@@ -1806,7 +1846,7 @@ public:
   /**
      * @brief Closes the capture.
      */
-  ~PcapHandle() = default;  // the unique_ptr's deleter calls pcap_close()
+  ~PcapHandle () = default;  // the unique_ptr's deleter calls pcap_close()
 
   /**
      * @brief The link-layer type of the capture.
@@ -1815,7 +1855,8 @@ public:
      */
   int
   datalink () const noexcept {
-    return pcap_datalink (handle_.get()); }
+    return pcap_datalink (handle_.get());
+  }
   /**
      * @brief The kind of the link-layer type.
      *
@@ -1823,7 +1864,8 @@ public:
      */
   DatalinkKind
   datalink_kind () const {
-    return classify_datalink (datalink()); }
+    return classify_datalink (datalink());
+  }
 
   /**
      * @brief The file descriptor to poll for packets.
@@ -1842,9 +1884,9 @@ public:
   int
   selectable_fd () const noexcept {
     return pcap_get_selectable_fd (handle_.get());
-    }
+  }
 
-    /**
+  /**
      * @brief Compiles and sets the packet filter.
      *
      * @param bpf_expression The BPF expression.
@@ -1855,9 +1897,10 @@ public:
      * failure, which the caller had no way to observe. Here it's an
      * exception, so it cannot be silently ignored.
      */
-    void set_filter(const std::string& bpf_expression);
+  void
+  set_filter (const std::string &bpf_expression);
 
-    /**
+  /**
      * @brief The capture statistics of libpcap.
      *
      * @return The statistics; nullopt when they are not available (offline files).
@@ -1867,15 +1910,16 @@ public:
      * this capture mode (notably, offline pcap files -- pcap_stats() only
      * reports meaningful numbers for live captures).
      */
-    std::optional<struct pcap_stat> stats() const noexcept {
-        struct pcap_stat ps{};
-        if (pcap_stats(handle_.get(), &ps) != 0) {
-            return std::nullopt;
-        }
-        return ps;
+  std::optional<struct pcap_stat>
+  stats () const noexcept {
+    struct pcap_stat ps{};
+    if (pcap_stats (handle_.get(), &ps) != 0) {
+      return std::nullopt;
     }
+    return ps;
+  }
 
-    /**
+  /**
      * @brief Reads the next packet; the data are valid until the next call.
      *
      * @return The packet; nullopt on a read timeout (live) or at the end of the file.
@@ -1884,9 +1928,10 @@ public:
      * Returns: a CapturedPacket if one was available; std::nullopt on a
      * read timeout (live capture) or EOF (offline file).
      */
-    std::optional<CapturedPacket> next_packet();
+  std::optional<CapturedPacket>
+  next_packet ();
 
-    /**
+  /**
      * @brief Hands the packets that libpcap has to a callback.
      *
      * @param max_packets The most packets to hand over.
@@ -1899,7 +1944,8 @@ public:
      * loop was ended by an exception of the callback, which is rethrown, and
      * -1 on an error.
      */
-    int dispatch(int max_packets, const std::function<void(const CapturedPacket&)>& callback);
+  int
+  dispatch (int max_packets, const std::function<void (const CapturedPacket &)> &callback);
 
 private:
   /**
@@ -1908,7 +1954,8 @@ private:
      * @param handle The handle.
      */
   explicit PcapHandle (pcap_t *handle)
-      : handle_ (handle) {}
+      : handle_ (handle) {
+  }
 
   /**
      * @brief Closes a libpcap handle.
@@ -1925,11 +1972,11 @@ private:
         pcap_close (p);
       }
     }
-    };
-    /**
+  };
+  /**
      * @brief The libpcap handle.
      */
-    std::unique_ptr<pcap_t, PcapCloser> handle_;
+  std::unique_ptr<pcap_t, PcapCloser> handle_;
 };
 
 /**
@@ -1937,7 +1984,7 @@ private:
  */
 class ExportError : public std::runtime_error {
 public:
-    using std::runtime_error::runtime_error;
+  using std::runtime_error::runtime_error;
 };
 
 /**
@@ -2010,7 +2057,7 @@ public:
   /**
      * @brief Closes the socket.
      */
-  ~ExportDestination();
+  ~ExportDestination ();
 
   /**
      * @brief A destination cannot be copied.
@@ -2054,7 +2101,8 @@ public:
      */
   const std::string &
   description () const noexcept {
-    return description_; }
+    return description_;
+  }
 
 private:
   int fd_{-1};                   ///< The socket.
@@ -2087,7 +2135,8 @@ public:
      */
   bool
   empty () const noexcept {
-    return destinations_.empty(); }
+    return destinations_.empty();
+  }
   /**
      * @brief The number of destinations.
      *
@@ -2095,7 +2144,8 @@ public:
      */
   std::size_t
   size () const noexcept {
-    return destinations_.size(); }
+    return destinations_.size();
+  }
 
   /**
      * @brief Sends a packet to every destination, or to the next one in turn.
@@ -2115,6 +2165,6 @@ private:
   std::uint64_t sent_ = 0;                       ///< The packets sent, which picks the next destination with -l.
 };
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif // SOFTFLOWD_HPP
+#endif  // SOFTFLOWD_HPP

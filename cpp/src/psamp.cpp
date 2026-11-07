@@ -1,9 +1,9 @@
 // Original files: psamp.c, psamp.h
-#include "softflow/psamp.hpp"
+#include "softflowd_cpp/psamp.hpp"
 
 #include <algorithm>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 namespace {
 
@@ -132,4 +132,4 @@ decode_psamp_message (std::span<const std::uint8_t> data) {
   return out;
 }
 
-}  // namespace softflow
+}  // namespace softflowd_cpp

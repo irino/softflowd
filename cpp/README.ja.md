@@ -17,10 +17,10 @@ cmake --build cpp/build -j
 ```
 
 依存: libpcap。既定のビルドタイプは`Debug`で、AddressSanitizerと
-UndefinedBehaviorSanitizerが有効です(`-DSOFTFLOW_ENABLE_SANITIZERS=OFF`で無効にできます)。
+UndefinedBehaviorSanitizerが有効です(`-DSOFTFLOWD_CPP_ENABLE_SANITIZERS=OFF`で無効にできます)。
 速度の測定は`-DCMAKE_BUILD_TYPE=Release`で行ってください。
 
-`-DSOFTFLOW_NTOPNG=ON`で、ntopngへのエクスポート(`-v ntopng`、ntopng 6.0以降のTLV形式を
+`-DSOFTFLOWD_CPP_NTOPNG=ON`で、ntopngへのエクスポート(`-v ntopng`、ntopng 6.0以降のTLV形式を
 ZeroMQで送信)をビルドします。libzmqが必要です。
 
 ## APIドキュメント
@@ -32,7 +32,7 @@ cmake --build cpp/build --target doc      # HTMLはcpp/build/doc/html
 Doxygen(図にはGraphviz)が必要です。ソースのコメントはDoxygenコメントで、C++コードの
 働きを説明します。`@original`には、対応するC版の関数・変数の注記と、相違点を残しています。
 
-コメントのない宣言は警告になります。CI(ジョブ`cpp-doc`)は`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`で
+コメントのない宣言は警告になります。CI(ジョブ`cpp-doc`)は`-DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON`で
 ビルドし、警告があると失敗します。宣言を追加するコミットの前に、同じ指定で試せます。
 
 ## テスト

@@ -26,12 +26,12 @@
  *
  * @original compat/ipfix.c, ipfix.h.
  */
-#ifndef SOFTFLOW_IPFIX_HPP
-#define SOFTFLOW_IPFIX_HPP
+#ifndef SOFTFLOWD_CPP_IPFIX_HPP
+#define SOFTFLOWD_CPP_IPFIX_HPP
 
 #include <cstdint>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief The encoding of the flow times in IPFIX and NetFlow v9, selected with -A.
@@ -94,6 +94,6 @@ enum class MessageVersion : std::uint16_t {
   Ipfix = 10     ///< IPFIX (RFC 7011); the version field of its header is 10.
 };
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif // SOFTFLOW_IPFIX_HPP
+#endif  // SOFTFLOWD_CPP_IPFIX_HPP

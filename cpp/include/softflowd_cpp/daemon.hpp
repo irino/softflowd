@@ -21,14 +21,14 @@
  *
  * @original daemon.c, daemon.h.
  */
-#ifndef SOFTFLOW_DAEMON_HPP
-#define SOFTFLOW_DAEMON_HPP
+#ifndef SOFTFLOWD_CPP_DAEMON_HPP
+#define SOFTFLOWD_CPP_DAEMON_HPP
 
 #include <atomic>
 #include <string>
 #include <vector>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief Turns the foreground process into a daemon.
@@ -46,7 +46,8 @@ namespace softflow {
  * @original The fork()+setsid()+chdir("/")+redirect-stdio-to-/dev/null
  * sequence historically found in daemon.c.
  */
-void daemonize();
+void
+daemonize ();
 
 /**
  * @brief The pid file, which is removed when the object is destroyed.
@@ -78,7 +79,7 @@ public:
      */
   explicit PidFile (std::string path);
   /** @brief Removes the pid file, when this object owns it. */
-  ~PidFile();
+  ~PidFile ();
 
   PidFile (const PidFile &) = delete;
   PidFile &
@@ -102,7 +103,8 @@ public:
      */
   const std::string &
   path () const noexcept {
-    return path_; }
+    return path_;
+  }
 
 private:
   std::string path_;  ///< The path of the pid file.
@@ -131,9 +133,9 @@ private:
 class SignalPipe {
 public:
   /** @brief Creates the pipe and installs the signal handler. */
-  SignalPipe();
+  SignalPipe ();
   /** @brief Closes the pipe. */
-  ~SignalPipe();
+  ~SignalPipe ();
 
   SignalPipe (const SignalPipe &) = delete;
   SignalPipe &
@@ -145,7 +147,8 @@ public:
      */
   int
   read_fd () const noexcept {
-    return read_fd_; }
+    return read_fd_;
+  }
 
   /**
      * @brief Reads every signal number written to the pipe since the last call.
@@ -175,6 +178,6 @@ private:
   int write_fd_local_{-1};  ///< The write end of the pipe of this object.
 };
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif // SOFTFLOW_DAEMON_HPP
+#endif  // SOFTFLOWD_CPP_DAEMON_HPP

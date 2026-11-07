@@ -1,5 +1,5 @@
 // Original files: ntopng.c
-#include "softflow/ntopng.hpp"
+#include "softflowd_cpp/ntopng.hpp"
 
 #include <arpa/inet.h>
 
@@ -9,13 +9,13 @@
 #include <cstring>
 #include <utility>
 
-#ifdef SOFTFLOW_HAVE_ZMQ
+#ifdef SOFTFLOWD_CPP_HAVE_ZMQ
 #include <zmq.h>
 
 #include <stdexcept>
 #endif
 
-namespace softflow {
+namespace softflowd_cpp {
 
 namespace {
 
@@ -308,7 +308,7 @@ NtopngExporter::build_messages (
   return messages;
 }
 
-#ifdef SOFTFLOW_HAVE_ZMQ
+#ifdef SOFTFLOWD_CPP_HAVE_ZMQ
 
 namespace {
 constexpr int kLingerMs = 3000;  // NTOPNG_LINGER_MS
@@ -362,4 +362,4 @@ NtopngSink::send (const NtopngMessage &message) {
 
 #endif
 
-}  // namespace softflow
+}  // namespace softflowd_cpp

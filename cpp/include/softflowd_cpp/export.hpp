@@ -8,8 +8,8 @@
  *
  * @original export.c, export_common.h.
  */
-#ifndef SOFTFLOW_EXPORT_HPP
-#define SOFTFLOW_EXPORT_HPP
+#ifndef SOFTFLOWD_CPP_EXPORT_HPP
+#define SOFTFLOWD_CPP_EXPORT_HPP
 
 #include <algorithm>
 #include <array>
@@ -21,12 +21,12 @@
 #include <string>
 #include <vector>
 
-#include "softflow/export_common.hpp"
-#include "softflow/ipfix.hpp"
-#include "softflow/netflow.hpp"
-#include "softflow/softflowd.hpp"
+#include "softflowd_cpp/export_common.hpp"
+#include "softflowd_cpp/ipfix.hpp"
+#include "softflowd_cpp/netflow.hpp"
+#include "softflowd_cpp/softflowd.hpp"
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief Builds the packets of NetFlow v1.
@@ -65,7 +65,8 @@ public:
      */
   void
   set_boot_time (TimePoint boot_time) noexcept {
-    boot_time_ = boot_time; }
+    boot_time_ = boot_time;
+  }
 
   /**
      * @brief Splits @p records into one or more NetFlow v1 UDP payloads, each
@@ -133,7 +134,8 @@ public:
      */
   void
   set_boot_time (TimePoint boot_time) noexcept {
-    boot_time_ = boot_time; }
+    boot_time_ = boot_time;
+  }
 
   /**
      * @brief Splits @p records into one or more NetFlow v5 UDP payloads, each
@@ -166,7 +168,8 @@ public:
      */
   std::uint32_t
   flow_sequence () const noexcept {
-    return flow_seq_; }
+    return flow_seq_;
+  }
 
 private:
   /**
@@ -263,20 +266,21 @@ public:
   void
   set_exporter_addresses (const ExporterAddresses &addresses) {
     exporter_addresses_ = addresses;
-    }
+  }
 
-    /**
+  /**
      * @brief Sends the templates again with the next export packet.
      *
      * @original ipfix_resend_template().
      */
-    void force_template_resend() noexcept {
-        if (packets_since_template_ != 0) {
-            packets_since_template_ = 0;
-        }
+  void
+  force_template_resend () noexcept {
+    if (packets_since_template_ != 0) {
+      packets_since_template_ = 0;
     }
+  }
 
-    /**
+  /**
      * @brief Sets the reference points of the time fields.
      *
      * @param boot_time The reference point of the millisecond-elapsed encoding
@@ -288,13 +292,14 @@ public:
      * first packet's own (pcap or wall-clock) timestamp -- see softflowd.cpp's
      * call sites alongside Netflow9Exporter::set_boot_time.
      */
-    void set_boot_time(TimePoint boot_time,
-                        std::chrono::system_clock::time_point boot_wall_time) noexcept {
-        boot_time_ = boot_time;
-        boot_wall_time_ = boot_wall_time;
-    }
+  void
+  set_boot_time (TimePoint boot_time,
+                 std::chrono::system_clock::time_point boot_wall_time) noexcept {
+    boot_time_ = boot_time;
+    boot_wall_time_ = boot_wall_time;
+  }
 
-    /**
+  /**
      * @brief Builds the messages for the expired flows.
      *
      * @p now and @p wall_now are used together to compute each record's
@@ -315,17 +320,20 @@ public:
      *
      * @original send_ipfix_flows()'s template-only packet.
      */
-    std::vector<std::vector<std::uint8_t>>
-    build_packets (std::span<const ExportRecord> records, TimePoint now,
-                   std::chrono::system_clock::time_point wall_now,
-                   std::vector<std::size_t> *template_only_packets = nullptr);
+  std::vector<std::vector<std::uint8_t>>
+  build_packets (std::span<const ExportRecord> records, TimePoint now,
+                 std::chrono::system_clock::time_point wall_now,
+                 std::vector<std::size_t> *template_only_packets = nullptr);
 
-    /**
+  /**
      * @brief The IPFIX sequence number of the next message: the count of Data
      * Records built so far.
      * @return The sequence number.
      */
-    std::uint32_t sequence() const noexcept { return sequence_; }
+  std::uint32_t
+  sequence () const noexcept {
+    return sequence_;
+  }
 
 private:
   /**
@@ -347,35 +355,37 @@ private:
   std::size_t
   header_size () const noexcept {
     return version_ == MessageVersion::Ipfix ? 16 : 20;
-    }
-    /**
+  }
+  /**
      * @brief Writes the Template Set with the templates of the flow records.
      * @param writer The buffer of the message.
      */
-    void write_template_set(ByteWriter& writer) const;
-    /**
+  void
+  write_template_set (ByteWriter &writer) const;
+  /**
      * @brief Writes the Options Template Set and the Options Record.
      * @param writer The buffer of the message.
      */
-    void write_options_set(ByteWriter& writer) const;
+  void
+  write_options_set (ByteWriter &writer) const;
 
-    std::uint32_t observation_domain_id_;                       ///< The Observation Domain ID / Source ID.
-    std::uint8_t mpls_label_count_;                             ///< The number of MPLS labels exported (-x), at most 10.
-    IpfixTimeFormat time_format_;                               ///< The time format (-A); SysUpTime for NetFlow v9.
-    bool biflow_;                                               ///< Biflow encoding (-b); IPFIX only.
-    TimePoint boot_time_;                                       ///< The reference point of the SysUpTime encoding.
-    std::chrono::system_clock::time_point boot_wall_time_;      ///< The same instant on the wall clock.
-    MessageVersion version_;                                    ///< The protocol that is built.
-    std::uint32_t if_index_;                                    ///< NetFlow v9 options scope (-i if_ndx:dev).
-    std::uint32_t sampling_rate_;                               ///< -s.
-    TrackLevel track_level_;                                    ///< -T: VLAN and Ethernet fields.
-    ExporterAddresses exporter_addresses_;                      ///< The addresses of -e.
-    std::optional<std::array<std::uint8_t, 6>> direction_mac_;  ///< -H.
-    std::uint32_t v9_sequence_{1};                              ///< NetFlow v9 counts packets, from 1.
-    std::uint32_t sequence_{0};                                 ///< The count of Data Records built so far.
-    std::uint32_t packets_since_template_{0};                   ///< Packets since the templates were sent; 0 = send them with the next packet.
+  std::uint32_t observation_domain_id_;                       ///< The Observation Domain ID / Source ID.
+  std::uint8_t mpls_label_count_;                             ///< The number of MPLS labels exported (-x), at most 10.
+  IpfixTimeFormat time_format_;                               ///< The time format (-A); SysUpTime for NetFlow v9.
+  bool biflow_;                                               ///< Biflow encoding (-b); IPFIX only.
+  TimePoint boot_time_;                                       ///< The reference point of the SysUpTime encoding.
+  std::chrono::system_clock::time_point boot_wall_time_;      ///< The same instant on the wall clock.
+  MessageVersion version_;                                    ///< The protocol that is built.
+  std::uint32_t if_index_;                                    ///< NetFlow v9 options scope (-i if_ndx:dev).
+  std::uint32_t sampling_rate_;                               ///< -s.
+  TrackLevel track_level_;                                    ///< -T: VLAN and Ethernet fields.
+  ExporterAddresses exporter_addresses_;                      ///< The addresses of -e.
+  std::optional<std::array<std::uint8_t, 6>> direction_mac_;  ///< -H.
+  std::uint32_t v9_sequence_{1};                              ///< NetFlow v9 counts packets, from 1.
+  std::uint32_t sequence_{0};                                 ///< The count of Data Records built so far.
+  std::uint32_t packets_since_template_{0};                   ///< Packets since the templates were sent; 0 = send them with the next packet.
 };
 
-}  // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif  // SOFTFLOW_EXPORT_HPP
+#endif  // SOFTFLOWD_CPP_EXPORT_HPP

@@ -9,8 +9,8 @@
  *
  * @original export_common.c, export_common.h.
  */
-#ifndef SOFTFLOW_EXPORT_COMMON_HPP
-#define SOFTFLOW_EXPORT_COMMON_HPP
+#ifndef SOFTFLOWD_CPP_EXPORT_COMMON_HPP
+#define SOFTFLOWD_CPP_EXPORT_COMMON_HPP
 
 #include <array>
 #include <chrono>
@@ -19,9 +19,9 @@
 #include <optional>
 #include <string>
 
-#include "softflow/softflowd.hpp"
+#include "softflowd_cpp/softflowd.hpp"
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @name Template IDs of the flow templates
@@ -190,6 +190,6 @@ finish_set (ByteWriter &writer, std::size_t set_start, std::size_t base_offset =
 void
 finish_set_unpadded (ByteWriter &writer, std::size_t set_start);
 
-}  // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif  // SOFTFLOW_EXPORT_COMMON_HPP
+#endif  // SOFTFLOWD_CPP_EXPORT_COMMON_HPP

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(softflowd+ VERSION 0.0.1 LANGUAGES CXX)
 
 # Applied at directory scope (not just to a single target) because
-# SOFTFLOW_LOGIC_SOURCES, which includes softflowd.cpp, is compiled
+# SOFTFLOWD_CPP_LOGIC_SOURCES, which includes softflowd.cpp, is compiled
 # directly into more than one target below (softflow_core, softflowd+),
 # not solely reused via the object library.
 add_compile_definitions(
@@ -26,8 +26,8 @@ add_compile_options(
   -Wnon-virtual-dtor -Woverloaded-virtual -Wnull-dereference
 )
 
-option(SOFTFLOW_ENABLE_SANITIZERS "Enable AddressSanitizer/UndefinedBehaviorSanitizer" ON)
-if(SOFTFLOW_ENABLE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+option(SOFTFLOWD_CPP_ENABLE_SANITIZERS "Enable AddressSanitizer/UndefinedBehaviorSanitizer" ON)
+if(SOFTFLOWD_CPP_ENABLE_SANITIZERS AND CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
@@ -43,8 +43,19 @@ find_package(Threads REQUIRED)
 # rationale). softflowctl.cpp is compiled separately below, since -- like
 # the original -- it is its own standalone client program, not part of
 # softflowd's own logic.
-set(SOFTFLOW_LOGIC_SOURCES
+set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/softflowd.cpp
+  src/flow.cpp
+  src/flow_runtime.cpp
+  src/options.cpp
+  src/format.cpp
+  src/log.cpp
+  src/stats.cpp
+  src/packet.cpp
+  src/sender.cpp
+  src/capture.cpp
+  src/netsock.cpp
+  src/control.cpp
   src/export_common.cpp
   src/export.cpp
   src/psamp.cpp
@@ -52,44 +63,44 @@ set(SOFTFLOW_LOGIC_SOURCES
   src/daemon.cpp
 )
 
-# Compiled once, with SOFTFLOW_NO_MAIN (which compiles softflowd.cpp's
+# Compiled once, with SOFTFLOWD_CPP_NO_MAIN (which compiles softflowd.cpp's
 # main() out), as an object library that the test executables link
 # against, since each test supplies its own main().
-add_library(softflow_core OBJECT ${SOFTFLOW_LOGIC_SOURCES})
+add_library(softflow_core OBJECT ${SOFTFLOWD_CPP_LOGIC_SOURCES})
 target_include_directories(softflow_core PUBLIC include)
 target_link_libraries(softflow_core PUBLIC ${PCAP_LIBRARY})
 
 # Original: --enable-ntopng (default NO). Sends the flows to ntopng 6.0 or
 # later over ZeroMQ with -v ntopng.
-option(SOFTFLOW_NTOPNG "Enable flow sending to ntopng with ZeroMQ" OFF)
-option(SOFTFLOW_DOC_WARN_AS_ERROR "Make the doc target fail on a Doxygen warning" OFF)
-if(SOFTFLOW_NTOPNG)
+option(SOFTFLOWD_CPP_NTOPNG "Enable flow sending to ntopng with ZeroMQ" OFF)
+option(SOFTFLOWD_CPP_DOC_WARN_AS_ERROR "Make the doc target fail on a Doxygen warning" OFF)
+if(SOFTFLOWD_CPP_NTOPNG)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(ZMQ REQUIRED IMPORTED_TARGET libzmq)
-  target_compile_definitions(softflow_core PUBLIC SOFTFLOW_HAVE_ZMQ)
+  target_compile_definitions(softflow_core PUBLIC SOFTFLOWD_CPP_HAVE_ZMQ)
   target_link_libraries(softflow_core PUBLIC PkgConfig::ZMQ)
 endif()
-target_compile_definitions(softflow_core PUBLIC SOFTFLOW_NO_MAIN)
+target_compile_definitions(softflow_core PUBLIC SOFTFLOWD_CPP_NO_MAIN)
 
 # softflowctl.cpp likewise contains both shared control-protocol wire
 # helpers (read_line/write_line/ControlClient, used by softflowd.cpp's
 # control-socket server as well as by softflowctl itself) and its own
-# main(), also guarded by SOFTFLOW_NO_MAIN. Compiled once, without main,
+# main(), also guarded by SOFTFLOWD_CPP_NO_MAIN. Compiled once, without main,
 # as its own small object library so both softflowd+ and the test
 # binaries can link the protocol helpers without duplicating them.
 add_library(softflowctl_lib OBJECT src/softflowctl.cpp)
 target_include_directories(softflowctl_lib PUBLIC include)
-target_compile_definitions(softflowctl_lib PRIVATE SOFTFLOW_NO_MAIN)
+target_compile_definitions(softflowctl_lib PRIVATE SOFTFLOWD_CPP_NO_MAIN)
 
-# The softflowd+ daemon executable: SOFTFLOW_LOGIC_SOURCES compiled
-# directly (with main() included, since SOFTFLOW_NO_MAIN is not defined
+# The softflowd+ daemon executable: SOFTFLOWD_CPP_LOGIC_SOURCES compiled
+# directly (with main() included, since SOFTFLOWD_CPP_NO_MAIN is not defined
 # for this target), linked against softflowctl_lib for the control-socket
 # wire-protocol helpers.
-add_executable(softflowd+ ${SOFTFLOW_LOGIC_SOURCES})
+add_executable(softflowd+ ${SOFTFLOWD_CPP_LOGIC_SOURCES})
 target_include_directories(softflowd+ PRIVATE include)
 target_link_libraries(softflowd+ PRIVATE ${PCAP_LIBRARY} softflowctl_lib Threads::Threads)
-if(SOFTFLOW_NTOPNG)
-  target_compile_definitions(softflowd+ PRIVATE SOFTFLOW_HAVE_ZMQ)
+if(SOFTFLOWD_CPP_NTOPNG)
+  target_compile_definitions(softflowd+ PRIVATE SOFTFLOWD_CPP_HAVE_ZMQ)
   target_link_libraries(softflowd+ PRIVATE PkgConfig::ZMQ)
 endif()
 
@@ -139,7 +150,7 @@ add_test(NAME softflowctl COMMAND test_softflowctl)
 
 # API documentation: `cmake --build <dir> --target doc` writes HTML to
 # <dir>/doc/html. Not part of the default build, and skipped when Doxygen is
-# not installed. With -DSOFTFLOW_DOC_WARN_AS_ERROR=ON a Doxygen warning, such as
+# not installed. With -DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON a Doxygen warning, such as
 # an undocumented declaration, fails it (the doc job of CI). A Doxygen comment keeps what the C version does as
 # "@original" (see DOXYGEN_ALIASES), next to the description of the C++ code.
 find_package(Doxygen OPTIONAL_COMPONENTS dot)
@@ -158,7 +169,7 @@ if(DOXYGEN_FOUND)
   set(DOXYGEN_QUIET YES)
   set(DOXYGEN_WARN_IF_UNDOCUMENTED YES)
   set(DOXYGEN_WARN_NO_PARAMDOC NO)
-  if(SOFTFLOW_DOC_WARN_AS_ERROR)
+  if(SOFTFLOWD_CPP_DOC_WARN_AS_ERROR)
     set(DOXYGEN_WARN_AS_ERROR FAIL_ON_WARNINGS)
   endif()
   set(DOXYGEN_ALIASES "original=@par Original (C version)^^")

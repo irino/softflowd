@@ -2,9 +2,9 @@
 #include <cstdio>
 #include <vector>
 
-#include "softflow/psamp.hpp"
+#include "softflowd_cpp/psamp.hpp"
 
-using namespace softflow;
+using namespace softflowd_cpp;
 using namespace std::chrono_literals;
 
 namespace {

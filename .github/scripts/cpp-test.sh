@@ -7,7 +7,7 @@
 # Debug of cpp/CMakeLists.txt), so that an error of memory aborts the run.
 #
 # usage: cpp-test.sh [ntopng]
-#   ntopng: build the C++ version with -DSOFTFLOW_NTOPNG=ON (it needs libzmq)
+#   ntopng: build the C++ version with -DSOFTFLOWD_CPP_NTOPNG=ON (it needs libzmq)
 #           and compare the ntopng messages of the two versions as well.
 set -eu
 
@@ -29,7 +29,7 @@ make -j"$(nproc)"
 
 # The C++ version.
 if [ "$NTOPNG" = on ]; then
-    cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DSOFTFLOW_NTOPNG=ON
+    cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug -DSOFTFLOWD_CPP_NTOPNG=ON
 else
     cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug
 fi

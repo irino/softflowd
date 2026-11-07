@@ -1,4 +1,4 @@
-#include "softflow/softflowctl.hpp"
+#include "softflowd_cpp/softflowctl.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -8,7 +8,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 std::string
 read_line (int fd) {
@@ -161,12 +161,12 @@ ControlClient::send_command_raw (const std::string &command) {
   return read_all (fd_);
 }
 
-}  // namespace softflow
+}  // namespace softflowd_cpp
 
 // =======================================================================
 // main() (original: softflowctl.c's main())
 // =======================================================================
-#ifndef SOFTFLOW_NO_MAIN
+#ifndef SOFTFLOWD_CPP_NO_MAIN
 
 namespace {
 
@@ -186,7 +186,7 @@ print_usage () {
 // is copied to stdout as it is, and the exit status is 0 once connected.
 int
 main (int argc, char **argv) {
-  std::string socket_path = softflow::kDefaultControlSocketPath;
+  std::string socket_path = softflowd_cpp::kDefaultControlSocketPath;
   int ch;
   while ((ch = getopt (argc, argv, "hc:")) != -1) {
     switch (ch) {
@@ -210,7 +210,7 @@ main (int argc, char **argv) {
   }
 
   try {
-    softflow::ControlClient client (socket_path);
+    softflowd_cpp::ControlClient client (socket_path);
     const std::string reply = client.send_command_raw (argv[optind]);
     std::fwrite (reply.data(), 1, reply.size(), stdout);
     return 0;
@@ -220,4 +220,4 @@ main (int argc, char **argv) {
   }
 }
 
-#endif  // SOFTFLOW_NO_MAIN
+#endif  // SOFTFLOWD_CPP_NO_MAIN

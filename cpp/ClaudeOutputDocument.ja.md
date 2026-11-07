@@ -44,11 +44,11 @@ PSAMPはC版の形式です。1つのメッセージが1つのキャプチャし
 
 `-v ntopng`は、ntopng 6.0以降のTLV形式(36オクテットのヘッダとnDPIシリアライザ形式)で、
 `-n`の宛先へ接続するZeroMQのPUBソケットからフローを送ります。メッセージを送る部分は
-`-DSOFTFLOW_NTOPNG=ON`でビルドされ、libzmq(pkg-configで検出)が必要です。ntopng 5.x以前のJSON形式は
+`-DSOFTFLOWD_CPP_NTOPNG=ON`でビルドされ、libzmq(pkg-configで検出)が必要です。ntopng 5.x以前のJSON形式は
 未実装です。C版と同じく、統計行の`Flows exported`はntopngでは0のままです。
 
 ```sh
-cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-zmq -j
+cmake -S cpp -B /tmp/build-zmq -DSOFTFLOWD_CPP_NTOPNG=ON && cmake --build /tmp/build-zmq -j
 /tmp/build-zmq/softflowd+ -i eth0 -v ntopng -n 127.0.0.1:5556
 ```
 
@@ -84,7 +84,7 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-
 | ZeroMQとfork | `-v ntopng`のZeroMQソケットは、forkの後、権限分離の前に作ります。C版は`daemon ()`の前に作っていたため、デーモンは何もエクスポートしませんでした(ZeroMQのI/Oスレッドはforkで引き継がれません)。C版も直しました。失敗は`logit ()`でログに出します |
 | CI | `.github/workflows/build.yml`のジョブ`cpp-test`(ZeroMQなし/あり)が`.github/scripts/cpp-test.sh`を実行します。ビルド、`ctest`、`compat --strict --psamp`、デーモンの検査です。ZeroMQありでは、C版を`--enable-ntopng`でビルドして`--ntopng-bin`に渡します。JSON対応のないビルドでは`-v ntopng-json`をスキップします |
 | ICMPとIPv6のBiflow | ICMPとIPv6のBiflowのレコードが持つインターフェースインデックスとフロー方向を、C版と同じにしました(flowDirectionのバイトが違っていました)。C版との比較は、`-b -T ether -H`をIPv4のサンプル(`smoke`)とIPv6のサンプル(`gen_ci_smoke_pcap.py -6`で作る`smoke6`)で、さらに`lo`のライブキャプチャの`-i 7:lo -b`(レコードのifIndex・方向・カウンタ。`-T ether`と`-H`の有無とも)で確認します |
-| Doxygen | `cpp/`のコメント(`.cpp`、`.hpp`)はDoxygenコメントで、C版についての注記は`@original`です。`cmake --build cpp/build --target doc`でHTMLを作り、`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`なら警告でビルドが失敗します。C版も同じです。`doxygen Doxyfile`は、著作権がDamien MillerかHitoshi Irinoの`.c`と`.h`(`convtime.*`、`daemon.c`、`compat/`を除く)を、`@file`コメントつきで読み、コメントのない構造体・メンバー・関数・変数・マクロ・型は警告です。`.github/workflows/build.yml`のジョブ`cpp-doc`と`doc-c`が実行し、警告でジョブが失敗します。Rust版は対象外です |
+| Doxygen | `cpp/`のコメント(`.cpp`、`.hpp`)はDoxygenコメントで、C版についての注記は`@original`です。`cmake --build cpp/build --target doc`でHTMLを作り、`-DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON`なら警告でビルドが失敗します。C版も同じです。`doxygen Doxyfile`は、著作権がDamien MillerかHitoshi Irinoの`.c`と`.h`(`convtime.*`、`daemon.c`、`compat/`を除く)を、`@file`コメントつきで読み、コメントのない構造体・メンバー・関数・変数・マクロ・型は警告です。`.github/workflows/build.yml`のジョブ`cpp-doc`と`doc-c`が実行し、警告でジョブが失敗します。Rust版は対象外です |
 | `-g` | cpu clocksは、キャプチャファイルでもライブでも、停止時に報告します(標準エラー。デーモンはsyslog)。`-M`ではエクスポートのclockは"n/a"です。compatの測定は、既定のビルドがサニタイザ付きのため、最適化ビルドで行います |
 
 ### 既知の差と未完了の項目
@@ -320,7 +320,7 @@ NetFlow v9はC言語版と同じくIPFIX exporterで出力するため、`netflo
 元プロジェクト同様、`softflowctl`は独立した実行ファイル(`softflowctl+`)
 です。`softflowctl.cpp`は制御プロトコルの共有ヘルパー(`read_line`/
 `write_line`/`ControlClient`)と、`softflowctl+`自身の`main()`(`#ifndef
-SOFTFLOW_NO_MAIN`で保護)の両方を含みます。`softflowd+`の制御ソケット
+SOFTFLOWD_CPP_NO_MAIN`で保護)の両方を含みます。`softflowd+`の制御ソケット
 サーバー側は`softflowd.cpp`内に実装されており(元プロジェクトでも
 `softflowd.c`側がリスニング/acceptを担当していたため)、`softflowctl.cpp`が
 提供する共有プロトコルヘルパーだけをリンクします。
@@ -332,7 +332,7 @@ Stage 1/2と異なり、Stage 3のファイル(`netflow1`/`netflow5`/`netflow9`/
 でもこれらは明確に独立したファイルだったため、そのままの構成を踏襲しています:
 
 ```
-include/softflow/
+include/softflowd_cpp/
   export.hpp         NetFlow v1(固定長レコード、テンプレートなし)、v5(flow_sequence付き)、
                      v9(RFC 3954)、IPFIX(RFC 7011)のエクスポータ
   export_common.hpp  共通処理: NTP時刻、uptime/epoch時刻、Setのパディング、
@@ -384,7 +384,7 @@ NetFlow/IPFIX自体の仕様には含まれません)。
 このプロジェクトでは「モダンC++にする」という目的に反しない範囲で、可能な限り
 元の1枚岩の構成に合わせています:
 
-- **`include/softflow/softflowd.hpp`**: `Flow`/`FlowKey`/`FlowTable`/
+- **`include/softflowd_cpp/softflowd.hpp`**: `Flow`/`FlowKey`/`FlowTable`/
   `PacketParser`/`PcapHandle`など、公開する型はすべてここに宣言(元の
   `softflowd.h` + `common.h` + `freelist.h`/`treetype.h`/`sys-tree.h`相当)
 - **`src/softflowd.cpp`**: 上記すべての実装 + `main()`(元の`softflowd.c` +
@@ -404,11 +404,11 @@ NetFlow/IPFIX自体の仕様には含まれません)。
 `softflowd.cpp`は`main()`を含む一方、テスト実行ファイル(`test_flow_table`,
 `test_packet_parser`)も自前の`main()`を持つため、単純に同じ`.cpp`をリンクすると
 シンボルが衝突します。これを避けるため、`softflowd.cpp`内の`main()`は
-`#ifndef SOFTFLOW_NO_MAIN`で囲んであり、`CMakeLists.txt`は次のように
+`#ifndef SOFTFLOWD_CPP_NO_MAIN`で囲んであり、`CMakeLists.txt`は次のように
 同じソースファイルを2通りにビルドします:
 
 - `softflowd+`実行ファイル: `softflowd.cpp`をそのままビルド(`main()`あり)
-- `softflow_core`(テスト用オブジェクトライブラリ): `-DSOFTFLOW_NO_MAIN`付きで
+- `softflow_core`(テスト用オブジェクトライブラリ): `-DSOFTFLOWD_CPP_NO_MAIN`付きで
   `softflowd.cpp`をビルド(`main()`なし)。各テストが自分の`main()`を提供する
 
 ## フロー管理のデータ構造を選択可能に(木構造 or ハッシュ)
@@ -424,13 +424,13 @@ NetFlow/IPFIX自体の仕様には含まれません)。
 **コンパイル時選択**(テンプレート、オーバーヘッドなし):
 
 ```cpp
-softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
+softflowd_cpp::FlowTable<softflowd_cpp::FlowIndexBackend::Tree> table(65536);
 ```
 
 **実行時選択**(`std::variant`ベースの`FlowTableRuntime`でラップ):
 
 ```cpp
-softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
+softflowd_cpp::FlowTableRuntime table(softflowd_cpp::FlowIndexBackend::Tree, 65536);
 ```
 
 `softflowd+`実行ファイルは`-F hash-tree`/`-F tree`/`-F hash`オプションで
@@ -494,7 +494,7 @@ UndefinedBehaviorSanitizer が自動で有効になります。
 ## ディレクトリ構成
 
 ```
-include/softflow/
+include/softflowd_cpp/
   softflowd.hpp        Flow / FlowKey / FlowTable<Backend> / FlowTableRuntime /
                         PacketParser / PcapHandle / ByteWriter /
                         ExportDestination(Set) / TransportKind など
@@ -531,6 +531,6 @@ tests/
 
 ## 未完了の項目
 
-- ZeroMQ付きビルド(`-DSOFTFLOW_NTOPNG=ON`)のCIジョブ
+- ZeroMQ付きビルド(`-DSOFTFLOWD_CPP_NTOPNG=ON`)のCIジョブ
 - 実NICとBSDでのライブキャプチャ、`--enable-ifname`
 - 実環境でのSCTPの確認(開発環境にSCTPのカーネルモジュールがなく、udpへのフォールバックだけを確認済み)

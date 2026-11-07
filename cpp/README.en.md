@@ -19,10 +19,10 @@ cmake --build cpp/build -j
 ```
 
 Dependency: libpcap. The default build type is `Debug`, which enables
-AddressSanitizer and UndefinedBehaviorSanitizer (`-DSOFTFLOW_ENABLE_SANITIZERS=OFF`
+AddressSanitizer and UndefinedBehaviorSanitizer (`-DSOFTFLOWD_CPP_ENABLE_SANITIZERS=OFF`
 turns them off). Measure the speed with `-DCMAKE_BUILD_TYPE=Release`.
 
-`-DSOFTFLOW_NTOPNG=ON` builds the export to ntopng (`-v ntopng`, the TLV format of
+`-DSOFTFLOWD_CPP_NTOPNG=ON` builds the export to ntopng (`-v ntopng`, the TLV format of
 ntopng 6.0 and later over ZeroMQ). It needs libzmq.
 
 ## API documentation
@@ -37,7 +37,7 @@ the note about the function or the variable of the C version that it follows
 and about how it differs.
 
 A declaration without a comment is a warning. CI (the job `cpp-doc`) builds with
-`-DSOFTFLOW_DOC_WARN_AS_ERROR=ON`, which makes a warning fail the build; use it
+`-DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON`, which makes a warning fail the build; use it
 before a commit that adds a declaration.
 
 ## Test

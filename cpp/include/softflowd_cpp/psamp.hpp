@@ -10,8 +10,8 @@
  *
  * @original psamp.c, psamp.h.
  */
-#ifndef SOFTFLOW_PSAMP_HPP
-#define SOFTFLOW_PSAMP_HPP
+#ifndef SOFTFLOWD_CPP_PSAMP_HPP
+#define SOFTFLOWD_CPP_PSAMP_HPP
 
 #include <chrono>
 #include <cstdint>
@@ -19,10 +19,10 @@
 #include <span>
 #include <vector>
 
-#include "softflow/export_common.hpp"
-#include "softflow/softflowd.hpp"
+#include "softflowd_cpp/export_common.hpp"
+#include "softflowd_cpp/softflowd.hpp"
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief The Template ID of the template of the PSAMP data messages.
@@ -102,7 +102,8 @@ public:
    */
   std::uint32_t
   sequence () const noexcept {
-    return sequence_; }
+    return sequence_;
+  }
 
 private:
   /**
@@ -144,6 +145,6 @@ struct PsampFrame {
 std::optional<PsampFrame>
 decode_psamp_message (std::span<const std::uint8_t> data);
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif // SOFTFLOW_PSAMP_HPP
+#endif  // SOFTFLOWD_CPP_PSAMP_HPP

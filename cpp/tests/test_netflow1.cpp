@@ -1,9 +1,9 @@
 #include <cassert>
 #include <cstdio>
 
-#include "softflow/export.hpp"
+#include "softflowd_cpp/export.hpp"
 
-using namespace softflow;
+using namespace softflowd_cpp;
 using namespace std::chrono_literals;
 
 namespace {

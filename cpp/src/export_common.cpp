@@ -1,5 +1,5 @@
 // Original files: export_common.c
-#include "softflow/export_common.hpp"
+#include "softflowd_cpp/export_common.hpp"
 
 #include <netdb.h>
 #include <netinet/in.h>
@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 // base_offset is the size of what precedes the writer's content in the
 // packet (the message header): the original pads the packet offset, not the
@@ -137,4 +137,4 @@ ntp64_to_unix_us (std::uint64_t ntp) {
   return (static_cast<std::uint64_t> (seconds) - kNtpEpochOffsetSeconds) * 1000000 + usec;
 }
 
-}  // namespace softflow
+}  // namespace softflowd_cpp

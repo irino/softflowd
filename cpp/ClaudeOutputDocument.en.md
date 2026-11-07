@@ -52,12 +52,12 @@ time, as in the C version.
 `-v ntopng` sends the flows in the TLV format of ntopng 6.0 and later (a
 36-octet header and the nDPI serializer format) over a ZeroMQ PUB socket that
 connects to the `-n` destination. The sink that sends the messages is built
-with `-DSOFTFLOW_NTOPNG=ON` and needs libzmq (found with pkg-config); the
+with `-DSOFTFLOWD_CPP_NTOPNG=ON` and needs libzmq (found with pkg-config); the
 JSON format of ntopng 5.x and earlier is not implemented. As in the C version,
 the statistics line `Flows exported` stays 0 for ntopng.
 
 ```sh
-cmake -S cpp -B /tmp/build-zmq -DSOFTFLOW_NTOPNG=ON && cmake --build /tmp/build-zmq -j
+cmake -S cpp -B /tmp/build-zmq -DSOFTFLOWD_CPP_NTOPNG=ON && cmake --build /tmp/build-zmq -j
 /tmp/build-zmq/softflowd+ -i eth0 -v ntopng -n 127.0.0.1:5556
 ```
 
@@ -95,7 +95,7 @@ version.
 | ZeroMQ and the fork | The ZeroMQ sockets of `-v ntopng` are made after the fork and before the privilege separation. The C version made them before `daemon ()`, so that a daemon exported nothing (ZeroMQ's I/O threads do not survive a fork); it was changed. A failure is logged with `logit ()` |
 | CI | The job `cpp-test` of `.github/workflows/build.yml` (without and with ZeroMQ) runs `.github/scripts/cpp-test.sh`: the build, `ctest`, `compat --strict --psamp` and the check of the daemon. With ZeroMQ the C version is built with `--enable-ntopng` and passed as `--ntopng-bin`; `-v ntopng-json` is skipped where the build has no JSON |
 | Biflow of ICMP and IPv6 | The records of Biflow of ICMP and of IPv6 carry the interface index and the flow direction as the C version does (they differed at the flowDirection byte). The comparison with the C version covers `-b -T ether -H` with an IPv4 sample (`smoke`) and an IPv6 sample (`smoke6`, made by `gen_ci_smoke_pcap.py -6`), and a live capture on `lo` with `-i 7:lo -b` (the ifIndex, the direction and the counters of the records, with and without `-T ether` and `-H`) |
-| Doxygen | The comments of `cpp/` (`.cpp`, `.hpp`) are Doxygen comments, with the notes on the C version as `@original`. `cmake --build cpp/build --target doc` makes the HTML; with `-DSOFTFLOW_DOC_WARN_AS_ERROR=ON` a warning fails the build. The C version has them too: `doxygen Doxyfile` reads the `.c` and `.h` files whose copyright is Damien Miller or Hitoshi Irino (not `convtime.*`, `daemon.c` and `compat/`), each with a `@file` comment, and a struct, a member, a function, a variable, a macro or a type without a comment is a warning. The jobs `cpp-doc` and `doc-c` of `.github/workflows/build.yml` run them, and a warning fails the job. The Rust version is not part of it |
+| Doxygen | The comments of `cpp/` (`.cpp`, `.hpp`) are Doxygen comments, with the notes on the C version as `@original`. `cmake --build cpp/build --target doc` makes the HTML; with `-DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON` a warning fails the build. The C version has them too: `doxygen Doxyfile` reads the `.c` and `.h` files whose copyright is Damien Miller or Hitoshi Irino (not `convtime.*`, `daemon.c` and `compat/`), each with a `@file` comment, and a struct, a member, a function, a variable, a macro or a type without a comment is a warning. The jobs `cpp-doc` and `doc-c` of `.github/workflows/build.yml` run them, and a warning fails the job. The Rust version is not part of it |
 | `-g` | The cpu clocks are reported when the daemon stops, for a capture file and for a live capture: to the standard error, or to syslog for a daemon; with `-M` the clocks of the export are "n/a". The measurements of compat use an optimized build, as the default build has the sanitizers |
 
 ### Known differences and open items
@@ -359,7 +359,7 @@ returns.
 As in the original, `softflowctl` is its own standalone executable
 (`softflowctl+`). `softflowctl.cpp` contains both the shared
 control-protocol helpers (`read_line`/`write_line`/`ControlClient`) and
-`softflowctl+`'s own `main()` (guarded by `#ifndef SOFTFLOW_NO_MAIN`).
+`softflowctl+`'s own `main()` (guarded by `#ifndef SOFTFLOWD_CPP_NO_MAIN`).
 `softflowd+`'s control-socket *server* side lives in `softflowd.cpp`
 itself (matching the original, where `softflowd.c` owned the
 listening/accepting code), linking only against softflowctl.cpp's shared
@@ -373,7 +373,7 @@ genuinely separate files in the original project too, so that boundary is
 kept as-is:
 
 ```
-include/softflow/
+include/softflowd_cpp/
   export.hpp         The exporters of NetFlow v1 (fixed-length records, no templates),
                      v5 (adds a flow_sequence counter), v9 (RFC 3954) and
                      IPFIX (RFC 7011, absolute timestamps)
@@ -428,7 +428,7 @@ the flow/expiry struct definitions lived in `softflowd.h`. `freelist.c` /
 This project follows that same monolithic layout as closely as possible,
 to the extent it doesn't conflict with the goal of using modern C++:
 
-- **`include/softflow/softflowd.hpp`**: every public type --
+- **`include/softflowd_cpp/softflowd.hpp`**: every public type --
   `Flow`/`FlowKey`/`FlowTable`/`PacketParser`/`PcapHandle`, etc. -- is
   declared here (equivalent to the original `softflowd.h` + `common.h` +
   `freelist.h`/`treetype.h`/`sys-tree.h`)
@@ -452,12 +452,12 @@ described below), which likewise lives in `softflowd.hpp`/`softflowd.cpp`.
 (`test_flow_table`, `test_packet_parser`) each supply their own `main()`
 too -- linking the same `.cpp` into both would be a duplicate-symbol error.
 To avoid this, the `main()` inside `softflowd.cpp` is wrapped in
-`#ifndef SOFTFLOW_NO_MAIN`, and `CMakeLists.txt` compiles the same source
+`#ifndef SOFTFLOWD_CPP_NO_MAIN`, and `CMakeLists.txt` compiles the same source
 file two different ways:
 
 - the `softflowd+` executable: `softflowd.cpp` compiled as-is (`main()` included)
 - `softflow_core` (an object library used only by the tests): `softflowd.cpp`
-  compiled with `-DSOFTFLOW_NO_MAIN` (`main()` compiled out), so each test
+  compiled with `-DSOFTFLOWD_CPP_NO_MAIN` (`main()` compiled out), so each test
   can supply its own `main()`
 
 ## Selectable flow-tracking data structure (tree or hash)
@@ -475,13 +475,13 @@ The original softflowd tracked flows in a red-black tree implemented via
 **Compile-time selection** (a template parameter, zero runtime overhead):
 
 ```cpp
-softflow::FlowTable<softflow::FlowIndexBackend::Tree> table(65536);
+softflowd_cpp::FlowTable<softflowd_cpp::FlowIndexBackend::Tree> table(65536);
 ```
 
 **Run-time selection** (via `FlowTableRuntime`, a `std::variant`-based wrapper):
 
 ```cpp
-softflow::FlowTableRuntime table(softflow::FlowIndexBackend::Tree, 65536);
+softflowd_cpp::FlowTableRuntime table(softflowd_cpp::FlowIndexBackend::Tree, 65536);
 ```
 
 The `softflowd+` executable can switch the flow table at run time via
@@ -545,7 +545,7 @@ includes regression tests for them.
 ## Directory layout
 
 ```
-include/softflow/
+include/softflowd_cpp/
   softflowd.hpp        Every core public type: Flow / FlowKey /
                         FlowTable<Backend> / FlowTableRuntime /
                         PacketParser / PcapHandle / ByteWriter /
@@ -586,7 +586,7 @@ Building produces two executables: `softflowd+` (the daemon itself) and
 
 ## Open items
 
-- A CI job with ZeroMQ (`-DSOFTFLOW_NTOPNG=ON`)
+- A CI job with ZeroMQ (`-DSOFTFLOWD_CPP_NTOPNG=ON`)
 - Live capture on a physical NIC and on BSD; `--enable-ifname`
 - Real-world SCTP testing (the development environment has no SCTP kernel
   module, so only the udp fallback has been exercised)

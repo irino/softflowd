@@ -1,4 +1,4 @@
-#include "softflow/daemon.hpp"
+#include "softflowd_cpp/daemon.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 void
 daemonize () {
@@ -199,4 +199,4 @@ SignalPipe::drain () {
   return signals;
 }
 
-}  // namespace softflow
+}  // namespace softflowd_cpp

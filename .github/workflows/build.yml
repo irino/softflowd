@@ -166,7 +166,7 @@ jobs:
   # the exported datagrams byte for byte, the control replies, the logs, the
   # errors of the command line, and, as root, a live capture on lo).  The C++
   # version is built with AddressSanitizer and UndefinedBehaviorSanitizer.
-  # "ntopng" builds it with -DSOFTFLOW_NTOPNG=ON (it needs libzmq) and compares
+  # "ntopng" builds it with -DSOFTFLOWD_CPP_NTOPNG=ON (it needs libzmq) and compares
   # the ntopng messages of the two versions as well.
   cpp-test:
     runs-on: ubuntu-latest
@@ -207,8 +207,8 @@ jobs:
 
       - name: Generate the documentation, warnings are errors
         run: |
-          cmake -S cpp -B cpp/build-doc -DSOFTFLOW_NTOPNG=ON \
-            -DSOFTFLOW_DOC_WARN_AS_ERROR=ON
+          cmake -S cpp -B cpp/build-doc -DSOFTFLOWD_CPP_NTOPNG=ON \
+            -DSOFTFLOWD_CPP_DOC_WARN_AS_ERROR=ON
           cmake --build cpp/build-doc --target doc
 
   # The Doxygen comments of the C version (the .c and .h files that Doxyfile

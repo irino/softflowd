@@ -7,13 +7,13 @@
  * zmq_msg_hdr_v4: a 36-octet header followed by the flows in the TLV format
  * of the nDPI serializer. The encoding does not need ZeroMQ and is always
  * built; only the sink that sends the messages is optional
- * (SOFTFLOW_HAVE_ZMQ). The JSON export for ntopng 5.x and earlier belongs to
+ * (SOFTFLOWD_CPP_HAVE_ZMQ). The JSON export for ntopng 5.x and earlier belongs to
  * the compatibility code of the original and is not implemented.
  *
  * @original ntopng.c (TLV export for ntopng 6.0 and later).
  */
-#ifndef SOFTFLOW_NTOPNG_HPP
-#define SOFTFLOW_NTOPNG_HPP
+#ifndef SOFTFLOWD_CPP_NTOPNG_HPP
+#define SOFTFLOWD_CPP_NTOPNG_HPP
 
 #include <chrono>
 #include <cstdint>
@@ -22,9 +22,9 @@
 #include <string>
 #include <vector>
 
-#include "softflow/softflowd.hpp"
+#include "softflowd_cpp/softflowd.hpp"
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /**
  * @brief The maximum size in octets of the TLV payload of one message.
@@ -90,7 +90,7 @@ private:
   std::uint32_t msg_id_{0};  ///< The message identifier of the next message, counted up.
 };
 
-#ifdef SOFTFLOW_HAVE_ZMQ
+#ifdef SOFTFLOWD_CPP_HAVE_ZMQ
 /**
  * @brief A ZeroMQ PUB socket that sends the messages to ntopng.
  *
@@ -110,7 +110,7 @@ public:
    */
   NtopngSink (const std::string &host, const std::string &port);
   /** @brief Closes the socket after the queued messages are sent, or after the linger time. */
-  ~NtopngSink();
+  ~NtopngSink ();
   NtopngSink (const NtopngSink &) = delete;
   NtopngSink &
   operator= (const NtopngSink &) = delete;
@@ -131,6 +131,6 @@ private:
 };
 #endif
 
-}  // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif  // SOFTFLOW_NTOPNG_HPP
+#endif  // SOFTFLOWD_CPP_NTOPNG_HPP

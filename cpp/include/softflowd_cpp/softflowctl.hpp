@@ -15,18 +15,18 @@
  * shutdown, exit, expire-all, delete-all, statistics, debug+, debug-,
  * stop-gather, start-gather, dump-flows, timeouts, send-template.
  */
-#ifndef SOFTFLOW_SOFTFLOWCTL_HPP
-#define SOFTFLOW_SOFTFLOWCTL_HPP
+#ifndef SOFTFLOWD_CPP_SOFTFLOWCTL_HPP
+#define SOFTFLOWD_CPP_SOFTFLOWCTL_HPP
 
 #include <stdexcept>
 #include <string>
 
-namespace softflow {
+namespace softflowd_cpp {
 
 /** @brief The default path of the control socket. */
-inline constexpr const char* kDefaultControlSocketPath = "/var/run/softflowd.ctl";
+inline constexpr const char *kDefaultControlSocketPath = "/var/run/softflowd.ctl";
 /** @brief The default path of the pid file. */
-inline constexpr const char* kDefaultPidFilePath = "/var/run/softflowd.pid";
+inline constexpr const char *kDefaultPidFilePath = "/var/run/softflowd.pid";
 
 /** @brief The words of the commands that softflowctl sends to the daemon. */
 namespace control_commands {
@@ -43,12 +43,12 @@ inline constexpr const char *kStartGather = "start-gather";    ///< Resume packe
 inline constexpr const char *kDumpFlows = "dump-flows";        ///< Report info on every currently tracked flow.
 inline constexpr const char *kTimeouts = "timeouts";           ///< Report configured flow timeout parameters.
 inline constexpr const char *kSendTemplate = "send-template";  ///< Resend NetFlow v9 template before next export.
-} // namespace control_commands
+}  // namespace control_commands
 
 /** @brief An error on the control socket (connecting, reading or writing). */
 class ControlSocketError : public std::runtime_error {
 public:
-    using std::runtime_error::runtime_error;
+  using std::runtime_error::runtime_error;
 };
 
 /**
@@ -65,7 +65,8 @@ public:
  * std::string grows as needed) and needs no separate "did the line get
  * truncated" bookkeeping.
  */
-std::string read_line(int fd);
+std::string
+read_line (int fd);
 
 /**
  * @brief Reads everything available from a connected socket until the peer
@@ -82,7 +83,8 @@ std::string read_line(int fd);
  * @param fd The connected socket.
  * @return The response.
  */
-std::string read_until_eof(int fd);
+std::string
+read_until_eof (int fd);
 
 /**
  * @brief Reads the raw reply: read_until_eof() without the stripped trailing newline.
@@ -92,7 +94,8 @@ std::string read_until_eof(int fd);
  *
  * @original softflowctl.c copies the reply to stdout as it is.
  */
-std::string read_all(int fd);
+std::string
+read_all (int fd);
 /**
  * @brief Reads the command that a client sent.
  *
@@ -102,7 +105,8 @@ std::string read_all(int fd);
  *
  * @original softflowd.c reads a command with fgets (buf, 64, ...).
  */
-bool read_command(int fd, std::string& command);
+bool
+read_command (int fd, std::string &command);
 
 /**
  * @brief Writes @p text as it is (write_line() without the added newline).
@@ -110,7 +114,8 @@ bool read_command(int fd, std::string& command);
  * @param fd The connected socket.
  * @param text The text.
  */
-void write_all(int fd, const std::string& text);
+void
+write_all (int fd, const std::string &text);
 
 /**
  * @brief Writes @p line followed by a single newline to a connected socket.
@@ -118,7 +123,8 @@ void write_all(int fd, const std::string& text);
  * @param fd The connected socket.
  * @param line The line, without a newline.
  */
-void write_line(int fd, const std::string& line);
+void
+write_line (int fd, const std::string &line);
 
 /**
  * @brief The client side of the control socket.
@@ -141,7 +147,7 @@ public:
   explicit ControlClient (
     const std::string &socket_path = kDefaultControlSocketPath);
   /** @brief Closes the connection. */
-  ~ControlClient();
+  ~ControlClient ();
 
   ControlClient (const ControlClient &) = delete;
   ControlClient &
@@ -167,6 +173,6 @@ private:
   int fd_{-1};  ///< The connected socket.
 };
 
-} // namespace softflow
+}  // namespace softflowd_cpp
 
-#endif // SOFTFLOW_SOFTFLOWCTL_HPP
+#endif  // SOFTFLOWD_CPP_SOFTFLOWCTL_HPP

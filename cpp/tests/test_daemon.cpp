@@ -6,9 +6,9 @@
 #include <csignal>
 #include <unistd.h>
 
-#include "softflow/daemon.hpp"
+#include "softflowd_cpp/daemon.hpp"
 
-using namespace softflow;
+using namespace softflowd_cpp;
 
 namespace {
 
