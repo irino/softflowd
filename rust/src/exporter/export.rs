@@ -1187,6 +1187,16 @@ pub fn send_flows(sp: SendParameter) -> i32 {
                 send_ipfix(sp)
             }
         }
+        0x7fff0001 => {
+            #[cfg(feature = "ntopng")]
+            {
+                crate::exporter::ntopng::send_ntopng(sp)
+            }
+            #[cfg(not(feature = "ntopng"))]
+            {
+                -1
+            }
+        }
         _ => -1,
     };
     if gauge_clock {

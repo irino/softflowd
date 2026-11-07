@@ -28,7 +28,7 @@ changes when a patch is applied.
 | D1 | NetFlow v9: extra elements differ | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, compat `--strict` C against Rust: NetFlow v9 MATCHED for the IPv4 and IPv6 pcaps (24 records each); `tests/netflow9_templates.rs` fails on the old code |
 | D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | fixed | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02, compat `--strict` C against Rust: IPFIX MATCHED for the IPv4 and IPv6 pcaps (24 records each) |
 | D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
-| D4 | No ntopng | 2026-11-02 | open | | |
+| D4 | No ntopng | 2026-11-02 | fixed | Add the export to ntopng (-v ntopng) as an optional Cargo feature | 2026-11-02, integration test passes (feature on); note that -v ntopng-json is not ported |
 | D5 | Program name and version not unified | 2026-11-02 | fixed | 0016 Remove alias binaries | 2026-11-02, cargo build generates only rsoftflowd and rsoftflowctl |
 | D6 | Log format differs | 2026-11-02 | open | | |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
@@ -147,9 +147,9 @@ In the "Rust accepts" group wrong input is only logged, and the daemon goes
 on or exits with 0.  Which of the other two groups are wanted
 (clap's exit status 2 against the C exit status 1) is a decision, not a bug.
 
-### D4. ntopng (source)
+### D4. ntopng
 
-No reference to ntopng in `rust/src`.  The C version has `ntopng.c`.
+Export to ntopng (`-v ntopng`) is implemented as an optional Cargo feature `"ntopng"`, supporting the ZeroMQ PUB socket and nDPI serializer TLV payload (`zmq_msg_hdr_v4`). Note that `-v ntopng-json` is not ported.
 
 ### D5. Program name and version (source)
 

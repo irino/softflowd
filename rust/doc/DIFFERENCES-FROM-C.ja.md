@@ -26,7 +26,7 @@
 | D1 | NetFlow v9: 追加要素が違う | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも NetFlow v9 が MATCHED (各 24 レコード)。`tests/netflow9_templates.rs` は旧コードで失敗する |
 | D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 解消 | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも IPFIX が MATCHED (各 24 レコード) |
 | D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 未解消 | | |
-| D4 | ntopng がない | 2026-11-02 | 未解消 | | |
+| D4 | ntopng がない | 2026-11-02 | 解消 | ntopng へのエクスポート (-v ntopng) をオプションの Cargo 機能として追加 | 2026-11-02、統合テストが成功 (機能有効時); -v ntopng-json は未移植 |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
 | D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
@@ -141,9 +141,9 @@ Rust が受理が 10 件、C が受理が 7 件、panic が 1 件(`-T port`)で�
 終了 0 で終わります。ほかの 2 群のうち、どれを揃えるか(clap の終了 2 と C の
 終了 1)は不具合ではなく方針の判断です。
 
-### D4. ntopng (ソース)
+### D4. ntopng
 
-`rust/src` に ntopng への言及がありません。C には `ntopng.c` があります。
+ntopng へのエクスポート (`-v ntopng`) はオプションの Cargo 機能 `"ntopng"` として実装され、ZeroMQ PUB ソケットと nDPI シリアライザ TLV ペイロード (`zmq_msg_hdr_v4`) をサポートします (`-v ntopng-json` は未移植)。
 
 ### D5. プログラム名とバージョン (ソース)
 

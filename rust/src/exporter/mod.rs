@@ -4,16 +4,25 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 pub mod export;
 pub mod export_common;
+#[cfg(feature = "ntopng")]
+pub mod ntopng;
 pub mod psamp;
 
 pub use export::{
     send_flows, send_ipfix, send_ipfix_bi, send_netflow_v1, send_netflow_v5, send_netflow_v9,
 };
 pub use export_common::ipfix_resend_template as resend_template;
+#[cfg(feature = "ntopng")]
+pub use ntopng::send_ntopng;
 
 pub enum ExportSocket {
     Udp(UdpSocket),
     Tcp(TcpStream),
+    #[cfg(feature = "ntopng")]
+    Zmq {
+        context: zmq::Context,
+        socket: zmq::Socket,
+    },
 }
 
 impl ExportSocket {
@@ -26,6 +35,11 @@ impl ExportSocket {
                 s_ref.write_all(buf)?;
                 Ok(buf.len())
             }
+            #[cfg(feature = "ntopng")]
+            ExportSocket::Zmq { .. } => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Zmq socket does not support standard send",
+            )),
         }
     }
 }
@@ -35,6 +49,8 @@ impl AsRawFd for ExportSocket {
         match self {
             ExportSocket::Udp(s) => s.as_raw_fd(),
             ExportSocket::Tcp(s) => s.as_raw_fd(),
+            #[cfg(feature = "ntopng")]
+            ExportSocket::Zmq { socket, .. } => socket.as_raw_fd(),
         }
     }
 }
@@ -46,7 +62,7 @@ pub struct Destination {
 
 pub struct NetflowTarget {
     pub destinations: Vec<Destination>,
-    pub version: u16,
+    pub version: u32,
     pub is_loadbalance: bool,
 }
 

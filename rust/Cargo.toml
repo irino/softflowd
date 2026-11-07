@@ -12,6 +12,10 @@ path = "src/bin/rsoftflowd.rs"
 name = "rsoftflowctl"
 path = "src/bin/rsoftflowctl.rs"
 
+[features]
+default = []
+ntopng = ["dep:zmq"]
+
 [dependencies]
 pcap = "2.0.0"
 clap = { version = "4.5", features = ["derive"] }
@@ -21,6 +25,7 @@ log = "0.4.22"
 env_logger = "0.11.5"
 libc = "0.2.155"
 chrono = "0.4.38"
+zmq = { version = "0.10", optional = true }
 
 [build-dependencies]
 clap = { version = "4.5", features = ["derive"] }

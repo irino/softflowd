@@ -373,11 +373,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 4. Resolve and setup Netflow Exporter Targets
+    let is_ntopng = args.netflow_version.to_lowercase() == "ntopng";
     let is_psamp = args.netflow_version.to_lowercase() == "psamp";
-    let version = if is_psamp {
+    let version = if is_ntopng {
+        0x7fff0001
+    } else if is_psamp {
         10
     } else {
-        args.netflow_version.parse::<u16>().unwrap_or(5)
+        args.netflow_version.parse::<u32>().unwrap_or(5)
     };
     tracker.param.is_psamp = is_psamp;
     let want_v6 = args.always_v6 || version == 9 || version == 10;
@@ -387,65 +390,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         version,
         is_loadbalance: args.load_balance,
     };
-
-    if let Some(ref col_str) = args.collector {
-        for addr_str in col_str.split(',') {
-            let addr_str = addr_str.trim();
-            if addr_str.is_empty() {
-                continue;
-            }
-            match addr_str.to_socket_addrs() {
-                Ok(mut addrs) => {
-                    if let Some(socket_addr) = addrs.next() {
-                        let proto = args.transport_protocol.to_lowercase();
-                        let socket = match proto.as_str() {
-                            "tcp" => match TcpStream::connect(socket_addr) {
-                                Ok(s) => ExportSocket::Tcp(s),
-                                Err(e) => {
-                                    log::error!(
-                                        "Failed to connect to TCP collector {}: {}",
-                                        socket_addr,
-                                        e
-                                    );
-                                    std::process::exit(1);
-                                }
-                            },
-                            _ => {
-                                // Default UDP
-                                let s = UdpSocket::bind("0.0.0.0:0")?;
-                                if let Some(hl) = args.hoplimit {
-                                    let _ = s.set_ttl(hl as u32);
-                                }
-                                s.connect(socket_addr)?;
-
-                                // Bind to specific device if requested (Linux only)
-                                #[cfg(target_os = "linux")]
-                                if let Some(ref send_if) = args.send_interface
-                                    && let Err(e) =
-                                        rsoftflowd::net_util_unsafe::bind_socket_to_device(
-                                            &s, send_if,
-                                        )
-                                {
-                                    log::error!("Failed to bind to interface {}: {}", send_if, e);
-                                    std::process::exit(1);
-                                }
-
-                                ExportSocket::Udp(s)
-                            }
-                        };
-                        targets.destinations.push(Destination {
-                            socket,
-                            arg: addr_str.to_string(),
-                        });
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to resolve collector address {}: {}", addr_str, e);
-                    std::process::exit(1);
-                }
-            }
-        }
-    }
 
     // 5. Start UNIX domain socket control server (before daemonizing, as in C)
     let (cmd_tx, cmd_rx) = channel::<ControlCommand>();
@@ -614,6 +558,112 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Drop privileges if running as root
     drop_privileges();
+
+    if let Some(ref col_str) = args.collector {
+        for addr_str in col_str.split(',') {
+            let addr_str = addr_str.trim();
+            if addr_str.is_empty() {
+                continue;
+            }
+            if is_ntopng {
+                #[cfg(feature = "ntopng")]
+                {
+                    match zmq::Context::new() {
+                        context => match context.socket(zmq::PUB) {
+                            Ok(socket) => {
+                                let connect_str = format!("tcp://{}", addr_str);
+                                log::info!("Connecting ZMQ socket '{}'", connect_str);
+                                if let Err(e) = socket.connect(&connect_str) {
+                                    log::error!(
+                                        "Failed to connect ZMQ socket {}: {}",
+                                        connect_str,
+                                        e
+                                    );
+                                    std::process::exit(1);
+                                }
+                                targets.destinations.push(Destination {
+                                    socket: ExportSocket::Zmq { context, socket },
+                                    arg: addr_str.to_string(),
+                                });
+                            }
+                            Err(e) => {
+                                log::error!("Failed to create ZMQ socket: {}", e);
+                                std::process::exit(1);
+                            }
+                        },
+                    }
+                }
+                #[cfg(not(feature = "ntopng"))]
+                {
+                    eprintln!("ntopng export not enabled\n");
+                    std::process::exit(1);
+                }
+            } else {
+                match addr_str.to_socket_addrs() {
+                    Ok(mut addrs) => {
+                        if let Some(socket_addr) = addrs.next() {
+                            let proto = args.transport_protocol.to_lowercase();
+                            let socket = match proto.as_str() {
+                                "tcp" => match TcpStream::connect(socket_addr) {
+                                    Ok(s) => ExportSocket::Tcp(s),
+                                    Err(e) => {
+                                        log::error!(
+                                            "Failed to connect to TCP collector {}: {}",
+                                            socket_addr,
+                                            e
+                                        );
+                                        std::process::exit(1);
+                                    }
+                                },
+                                _ => {
+                                    // Default UDP
+                                    let s = UdpSocket::bind("0.0.0.0:0")
+                                        .expect("Failed to bind UDP socket");
+                                    if let Some(hl) = args.hoplimit {
+                                        let _ = s.set_ttl(hl as u32);
+                                    }
+                                    if let Err(e) = s.connect(socket_addr) {
+                                        log::error!(
+                                            "Failed to connect UDP collector {}: {}",
+                                            socket_addr,
+                                            e
+                                        );
+                                        std::process::exit(1);
+                                    }
+
+                                    // Bind to specific device if requested (Linux only)
+                                    #[cfg(target_os = "linux")]
+                                    if let Some(ref send_if) = args.send_interface
+                                        && let Err(e) =
+                                            rsoftflowd::net_util_unsafe::bind_socket_to_device(
+                                                &s, send_if,
+                                            )
+                                    {
+                                        log::error!(
+                                            "Failed to bind to interface {}: {}",
+                                            send_if,
+                                            e
+                                        );
+                                        std::process::exit(1);
+                                    }
+
+                                    ExportSocket::Udp(s)
+                                }
+                            };
+                            targets.destinations.push(Destination {
+                                socket,
+                                arg: addr_str.to_string(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to resolve collector address {}: {}", addr_str, e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+    }
 
     // 6. Signal integration
     register_signals();

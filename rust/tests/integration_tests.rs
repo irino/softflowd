@@ -182,7 +182,7 @@ fn test_exporter_version(version: u16) -> Vec<u8> {
             socket: ExportSocket::Udp(send_socket),
             arg: recv_addr.to_string(),
         }],
-        version,
+        version: version as u32,
         is_loadbalance: false,
     };
 
@@ -631,4 +631,57 @@ fn test_track_level_names() {
     // The names are not case sensitive, as in the C version.
     assert_eq!(TrackLevel::from_name("PORT"), Some(TrackLevel::IpProtoPort));
     assert_eq!(TrackLevel::from_name("bogus"), None);
+}
+
+#[cfg(feature = "ntopng")]
+#[test]
+fn test_ntopng_exporter() {
+    let sub_socket = zmq::Context::new().socket(zmq::SUB).unwrap();
+    sub_socket.bind("tcp://127.0.0.1:0").unwrap();
+    let endpoint = sub_socket.get_last_endpoint().unwrap().unwrap();
+    let host_port = endpoint.strip_prefix("tcp://").unwrap();
+    sub_socket.set_subscribe(b"flow").unwrap();
+
+    let send_context = zmq::Context::new();
+    let send_socket = send_context.socket(zmq::PUB).unwrap();
+    send_socket.connect(&endpoint).unwrap();
+
+    let target = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Zmq {
+                context: send_context,
+                socket: send_socket,
+            },
+            arg: host_port.to_string(),
+        }],
+        version: 0x7fff0001,
+        is_loadbalance: false,
+    };
+
+    let flow = make_dummy_flow();
+    let flow_refs = vec![&flow];
+    let mut param = FlowTrackParameters::default();
+    let sp = SendParameter {
+        flows: &flow_refs,
+        target: &target,
+        ifidx: 1,
+        param: &mut param,
+        verbose: false,
+    };
+
+    let count = rsoftflowd::exporter::export::send_flows(sp);
+    assert!(count > 0);
+
+    let mut msg_header = zmq::Message::new();
+    sub_socket.recv(&mut msg_header, 0).unwrap();
+    assert_eq!(msg_header.len(), 36);
+    assert_eq!(&msg_header[0..4], b"flow");
+    assert_eq!(msg_header[16], 4);
+    assert_eq!(msg_header[17], 2);
+
+    let mut msg_payload = zmq::Message::new();
+    sub_socket.recv(&mut msg_payload, 0).unwrap();
+    assert!(msg_payload.len() > 2);
+    assert_eq!(msg_payload[0], 1);
+    assert_eq!(msg_payload[1], 1);
 }

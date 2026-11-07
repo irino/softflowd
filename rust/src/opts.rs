@@ -96,8 +96,16 @@ pub struct RsoftflowdArgs {
         long = "netflow-version",
         value_name = "version",
         default_value = "5",
-        value_parser = ["1", "5", "9", "10", "psamp"],
-        help = "NetFlow export packet version (1|5|9|10|psamp)"
+        value_parser = clap::builder::PossibleValuesParser::new([
+            "1", "5", "9", "10", "psamp",
+            #[cfg(feature = "ntopng")]
+            "ntopng",
+        ]),
+        help = if cfg!(feature = "ntopng") {
+            "NetFlow export packet version (1|5|9|10|psamp|ntopng)"
+        } else {
+            "NetFlow export packet version (1|5|9|10|psamp)"
+        }
     )]
     pub netflow_version: String,
 
