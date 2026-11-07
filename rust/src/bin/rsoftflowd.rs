@@ -862,7 +862,7 @@ fn process_parsed_packet(
     if !tracker.flows.contains_key(&key) {
         // Enforce max flows limit (evict oldest first)
         if tracker.flows.len() >= tracker.param.max_flows as usize {
-            evict_oldest_flow(tracker);
+            evict_oldest_flow(tracker, targets, ifidx);
         }
 
         let mut flow = Flow {
@@ -974,7 +974,7 @@ fn update_flow_expiry(
     expiries.insert(new_expiry, flow.key.clone());
 }
 
-fn evict_oldest_flow(tracker: &mut FlowTracker) {
+fn evict_oldest_flow(tracker: &mut FlowTracker, targets: &NetflowTarget, ifidx: u16) {
     if let Some((&expiry_key, flow_key)) = tracker.expiries.iter().next() {
         let flow_key = flow_key.clone();
         if let Some(mut flow) = tracker.flows.remove(&flow_key) {
@@ -995,6 +995,15 @@ fn evict_oldest_flow(tracker: &mut FlowTracker) {
                 rsoftflowd::control::format_flow(&flow),
                 &flow
             );
+            let flow_refs = vec![&flow];
+            let sp = SendParameter {
+                flows: &flow_refs,
+                target: targets,
+                ifidx,
+                param: &mut tracker.param,
+                verbose: true,
+            };
+            let _ = send_flows(sp);
         }
     }
 }
@@ -1261,5 +1270,90 @@ mod tests {
         assert_eq!(flow_older.expiry_reason, ExpiryReason::MaxLife);
         assert_eq!(flow_older.flow_end_reason, FLOW_END_REASON_ACTIVE_TIMEOUT);
         assert_eq!(flow_older.expiry_key.unwrap().expires_at, 0);
+    }
+
+    #[test]
+    fn test_flow_eviction_exports() {
+        use byteorder::{BigEndian, ByteOrder};
+        use std::net::Ipv4Addr;
+
+        for lookup_mode in [
+            FlowLookupMode::Tree,
+            FlowLookupMode::Hash,
+            FlowLookupMode::HashTree,
+        ] {
+            let mut tracker = FlowTracker::new(5);
+            tracker.set_flow_lookup(lookup_mode);
+
+            let recv_socket =
+                UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+            let recv_addr = recv_socket
+                .local_addr()
+                .expect("Failed to get local address");
+            let send_socket =
+                UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+            send_socket
+                .connect(recv_addr)
+                .expect("Failed to connect to receiver socket");
+
+            let targets = NetflowTarget {
+                destinations: vec![Destination {
+                    socket: ExportSocket::Udp(send_socket),
+                    arg: recv_addr.to_string(),
+                }],
+                version: 5,
+                is_loadbalance: false,
+            };
+
+            // Feed 6 different flows (ports 1001 to 1006)
+            for port in 1001..=1006 {
+                let parsed = ParsedPacket {
+                    af: 2,       // AF_INET
+                    protocol: 6, // TCP
+                    src_ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)),
+                    dst_ip: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 20)),
+                    src_port: port,
+                    dst_port: 80,
+                    vlan_id: 0,
+                    src_mac: [0; 6],
+                    dst_mac: [0; 6],
+                    mpls_labels: vec![],
+                    tcp_flags: 0x02,
+                    tos: 0,
+                    is_frag: false,
+                    is_first: true,
+                    ip6_flowlabel: 0,
+                    length: 40,
+                    timestamp: TimeVal {
+                        tv_sec: 1600000000,
+                        tv_usec: 0,
+                    },
+                    raw_packet: vec![0; 40],
+                };
+                process_parsed_packet(&mut tracker, parsed, true, &targets, 1);
+            }
+
+            expire_all_flows(&mut tracker, &targets, 1);
+
+            recv_socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut total_records = 0;
+            let mut buf = [0u8; 2048];
+
+            while let Ok((len, _)) = recv_socket.recv_from(&mut buf) {
+                if len >= 24 {
+                    let count = BigEndian::read_u16(&buf[2..4]) as usize;
+                    total_records += count;
+                }
+            }
+
+            assert_eq!(
+                total_records, 6,
+                "Expected 6 flow records exported for mode {:?}, got {}",
+                lookup_mode, total_records
+            );
+            assert_eq!(tracker.param.flows_expired, 6);
+        }
     }
 }

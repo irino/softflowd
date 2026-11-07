@@ -108,9 +108,7 @@ pub fn export_build_flow_header(
             packet.extend_from_slice(&(now.tv_sec as u32).to_be_bytes());
             packet.extend_from_slice(&((now.tv_usec * 1000) as u32).to_be_bytes());
             if version == 5 {
-                packet.extend_from_slice(
-                    &((param.flows_exported + param.records_sent) as u32).to_be_bytes(),
-                );
+                packet.extend_from_slice(&(param.flows_exported as u32).to_be_bytes());
                 packet.push(0); // engine_type
                 packet.push(0); // engine_id
                 let sampling = if param.sample_rate > 0 {

@@ -12,8 +12,8 @@ use common::make_dummy_flow;
 
 use rsoftflowd::common::{
     FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW, FLOW_END_REASON_FORCE_END,
-    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, FlowTrackParameters, TimeVal,
-    TrackLevel,
+    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowTrackParameters,
+    TimeVal, TrackLevel,
 };
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
@@ -481,6 +481,83 @@ fn test_flow_lookup_modes() {
 
     let stats = rsoftflowd::control::render_statistics(&tracker, Some((10, 0, 0)));
     assert!(stats.contains("Flow table: hash"));
+}
+
+// -------------------------------------------------------------
+// Test: NetFlow v5 flow sequence numbers
+// -------------------------------------------------------------
+#[test]
+fn test_exporter_netflow_v5_sequence_numbers() {
+    let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
+
+    let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
+
+    let targets = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Udp(send_socket),
+            arg: recv_addr.to_string(),
+        }],
+        version: 5,
+        is_loadbalance: false,
+    };
+
+    let mut flows = Vec::new();
+    for i in 0..86 {
+        let mut flow = make_dummy_flow();
+        flow.key.port[0] = 10000 + i as u16;
+        flow.octets = [1000, 0]; // 1 record per flow
+        flows.push(flow);
+    }
+    let flow_refs: Vec<&Flow> = flows.iter().collect();
+
+    let mut param = FlowTrackParameters {
+        system_boot_time: TimeVal {
+            tv_sec: 1599999900,
+            tv_usec: 0,
+        },
+        adjust_time: true,
+        last_packet_time: TimeVal {
+            tv_sec: 1600000010,
+            tv_usec: 0,
+        },
+        ..Default::default()
+    };
+
+    let sp = SendParameter {
+        flows: &flow_refs,
+        target: &targets,
+        ifidx: 1,
+        param: &mut param,
+        verbose: false,
+    };
+
+    let packets_sent = send_flows(sp);
+    assert_eq!(packets_sent, 3);
+
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+
+    let expected_seqs = vec![0u32, 30u32, 60u32];
+    for expected_seq in expected_seqs {
+        let mut buf = [0u8; 2048];
+        let (received_len, _) = recv_socket
+            .recv_from(&mut buf)
+            .expect("Failed to receive Netflow v5 packet");
+        assert!(received_len >= 24);
+        let version = BigEndian::read_u16(&buf[0..2]);
+        let count = BigEndian::read_u16(&buf[2..4]);
+        let seq = BigEndian::read_u32(&buf[16..20]);
+        assert_eq!(version, 5);
+        assert_eq!(seq, expected_seq);
+        assert!(count > 0);
+    }
 }
 
 // -------------------------------------------------------------
