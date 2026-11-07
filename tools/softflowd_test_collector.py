@@ -2691,12 +2691,14 @@ def parity_export(daemon: str, pcap: str, version: str, extra: List[str]) -> Lis
         subprocess.run([daemon, "-r", pcap, "-n", f"127.0.0.1:{sock.getsockname()[1]}",
                         "-v", version, "-a"] + extra, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=60)
-        sock.setblocking(False)
+        # The loopback of some systems (WSL2, for one) delivers a datagram a little after send()
+        # returns, so wait for a short quiet time instead of reading only what is already there.
+        sock.settimeout(0.3)
         datagrams: List[bytes] = []
         while True:
             try:
                 datagrams.append(sock.recv(65535))
-            except BlockingIOError:
+            except socket.timeout:
                 return datagrams
     finally:
         sock.close()
@@ -2743,8 +2745,16 @@ def parity_export_bytes(a_daemon: str, b_daemon: str, pcaps: Dict[str, str]) -> 
 
 
 def parity_debug_lines(daemon: str, pcap: str, extra: List[str]) -> List[str]:
-    res = subprocess.run([daemon, "-r", pcap, "-n", "127.0.0.1:9", "-v", "9", "-a", "-D"] + extra,
-                         capture_output=True, text=True, timeout=60)
+    # Send to a bound socket: nobody listening at a port returns ICMP errors, and when they arrive
+    # makes send() fail at a different moment (the C version stops sending at a failed send()).
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sink.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
+    sink.bind(("127.0.0.1", 0))
+    try:
+        res = subprocess.run([daemon, "-r", pcap, "-n", f"127.0.0.1:{sink.getsockname()[1]}", "-v", "9",
+                              "-a", "-D"] + extra, capture_output=True, text=True, timeout=60)
+    finally:
+        sink.close()
     lines = []
     for line in (res.stdout + res.stderr).splitlines():
         if PARITY_DEBUG_RE.search(line):
