@@ -1,5 +1,6 @@
 use crate::common::{FlowTrackParameters, TimeVal};
 use crate::exporter::NetflowTarget;
+use crate::exporter::export_common::IPFIX_SOFTFLOWD_MAX_PACKET_SIZE;
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io::Write;
 
@@ -8,6 +9,10 @@ const PSAMP_SELECTION_SEQUENCE_ID: u16 = 301;
 const PSAMP_OBSERVATION_TIME_MICROSECONDS: u16 = 324;
 const PSAMP_SECTION_EXPORTED_OCTETS: u16 = 410;
 const PSAMP_DATA_LINK_FRAME_SECTION: u16 = 315;
+
+const PSAMP_FIXED_FIELDS_SIZE: usize = 8 + 8 + 2;
+pub const PSAMP_DATALINKFRAME_SIZE: usize =
+    IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - 16 - 4 - PSAMP_FIXED_FIELDS_SIZE;
 
 fn write_psamp_template(packet: &mut Vec<u8>) {
     // Set ID = 2 (IPFIX Template Set)
@@ -37,11 +42,13 @@ fn write_psamp_template(packet: &mut Vec<u8>) {
         .unwrap();
     packet.write_u16::<BigEndian>(2).unwrap();
 
-    // 4. dataLinkFrameSection (variable size in template: e.g. 120 bytes max or similar. In C, it is 1400 - headers = 1374 bytes)
+    // 4. dataLinkFrameSection (1390 bytes, matching C PSAMP_DATALINKFRAME_SIZE)
     packet
         .write_u16::<BigEndian>(PSAMP_DATA_LINK_FRAME_SECTION)
         .unwrap();
-    packet.write_u16::<BigEndian>(128).unwrap(); // Fixed frame capture length in template
+    packet
+        .write_u16::<BigEndian>(PSAMP_DATALINKFRAME_SIZE as u16)
+        .unwrap();
 }
 
 pub fn send_psamp(
@@ -104,20 +111,26 @@ pub fn send_psamp(
 
     // Field 2: observationTimeMicroseconds (8 bytes of NTP timestamp)
     // NTP seconds = tv_sec + 2208988800. Micros scaled to 2^32
+    // Note: Retain RFC-compliant NTP fraction calculation ((tv_usec * 2^32) / 1,000,000).
+    // The C implementation includes a non-compliant +1µs offset quirk ((tv_usec + 1) * 2^32 / 1,000,000).
     let ntp_sec = (tv.tv_sec + 2208988800) as u32;
     let ntp_frac = ((tv.tv_usec as u64 * (1u64 << 32)) / 1_000_000) as u32;
     packet.write_u32::<BigEndian>(ntp_sec).unwrap();
     packet.write_u32::<BigEndian>(ntp_frac).unwrap();
 
     // Field 3: sectionExportedOctets (2 bytes)
-    let copysize = caplen.min(128) as u16;
+    // Match C by exporting the actual captured frame length (caplen), capped at 1390 bytes (PSAMP_DATALINKFRAME_SIZE).
+    let copysize = caplen.min(PSAMP_DATALINKFRAME_SIZE as u32) as u16;
     packet.write_u16::<BigEndian>(copysize).unwrap();
 
-    // Field 4: dataLinkFrameSection (128 bytes)
-    let payload_len = copysize as usize;
+    // Field 4: dataLinkFrameSection (1390 bytes fixed template field)
+    // Match C by zero-padding shorter frames up to 1390 bytes.
+    let payload_len = (copysize as usize).min(pkt.len());
     packet.write_all(&pkt[..payload_len]).unwrap();
-    if payload_len < 128 {
-        packet.write_all(&vec![0; 128 - payload_len]).unwrap(); // Padding to match template
+    if payload_len < PSAMP_DATALINKFRAME_SIZE {
+        packet
+            .write_all(&vec![0; PSAMP_DATALINKFRAME_SIZE - payload_len])
+            .unwrap();
     }
 
     // Set lengths

@@ -194,7 +194,7 @@ With `-d`, messages go to stderr as plain text without timestamp or level prefix
 
 ### D7. PSAMP (fixed)
 
-The PSAMP message headers (IPFIX message header sequence number and export time) differed from the C version. Fixed to match C (sequence number counts data records starting at 0, export time uses wall-clock time or capture time with `-a`).
+The PSAMP message headers (IPFIX message header sequence number and export time), template `dataLinkFrameSection` field length (fixed at 1390 bytes, matching C `PSAMP_DATALINKFRAME_SIZE`), and `sectionExportedOctets` (reporting actual captured frame length `caplen`, capped at 1390 bytes) were aligned with the C version. `observationTimeMicroseconds` retains Rust's RFC-compliant NTP fraction calculation `((tv_usec * 2^32) / 1,000,000)` (noting C's non-compliant $+1\mu s$ offset quirk).
 
 ### D8. Step 5 of the compat test (not measured)
 

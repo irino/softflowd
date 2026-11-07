@@ -1028,7 +1028,7 @@ fn process_parsed_packet(
     if tracker.param.is_psamp {
         rsoftflowd::exporter::psamp::send_psamp(
             &parsed.raw_packet,
-            parsed.length.min(128),
+            parsed.raw_packet.len() as u32,
             parsed.timestamp,
             targets,
             tracker.param.total_packets,

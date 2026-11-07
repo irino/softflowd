@@ -187,7 +187,7 @@ ntopng へのエクスポート (`-v ntopng`) はオプションの Cargo 機能
 
 ### D7. PSAMP (修正済み)
 
-PSAMP メッセージヘッダ（IPFIX メッセージヘッダのシーケンス番号およびエクスポート時刻）が C 版と異なっていました。C 版に合わせて修正しました（シーケンス番号は 0 から始まるデータレコード数を数え、エクスポート時刻は壁時計時刻または `-a` 付きのキャプチャ時刻を使用）。
+PSAMP メッセージヘッダ（IPFIX メッセージヘッダのシーケンス番号およびエクスポート時刻）、テンプレートの `dataLinkFrameSection` フィールド長（C 版の `PSAMP_DATALINKFRAME_SIZE` に合わせて 1390 バイトに固定）、および `sectionExportedOctets`（実際のキャプチャフレーム長 `caplen` を 1390 バイト上限で報告）を C 版に合わせました。`observationTimeMicroseconds` では、C 版の非準拠な $+1\mu s$ オフセットのクィークに対し、Rust の RFC 準拠の NTP 小数部計算 `((tv_usec * 2^32) / 1,000,000)` を維持しています。
 
 ### D8. compat テストのステップ 5 (未測定)
 
