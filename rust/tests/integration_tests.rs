@@ -483,6 +483,53 @@ fn test_flow_lookup_modes() {
     assert!(stats.contains("Flow table: hash"));
 }
 
+fn run_rsoftflowd_with_timeout(args: &[&str], timeout: Duration) -> std::process::ExitStatus {
+    let bin = env!("CARGO_BIN_EXE_rsoftflowd");
+    let mut child = std::process::Command::new(bin)
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("Failed to spawn rsoftflowd");
+
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status,
+            Ok(None) => {
+                if start.elapsed() > timeout {
+                    let _ = child.kill();
+                    panic!("Process timed out for args: {:?}", args);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                panic!("Error waiting for process for args {:?}: {}", args, e);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_cli_error_exits_1() {
+    let cases = vec![
+        vec!["-i", "nonexistent0", "-n", "127.0.0.1:9"],
+        vec!["-n", ""],
+        vec!["-I", "abc"],
+    ];
+    for args in cases {
+        let status = run_rsoftflowd_with_timeout(&args, Duration::from_secs(5));
+        assert!(!status.success(), "Expected failure for args: {:?}", args);
+        assert_eq!(
+            status.code(),
+            Some(1),
+            "Expected exit status 1 for args: {:?}",
+            args
+        );
+    }
+}
+
 // -------------------------------------------------------------
 // Test: NetFlow v5 flow sequence numbers
 // -------------------------------------------------------------

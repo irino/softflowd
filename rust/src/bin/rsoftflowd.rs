@@ -81,24 +81,89 @@ fn parse_mac_address(mac_str: &str) -> Option<[u8; 6]> {
     Some(mac)
 }
 
+const BOOTTIME_MAX_DAY: u64 = 49;
+const BOOTTIME_MAX_HOUR: u64 = 1193;
+const BOOTTIME_MAX_MIN: u64 = 71582;
+const BOOTTIME_MAX_SEC: u64 = 4294944;
+
 fn parse_boot_time_reinit(s: &str) -> Option<u64> {
-    let mut num_str = String::new();
-    let mut unit = 's';
-    for c in s.chars() {
-        if c.is_ascii_digit() {
-            num_str.push(c);
-        } else {
-            unit = c.to_ascii_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+    let digits_len = s.bytes().take_while(u8::is_ascii_digit).count();
+    if digits_len == 0 {
+        return None;
+    }
+    let num_str = &s[..digits_len];
+    let mut val: u64 = num_str.parse().ok()?;
+    let rest = &s[digits_len..];
+    let unit = if rest.is_empty() {
+        's'
+    } else if rest.len() == 1 {
+        let c = rest.chars().next()?.to_ascii_lowercase();
+        match c {
+            'd' | 'h' | 'm' | 's' => c,
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+
+    match unit {
+        'd' => {
+            if val > BOOTTIME_MAX_DAY {
+                val = BOOTTIME_MAX_DAY;
+            }
+            val = val.checked_mul(24 * 60 * 60)?;
+        }
+        'h' => {
+            if val > BOOTTIME_MAX_HOUR {
+                val = BOOTTIME_MAX_HOUR;
+            }
+            val = val.checked_mul(60 * 60)?;
+        }
+        'm' => {
+            if val > BOOTTIME_MAX_MIN {
+                val = BOOTTIME_MAX_MIN;
+            }
+            val = val.checked_mul(60)?;
+        }
+        _ => {
+            if val > BOOTTIME_MAX_SEC {
+                val = BOOTTIME_MAX_SEC;
+            }
         }
     }
-    let val: u64 = num_str.parse().ok()?;
-    let mult = match unit {
-        'd' => 24 * 60 * 60,
-        'h' => 60 * 60,
-        'm' => 60,
-        _ => 1,
+    Some(val)
+}
+
+fn validate_hostport(s: &str) -> Result<(), String> {
+    if s.is_empty() {
+        return Err("Invalid -n argument.".to_string());
+    }
+    let (host, port) = match s.rfind(':') {
+        Some(idx) => (&s[..idx], &s[idx + 1..]),
+        None => return Err("Invalid -n argument.".to_string()),
     };
-    Some(val * mult)
+    if host.is_empty() || port.is_empty() {
+        return Err("Invalid -n argument.".to_string());
+    }
+    if let Ok(portnum) = port.parse::<u64>()
+        && portnum > 65535
+    {
+        return Err("Invalid -n argument.".to_string());
+    }
+    match s.to_socket_addrs() {
+        Ok(mut addrs) => {
+            if addrs.next().is_none() {
+                return Err(format!("No addresses found for {}", s));
+            }
+        }
+        Err(e) => {
+            return Err(format!("No addresses found for {}: {}", s, e));
+        }
+    }
+    Ok(())
 }
 
 /// Apply the `-t name=time` options.
@@ -197,65 +262,31 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    // 1. Logging setup
-    let log_level = if args.debug {
-        log::LevelFilter::Debug
-    } else {
-        log::LevelFilter::Info
-    };
-    env_logger::Builder::new().filter(None, log_level).init();
-
-    // 2. Daemonize if requested
-    if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
-        log::info!("Daemonising softflowd...");
-        if let Err(e) = nix::unistd::daemon(true, false) {
-            log::error!("Failed to daemonise: {}", e);
+    if let Some(ref col_str) = args.collector {
+        if col_str.is_empty() {
+            eprintln!("Invalid -n argument.\n");
             std::process::exit(1);
         }
-    }
-
-    // Resolve PID file path
-    let pidfile_path = match args.pidfile.as_deref() {
-        Some("none") => None,
-        Some(path) => Some(path.to_string()),
-        None => {
-            if args.dont_fork || args.debug || args.pcap_file.is_some() {
-                None
-            } else {
-                Some("/var/run/softflowd.pid".to_string())
-            }
-        }
-    };
-
-    // Write PID file
-    if let Some(ref path) = pidfile_path {
-        if let Ok(content) = std::fs::read_to_string(path)
-            && let Ok(pid) = content.trim().parse::<i32>()
-            && pid > 0
-        {
-            let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
-            if res.is_ok() || res.err() == Some(nix::errno::Errno::EPERM) {
-                eprintln!("Already running under pid {}", pid);
+        for addr_str in col_str.split(',') {
+            let addr_str = addr_str.trim();
+            if addr_str.is_empty() {
+                eprintln!("Invalid -n argument.\n");
                 std::process::exit(1);
             }
-        }
-        if let Err(e) = std::fs::write(path, format!("{}\n", std::process::id())) {
-            if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
-                eprintln!("Couldn't open pidfile {}: {}", path, e);
+            if let Err(msg) = validate_hostport(addr_str) {
+                eprintln!("{}\n", msg);
                 std::process::exit(1);
-            } else {
-                log::warn!("Could not write PID file {}: {}", path, e);
             }
         }
     }
 
-    // 3. Setup Flow Tracker
+    let track_level = TrackLevel::from_name(&args.track_level)
+        .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
+
     unsafe extern "C" {
         fn clock() -> libc::clock_t;
     }
     let boottime = unsafe { clock() };
-    let track_level = TrackLevel::from_name(&args.track_level)
-        .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
     let (user_ifidx, capture_dev) = if let Some(ref if_spec) = args.interface {
         let (idx, name) = parse_interface_spec(if_spec);
@@ -332,7 +363,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     }
     if let Some(ref boot_reinit) = args.boot_time_reinit {
-        tracker.param.boot_time_reinit = parse_boot_time_reinit(boot_reinit).unwrap_or(0);
+        match parse_boot_time_reinit(boot_reinit) {
+            Some(v) => tracker.param.boot_time_reinit = v,
+            None => {
+                eprintln!("No digits were found in boot_time_reinit\n");
+                std::process::exit(1);
+            }
+        }
     }
 
     // 4. Resolve and setup Netflow Exporter Targets
@@ -410,57 +447,181 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 5. Start UNIX domain socket control server
+    // 5. Start UNIX domain socket control server (before daemonizing, as in C)
     let (cmd_tx, cmd_rx) = channel::<ControlCommand>();
-    let ctl_path = match args.ctlsock.as_deref() {
-        Some("none") => None,
-        Some(path) => Some(path.to_string()),
-        None => {
+    let ctl_path = args
+        .ctlsock
+        .as_deref()
+        .map(|p| {
+            if p == "none" {
+                "".to_string()
+            } else {
+                p.to_string()
+            }
+        })
+        .or_else(|| {
             if args.pcap_file.is_some() {
                 None
             } else {
                 Some("/var/run/softflowd.ctl".to_string())
             }
-        }
+        });
+    let ctl_path = if ctl_path.as_deref() == Some("") {
+        None
+    } else {
+        ctl_path
     };
+
     let mut control_listener = None;
     if let Some(ref path) = ctl_path {
-        match start_control_server(path.clone(), cmd_tx) {
+        match start_control_server(path.clone(), cmd_tx.clone()) {
             Ok(listener) => control_listener = Some(listener),
             Err(e) => {
-                log::error!("Failed to start control server: {}", e);
+                eprintln!("Failed to start control server: {}\n", e);
                 std::process::exit(1);
             }
         }
     }
 
-    // 6. Signal integration
-    register_signals();
-
-    // 7. Packet Capture Setup (libpcap)
+    // 7. Packet Capture Setup (libpcap) - before daemonizing, as in C
     let pcap_file_mode = args.pcap_file.is_some();
     tracker.param.adjust_time = args.adjust_time;
 
     let pcap_stats: std::sync::Arc<std::sync::Mutex<Option<(u64, u64, u64)>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
 
-    // Start background packet receiver thread to read from PCAP
     let (packet_tx, packet_rx) = channel::<ParsedPacket>();
-    let bpf_filter = if !args.bpf_expression.is_empty() {
+    let bpf_expression = if !args.bpf_expression.is_empty() {
         Some(args.bpf_expression.join(" "))
     } else {
         None
     };
 
+    let mut pcap_file_capture = None;
+    let mut pcap_device_capture = None;
+
+    if let Some(ref file_path) = args.pcap_file {
+        match pcap::Capture::from_file(file_path) {
+            Ok(mut capture) => {
+                if let Some(ref filter) = bpf_expression {
+                    log::info!("Applying BPF filter: \"{}\"", filter);
+                    if let Err(e) = capture.filter(filter, true) {
+                        eprintln!("PCAP capture error: {}\n", e);
+                        std::process::exit(1);
+                    }
+                }
+                pcap_file_capture = Some(capture);
+            }
+            Err(e) => {
+                eprintln!("PCAP capture error: {}\n", e);
+                std::process::exit(1);
+            }
+        }
+    } else if let Some(ref dev_name) = capture_dev {
+        if dev_name.is_empty() {
+            eprintln!("Wrong interface is specified.\n");
+            std::process::exit(1);
+        }
+        let snaplen = args.capture_length.unwrap_or(256) as i32;
+        let mut builder = match pcap::Capture::from_device(dev_name.as_str()) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("PCAP capture error: {}\n", e);
+                std::process::exit(1);
+            }
+        }
+        .snaplen(snaplen)
+        .promisc(!args.no_promisc);
+
+        if let Some(buf_size) = args.buffer_size {
+            builder = builder.buffer_size(buf_size as i32);
+        } else {
+            builder = builder.buffer_size(1024 * 1024);
+        }
+        builder = builder.immediate_mode(true);
+        let mut capture = match builder.open() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("PCAP capture error: {}\n", e);
+                std::process::exit(1);
+            }
+        };
+
+        if let Some(ref filter) = bpf_expression {
+            log::info!("Applying BPF filter: \"{}\"", filter);
+            if let Err(e) = capture.filter(filter, true) {
+                eprintln!("PCAP capture error: {}\n", e);
+                std::process::exit(1);
+            }
+        }
+        pcap_device_capture = Some(capture);
+    } else {
+        eprintln!("Must specify either a live interface (-i) or offline pcap file (-r)\n");
+        std::process::exit(1);
+    }
+
+    // 1. Logging setup
+    let log_level = if args.debug {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    };
+    env_logger::Builder::new().filter(None, log_level).init();
+
+    // 2. Daemonize if requested
+    if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
+        log::info!("Daemonising softflowd...");
+        if let Err(e) = nix::unistd::daemon(true, false) {
+            log::error!("Failed to daemonise: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    // Resolve PID file path
+    let pidfile_path = match args.pidfile.as_deref() {
+        Some("none") => None,
+        Some(path) => Some(path.to_string()),
+        None => {
+            if args.dont_fork || args.debug || args.pcap_file.is_some() {
+                None
+            } else {
+                Some("/var/run/softflowd.pid".to_string())
+            }
+        }
+    };
+
+    // Write PID file
+    if let Some(ref path) = pidfile_path {
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Ok(pid) = content.trim().parse::<i32>()
+            && pid > 0
+        {
+            let res = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None);
+            if res.is_ok() || res.err() == Some(nix::errno::Errno::EPERM) {
+                eprintln!("Already running under pid {}", pid);
+                std::process::exit(1);
+            }
+        }
+        if let Err(e) = std::fs::write(path, format!("{}\n", std::process::id())) {
+            if !args.dont_fork && !args.debug && args.pcap_file.is_some() {
+                eprintln!("Couldn't open pidfile {}: {}", path, e);
+                std::process::exit(1);
+            } else {
+                log::warn!("Could not write PID file {}: {}", path, e);
+            }
+        }
+    }
+
+    // Drop privileges if running as root
+    drop_privileges();
+
+    // 6. Signal integration
+    register_signals();
+
     let max_num_label = tracker.param.max_num_label;
     let full_l4hdr = args.full_transport_header_check;
 
-    if let Some(ref file_path) = args.pcap_file {
-        let mut capture = pcap::Capture::from_file(file_path)?;
-        if let Some(ref filter) = bpf_filter {
-            log::info!("Applying BPF filter: \"{}\"", filter);
-            capture.filter(filter, true)?;
-        }
+    if let Some(mut capture) = pcap_file_capture {
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
         let pcap_stats_clone = pcap_stats.clone();
@@ -476,7 +637,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(raw_packet) => {
                         let caplen = raw_packet.header.caplen;
                         let len = raw_packet.header.len;
-                        // tv_sec is not an i64 on every target, so the cast is needed there.
                         #[allow(clippy::unnecessary_cast)]
                         let timestamp = TimeVal {
                             tv_sec: raw_packet.header.ts.tv_sec as i64,
@@ -520,24 +680,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             log::debug!("Packet capture thread exited.");
         });
-    } else if let Some(ref dev_name) = capture_dev {
-        let snaplen = args.capture_length.unwrap_or(256) as i32;
-        let mut builder = pcap::Capture::from_device(dev_name.as_str())?
-            .snaplen(snaplen)
-            .promisc(!args.no_promisc);
-
-        if let Some(buf_size) = args.buffer_size {
-            builder = builder.buffer_size(buf_size as i32);
-        } else {
-            builder = builder.buffer_size(1024 * 1024);
-        }
-        builder = builder.immediate_mode(true);
-        let mut capture = builder.open()?;
-
-        if let Some(ref filter) = bpf_filter {
-            log::info!("Applying BPF filter: \"{}\"", filter);
-            capture.filter(filter, true)?;
-        }
+    } else if let Some(mut capture) = pcap_device_capture {
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
         let pcap_stats_clone = pcap_stats.clone();
@@ -551,7 +694,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(raw_packet) => {
                         let caplen = raw_packet.header.caplen;
                         let len = raw_packet.header.len;
-                        // tv_sec is not an i64 on every target, so the cast is needed there.
                         #[allow(clippy::unnecessary_cast)]
                         let timestamp = TimeVal {
                             tv_sec: raw_packet.header.ts.tv_sec as i64,
@@ -1140,6 +1282,16 @@ fn flush_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget, ifidx: u1
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_boot_time_reinit() {
+        assert_eq!(parse_boot_time_reinit("10"), Some(10));
+        assert_eq!(parse_boot_time_reinit("2h"), Some(7200));
+        assert_eq!(parse_boot_time_reinit("50d"), Some(4233600));
+        assert_eq!(parse_boot_time_reinit("abc"), None);
+        assert_eq!(parse_boot_time_reinit("1x2"), None);
+        assert_eq!(parse_boot_time_reinit("99999999999999999999"), None);
+    }
 
     #[test]
     fn parse_duration_follows_convtime() {

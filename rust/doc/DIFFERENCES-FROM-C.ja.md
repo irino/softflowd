@@ -39,6 +39,7 @@
 | D14 | コマンドライン (D3 の一部): `-T port` が panic する。C は受理する | 2026-11-02 | 解消 | 0013 Accept -T port in the Rust version | 2026-11-02、D3 の 75 件を再実行: panic は残っていない(終了ステータスが違うのは 37 件、以前は 38 件)。レベル名のテスト |
 | D15 | 過負荷での追い出し: Rust は追い出したフローを破棄していた (D12 の一部) | 2026-11-02 | 解消 | evict_oldest_flow() で追い出したフローのエクスポートを追加 | 2026-11-02、単体テスト test_flow_eviction_exports が成功 (旧コードでは失敗) |
 | D16 | NetFlow v5 の flow_sequence が C 版の2倍の速さで増加する (D12 の一部) | 2026-11-07 | fixed | export_build_flow_header() の NetFlow v5 における flow_sequence を修正 | 2026-11-07, NetFlow v5 のシーケンス番号に関するテストが通過 (旧コードでは失敗) |
+| D17 | コマンドライン (D3 の一部): 起動順序や `-n`、`-I`、インターフェイス、BPF フィルタ、制御ソケットの検証が C 版と違う | 2026-11-02 | 解消 | Check options and open capture before daemonizing, and reject bad -n and -I | 2026-11-07, `parse_boot_time_reinit` の単体テスト、デーモン化せずに終了ステータス 1 になる統合テスト |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
