@@ -1040,6 +1040,7 @@ fn process_parsed_packet(
             parsed.timestamp,
             targets,
             tracker.param.total_packets,
+            &mut tracker.param,
         );
         return;
     }

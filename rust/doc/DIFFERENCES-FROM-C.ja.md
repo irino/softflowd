@@ -29,7 +29,7 @@
 | D4 | ntopng がない | 2026-11-02 | 解消 | ntopng へのエクスポート (-v ntopng) をオプションの Cargo 機能として追加 | 2026-11-02、統合テストが成功 (機能有効時); -v ntopng-json は未移植 |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
 | D6 | ログ | 2026-11-02 | 解消 | C版に合わせた syslog および標準エラー出力のログ出力とメッセージの実装 | 2026-11-02、標準エラー出力をキャプチャして最初の 4 行を C の文言と比較する統合テスト |
-| D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
+| D7 | PSAMP メッセージヘッダ（シーケンス番号とエクスポート時刻）が C と異なる | 2026-11-02 | 解消 | psamp.rs における PSAMP のシーケンス番号とエクスポート時刻の修正 | 2026-11-07, 120 パケットの pcap に対する最初の 20 メッセージのシーケンス番号を統合テストで検証 |
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
 | D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 解消 | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02、単体テスト maximum_lifetime_expiry_boundary が成功 (旧コードでは失敗) |
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
@@ -185,10 +185,9 @@ ntopng へのエクスポート (`-v ntopng`) はオプションの Cargo 機能
 | `cpu clocks: %ld` | `LOG_INFO` | `cpu clocks: {}` | `log::info!` |
 | `cpu clocks (export): %ld (%lu calls)` | `LOG_INFO` | `cpu clocks (export): {} ({} calls)` | `log::info!` |
 
-### D7. PSAMP (未測定)
+### D7. PSAMP (修正済み)
 
-`compat --psamp` のヘルプに、Rust の PSAMP レコードが違うと書かれています。
-どこが違うかは一覧にしていません。
+PSAMP メッセージヘッダ（IPFIX メッセージヘッダのシーケンス番号およびエクスポート時刻）が C 版と異なっていました。C 版に合わせて修正しました（シーケンス番号は 0 から始まるデータレコード数を数え、エクスポート時刻は壁時計時刻または `-a` 付きのキャプチャ時刻を使用）。
 
 ### D8. compat テストのステップ 5 (未測定)
 

@@ -1,4 +1,4 @@
-use crate::common::TimeVal;
+use crate::common::{FlowTrackParameters, TimeVal};
 use crate::exporter::NetflowTarget;
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io::Write;
@@ -8,8 +8,6 @@ const PSAMP_SELECTION_SEQUENCE_ID: u16 = 301;
 const PSAMP_OBSERVATION_TIME_MICROSECONDS: u16 = 324;
 const PSAMP_SECTION_EXPORTED_OCTETS: u16 = 410;
 const PSAMP_DATA_LINK_FRAME_SECTION: u16 = 315;
-
-static mut PKTS_UNTIL_TEMPLATE: i32 = -1;
 
 fn write_psamp_template(packet: &mut Vec<u8>) {
     // Set ID = 2 (IPFIX Template Set)
@@ -52,27 +50,27 @@ pub fn send_psamp(
     tv: TimeVal,
     target: &NetflowTarget,
     total_packets: u64,
+    param: &mut FlowTrackParameters,
 ) -> i32 {
     let mut packet = Vec::with_capacity(1500);
 
     let mut send_template = false;
-    unsafe {
-        if PKTS_UNTIL_TEMPLATE <= 0 {
-            send_template = true;
-            PKTS_UNTIL_TEMPLATE = 16;
-        }
-        PKTS_UNTIL_TEMPLATE -= 1;
+    if param.psamp_pkts_until_template <= 0 {
+        send_template = true;
+        param.psamp_pkts_until_template = 16;
     }
+    param.psamp_pkts_until_template -= 1;
+
+    let now = crate::exporter::get_active_now(param);
+    let seq = param.psamp_sequence_number;
 
     if send_template {
         // Send a template packet first
         packet.clear();
         packet.write_u16::<BigEndian>(10).unwrap(); // Version (IPFIX)
         packet.write_u16::<BigEndian>(0).unwrap(); // Length (fill at end)
-        packet.write_u32::<BigEndian>(tv.tv_sec as u32).unwrap();
-        packet
-            .write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32)
-            .unwrap();
+        packet.write_u32::<BigEndian>(now.tv_sec as u32).unwrap();
+        packet.write_u32::<BigEndian>(seq).unwrap();
         packet.write_u32::<BigEndian>(0).unwrap(); // Observation Domain ID
 
         write_psamp_template(&mut packet);
@@ -90,10 +88,8 @@ pub fn send_psamp(
     packet.clear();
     packet.write_u16::<BigEndian>(10).unwrap(); // Version
     packet.write_u16::<BigEndian>(0).unwrap(); // Length
-    packet.write_u32::<BigEndian>(tv.tv_sec as u32).unwrap();
-    packet
-        .write_u32::<BigEndian>((total_packets & 0xFFFFFFFF) as u32)
-        .unwrap();
+    packet.write_u32::<BigEndian>(now.tv_sec as u32).unwrap();
+    packet.write_u32::<BigEndian>(seq).unwrap();
     packet.write_u32::<BigEndian>(0).unwrap();
 
     // Data Set Header
@@ -135,6 +131,8 @@ pub fn send_psamp(
 
     let mut sent = 0;
     let _ = target.send_multi_destinations(&packet, &mut sent);
+
+    param.psamp_sequence_number += 1;
 
     1
 }

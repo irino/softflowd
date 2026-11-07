@@ -2,6 +2,7 @@ use byteorder::{BigEndian, ByteOrder, WriteBytesExt};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::channel;
 use std::thread;
@@ -430,7 +431,15 @@ fn test_psamp_exporter() {
         tv_sec: 1600000000,
         tv_usec: 500,
     };
-    let sent = rsoftflowd::exporter::psamp::send_psamp(&dummy_packet, 64, timestamp, &targets, 1);
+    let mut param = FlowTrackParameters::default();
+    let sent = rsoftflowd::exporter::psamp::send_psamp(
+        &dummy_packet,
+        64,
+        timestamp,
+        &targets,
+        1,
+        &mut param,
+    );
     assert!(sent >= 0);
 
     let mut buf = [0u8; 2048];
@@ -443,6 +452,146 @@ fn test_psamp_exporter() {
     assert!(received_len >= 16);
     let version = BigEndian::read_u16(&buf[0..2]);
     assert_eq!(version, 10);
+}
+
+#[test]
+fn test_psamp_sequence_numbers_first_20() {
+    let pcap_path = "/tmp/test_psamp_120.pcap";
+    let _ = std::fs::remove_file(pcap_path);
+
+    {
+        let mut file = File::create(pcap_path).unwrap();
+        // Global Header (24 bytes)
+        file.write_u32::<BigEndian>(0xa1b2c3d4).unwrap(); // magic
+        file.write_u16::<BigEndian>(2).unwrap(); // version_major
+        file.write_u16::<BigEndian>(4).unwrap(); // version_minor
+        file.write_i32::<BigEndian>(0).unwrap(); // thiszone
+        file.write_u32::<BigEndian>(0).unwrap(); // sigfigs
+        file.write_u32::<BigEndian>(65535).unwrap(); // snaplen
+        file.write_u32::<BigEndian>(1).unwrap(); // network (DLT_EN10MB = 1)
+
+        for i in 0..120 {
+            let mut pkt = Vec::new();
+            pkt.extend_from_slice(&[0x00, 0x11, 0x22, 0x33, 0x44, 0x55]); // Dst MAC
+            pkt.extend_from_slice(&[0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb]); // Src MAC
+            pkt.write_u16::<BigEndian>(0x0800).unwrap(); // Type: IPv4
+
+            pkt.write_u8(0x45).unwrap(); // Version: 4, IHL: 5
+            pkt.write_u8(0x00).unwrap(); // ToS
+            pkt.write_u16::<BigEndian>(40).unwrap(); // Total Length
+            pkt.write_u16::<BigEndian>((0x1234 + i) as u16).unwrap(); // ID
+            pkt.write_u16::<BigEndian>(0x4000).unwrap(); // Flags
+            pkt.write_u8(64).unwrap(); // TTL
+            pkt.write_u8(6).unwrap(); // Protocol: TCP
+            pkt.write_u16::<BigEndian>(0).unwrap(); // Checksum
+            pkt.extend_from_slice(&[192, 168, 1, 100]); // Src IP
+            pkt.extend_from_slice(&[192, 168, 1, 200]); // Dst IP
+
+            pkt.write_u16::<BigEndian>(12345).unwrap(); // Src Port
+            pkt.write_u16::<BigEndian>(80).unwrap(); // Dst Port
+            pkt.write_u32::<BigEndian>(100).unwrap(); // Seq
+            pkt.write_u32::<BigEndian>(0).unwrap(); // Ack
+            pkt.write_u16::<BigEndian>(0x5002).unwrap(); // Flags: SYN
+            pkt.write_u16::<BigEndian>(65535).unwrap(); // Window
+            pkt.write_u16::<BigEndian>(0).unwrap(); // Checksum
+            pkt.write_u16::<BigEndian>(0).unwrap(); // Urgent
+
+            file.write_u32::<BigEndian>(1600000000 + i).unwrap(); // ts_sec
+            file.write_u32::<BigEndian>(0).unwrap(); // ts_usec
+            file.write_u32::<BigEndian>(pkt.len() as u32).unwrap();
+            file.write_u32::<BigEndian>(pkt.len() as u32).unwrap();
+            file.write_all(&pkt).unwrap();
+        }
+    }
+
+    let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+    let rcvbuf: libc::c_int = 8 * 1024 * 1024;
+    unsafe {
+        libc::setsockopt(
+            recv_socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            &rcvbuf as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
+
+    let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
+
+    let targets = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Udp(send_socket),
+            arg: recv_addr.to_string(),
+        }],
+        version: 10,
+        is_loadbalance: false,
+    };
+
+    let mut capture = pcap::Capture::from_file(pcap_path).expect("Failed to open PCAP file");
+    let mut param = FlowTrackParameters {
+        is_psamp: true,
+        ..Default::default()
+    };
+
+    let mut total_packets = 0u64;
+    while let Ok(raw_packet) = capture.next_packet() {
+        total_packets += 1;
+        param.total_packets = total_packets;
+        param.last_packet_time = TimeVal {
+            tv_sec: raw_packet.header.ts.tv_sec,
+            tv_usec: raw_packet.header.ts.tv_usec as i32,
+        };
+        let timestamp = param.last_packet_time;
+        rsoftflowd::exporter::psamp::send_psamp(
+            raw_packet.data,
+            raw_packet.header.caplen,
+            timestamp,
+            &targets,
+            total_packets,
+            &mut param,
+        );
+    }
+
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+
+    let mut seq_numbers = Vec::new();
+    let mut buf = [0u8; 2048];
+
+    for _ in 0..25 {
+        match recv_socket.recv_from(&mut buf) {
+            Ok((len, _)) => {
+                if len >= 12 {
+                    let version = BigEndian::read_u16(&buf[0..2]);
+                    if version == 10 {
+                        let seq = BigEndian::read_u32(&buf[8..12]);
+                        seq_numbers.push(seq);
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    let _ = std::fs::remove_file(pcap_path);
+
+    assert!(
+        seq_numbers.len() >= 20,
+        "Expected at least 20 messages, got {}",
+        seq_numbers.len()
+    );
+
+    let expected = vec![
+        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17,
+    ];
+    assert_eq!(&seq_numbers[0..20], &expected[..]);
 }
 
 #[test]
