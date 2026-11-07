@@ -504,20 +504,45 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
+    // 2. Daemonize if requested (before logging init as C does)
+    if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
+        let res = nix::unistd::daemon(true, false);
+        if let Err(e) = res {
+            eprintln!("Failed to daemonise: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     // 1. Logging setup
     let log_level = if args.debug {
         log::LevelFilter::Debug
     } else {
         log::LevelFilter::Info
     };
-    env_logger::Builder::new().filter(None, log_level).init();
-
-    // 2. Daemonize if requested
-    if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
-        log::info!("Daemonising softflowd...");
-        if let Err(e) = nix::unistd::daemon(true, false) {
-            log::error!("Failed to daemonise: {}", e);
-            std::process::exit(1);
+    if args.dont_fork || args.debug {
+        struct StderrLogger;
+        impl log::Log for StderrLogger {
+            fn enabled(&self, metadata: &log::Metadata) -> bool {
+                metadata.level() <= log::max_level()
+            }
+            fn log(&self, record: &log::Record) {
+                if self.enabled(record.metadata()) {
+                    eprintln!("{}", record.args());
+                }
+            }
+            fn flush(&self) {
+                let _ = std::io::stderr().flush();
+            }
+        }
+        static STDERR_LOGGER: StderrLogger = StderrLogger;
+        let _ = log::set_logger(&STDERR_LOGGER);
+        log::set_max_level(log_level);
+    } else {
+        match syslog::init(syslog::Facility::LOG_DAEMON, log_level, Some("rsoftflowd")) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Failed to initialize syslog: {}", e);
+            }
         }
     }
 
@@ -714,12 +739,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Err(pcap::Error::NoMorePackets) => {
-                        log::info!("End of PCAP file reached.");
+                        log::info!("Shutting down after pcap EOF");
                         if let Ok(st) = capture.stats() {
                             let mut s = pcap_stats_clone.lock().unwrap();
                             *s =
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
+                        GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
                         break;
                     }
                     Err(e) => {
@@ -787,7 +813,22 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop_privileges();
 
     // 8. Main Event Loop
-    log::info!("rsoftflowd started. Version: {}", version);
+    log::info!(
+        "rsoftflowd v{} starting data collection",
+        env!("CARGO_PKG_VERSION")
+    );
+    let cap_src = args
+        .pcap_file
+        .as_deref()
+        .unwrap_or_else(|| args.interface.as_deref().unwrap_or(""));
+    for dest in &targets.destinations {
+        let (host, serv) = if let Some(idx) = dest.arg.rfind(':') {
+            (&dest.arg[..idx], &dest.arg[idx + 1..])
+        } else {
+            (&dest.arg[..], "")
+        };
+        log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
+    }
     let mut last_expiry_scan = Instant::now();
     let mut stop_gather = false;
     let pid = std::process::id();
@@ -911,7 +952,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         if (pcap_file_mode && channel_disconnected)
             || GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst)
         {
-            log::info!("Shutting down. Processing remaining flows.");
+            log::warn!("Shutting down on user request");
             flush_all_flows(&mut tracker, &targets, if_index);
             // Print stats to stdout before exit as C softflowd does
             let st = *pcap_stats.lock().unwrap();

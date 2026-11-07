@@ -620,6 +620,47 @@ fn test_flow_end_reason_values() {
 }
 
 // -------------------------------------------------------------
+// Test D6: Logging stderr with -d -r FILE compares first four lines with C wording
+// -------------------------------------------------------------
+#[test]
+fn test_d6_logging_stderr_first_four_lines() {
+    let pcap_path = "/tmp/test_d6.pcap";
+    let _ = std::fs::remove_file(pcap_path);
+    create_temp_pcap(pcap_path).unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_rsoftflowd");
+    let output = std::process::Command::new(bin)
+        .args(["-d", "-r", pcap_path, "-n", "127.0.0.1:9"])
+        .output()
+        .expect("Failed to execute rsoftflowd");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+
+    assert!(
+        lines.len() >= 4,
+        "Expected at least 4 lines of stderr, got {}: {:?}",
+        lines.len(),
+        lines
+    );
+    assert_eq!(
+        lines[0],
+        format!(
+            "rsoftflowd v{} starting data collection",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+    assert_eq!(
+        lines[1],
+        format!("Exporting flows from {} to [127.0.0.1]:9", pcap_path)
+    );
+    assert_eq!(lines[2], "Shutting down after pcap EOF");
+    assert_eq!(lines[3], "Shutting down on user request");
+
+    let _ = std::fs::remove_file(pcap_path);
+}
+
+// -------------------------------------------------------------
 // Test: the names of the flow tracking levels (-T) of the C version
 // -------------------------------------------------------------
 #[test]

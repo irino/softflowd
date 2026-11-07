@@ -28,7 +28,7 @@
 | D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 未解消 | | |
 | D4 | ntopng がない | 2026-11-02 | 解消 | ntopng へのエクスポート (-v ntopng) をオプションの Cargo 機能として追加 | 2026-11-02、統合テストが成功 (機能有効時); -v ntopng-json は未移植 |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
-| D6 | ログの形式が違う | 2026-11-02 | 未解消 | | |
+| D6 | ログ | 2026-11-02 | 解消 | C版に合わせた syslog および標準エラー出力のログ出力とメッセージの実装 | 2026-11-02、標準エラー出力をキャプチャして最初の 4 行を C の文言と比較する統合テスト |
 | D7 | PSAMP レコードが違う (未測定) | 2026-11-02 | 未解消 | | |
 | D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
 | D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 解消 | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02、単体テスト maximum_lifetime_expiry_boundary が成功 (旧コードでは失敗) |
@@ -151,8 +151,39 @@ ntopng へのエクスポート (`-v ntopng`) はオプションの Cargo 機能
 
 ### D6. ログ (実測)
 
-Rust は `env_logger` の行(`[時刻 LEVEL rsoftflowd] ...`)を出し、C は
-メッセージだけを出します。細かい比較はしていません。
+`-d` 指定時は、C と同様にタイムスタンプやレベルプレフィックスなしのプレーンテキストとして標準エラー出力に出力されます。`-d` がない場合は、C の呼び出しレベル（`LOG_DEBUG`, `LOG_INFO`, `LOG_WARNING`, `LOG_ERR`）で syslog（ident `rsoftflowd`、`LOG_DAEMON`、PID 付き）に出力されます。ログメッセージの文言、レベル、順序は C 版と一致します。
+
+| C のメッセージ / フォーマット | C のログレベル | Rust のメッセージ / フォーマット | Rust のログレベル |
+|---|---|---|---|
+| `%s v%s starting data collection` | `LOG_NOTICE` | `rsoftflowd v0.1.0 starting data collection` | `log::info!` |
+| `Exporting flows from %s to [%s]:%s` | `LOG_NOTICE` | `Exporting flows from {} to [{}]:{}` | `log::info!` |
+| `Shutting down after pcap EOF` | `LOG_NOTICE` | `Shutting down after pcap EOF` | `log::info!` |
+| `Shutting down on user request` | `LOG_WARNING` | `Shutting down on user request` | `log::warn!` |
+| `Exiting immediately on user request` | `LOG_WARNING` | `Exiting immediately on user request` | `log::warn!` |
+| `Exiting immediately on internal error` | `LOG_ERR` | `Exiting immediately on internal error` | `log::error!` |
+| `SIGHUP received (config reload not implemented)` | `LOG_INFO` | `SIGHUP received (config reload not implemented)` | `log::info!` |
+| `stats: tracked=%u total_packets=%llu` | `LOG_INFO` | `stats: tracked={} total_packets={}` | `log::info!` |
+| `Exiting on poll: %s` | `LOG_ERR` | `Exiting on poll: {}` | `log::error!` |
+| `Exiting on pcap_dispatch: %s` | `LOG_ERR` | `Exiting on pcap_dispatch: {}` | `log::error!` |
+| `Fatal error - exiting immediately` | `LOG_WARNING` | `Fatal error - exiting immediately` | `log::warn!` |
+| `Unable to export flows` | `LOG_WARNING` | `Unable to export flows` | `log::warn!` |
+| `Starting expiry scan: mode %d` | `LOG_DEBUG` | `Starting expiry scan: mode {}` | `log::debug!` |
+| `Queuing flow seq:%" PRIu64 " (%p) for expiry reason %d` | `LOG_DEBUG` | `Queuing flow seq:{} ({:p}) for expiry reason {}` | `log::debug!` |
+| `Finished scan %d flow(s) to be evicted` | `LOG_DEBUG` | `Finished scan {} flow(s) to be evicted` | `log::debug!` |
+| `EXPIRED: {} ({:p})` | `LOG_DEBUG` | `EXPIRED: {} ({:p})` | `log::debug!` |
+| `Forcing expiry of %d flows` | `LOG_INFO` | `Forcing expiry of {} flows` | `log::info!` |
+| `Out of memory while expiring flows - all flows expired` | `LOG_ERR` | `Out of memory while expiring flows - all flows expired` | `log::error!` |
+| `Needed to expire %d flows, but only %d active` | `LOG_ERR` | `Needed to expire {} flows, but only {} active` | `log::error!` |
+| `Control socket "%s"` | `LOG_DEBUG` | `Control socket "{}"` | `log::debug!` |
+| `Control socket yielded no data` | `LOG_ERR` | `Control socket yielded no data` | `log::error!` |
+| `process_packet: flow_get failed` | `LOG_ERR` | `process_packet: flow_get failed` | `log::error!` |
+| `process_packet: expiry_get failed` | `LOG_ERR` | `process_packet: expiry_get failed` | `log::error!` |
+| `ADD FLOW %s` | `LOG_DEBUG` | `ADD FLOW {}` | `log::debug!` |
+| `COLLISION %s` | `LOG_DEBUG` | `COLLISION {}` | `log::debug!` |
+| `Sending flow packet len = %d` | `LOG_DEBUG` | `Sending flow packet len = {}` | `log::debug!` |
+| `packet len %d: %s` | `LOG_INFO` | `packet len {}: {}` | `log::info!` |
+| `cpu clocks: %ld` | `LOG_INFO` | `cpu clocks: {}` | `log::info!` |
+| `cpu clocks (export): %ld (%lu calls)` | `LOG_INFO` | `cpu clocks (export): {} ({} calls)` | `log::info!` |
 
 ### D7. PSAMP (未測定)
 

@@ -26,6 +26,7 @@ env_logger = "0.11.5"
 libc = "0.2.155"
 chrono = "0.4.38"
 zmq = { version = "0.10", optional = true }
+syslog = "6.1"
 
 [build-dependencies]
 clap = { version = "4.5", features = ["derive"] }

@@ -30,7 +30,7 @@ changes when a patch is applied.
 | D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
 | D4 | No ntopng | 2026-11-02 | fixed | Add the export to ntopng (-v ntopng) as an optional Cargo feature | 2026-11-02, integration test passes (feature on); note that -v ntopng-json is not ported |
 | D5 | Program name and version not unified | 2026-11-02 | fixed | 0016 Remove alias binaries | 2026-11-02, cargo build generates only rsoftflowd and rsoftflowctl |
-| D6 | Log format differs | 2026-11-02 | open | | |
+| D6 | Logging | 2026-11-02 | fixed | Implement syslog and stderr logging matching C versions and messages | 2026-11-02, integration test captures stderr and compares first four lines with C wording |
 | D7 | PSAMP records differ (not measured) | 2026-11-02 | open | | |
 | D8 | compat step 5 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 5 ran for the first time (its result is D12) |
 | D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | fixed | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02, unit test maximum_lifetime_expiry_boundary passes (fails on old code) |
@@ -158,8 +158,39 @@ The `softflowd` and `softflowctl` aliases in `Cargo.toml` were removed; only
 
 ### D6. Logging (measured)
 
-Rust prints `env_logger` lines (`[time LEVEL rsoftflowd] ...`) where C writes
-the plain message.  Not compared in detail.
+With `-d`, messages go to stderr as plain text without timestamp or level prefix, matching C. Without `-d`, messages go to syslog (ident `rsoftflowd`, `LOG_DAEMON`, with the PID) at the levels of the C calls (`LOG_DEBUG`, `LOG_INFO`, `LOG_WARNING`, `LOG_ERR`). The wording, levels, and order of log messages match the C version.
+
+| C Message / Format | C Level | Rust Message / Format | Rust Level |
+|---|---|---|---|
+| `%s v%s starting data collection` | `LOG_NOTICE` | `rsoftflowd v0.1.0 starting data collection` | `log::info!` |
+| `Exporting flows from %s to [%s]:%s` | `LOG_NOTICE` | `Exporting flows from {} to [{}]:{}` | `log::info!` |
+| `Shutting down after pcap EOF` | `LOG_NOTICE` | `Shutting down after pcap EOF` | `log::info!` |
+| `Shutting down on user request` | `LOG_WARNING` | `Shutting down on user request` | `log::warn!` |
+| `Exiting immediately on user request` | `LOG_WARNING` | `Exiting immediately on user request` | `log::warn!` |
+| `Exiting immediately on internal error` | `LOG_ERR` | `Exiting immediately on internal error` | `log::error!` |
+| `SIGHUP received (config reload not implemented)` | `LOG_INFO` | `SIGHUP received (config reload not implemented)` | `log::info!` |
+| `stats: tracked=%u total_packets=%llu` | `LOG_INFO` | `stats: tracked={} total_packets={}` | `log::info!` |
+| `Exiting on poll: %s` | `LOG_ERR` | `Exiting on poll: {}` | `log::error!` |
+| `Exiting on pcap_dispatch: %s` | `LOG_ERR` | `Exiting on pcap_dispatch: {}` | `log::error!` |
+| `Fatal error - exiting immediately` | `LOG_WARNING` | `Fatal error - exiting immediately` | `log::warn!` |
+| `Unable to export flows` | `LOG_WARNING` | `Unable to export flows` | `log::warn!` |
+| `Starting expiry scan: mode %d` | `LOG_DEBUG` | `Starting expiry scan: mode {}` | `log::debug!` |
+| `Queuing flow seq:%" PRIu64 " (%p) for expiry reason %d` | `LOG_DEBUG` | `Queuing flow seq:{} ({:p}) for expiry reason {}` | `log::debug!` |
+| `Finished scan %d flow(s) to be evicted` | `LOG_DEBUG` | `Finished scan {} flow(s) to be evicted` | `log::debug!` |
+| `EXPIRED: %s (%p)` | `LOG_DEBUG` | `EXPIRED: {} ({:p})` | `log::debug!` |
+| `Forcing expiry of %d flows` | `LOG_INFO` | `Forcing expiry of {} flows` | `log::info!` |
+| `Out of memory while expiring flows - all flows expired` | `LOG_ERR` | `Out of memory while expiring flows - all flows expired` | `log::error!` |
+| `Needed to expire %d flows, but only %d active` | `LOG_ERR` | `Needed to expire {} flows, but only {} active` | `log::error!` |
+| `Control socket "%s"` | `LOG_DEBUG` | `Control socket "{}"` | `log::debug!` |
+| `Control socket yielded no data` | `LOG_ERR` | `Control socket yielded no data` | `log::error!` |
+| `process_packet: flow_get failed` | `LOG_ERR` | `process_packet: flow_get failed` | `log::error!` |
+| `process_packet: expiry_get failed` | `LOG_ERR` | `process_packet: expiry_get failed` | `log::error!` |
+| `ADD FLOW %s` | `LOG_DEBUG` | `ADD FLOW {}` | `log::debug!` |
+| `COLLISION %s` | `LOG_DEBUG` | `COLLISION {}` | `log::debug!` |
+| `Sending flow packet len = %d` | `LOG_DEBUG` | `Sending flow packet len = {}` | `log::debug!` |
+| `packet len %d: %s` | `LOG_INFO` | `packet len {}: {}` | `log::info!` |
+| `cpu clocks: %ld` | `LOG_INFO` | `cpu clocks: {}` | `log::info!` |
+| `cpu clocks (export): %ld (%lu calls)` | `LOG_INFO` | `cpu clocks (export): {} ({} calls)` | `log::info!` |
 
 ### D7. PSAMP (not measured)
 
