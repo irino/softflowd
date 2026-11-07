@@ -745,7 +745,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             *s =
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
-                        GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
                         break;
                     }
                     Err(e) => {
@@ -835,13 +834,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prefix = format!("softflowd[{}]: ", pid);
 
     loop {
-        // Handle signals
-        if GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
-            log::info!("Shutting down gracefully...");
-            flush_all_flows(&mut tracker, &targets, if_index);
-            break;
-        }
-
         // Handle control commands
         while let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
@@ -945,7 +937,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Small sleep to yield CPU in live mode, unless we processed packets
         if packets_processed_this_loop == 0 {
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(1));
         }
 
         // In offline PCAP file mode, if the packet channel is empty and thread has finished, we exit!
