@@ -3,6 +3,7 @@
 // The exporters of NetFlow v1, v5, v9 and IPFIX. What they share is in
 // export_common.cpp, and PSAMP, like the C version, has a file of its own.
 #include "softflowd_cpp/export.hpp"
+#include "softflowd_cpp/packet.hpp"
 
 #include <algorithm>
 #include <cstdio>

@@ -2,12 +2,13 @@
  * @file flow_runtime.cpp
  * @brief The flow table that the daemon uses: one of the backends of the flow table, chosen at run time.
  *
- * Split from softflowd.cpp. FlowTableRuntime is declared in softflowd.hpp. It
+ * Split from softflowd.cpp. FlowTableRuntime is declared in flow.hpp. It
  * holds a FlowTable of the hash or of the tree backend, and forwards each call
  * to it.
  *
  * @original The choice of the flow index of init_flowtrack () in softflowd.c.
  */
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 #include <chrono>

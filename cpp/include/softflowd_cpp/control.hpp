@@ -12,6 +12,8 @@
 #ifndef SOFTFLOWD_CPP_CONTROL_HPP
 #define SOFTFLOWD_CPP_CONTROL_HPP
 
+#include "softflowd_cpp/capture.hpp"
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/sender.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 

@@ -14,6 +14,7 @@
 #define SOFTFLOWD_CPP_SENDER_HPP
 
 #include "softflowd_cpp/export.hpp"
+#include "softflowd_cpp/netsock.hpp"
 #include "softflowd_cpp/ntopng.hpp"
 #include "softflowd_cpp/options.hpp"
 #include "softflowd_cpp/psamp.hpp"

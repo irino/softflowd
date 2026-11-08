@@ -2,8 +2,8 @@
  * @file packet.cpp
  * @brief The decoding of a captured packet: PacketParser, which reads the IP and the transport headers, and the classification of the frame.
  *
- * Split from softflowd.cpp. PacketParser is declared in softflowd.hpp, and
- * classify_frame () in packet.hpp.
+ * Split from softflowd.cpp. PacketParser and classify_frame () are declared
+ * in packet.hpp.
  */
 #include "softflowd_cpp/packet.hpp"
 
@@ -138,7 +138,7 @@ PacketParser::parse_ipv4 (std::span<const std::uint8_t> data) const {
 std::optional<ParsedPacket>
 PacketParser::parse_ipv6 (std::span<const std::uint8_t> data) const {
   // Original: ipv6_to_flowrec()'s extension-header walk. As noted in
-  // softflowd.hpp, the original had a real bug here:
+  // packet.hpp, the original had a real bug here:
   //   eh6 = (const struct ip6_ext *) pkt + size;
   // Using data.subspan(size), whose offset is unambiguously byte-based by
   // its type signature, prevents the same kind of bug from resurfacing.

@@ -11,7 +11,9 @@
 #ifndef SOFTFLOWD_CPP_STATS_HPP
 #define SOFTFLOWD_CPP_STATS_HPP
 
+#include "softflowd_cpp/capture.hpp"
 #include "softflowd_cpp/export.hpp"
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 #include <cstddef>

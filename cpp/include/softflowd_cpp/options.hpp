@@ -13,6 +13,7 @@
 #ifndef SOFTFLOWD_CPP_OPTIONS_HPP
 #define SOFTFLOWD_CPP_OPTIONS_HPP
 
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/ipfix.hpp"
 #include "softflowd_cpp/softflowctl.hpp"
 #include "softflowd_cpp/softflowd.hpp"

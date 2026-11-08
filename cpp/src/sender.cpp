@@ -4,6 +4,7 @@
  *
  * Split from softflowd.cpp. See sender.hpp.
  */
+#include "softflowd_cpp/netsock.hpp"
 #include "softflowd_cpp/sender.hpp"
 
 #include <algorithm>

@@ -4,6 +4,8 @@
  *
  * Split from softflowd.cpp. See stats.hpp.
  */
+#include "softflowd_cpp/capture.hpp"
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/stats.hpp"
 
 #include "softflowd_cpp/format.hpp"

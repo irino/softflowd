@@ -4,6 +4,7 @@
  *
  * Split from softflowd.cpp. See options.hpp.
  */
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/options.hpp"
 
 // Original: common.h's PROGNAME/PROGVER macros. They are injected by

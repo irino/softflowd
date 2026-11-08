@@ -10,6 +10,8 @@
 // Build note: main() is compiled out when SOFTFLOWD_CPP_NO_MAIN is defined, so
 // this same file can be linked into unit tests (which supply their own
 // main()) without a duplicate-symbol error. See CMakeLists.txt.
+#include "softflowd_cpp/flow.hpp"
+#include "softflowd_cpp/netsock.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 // Original: common.h's PROGNAME/PROGVER macros. There, they're literal

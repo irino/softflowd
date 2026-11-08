@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <stdexcept>
 
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 using namespace softflowd_cpp;

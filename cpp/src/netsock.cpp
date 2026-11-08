@@ -5,11 +5,12 @@
  * Split from softflowd.cpp. ExportDestination, which is a socket connected to
  * one collector over UDP, TCP or SCTP, and ExportDestinationSet, which holds the
  * destinations of -n and chooses among them with -l, are declared in
- * softflowd.hpp.
+ * netsock.hpp.
  *
  * @original connsock () of netsock.c and the destination handling of
  * send_multi_destinations () of sender.c in the C version.
  */
+#include "softflowd_cpp/netsock.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 #include <cerrno>

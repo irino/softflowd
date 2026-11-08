@@ -2,10 +2,11 @@
  * @file capture.cpp
  * @brief The capture of packets: PcapHandle, which wraps libpcap, the live capture handle, the MAC address of the interface and the thread of -M.
  *
- * Split from softflowd.cpp. PcapHandle is declared in softflowd.hpp, and the
- * rest in capture.hpp.
+ * Split from softflowd.cpp. PcapHandle and the rest are declared in
+ * capture.hpp.
  */
 #include "softflowd_cpp/capture.hpp"
+#include "softflowd_cpp/packet.hpp"
 
 #include <array>
 #include <chrono>

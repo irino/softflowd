@@ -10,8 +10,10 @@
 // softflow_core, which the tests link, does not have softflowctl_lib, whose
 // read_command () and write_all () this file uses.
 #ifndef SOFTFLOWD_CPP_NO_MAIN
+#include "softflowd_cpp/capture.hpp"
 #include "softflowd_cpp/control.hpp"
 
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/format.hpp"
 #include "softflowd_cpp/log.hpp"
 #include "softflowd_cpp/options.hpp"

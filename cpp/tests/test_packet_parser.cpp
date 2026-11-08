@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "softflowd_cpp/packet.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 using namespace softflowd_cpp;

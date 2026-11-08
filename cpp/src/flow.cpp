@@ -3,11 +3,12 @@
  * @brief The flow table: the hash and the tree backends, and the expiry of its flows.
  *
  * Split from softflowd.cpp. The class template FlowTable is declared in
- * softflowd.hpp and is instantiated for both backends at the end of this file.
+ * flow.hpp and is instantiated for both backends at the end of this file.
  *
  * @original struct FLOWTRACK, freelist.c, treetype.h and sys-tree.h, and
  * flow.c of the C version.
  */
+#include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/softflowd.hpp"
 
 #include <algorithm>
@@ -23,6 +24,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include <netinet/in.h>
 
 namespace softflowd_cpp {
 
@@ -633,7 +636,7 @@ FlowTable<Backend>::delete_all () {
 // Explicit instantiation: this is the one translation unit where
 // FlowTable<Hash> and FlowTable<Tree> are actually compiled. Every other
 // translation unit only sees the `extern template` declaration in
-// softflowd.hpp and links against the definitions generated here -- the
+// flow.hpp and links against the definitions generated here -- the
 // same "declare in the header, define once in the source file" shape as a
 // non-template class, just applied to a template with a closed set of
 // instantiations.
