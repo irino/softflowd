@@ -255,6 +255,7 @@ Command: the one in "How to reproduce" with `--a` and `--b` and `--strict`
 - The same: `-M` exports the same datagrams as without it; the expire-all
   at the end of a file (`-a`); the idle expiry (`-t expint=3`); packets that
   are read together; the statistics of `-a` on a live interface.
+- Note on datagram packing: Differences in datagram record packing efficiency and splitting between C and Rust (e.g. 23 records vs 22 records) are intentional, RFC-compliant, and governed by transport packet size limits (`IPFIX_SOFTFLOWD_MAX_PACKET_SIZE` = 1428 bytes, derived from standard Ethernet MTU 1500 minus IP and UDP/TCP headers). IPFIX (RFC 7011) does not require rigid record-count parity with C as long as message lengths, set lengths, 4-byte set padding, and MTU/packet size constraints are respected. (Future enhancement: dynamically querying output interface MTU and subtracting IP header size and transport header size - UDP, TCP, SCTP, including up to 60 bytes for TCP options - to compute max packet size).
 
 ## Repository state (source)
 
