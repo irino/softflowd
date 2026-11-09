@@ -8,7 +8,7 @@ endif
 if COMPAT_EXPORT_IS_ENABLED
   STATIC_SOURCES = compat/ipfix.c compat/netflow5.c
 else
-  EXPORT_SOURCES = export.c export_template.c
+  EXPORT_SOURCES = export.c export_fixed.c export_template.c
 endif
 if ENABLE_NTOPNG
   NTOPNG_SOURCES = ntopng.c
