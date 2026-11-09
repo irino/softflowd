@@ -1,6 +1,8 @@
 # .github/workflows/bsd-build.yml
 name: build test
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   linux:
     runs-on: ubuntu-latest
