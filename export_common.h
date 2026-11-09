@@ -33,8 +33,8 @@
 
 /*
  * Definitions of softflowd shared by the exporters: the code common to them
- * (export_common.c), the encoder-based exporter (export.c) and the fixed-format
- * exporters (the files in compat/). The values defined by the RFCs are in
+ * (export_common.c), the encoder-based exporter (export.c, export_fixed.c and
+ * export_template.c) and the fixed-format exporters (the files in compat/). The values defined by the RFCs are in
  * ipfix.h.
  */
 
@@ -92,15 +92,17 @@ enum { TMPLV4,
        TMPLICMPV6,
        TMPLMAX };
 
-/* Functions shared by the exporters in export.c and compat/ipfix.c. */
+/* Functions shared by the exporters in export.c, export_template.c and
+ * compat/ipfix.c. */
 u_int8_t
 ipfix_flow_direction (const struct FLOW *flow, int i,
                       const struct FLOWTRACKPARAMETERS *param);
 u_int
 ipfix_flow_to_template_index (const struct FLOW *flow);
 
-/* Hooks called by send_ipfix_flows() in export.c; each exporter (encoder-based
- * in export.c, fixed-format in compat/ipfix.c) implements them. */
+/* Hooks called by send_ipfix_flows() in export_common.c; each exporter
+ * (encoder-based in export_template.c, fixed-format in compat/ipfix.c)
+ * implements them. */
 void
 ipfix_init_exporter (const struct SENDPARAMETER *sp, u_int8_t bi_flag,
                      u_int16_t version);
@@ -115,7 +117,7 @@ u_int16_t
 ipfix_template_set_id (u_int tmplindex);
 
 /* Writes the export packet header; returns its size. Also used by the
- * encoder-based exporter in export.c. */
+ * encoder-based exporter in export_fixed.c. */
 u_int
 export_build_flow_header (u_char *packet, u_int16_t version,
                           const struct FLOWTRACKPARAMETERS *param);

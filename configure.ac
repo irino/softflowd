@@ -82,7 +82,7 @@ AC_ARG_ENABLE(legacy,
               [legacy=$enableval],[legacy=])
 AC_ARG_ENABLE(compat-export,
               AS_HELP_STRING([--enable-compat-export=static|static-separate],
-                             [use the fixed-format NetFlow exporters instead of the default encoder-based exporter in export.c: static (fixed templates and data records for v9/IPFIX in compat/ipfix.c, v1/v5 in compat/netflow5.c) or static-separate (IPFIX in compat/ipfix.c, v9, v5 and v1 in compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
+                             [use the fixed-format NetFlow exporters instead of the default encoder-based exporter in export.c, export_fixed.c and export_template.c: static (fixed templates and data records for v9/IPFIX in compat/ipfix.c, v1/v5 in compat/netflow5.c) or static-separate (IPFIX in compat/ipfix.c, v9, v5 and v1 in compat/netflow9.c, compat/netflow5.c and compat/netflow1.c)]),
               [compat_export=$enableval],[compat_export=])
 case "$compat_export" in
   ""|no) compat_export= ;;

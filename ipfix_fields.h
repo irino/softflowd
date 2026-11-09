@@ -26,17 +26,18 @@
  * @file ipfix_fields.h
  * @brief The tables of the fields of the IPFIX and NetFlow v9 templates, the
  *   layouts of the templates on the wire and the names of the encoders of
- *   the fields. Include it from export.c only.
+ *   the fields. Include it from export_template.c only.
  */
 
 #ifndef _IPFIX_FIELDS_H
 #define _IPFIX_FIELDS_H
 
 /*
- * IPFIX field tables shared by the encoder-based exporter (export.c) and the
- * fixed-format exporter (compat/ipfix.c, COMPAT_EXPORT). Include this header
- * from only those two files. DEF_FIELD_ENC (ie, len, fn) names the encoder fn
- * of each field; the fixed-format exporter does not use it and drops it.
+ * IPFIX field tables shared by the encoder-based exporter (export_template.c)
+ * and the fixed-format exporter (compat/ipfix.c, COMPAT_EXPORT). Include this
+ * header from only those two files. DEF_FIELD_ENC (ie, len, fn) names the
+ * encoder fn of each field; the fixed-format exporter does not use it and
+ * drops it.
  */
 
 #include "ipfix.h"
