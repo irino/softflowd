@@ -225,11 +225,7 @@ fn drop_privileges() {
             if let Some(pw) = nix::unistd::User::from_name("nobody").ok().flatten() {
                 let _ = nix::unistd::setgid(pw.gid);
                 let _ = nix::unistd::setuid(pw.uid);
-                log::info!(
-                    "Dropped privileges to nobody (uid: {}, gid: {})",
-                    pw.uid,
-                    pw.gid
-                );
+                log::info!("Dropped privileges to nobody");
             } else {
                 log::warn!("Could not find 'nobody' user to drop privileges");
             }
