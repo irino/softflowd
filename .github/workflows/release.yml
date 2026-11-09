@@ -5,6 +5,9 @@ on:
     tags:
       - 'softflowd-*'
 
+permissions:
+  contents: read
+
 jobs:
   dist:
     runs-on: ubuntu-latest
