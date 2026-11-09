@@ -54,80 +54,8 @@
  */
 #define DEF_FIELD_ENC(ie, len, fn) {(ie), (len)}
 #else
-struct EXPORT_CTX;
-/* The encoder functions named by DEF_FIELD_ENC below are defined in export.c. */
-/**
- * Type of an encoder: write the value of one field of the flow of ctx
- * into dst, length octets.
- */
-typedef void
-export_encoder_fn (u_char *dst, u_int16_t length,
-                   const struct EXPORT_CTX *ctx);
-/** Pointer to an encoder. */
-typedef export_encoder_fn *export_encoder_t;
-/** @cond */
-static export_encoder_fn
-  enc_sourceIPv4Address,
-  enc_destinationIPv4Address,
-  enc_sourceIPv6Address,
-  enc_destinationIPv6Address,
-  enc_octetDeltaCount,
-  enc_packetDeltaCount,
-  enc_ifidx32,
-  enc_flowDirection,
-  enc_flowEndReason,
-  enc_sourceTransportPort,
-  enc_destinationTransportPort,
-  enc_protocolIdentifier,
-  enc_tcpControlBits,
-  enc_ipVersion,
-  enc_ipClassOfService,
-  enc_icmpTypeCode,
-  enc_vlanId,
-  enc_postVlanId,
-  enc_sourceMacAddress,
-  enc_postDestinationMacAddress,
-  enc_flowStartSeconds,
-  enc_flowEndSeconds,
-  enc_flowStartMilliSeconds,
-  enc_flowEndMilliSeconds,
-  enc_flowStartMicroSeconds,
-  enc_flowEndMicroSeconds,
-  enc_flowStartSysUpTime,
-  enc_flowEndSysUpTime,
-  enc_meteringProcessId,
-  enc_systemInitTimeMilliseconds,
-  enc_samplingPacketInterval,
-  enc_samplingPacketSpace,
-  enc_selectorAlgorithm,
-  enc_zero,
-  enc_exporterAddress,
-  enc_originalExporterAddress,
-  enc_nf9OptionScopeInterface,
-  enc_samplingInterval,
-  enc_samplingAlgorithm;
-#ifdef ENABLE_IFNAME
-static export_encoder_fn enc_interfaceName;
-#endif
-/** @endcond */
+#include "export.h"
 
-/* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
- */
-/**
- * Encoder of flowStartNanoSeconds. The micro and nano forms are the same
- * 64-bit NTP encoding (RFC 7011, 6.1.9).
- */
-#define enc_flowStartNanoSeconds enc_flowStartMicroSeconds
-/**
- * Encoder of flowEndNanoSeconds. The micro and nano forms are the same
- * 64-bit NTP encoding (RFC 7011, 6.1.9).
- */
-#define enc_flowEndNanoSeconds enc_flowEndMicroSeconds
-/** @brief A field of a template, and the function that encodes its value. */
-struct EXPORT_FIELD_SPECIFIER_ENCODER {
-  struct IPFIX_FIELD_SPECIFIER field; /**< The field specifier of the template */
-  export_encoder_t encoder;           /**< Writes the value of the field */
-};
 /**
  * Type of the entries of the field tables: the field specifier and the
  * encoder of its value.

@@ -16,7 +16,7 @@ endif
 if ENABLE_NTOPNG_JSON
   NTOPNG_JSON_SOURCES = compat/ntopng-json.c
 endif
-softflowd_SOURCES = freelist.h log.h softflowd.h globals.h format.h netsock.h options.h sender.h flow.h stats.h expire.h packet.h capture.h control.h netflow.h ipfix.h ipfix_fields.h export_common.h psamp.h\
+softflowd_SOURCES = freelist.h log.h softflowd.h globals.h format.h netsock.h options.h sender.h flow.h stats.h expire.h packet.h capture.h control.h netflow.h ipfix.h ipfix_fields.h export.h export_common.h psamp.h\
 	freelist.c softflowd.c format.c netsock.c options.c sender.c flow.c stats.c expire.c packet.c capture.c control.c log.c export_common.c $(EXPORT_SOURCES) $(STATIC_SOURCES) psamp.c\
   $(COMMON)
 EXTRA_softflowd_SOURCES = $(STATIC_SEPARATE_SOURCES) $(NTOPNG_SOURCES) $(NTOPNG_JSON_SOURCES)

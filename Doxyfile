@@ -17,6 +17,7 @@ INPUT                  = capture.c \
                          expire.c \
                          expire.h \
                          export.c \
+                         export.h \
                          export_common.c \
                          export_common.h \
                          flow.c \

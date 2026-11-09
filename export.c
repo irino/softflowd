@@ -29,6 +29,7 @@
  *   fixed-format v1 and v5 records.
  */
 
+#include "export.h"
 #include "export_common.h"
 #include "ipfix.h"
 #include "ipfix_fields.h"
@@ -37,26 +38,10 @@
 #include "psamp.h"
 #include "softflowd.h"
 
-/**
- * Number of the entries of the field table a, an array of struct
- * EXPORT_FIELD_SPECIFIER_ENCODER.
- */
-#define EXPORT_NFIELDS_ENC(a) \
-  (sizeof (a) / sizeof (struct EXPORT_FIELD_SPECIFIER_ENCODER))
-
 /* Merged NetFlow v1/v5/v9/IPFIX exporter (default, encoder-based):
  * Consolidates all 4 versions into a single path by treating v1/v5 fields as
  * IPFIX IEs. Built unless --enable-compat-export or --enable-legacy is given;
  * compat/ipfix.c is built instead then (psamp.c remains separate). */
-
-/** Context for resolving field values: flow, endpoint index, and send
- * parameters. */
-struct EXPORT_CTX {
-  const struct SENDPARAMETER
-    *sp;                   /**< Send parameters (tracking parameters, interface index) */
-  const struct FLOW *flow; /**< Flow being encoded */
-  u_int i;                 /**< Which endpoint (0/1) is "source" here */
-};
 
 /**
  * @brief Store a host-order value as big-endian octets.
@@ -97,7 +82,7 @@ hton (u_char *dst, u_int64_t val, u_int len) {
 }
 
 /**
- * @brief Define a static encoder that stores an integer value in network byte
+ * @brief Define an encoder that stores an integer value in network byte
  * order.
  *
  * The encoder is stored directly in the field tables, which removes any
@@ -108,19 +93,19 @@ hton (u_char *dst, u_int64_t val, u_int len) {
  * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
  * @param width    Number of octets to store.
  */
-#define EXPORT_ENC_HTON(name, val_expr, width)      \
-  static void name (u_char *dst, u_int16_t length,  \
-                    const struct EXPORT_CTX *ctx) { \
-    const struct FLOW *flow = ctx->flow;            \
-    u_int i = ctx->i;                               \
-    (void) flow;                                    \
-    (void) i;                                       \
-    (void) length;                                  \
-    hton (dst, (val_expr), (width));                \
+#define EXPORT_ENC_HTON(name, val_expr, width) \
+  void name (u_char *dst, u_int16_t length,    \
+             const struct EXPORT_CTX *ctx) {   \
+    const struct FLOW *flow = ctx->flow;       \
+    u_int i = ctx->i;                          \
+    (void) flow;                               \
+    (void) i;                                  \
+    (void) length;                             \
+    hton (dst, (val_expr), (width));           \
   }
 
 /**
- * @brief Define a static encoder that copies n octets from memory unchanged.
+ * @brief Define an encoder that copies n octets from memory unchanged.
  *
  * There is no length check: the field tables match each encoder to its exact n,
  * so length >= n always holds and memcpy() can run unconditionally.
@@ -130,32 +115,32 @@ hton (u_char *dst, u_int64_t val, u_int len) {
  * "ctx".
  * @param n        Number of octets to copy.
  */
-#define EXPORT_ENC_COPY(name, src_expr, n)          \
-  static void name (u_char *dst, u_int16_t length,  \
-                    const struct EXPORT_CTX *ctx) { \
-    const struct FLOW *flow = ctx->flow;            \
-    u_int i = ctx->i;                               \
-    (void) flow;                                    \
-    (void) i;                                       \
-    (void) length;                                  \
-    memcpy (dst, (src_expr), (n));                  \
+#define EXPORT_ENC_COPY(name, src_expr, n)   \
+  void name (u_char *dst, u_int16_t length,  \
+             const struct EXPORT_CTX *ctx) { \
+    const struct FLOW *flow = ctx->flow;     \
+    u_int i = ctx->i;                        \
+    (void) flow;                             \
+    (void) i;                                \
+    (void) length;                           \
+    memcpy (dst, (src_expr), (n));           \
   }
 
 /**
- * @brief Define a static encoder that stores a single octet.
+ * @brief Define an encoder that stores a single octet.
  *
  * @param name     Name of the encoder function to define.
  * @param val_expr Expression for the value; may use "flow", "i" and "ctx".
  */
-#define EXPORT_ENC_BYTE(name, val_expr)             \
-  static void name (u_char *dst, u_int16_t length,  \
-                    const struct EXPORT_CTX *ctx) { \
-    const struct FLOW *flow = ctx->flow;            \
-    u_int i = ctx->i;                               \
-    (void) length;                                  \
-    (void) flow;                                    \
-    (void) i;                                       \
-    *dst = (u_char) (val_expr);                     \
+#define EXPORT_ENC_BYTE(name, val_expr)      \
+  void name (u_char *dst, u_int16_t length,  \
+             const struct EXPORT_CTX *ctx) { \
+    const struct FLOW *flow = ctx->flow;     \
+    u_int i = ctx->i;                        \
+    (void) length;                           \
+    (void) flow;                             \
+    (void) i;                                \
+    *dst = (u_char) (val_expr);              \
   }
 
 /**
@@ -169,7 +154,7 @@ hton (u_char *dst, u_int64_t val, u_int len) {
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_zero (u_char *dst, u_int16_t length,
           const struct EXPORT_CTX *ctx) {
   (void) dst;
@@ -228,7 +213,7 @@ EXPORT_ENC_BYTE (enc_flowEndReason, flow->flowEndReason)
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_flowStartMicroSeconds (u_char *dst, u_int16_t length,
                            const struct EXPORT_CTX *ctx) {
   struct ntp_time_t ntptime;
@@ -244,7 +229,7 @@ enc_flowStartMicroSeconds (u_char *dst, u_int16_t length,
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
                          const struct EXPORT_CTX *ctx) {
   struct ntp_time_t ntptime;
@@ -263,7 +248,7 @@ EXPORT_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_interfaceName (u_char *dst, u_int16_t length,
                    const struct EXPORT_CTX *ctx) {
   size_t n = strlen (ctx->sp->param->option.interfaceName);
@@ -306,7 +291,7 @@ EXPORT_ENC_BYTE (enc_samplingAlgorithm, IPFIX_SAMPLING_ALGORITHM_DETERMINISTIC)
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_exporterAddress (u_char *dst, u_int16_t length,
                      const struct EXPORT_CTX *ctx) {
   struct addrinfo *rp;
@@ -329,7 +314,7 @@ enc_exporterAddress (u_char *dst, u_int16_t length,
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_originalExporterAddress (u_char *dst, u_int16_t length,
                              const struct EXPORT_CTX *ctx) {
   struct addrinfo *rp;
@@ -351,7 +336,7 @@ enc_originalExporterAddress (u_char *dst, u_int16_t length,
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_ipVersion (u_char *dst, u_int16_t length,
                const struct EXPORT_CTX *ctx) {
   (void) length; /* Silence -Wunused-parameter warning */
@@ -365,7 +350,7 @@ enc_ipVersion (u_char *dst, u_int16_t length,
  * @param length Length of the field in octets.
  * @param ctx    Flow, endpoint index and send parameters.
  */
-static void
+void
 enc_flowDirection (u_char *dst, u_int16_t length,
                    const struct EXPORT_CTX *ctx) {
   (void) length; /* Silence -Wunused-parameter warning */
@@ -436,7 +421,7 @@ static const struct EXPORT_FIELD_SPECIFIER_ENCODER field_netflowv5_tail_enc[] = 
  * @param ctx     Flow, endpoint index and send parameters.
  * @return Offset after the last emitted field.
  */
-static u_int
+u_int
 export_emit_group_enc (const struct EXPORT_FIELD_SPECIFIER_ENCODER *fields,
                        u_int nfields, u_char *packet, u_int offset,
                        const struct EXPORT_CTX *ctx) {
