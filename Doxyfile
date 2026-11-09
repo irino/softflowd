@@ -20,6 +20,7 @@ INPUT                  = capture.c \
                          export.h \
                          export_common.c \
                          export_common.h \
+                         export_template.c \
                          flow.c \
                          flow.h \
                          format.c \
