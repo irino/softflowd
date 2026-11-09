@@ -1255,7 +1255,7 @@ def run_nfdump_capture(pcap_path: str, daemon_bin: str, version: int) -> str:
     # A free port, not the default 2055: some distributions (Debian, Ubuntu)
     # start their own nfcapd on 2055 when the nfdump package is installed.
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-        probe.bind(("0.0.0.0", 0))
+        probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     # Outside out_dir, which nfdump -R scans for capture files.
     nfcapd_log = os.path.join(SUITE_TMP_DIR, f"nfcapd-{port}.log")
