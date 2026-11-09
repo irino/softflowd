@@ -52,7 +52,7 @@ struct ParsedPacket {
  * that is a strict-aliasing violation -- technically undefined behavior
  * that merely "happens to work" on most platforms/compilers). No casts are
  * used here; every field is read a byte at a time out of a std::span via
- * the read_be16/read_be32 helpers defined in softflowd.cpp. Because those
+ * the read_be16/read_be32 helpers defined in packet.cpp. Because those
  * helpers always read explicitly as big-endian, byte-order bugs from a
  * missing ntohs/ntohl are structurally impossible.
  *

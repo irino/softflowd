@@ -723,7 +723,7 @@ write_v6_record (ByteWriter &writer, const IpfixDirectionalRecord &r,
  * @original field_icmp4/field_icmp6 -- icmpTypeCode replaces the
  * source/destination port pair and there is no tcpControlBits field.
  * dst_port already carries (icmp_type \<\< 8 | icmp_code) -- see
- * PacketParser's ICMP handling in softflowd.cpp -- matching the original's
+ * PacketParser's ICMP handling in packet.cpp -- matching the original's
  * `di[i]-\>icmpTypeCode = flow-\>port[i ^ 1]`.
  */
 void

@@ -4,7 +4,7 @@
  *
  * This header captures that shared protocol explicitly as named constants and
  * helper functions, used by both this project's softflowctl.cpp (the client)
- * and softflowd.cpp's control-socket server loop (see softflowd.cpp for the
+ * and control.cpp's control-socket server loop (see control.cpp for the
  * server side, matching the original's file boundary: softflowd.c owned the
  * listening/accepting code, softflowctl.c only ever behaved as a client).
  * This implementation supports the full command set of softflowctl(8).
@@ -76,7 +76,7 @@ read_line (int fd);
  * one line per tracked flow) -- read_line() intentionally stops at the *first*
  * newline, which would silently truncate a multi-line response, so this is a
  * distinct function rather than a variant of it. The daemon's control-socket
- * server (softflowd.cpp) always closes the connection immediately after
+ * server (control.cpp) always closes the connection immediately after
  * writing its complete response, so "read until EOF" correctly captures the
  * whole thing, single-line or not.
  *

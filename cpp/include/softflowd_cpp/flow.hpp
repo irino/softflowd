@@ -243,7 +243,7 @@ struct FlowTableStats {
  * @original struct FLOWTRACK as a whole, plus the functionality of
  * freelist.c / sys-tree.h.
  *
- * Member function bodies are defined out-of-line in softflowd.cpp and
+ * Member function bodies are defined out-of-line in flow.cpp and
  * explicitly instantiated for both FlowIndexBackend values (see the
  * `extern template` declarations below), mirroring the original's
  * declaration-in-.h / definition-in-.c split even though this is a
@@ -694,7 +694,7 @@ private:
 
 // Explicit instantiation declarations: tells any translation unit that
 // includes this header not to implicitly instantiate FlowTable<Hash> /
-// FlowTable<Tree> itself, but to expect the definitions from softflowd.cpp
+// FlowTable<Tree> itself, but to expect the definitions from flow.cpp
 // at link time. This keeps the (fairly large) template body out of every
 // including file's compiled output, exactly as if FlowTable were a plain
 // non-template class declared in a .h and defined once in a .c file.

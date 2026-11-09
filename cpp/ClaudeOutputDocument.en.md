@@ -189,7 +189,7 @@ All five options that Stage 4 accepted but only partially implemented now have r
 
 ### `-x number_of_mpls_labels` (MPLS label stack parsing)
 
-The packet-parsing layer (in `softflowd.cpp`) now detects the MPLS
+The packet-parsing layer (in `packet.cpp`) now detects the MPLS
 EtherTypes (`0x8847`/`0x8848`) and walks the label stack to find the IP
 header regardless of how many labels are on the stack. Up to `-x`'s
 requested count are stored in `Flow::mpls_labels` and exported as NetFlow
@@ -360,17 +360,17 @@ As in the original, `softflowctl` is its own standalone executable
 (`softflowctl+`). `softflowctl.cpp` contains both the shared
 control-protocol helpers (`read_line`/`write_line`/`ControlClient`) and
 `softflowctl+`'s own `main()` (guarded by `#ifndef SOFTFLOWD_CPP_NO_MAIN`).
-`softflowd+`'s control-socket *server* side lives in `softflowd.cpp`
-itself (matching the original, where `softflowd.c` owned the
-listening/accepting code), linking only against softflowctl.cpp's shared
-protocol helpers.
+`softflowd+`'s control-socket *server* side lives in `control.cpp` (matching
+the original, where `softflowd.c` owned the listening/accepting code, which
+the C version has since moved to `control.c`), linking only against
+softflowctl.cpp's shared protocol helpers.
 
 ## Stage 3: NetFlow/IPFIX/PSAMP export
 
-Unlike Stage 1/2, Stage 3's files (`netflow1`/`netflow5`/`netflow9`/`ipfix`/
-`psamp`) are **not** folded into `softflowd.hpp`/`softflowd.cpp`. These were
-genuinely separate files in the original project too, so that boundary is
-kept as-is:
+Stage 3's files (`netflow1`/`netflow5`/`netflow9`/`ipfix`/`psamp`) were never
+folded into the core files (see "Design rationale: the file layout" below for
+those). These were genuinely separate files in the original project too, so
+that boundary is kept as-is:
 
 ```
 include/softflowd_cpp/
@@ -416,7 +416,7 @@ The output file concatenates each export packet with a 4-byte big-endian
 length prefix (a framing convention specific to this project's demo
 output, not part of the NetFlow/IPFIX specifications themselves).
 
-## Design rationale: why everything lives in softflowd.hpp / softflowd.cpp
+## Design rationale: the file layout
 
 The original softflowd centered on `softflowd.c`/`softflowd.h`: `main()`,
 packet parsing (`ipv4_to_flowrec`/`ipv6_to_flowrec`/`transport_to_flowrec`),
@@ -425,40 +425,60 @@ the flow/expiry struct definitions lived in `softflowd.h`. `freelist.c` /
 `treetype.h` / `sys-tree.h` existed as supporting files implementing
 `struct FLOWTRACK` (the flow set plus its expiry bookkeeping).
 
-This project follows that same monolithic layout as closely as possible,
-to the extent it doesn't conflict with the goal of using modern C++:
+Earlier revisions of this project mirrored that monolithic layout, with
+nearly everything in one header/source pair (`softflowd.hpp` /
+`softflowd.cpp`). The C version has since been split by group of functions,
+mainly so that each file is small enough to be named in a single GitHub
+Issue, and the C++ files follow the same grouping, so that the C, C++ and Rust
+versions keep the same structure:
 
-- **`include/softflowd_cpp/softflowd.hpp`**: every public type --
-  `Flow`/`FlowKey`/`FlowTable`/`PacketParser`/`PcapHandle`, etc. -- is
-  declared here (equivalent to the original `softflowd.h` + `common.h` +
-  `freelist.h`/`treetype.h`/`sys-tree.h`)
-- **`src/softflowd.cpp`**: every implementation, plus `main()` (equivalent
-  to the original `softflowd.c` + `freelist.c`)
+| C version | C++ files | What they hold |
+|---|---|---|
+| `softflowd.c` | `softflowd.cpp` | `main()`, the loop that reads a capture file (`-r`), the loop of the live capture (`-i`), `drop_privs()` |
+| `flow.c`, `expire.c` | `flow.hpp`, `flow.cpp`, `flow_runtime.cpp` | `FlowTable<Backend>` (with the expiry) and `FlowTableRuntime` |
+| `packet.c` | `packet.hpp`, `packet.cpp` | `PacketParser`, `DatalinkKind`, `CapturedPacket`, `classify_frame()` |
+| `capture.c` | `capture.hpp`, `capture.cpp` | `PcapHandle`, `PacketProcessor`, `open_live_capture()`, `get_interface_mac()` |
+| `options.c` | `options.hpp`, `options.cpp` | `DaemonConfig`, the parsing of the values of the options, the usage |
+| `stats.c` | `stats.hpp`, `stats.cpp` | `print_statistics()` and the debug lines of an expiry scan |
+| `format.c` | `format.hpp`, `format.cpp` | the text of addresses, times and flows |
+| `log.c` | `log.hpp`, `log.cpp` | `loginit()`, `logit()` |
+| `sender.c` | `sender.hpp`, `sender.cpp` | `ExportPipeline`: the exporters, the destinations, the export thread of `-M` |
+| `netsock.c` | `netsock.hpp`, `netsock.cpp` | `ExportDestination`, `ExportDestinationSet` |
+| `control.c` | `control.hpp`, `control.cpp` | `ControlState`, `ControlListener`, the commands of `softflowctl` |
 
-Packet parsing (formerly `packet_parser.*`) and pcap capture (formerly
-`capture.*`) have no corresponding standalone file in the original project
--- that logic lived directly inside `softflowd.c`. An earlier revision of
-this project split them into separate files; per feedback, they have been
-folded back into `softflowd.hpp`/`softflowd.cpp`.
+`softflowd.hpp` keeps the types that these files share (`Flow`, `FlowKey`,
+`ExportRecord`, the addresses, the clock and `ByteWriter`), as `softflowd.h`
+does in the C version. The C version's `globals.h` has no counterpart,
+because the C++ version has almost no shared global variables.
 
 The "manage the flow set" responsibility that the original spread across
 three files (`freelist.c` + `treetype.h` + `sys-tree.h`) is consolidated
 into a single class, `FlowTable` (with a selectable backend data structure,
-described below), which likewise lives in `softflowd.hpp`/`softflowd.cpp`.
+described below), declared in `flow.hpp` and defined in `flow.cpp`.
+`FlowTableRuntime`, which chooses the backend at run time, is defined in
+`flow_runtime.cpp`. The expiry that the C version keeps in `expire.c` is part
+of `FlowTable`, so there is no separate file for it.
 
 ### Reconciling `main()` with unit tests
 
 `softflowd.cpp` contains `main()`, but the test executables
 (`test_flow_table`, `test_packet_parser`) each supply their own `main()`
 too -- linking the same `.cpp` into both would be a duplicate-symbol error.
-To avoid this, the `main()` inside `softflowd.cpp` is wrapped in
-`#ifndef SOFTFLOWD_CPP_NO_MAIN`, and `CMakeLists.txt` compiles the same source
-file two different ways:
+To avoid this, the code of `softflowd.cpp` that only the daemon needs,
+`main()` included, is wrapped in `#ifndef SOFTFLOWD_CPP_NO_MAIN`, and
+`CMakeLists.txt` compiles the same list of source files
+(`SOFTFLOWD_CPP_LOGIC_SOURCES`) two different ways:
 
-- the `softflowd+` executable: `softflowd.cpp` compiled as-is (`main()` included)
-- `softflow_core` (an object library used only by the tests): `softflowd.cpp`
+- the `softflowd+` executable: the sources compiled as-is (`main()` included)
+- `softflow_core` (an object library used only by the tests): the sources
   compiled with `-DSOFTFLOWD_CPP_NO_MAIN` (`main()` compiled out), so each test
   can supply its own `main()`
+
+`control.cpp` is wrapped in the same way. It uses `read_command()` and
+`write_all()` of `softflowctl_lib`, and an object library such as
+`softflow_core` does not carry the object files of another object library, so
+the tests do not compile it. This is how it was before the split too, when the
+control-socket server was part of the code that `main()` guards.
 
 ## Selectable flow-tracking data structure (tree or hash)
 
@@ -539,38 +559,50 @@ found (see the source comments for details):
    (unlike TCP/UDP), leaving a potential out-of-bounds read on a runt
    packet.
 
-Both are fixed in `softflowd.cpp`, and `tests/test_packet_parser.cpp`
+Both are fixed in `packet.cpp`, and `tests/test_packet_parser.cpp`
 includes regression tests for them.
 
 ## Directory layout
 
 ```
 include/softflowd_cpp/
-  softflowd.hpp        Every core public type: Flow / FlowKey /
-                        FlowTable<Backend> / FlowTableRuntime /
-                        PacketParser / PcapHandle / ByteWriter /
-                        ExportDestination(Set) / TransportKind, etc.
-                        (original: softflowd.h + common.h +
-                         freelist.h/treetype.h/sys-tree.h)
-  daemon.hpp             PidFile / daemonize() / SignalPipe (original: daemon.h)
-  softflowctl.hpp        Control protocol definitions / ControlClient
+  softflowd.hpp         The types that the files share: Flow / FlowKey /
+                        ExportRecord / ByteWriter, the addresses and the clock
+                        (original: softflowd.h + common.h)
+  flow.hpp              FlowTable<Backend> / FlowTableRuntime, with their
+                        statistics, timeouts and lookups
+                        (original: freelist.h/treetype.h/sys-tree.h + flow.h)
+  packet.hpp            PacketParser / DatalinkKind / CapturedPacket /
+                        classify_frame() (original: packet.h)
+  capture.hpp           PcapHandle / PacketProcessor / open_live_capture()
+                        (original: capture.h)
+  netsock.hpp           ExportDestination(Set) / TransportKind
+                        (original: netsock.h)
+  options.hpp / stats.hpp / format.hpp / log.hpp / sender.hpp / control.hpp
+                        One header for each group of functions in the table above
+  daemon.hpp            PidFile / daemonize() / SignalPipe (original: daemon.h)
+  softflowctl.hpp       Control protocol definitions / ControlClient
                         (original: softflowctl itself)
-  export.hpp              Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow (RFC 5103)/
-                        all 4 absolute time formats (original: export.c)
-  export_common.hpp       NTP time, uptime/epoch time, Set padding, -e address, template IDs
-                        (original: export_common.h)
-  ipfix.hpp               Types of IPFIX and NetFlow v9 (original: ipfix.h)
-  netflow.hpp             Sizes of the NetFlow v1/v5 packets (original: netflow.h)
-  psamp.hpp                  PSAMP + PsampReceiver (the -R receive-mode
-                        decoder; original: psamp.h)
+  export.hpp            Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow
+                        (RFC 5103)/all 4 absolute time formats (original: export.c)
+  export_common.hpp     NTP time, uptime/epoch time, Set padding, -e address,
+                        template IDs (original: export_common.h)
+  ipfix.hpp             Types of IPFIX and NetFlow v9 (original: ipfix.h)
+  netflow.hpp           Sizes of the NetFlow v1/v5 packets (original: netflow.h)
+  ntopng.hpp            The export to ntopng over ZeroMQ (original: ntopng.c)
+  psamp.hpp             PSAMP + PsampReceiver (the -R receive-mode decoder;
+                        original: psamp.h)
 src/
-  softflowd.cpp            main() + every core implementation + the live-capture
-                        event loop + the control-socket server + the PSAMP
-                        receive socket (original: softflowd.c + freelist.c)
-  daemon.cpp                (original: daemon.c)
-  softflowctl.cpp            Control protocol implementation + softflowctl+'s
-                        own main() (original: softflowctl.c)
-  export.cpp / export_common.cpp / psamp.cpp
+  softflowd.cpp         main() + the loop of the capture file + the live-capture
+                        event loop + the PSAMP receive socket (original: softflowd.c)
+  flow.cpp ... control.cpp
+                        flow / flow_runtime / packet / capture / options / stats /
+                        format / log / sender / netsock / control: the groups of
+                        functions in the table above
+  daemon.cpp            (original: daemon.c)
+  softflowctl.cpp       Control protocol implementation + softflowctl+'s own
+                        main() (original: softflowctl.c)
+  export.cpp / export_common.cpp / psamp.cpp / ntopng.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
   test_netflow1.cpp / test_netflow5.cpp

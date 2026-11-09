@@ -35,14 +35,15 @@ endif()
 find_library(PCAP_LIBRARY pcap REQUIRED)
 find_package(Threads REQUIRED)
 
-# src/softflowd.cpp mirrors the original softflowd.c: it contains the
-# FlowTable / PacketParser / PcapHandle implementations *and* main(), all in
-# one translation unit. export.cpp / export_common.cpp / psamp.cpp /
-# daemon.cpp are kept as separate files mirroring
-# the original project's own per-file boundaries (see README for the
-# rationale). softflowctl.cpp is compiled separately below, since -- like
-# the original -- it is its own standalone client program, not part of
-# softflowd's own logic.
+# The sources follow the files of the C version, one file for each group of
+# functions: softflowd.cpp holds main() with the loops of the capture file and
+# of the live capture, and flow / flow_runtime / packet / capture / options /
+# stats / format / log / sender / netsock / control hold the other groups (see
+# ClaudeOutputDocument.en.md for the table). export.cpp / export_common.cpp /
+# psamp.cpp / ntopng.cpp / daemon.cpp are kept as separate files mirroring
+# the original project's own per-file boundaries. softflowctl.cpp is compiled
+# separately below, since -- like the original -- it is its own standalone
+# client program, not part of softflowd's own logic.
 set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/softflowd.cpp
   src/flow.cpp
@@ -63,9 +64,9 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/daemon.cpp
 )
 
-# Compiled once, with SOFTFLOWD_CPP_NO_MAIN (which compiles softflowd.cpp's
-# main() out), as an object library that the test executables link
-# against, since each test supplies its own main().
+# Compiled once, with SOFTFLOWD_CPP_NO_MAIN (which compiles out softflowd.cpp,
+# main() included, and control.cpp), as an object library that the test
+# executables link against, since each test supplies its own main().
 add_library(softflow_core OBJECT ${SOFTFLOWD_CPP_LOGIC_SOURCES})
 target_include_directories(softflow_core PUBLIC include)
 target_link_libraries(softflow_core PUBLIC ${PCAP_LIBRARY})

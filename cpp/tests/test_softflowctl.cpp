@@ -145,9 +145,9 @@ void test_control_client_throws_when_socket_does_not_exist() {
 
 void test_all_known_commands_round_trip() {
     // Exercises every command name softflowd_cpp's control loop
-    // recognizes (see handle_control_command() in softflowd.cpp), purely
+    // recognizes (see handle_control_command() in control.cpp), purely
     // at the wire-protocol level -- this test doesn't link against
-    // softflowd.cpp itself, only softflowctl's client/protocol code, so it
+    // control.cpp itself, only softflowctl's client/protocol code, so it
     // can't verify the *daemon's* handling of each command, only that the
     // command names themselves are sent byte-for-byte as expected.
     const char* commands[] = {

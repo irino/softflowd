@@ -32,8 +32,8 @@ namespace softflowd_cpp {
  * @brief Builds the packets of NetFlow v1.
  *
  * This class owns none of the actual network I/O -- it only builds the
- * wire-format byte buffers, which the caller (softflowd.cpp's main export
- * loop) is responsible for sending. Keeping packet construction and socket
+ * wire-format byte buffers, which the caller (ExportPipeline in sender.cpp)
+ * is responsible for sending. Keeping packet construction and socket
  * I/O separate makes the construction logic trivially unit-testable without a
  * real network.
  *
@@ -289,8 +289,9 @@ public:
      *        Options Record's systemInitTimeMilliseconds.
      *
      * @original softflowd.c's `ft->param.system_boot_time`, refreshed from the
-     * first packet's own (pcap or wall-clock) timestamp -- see softflowd.cpp's
-     * call sites alongside Netflow9Exporter::set_boot_time.
+     * first packet's own (pcap or wall-clock) timestamp -- see
+     * ExportPipeline::reinit_boot_time () in sender.cpp, which calls it
+     * alongside Netflow9Exporter::set_boot_time.
      */
   void
   set_boot_time (TimePoint boot_time,

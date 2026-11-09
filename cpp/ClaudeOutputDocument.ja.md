@@ -162,7 +162,7 @@ Stage 4で警告付きで簡略化していた5つのオプションを全て本
 
 ### `-x number_of_mpls_labels`(MPLSラベルスタック解析)
 
-パケット解析層(`softflowd.cpp`内)にMPLS EtherType(`0x8847`/`0x8848`)検出と
+パケット解析層(`packet.cpp`内)にMPLS EtherType(`0x8847`/`0x8848`)検出と
 ラベルスタック走査を追加しました。ラベルスタックを全て走査してIPヘッダの
 オフセットを求め(スタック内のラベル数に関わらず正しくIPパケットに到達)、
 `-x`で指定した数だけ`Flow::mpls_labels`に格納し、NetFlow v9/IPFIXの
@@ -321,15 +321,16 @@ NetFlow v9はC言語版と同じくIPFIX exporterで出力するため、`netflo
 です。`softflowctl.cpp`は制御プロトコルの共有ヘルパー(`read_line`/
 `write_line`/`ControlClient`)と、`softflowctl+`自身の`main()`(`#ifndef
 SOFTFLOWD_CPP_NO_MAIN`で保護)の両方を含みます。`softflowd+`の制御ソケット
-サーバー側は`softflowd.cpp`内に実装されており(元プロジェクトでも
-`softflowd.c`側がリスニング/acceptを担当していたため)、`softflowctl.cpp`が
-提供する共有プロトコルヘルパーだけをリンクします。
+サーバー側は`control.cpp`内に実装されており(元プロジェクトでも
+`softflowd.c`側がリスニング/acceptを担当していたため。C版ではその後`control.c`に
+移しました)、`softflowctl.cpp`が提供する共有プロトコルヘルパーだけをリンクします。
 
 ## Stage 3: NetFlow/IPFIX/PSAMPエクスポート
 
-Stage 1/2と異なり、Stage 3のファイル(`netflow1`/`netflow5`/`netflow9`/`ipfix`/
-`psamp`)は**`softflowd.hpp`/`softflowd.cpp`に統合していません**。元プロジェクト
-でもこれらは明確に独立したファイルだったため、そのままの構成を踏襲しています:
+Stage 3のファイル(`netflow1`/`netflow5`/`netflow9`/`ipfix`/`psamp`)は、コアの
+ファイルに統合したことはありません(コアの構成は後述の「設計方針: ファイル構成」を
+参照)。元プロジェクトでもこれらは明確に独立したファイルだったため、そのままの
+構成を踏襲しています:
 
 ```
 include/softflowd_cpp/
@@ -373,7 +374,7 @@ src/
 付けて連結したものです(このプロジェクト独自のデモ用フレーミングであり、
 NetFlow/IPFIX自体の仕様には含まれません)。
 
-## 設計方針: なぜ softflowd.hpp / softflowd.cpp の2ファイルに集約したか
+## 設計方針: ファイル構成
 
 元のsoftflowdは`softflowd.c`/`softflowd.h`が中心となり、`main()`・パケット解析
 (`ipv4_to_flowrec`/`ipv6_to_flowrec`/`transport_to_flowrec`)・フロー期限管理の
@@ -381,35 +382,55 @@ NetFlow/IPFIX自体の仕様には含まれません)。
 収まっていました。`freelist.c`/`treetype.h`/`sys-tree.h`は`struct FLOWTRACK`
 (フロー集合+期限管理)の実装として補助的に存在していました。
 
-このプロジェクトでは「モダンC++にする」という目的に反しない範囲で、可能な限り
-元の1枚岩の構成に合わせています:
+以前のリビジョンでは、この1枚岩の構成に合わせて、ほぼすべてを`softflowd.hpp`/
+`softflowd.cpp`の1組に集約していました。その後、C版を関数のまとまりごとに
+分割しました。主な理由は、GitHub Issueから実装を進める際に、1つのIssueで対象
+ファイルを絞れる大きさにするためです。C++版も同じまとまりに分け、C版・C++版・
+Rust版でファイル構成を揃えています:
 
-- **`include/softflowd_cpp/softflowd.hpp`**: `Flow`/`FlowKey`/`FlowTable`/
-  `PacketParser`/`PcapHandle`など、公開する型はすべてここに宣言(元の
-  `softflowd.h` + `common.h` + `freelist.h`/`treetype.h`/`sys-tree.h`相当)
-- **`src/softflowd.cpp`**: 上記すべての実装 + `main()`(元の`softflowd.c` +
-  `freelist.c`相当)
+| C版 | C++版のファイル | 内容 |
+|---|---|---|
+| `softflowd.c` | `softflowd.cpp` | `main()`、キャプチャファイルを読むループ(`-r`)、ライブキャプチャのループ(`-i`)、`drop_privs()` |
+| `flow.c`、`expire.c` | `flow.hpp`、`flow.cpp`、`flow_runtime.cpp` | `FlowTable<Backend>`(期限切れの処理を含む)と`FlowTableRuntime` |
+| `packet.c` | `packet.hpp`、`packet.cpp` | `PacketParser`、`DatalinkKind`、`CapturedPacket`、`classify_frame()` |
+| `capture.c` | `capture.hpp`、`capture.cpp` | `PcapHandle`、`PacketProcessor`、`open_live_capture()`、`get_interface_mac()` |
+| `options.c` | `options.hpp`、`options.cpp` | `DaemonConfig`、オプションの値の解析、usage |
+| `stats.c` | `stats.hpp`、`stats.cpp` | `print_statistics()`と期限切れ走査のデバッグ行 |
+| `format.c` | `format.hpp`、`format.cpp` | アドレス・時刻・フローの文字列 |
+| `log.c` | `log.hpp`、`log.cpp` | `loginit()`、`logit()` |
+| `sender.c` | `sender.hpp`、`sender.cpp` | `ExportPipeline`: エクスポータ、送信先、`-M`のエクスポートスレッド |
+| `netsock.c` | `netsock.hpp`、`netsock.cpp` | `ExportDestination`、`ExportDestinationSet` |
+| `control.c` | `control.hpp`、`control.cpp` | `ControlState`、`ControlListener`、`softflowctl`のコマンド |
 
-パケット解析(`packet_parser.*`)とpcapキャプチャ(`capture.*`)は元プロジェクトに
-対応する単体ファイルが存在しません(元は`softflowd.c`に直接書かれていました)。
-以前のリビジョンでは分割していましたが、ご指摘を受けて`softflowd.hpp`/
-`softflowd.cpp`に統合しました。
+`softflowd.hpp`には、これらのファイルが共有する型(`Flow`/`FlowKey`/
+`ExportRecord`、アドレス、クロック、`ByteWriter`)を残しています(C版の
+`softflowd.h`に当たります)。C版の`globals.h`に当たるものはありません。C++版には
+共有のグローバル変数がほとんどないためです。
 
 `freelist.c`+`treetype.h`+`sys-tree.h`の3ファイルで実現していた「フロー集合の
 管理」は、`FlowTable`という1つのクラス(後述のとおりデータ構造を選択可能)に
-統合し、同じく`softflowd.hpp`/`softflowd.cpp`に含めています。
+統合し、`flow.hpp`で宣言して`flow.cpp`で定義しています。実行時にバックエンドを
+選ぶ`FlowTableRuntime`は`flow_runtime.cpp`にあります。C版の`expire.c`に当たる
+期限切れの処理は`FlowTable`の一部なので、別ファイルはありません。
 
 ### `main()`と単体テストの両立について
 
 `softflowd.cpp`は`main()`を含む一方、テスト実行ファイル(`test_flow_table`,
 `test_packet_parser`)も自前の`main()`を持つため、単純に同じ`.cpp`をリンクすると
-シンボルが衝突します。これを避けるため、`softflowd.cpp`内の`main()`は
-`#ifndef SOFTFLOWD_CPP_NO_MAIN`で囲んであり、`CMakeLists.txt`は次のように
-同じソースファイルを2通りにビルドします:
+シンボルが衝突します。これを避けるため、`softflowd.cpp`のうちデーモンだけが
+必要とするコード(`main()`を含む)は`#ifndef SOFTFLOWD_CPP_NO_MAIN`で囲んであり、
+`CMakeLists.txt`は同じソースファイルの一覧(`SOFTFLOWD_CPP_LOGIC_SOURCES`)を
+次のように2通りにビルドします:
 
-- `softflowd+`実行ファイル: `softflowd.cpp`をそのままビルド(`main()`あり)
+- `softflowd+`実行ファイル: ソースをそのままビルド(`main()`あり)
 - `softflow_core`(テスト用オブジェクトライブラリ): `-DSOFTFLOWD_CPP_NO_MAIN`付きで
-  `softflowd.cpp`をビルド(`main()`なし)。各テストが自分の`main()`を提供する
+  ソースをビルド(`main()`なし)。各テストが自分の`main()`を提供する
+
+`control.cpp`も同じ方法で囲んであります。`control.cpp`は`softflowctl_lib`の
+`read_command()`と`write_all()`を使いますが、`softflow_core`のようなオブジェクト
+ライブラリは、別のオブジェクトライブラリのオブジェクトファイルを持ちません。
+そのため、テストでは`control.cpp`をビルドしません。分割前も、制御ソケットの
+サーバーが`main()`の保護する部分にあったため、同じ状態でした。
 
 ## フロー管理のデータ構造を選択可能に(木構造 or ハッシュ)
 
@@ -488,34 +509,44 @@ UndefinedBehaviorSanitizer が自動で有効になります。
    `caplen`の事前チェックが無く、runtパケットに対して範囲外読み出しの
    可能性があります。
 
-`softflowd.cpp`ではいずれも修正済みで、`tests/test_packet_parser.cpp`に
+`packet.cpp`ではいずれも修正済みで、`tests/test_packet_parser.cpp`に
 再発防止のためのテストケースを含めています。
 
 ## ディレクトリ構成
 
 ```
 include/softflowd_cpp/
-  softflowd.hpp        Flow / FlowKey / FlowTable<Backend> / FlowTableRuntime /
-                        PacketParser / PcapHandle / ByteWriter /
-                        ExportDestination(Set) / TransportKind など
-                        (元 softflowd.h + common.h + freelist.h/treetype.h/sys-tree.h)
+  softflowd.hpp         ファイルが共有する型: Flow / FlowKey / ExportRecord /
+                        ByteWriter、アドレス、クロック(元 softflowd.h + common.h)
+  flow.hpp              FlowTable<Backend> / FlowTableRuntime と、その統計・
+                        タイムアウト・検索(元 freelist.h/treetype.h/sys-tree.h + flow.h)
+  packet.hpp            PacketParser / DatalinkKind / CapturedPacket /
+                        classify_frame()(元 packet.h)
+  capture.hpp           PcapHandle / PacketProcessor / open_live_capture()
+                        (元 capture.h)
+  netsock.hpp           ExportDestination(Set) / TransportKind(元 netsock.h)
+  options.hpp / stats.hpp / format.hpp / log.hpp / sender.hpp / control.hpp
+                        上の表の関数のまとまりごとに1つのヘッダ
   daemon.hpp            PidFile / daemonize() / SignalPipe(元 daemon.h)
   softflowctl.hpp       制御プロトコル定義 / ControlClient(元 softflowctl本体)
-  export.hpp             NetFlow v1/v5/v9とIPFIXのエクスポータ + MPLS/biflow(RFC 5103)/
-                        絶対時刻4形式(元 export.c)
-  export_common.hpp      NTP時刻、uptime/epoch時刻、Setのパディング、-eのアドレス、
+  export.hpp            NetFlow v1/v5/v9とIPFIXのエクスポータ + MPLS/biflow
+                        (RFC 5103)/絶対時刻4形式(元 export.c)
+  export_common.hpp     NTP時刻、uptime/epoch時刻、Setのパディング、-eのアドレス、
                         テンプレートID(元 export_common.h)
-  ipfix.hpp              IPFIXとNetFlow v9の型(元 ipfix.h)
-  netflow.hpp            NetFlow v1/v5のパケットサイズ(元 netflow.h)
-  psamp.hpp                PSAMP + PsampReceiver(-R受信モード用デコーダ、元 psamp.h)
+  ipfix.hpp             IPFIXとNetFlow v9の型(元 ipfix.h)
+  netflow.hpp           NetFlow v1/v5のパケットサイズ(元 netflow.h)
+  ntopng.hpp            ZeroMQ経由のntopngへのエクスポート(元 ntopng.c)
+  psamp.hpp             PSAMP + PsampReceiver(-R受信モード用デコーダ、元 psamp.h)
 src/
-  softflowd.cpp           main() + 全実装 + ライブキャプチャイベントループ +
-                          制御ソケットサーバー + PSAMP受信ソケット統合
-                          (元 softflowd.c + freelist.c)
-  daemon.cpp               (元 daemon.c)
-  softflowctl.cpp           制御プロトコル実装 + softflowctl+本体の main()
-                          (元 softflowctl.c)
-  export.cpp / export_common.cpp / psamp.cpp
+  softflowd.cpp         main() + キャプチャファイルのループ + ライブキャプチャ
+                        イベントループ + PSAMP受信ソケット(元 softflowd.c)
+  flow.cpp ... control.cpp
+                        flow / flow_runtime / packet / capture / options / stats /
+                        format / log / sender / netsock / control: 上の表の関数のまとまり
+  daemon.cpp            (元 daemon.c)
+  softflowctl.cpp       制御プロトコル実装 + softflowctl+本体の main()
+                        (元 softflowctl.c)
+  export.cpp / export_common.cpp / psamp.cpp / ntopng.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
   test_netflow1.cpp / test_netflow5.cpp

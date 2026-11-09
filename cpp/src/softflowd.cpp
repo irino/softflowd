@@ -1,18 +1,29 @@
-// Original files: softflowd.c, freelist.c, treetype.h, sys-tree.h
+// Original files: softflowd.c
 //
-// This translation unit intentionally holds almost everything, mirroring
-// how the original softflowd.c contained main(), process_packet(),
-// ipv4_to_flowrec(), ipv6_to_flowrec(), transport_to_flowrec(), and
-// check_expired() all in one file. See softflowd.hpp for the rationale
-// behind merging freelist.c / treetype.h / sys-tree.h's functionality
-// (FlowTable) into this project's single header/source pair as well.
+// What is left of the original softflowd.c: main(), the loop that reads a
+// capture file (-r), the loop of the live capture (-i), drop_privs() and the
+// start-up messages. The other groups of functions of softflowd.c are in the
+// files that follow the C version: flow.cpp (with flow_runtime.cpp),
+// packet.cpp, capture.cpp, options.cpp, stats.cpp, format.cpp, log.cpp,
+// sender.cpp, netsock.cpp and control.cpp. See ClaudeOutputDocument.en.md for
+// the table of the files.
 //
-// Build note: main() is compiled out when SOFTFLOWD_CPP_NO_MAIN is defined, so
-// this same file can be linked into unit tests (which supply their own
-// main()) without a duplicate-symbol error. See CMakeLists.txt.
+// Build note: the code of this file is compiled out when SOFTFLOWD_CPP_NO_MAIN
+// is defined, so that the tests, which supply their own main(), can link the
+// other files without a duplicate-symbol error. See CMakeLists.txt.
+#include "softflowd_cpp/capture.hpp"
+#include "softflowd_cpp/control.hpp"
+#include "softflowd_cpp/daemon.hpp"
 #include "softflowd_cpp/flow.hpp"
+#include "softflowd_cpp/format.hpp"
+#include "softflowd_cpp/log.hpp"
 #include "softflowd_cpp/netsock.hpp"
+#include "softflowd_cpp/options.hpp"
+#include "softflowd_cpp/packet.hpp"
+#include "softflowd_cpp/psamp.hpp"
+#include "softflowd_cpp/sender.hpp"
 #include "softflowd_cpp/softflowd.hpp"
+#include "softflowd_cpp/stats.hpp"
 
 // Original: common.h's PROGNAME/PROGVER macros. There, they're literal
 // #defines that happen to be kept in sync with configure.ac's AC_INIT by
@@ -30,52 +41,38 @@
 #define SOFTFLOWDPP_VERSION "0.0.0"
 #endif
 
-#include "softflowd_cpp/capture.hpp"
-#include "softflowd_cpp/control.hpp"
-#include "softflowd_cpp/daemon.hpp"
-#include "softflowd_cpp/export.hpp"
-#include "softflowd_cpp/format.hpp"
-#include "softflowd_cpp/log.hpp"
-#include "softflowd_cpp/ntopng.hpp"
-#include "softflowd_cpp/options.hpp"
-#include "softflowd_cpp/packet.hpp"
-#include "softflowd_cpp/psamp.hpp"
-#include "softflowd_cpp/sender.hpp"
-#include "softflowd_cpp/softflowctl.hpp"
-#include "softflowd_cpp/stats.hpp"
-
 #include <algorithm>
-#include <limits>
-#include <condition_variable>
-#include <deque>
-#include <exception>
-#include <functional>
-#include <mutex>
-#include <thread>
-#include <utility>
-#include <cctype>
+#include <array>
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <csignal>
-#include <syslog.h>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
-#include <strings.h>
+#include <ctime>
+#include <exception>
+#include <optional>
+#include <span>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include <poll.h>
-#include <sys/socket.h>
-#include <net/if.h>
-#include <sys/un.h>
-#include <grp.h>
-#include <pwd.h>
-#include <unistd.h>
-#include <getopt.h>
-
-#include <fcntl.h>
-#include <netdb.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <grp.h>
+#include <net/if.h>
+#include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
+#include <pwd.h>
+#include <sys/socket.h>
+#include <syslog.h>
+#include <unistd.h>
 
 // =======================================================================
 // main() (original: softflowd.c's main())
