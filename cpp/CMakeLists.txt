@@ -59,6 +59,7 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/control.cpp
   src/export_common.cpp
   src/export_fixed.cpp
+  src/export_template.cpp
   src/export.cpp
   src/psamp.cpp
   src/ntopng.cpp
