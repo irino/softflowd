@@ -1,12 +1,12 @@
 // Original files: softflowd.c
 //
 // What is left of the original softflowd.c: main(), the loop that reads a
-// capture file (-r), the loop of the live capture (-i), drop_privs() and the
-// start-up messages. The other groups of functions of softflowd.c are in the
-// files that follow the C version: flow.cpp (with flow_runtime.cpp),
-// packet.cpp, capture.cpp, options.cpp, stats.cpp, format.cpp, log.cpp,
-// sender.cpp, netsock.cpp and control.cpp. See ClaudeOutputDocument.en.md for
-// the table of the files.
+// capture file (-r), the loop of the live capture (-i) and the start-up
+// messages. The other groups of functions of softflowd.c are in the files
+// that follow the C version: flow.cpp (with flow_runtime.cpp), packet.cpp,
+// capture.cpp, options.cpp, stats.cpp, format.cpp, log.cpp, sender.cpp,
+// netsock.cpp, control.cpp and daemon_setup.cpp. See ClaudeOutputDocument.en.md
+// for the table of the files.
 //
 // Build note: the code of this file is compiled out when SOFTFLOWD_CPP_NO_MAIN
 // is defined, so that the tests, which supply their own main(), can link the
@@ -14,6 +14,7 @@
 #include "softflowd_cpp/capture.hpp"
 #include "softflowd_cpp/control.hpp"
 #include "softflowd_cpp/daemon.hpp"
+#include "softflowd_cpp/daemon_setup.hpp"
 #include "softflowd_cpp/flow.hpp"
 #include "softflowd_cpp/format.hpp"
 #include "softflowd_cpp/log.hpp"
@@ -86,6 +87,7 @@ namespace {
 using softflowd_cpp::convtime;
 using softflowd_cpp::DaemonConfig;
 using softflowd_cpp::die_usage;
+using softflowd_cpp::drop_privs;
 using softflowd_cpp::ExportFormat;
 using softflowd_cpp::format_name;
 using softflowd_cpp::kDefaultIpfixPort;
@@ -149,69 +151,6 @@ using softflowd_cpp::serve_control_client;
 // run_pcap_file (original: softflowd.c's -r mode -- process a capture
 // file in a single pass, then print statistics and exit without forking)
 // =======================================================================
-
-// Original: PRIVDROP_USER and PRIVDROP_CHROOT_DIR of softflowd.h.
-#ifndef PRIVDROP_USER
-#define PRIVDROP_USER "nobody"
-#endif
-#ifndef PRIVDROP_CHROOT_DIR
-#define PRIVDROP_CHROOT_DIR "/var/empty"
-#endif
-
-/**
- * @brief Changes the root directory of a daemon to an empty one, and its user to an unprivileged one.
- *
- * It exits with 1 when it fails.
- *
- * @original drop_privs (). A daemon changes its root directory to an empty one
- * and its user to an unprivileged one once it has what it needs from the
- * system: the capture, the sockets and the files. Exits on failure.
- */
-void
-drop_privs () {
-  struct passwd *pw = getpwnam (PRIVDROP_USER);
-  if (pw == nullptr) {
-    logit (LOG_ERR, "Unable to find unprivileged user \"%s\"", PRIVDROP_USER);
-    std::exit (1);
-  }
-  if (chdir (PRIVDROP_CHROOT_DIR) != 0) {
-    logit (LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, std::strerror (errno));
-    std::exit (1);
-  }
-  if (chroot (PRIVDROP_CHROOT_DIR) != 0) {
-    logit (LOG_ERR, "Unable to chroot to directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, std::strerror (errno));
-    std::exit (1);
-  }
-  if (chdir ("/") != 0) {
-    logit (LOG_ERR, "Unable to chdir to chroot root: %s", std::strerror (errno));
-    std::exit (1);
-  }
-  if (setgroups (1, &pw->pw_gid) != 0) {
-    logit (LOG_ERR, "Couldn't setgroups (%u): %s",
-           static_cast<unsigned int> (pw->pw_gid), std::strerror (errno));
-    std::exit (1);
-  }
-#ifdef __linux__
-  if (setresgid (pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1) {
-#else
-  if (setregid (pw->pw_gid, pw->pw_gid) == -1) {
-#endif
-    logit (LOG_ERR, "Couldn't set gid (%u): %s",
-           static_cast<unsigned int> (pw->pw_gid), std::strerror (errno));
-    std::exit (1);
-  }
-#ifdef __linux__
-  if (setresuid (pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1) {
-#else
-  if (setreuid (pw->pw_uid, pw->pw_uid) == -1) {
-#endif
-    logit (LOG_ERR, "Couldn't set uid (%u): %s",
-           static_cast<unsigned int> (pw->pw_uid), std::strerror (errno));
-    std::exit (1);
-  }
-}
 
 /**
  * @brief Logs that the collection of data starts, and the destinations.

@@ -38,8 +38,9 @@ find_package(Threads REQUIRED)
 # The sources follow the files of the C version, one file for each group of
 # functions: softflowd.cpp holds main() with the loops of the capture file and
 # of the live capture, and flow / flow_runtime / packet / capture / options /
-# stats / format / log / sender / netsock / control hold the other groups (see
-# ClaudeOutputDocument.en.md for the table). export_fixed.cpp / export_template.cpp /
+# stats / format / log / sender / netsock / control / daemon_setup hold the
+# other groups (see ClaudeOutputDocument.en.md for the table).
+# export_fixed.cpp / export_template.cpp /
 # export_record.cpp / export_common.cpp / psamp.cpp / ntopng.cpp / daemon.cpp are kept as separate files mirroring
 # the original project's own per-file boundaries. softflowctl.cpp is compiled
 # separately below, since -- like the original -- it is its own standalone
@@ -57,6 +58,7 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/capture.cpp
   src/netsock.cpp
   src/control.cpp
+  src/daemon_setup.cpp
   src/export_common.cpp
   src/export_fixed.cpp
   src/export_template.cpp

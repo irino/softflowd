@@ -437,7 +437,7 @@ versions keep the same structure:
 
 | C version | C++ files | What they hold |
 |---|---|---|
-| `softflowd.c` | `softflowd.cpp` | `main()`, the loop that reads a capture file (`-r`), the loop of the live capture (`-i`), `drop_privs()` |
+| `softflowd.c` | `softflowd.cpp` | `main()`, the loop that reads a capture file (`-r`), the loop of the live capture (`-i`) |
 | `flow.c`, `expire.c` | `flow.hpp`, `flow.cpp`, `flow_runtime.cpp` | `FlowTable<Backend>` (with the expiry) and `FlowTableRuntime` |
 | `packet.c` | `packet.hpp`, `packet.cpp` | `PacketParser`, `DatalinkKind`, `CapturedPacket`, `classify_frame()` |
 | `capture.c` | `capture.hpp`, `capture.cpp` | `PcapHandle`, `PacketProcessor`, `open_live_capture()`, `get_interface_mac()` |
@@ -448,6 +448,7 @@ versions keep the same structure:
 | `sender.c` | `sender.hpp`, `sender.cpp` | `ExportPipeline`: the exporters, the destinations, the export thread of `-M` |
 | `netsock.c` | `netsock.hpp`, `netsock.cpp` | `ExportDestination`, `ExportDestinationSet` |
 | `control.c` | `control.hpp`, `control.cpp` | `ControlState`, `ControlListener`, the commands of `softflowctl` |
+| `daemon_setup.c` | `daemon_setup.hpp`, `daemon_setup.cpp` | `drop_privs()`; the signal handlers are `SignalPipe` of `daemon.hpp`, the ZeroMQ sockets of `-v ntopng` are `NtopngSink` of `ntopng.hpp` |
 
 `softflowd.hpp` keeps the types that these files share (`Flow`, `FlowKey`,
 `ExportRecord`, the addresses, the clock and `ByteWriter`), as `softflowd.h`
@@ -584,6 +585,7 @@ include/softflowd_cpp/
   options.hpp / stats.hpp / format.hpp / log.hpp / sender.hpp / control.hpp
                         One header for each group of functions in the table above
   daemon.hpp            PidFile / daemonize() / SignalPipe (original: daemon.h)
+  daemon_setup.hpp      drop_privs() (original: daemon_setup.h)
   softflowctl.hpp       Control protocol definitions / ControlClient
                         (original: softflowctl itself)
   export.hpp            Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow
@@ -602,8 +604,8 @@ src/
                         event loop + the PSAMP receive socket (original: softflowd.c)
   flow.cpp ... control.cpp
                         flow / flow_runtime / packet / capture / options / stats /
-                        format / log / sender / netsock / control: the groups of
-                        functions in the table above
+                        format / log / sender / netsock / control / daemon_setup: the
+                        groups of functions in the table above
   daemon.cpp            (original: daemon.c)
   softflowctl.cpp       Control protocol implementation + softflowctl+'s own
                         main() (original: softflowctl.c)

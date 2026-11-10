@@ -393,7 +393,7 @@ Rust版でファイル構成を揃えています:
 
 | C版 | C++版のファイル | 内容 |
 |---|---|---|
-| `softflowd.c` | `softflowd.cpp` | `main()`、キャプチャファイルを読むループ(`-r`)、ライブキャプチャのループ(`-i`)、`drop_privs()` |
+| `softflowd.c` | `softflowd.cpp` | `main()`、キャプチャファイルを読むループ(`-r`)、ライブキャプチャのループ(`-i`) |
 | `flow.c`、`expire.c` | `flow.hpp`、`flow.cpp`、`flow_runtime.cpp` | `FlowTable<Backend>`(期限切れの処理を含む)と`FlowTableRuntime` |
 | `packet.c` | `packet.hpp`、`packet.cpp` | `PacketParser`、`DatalinkKind`、`CapturedPacket`、`classify_frame()` |
 | `capture.c` | `capture.hpp`、`capture.cpp` | `PcapHandle`、`PacketProcessor`、`open_live_capture()`、`get_interface_mac()` |
@@ -404,6 +404,7 @@ Rust版でファイル構成を揃えています:
 | `sender.c` | `sender.hpp`、`sender.cpp` | `ExportPipeline`: エクスポータ、送信先、`-M`のエクスポートスレッド |
 | `netsock.c` | `netsock.hpp`、`netsock.cpp` | `ExportDestination`、`ExportDestinationSet` |
 | `control.c` | `control.hpp`、`control.cpp` | `ControlState`、`ControlListener`、`softflowctl`のコマンド |
+| `daemon_setup.c` | `daemon_setup.hpp`、`daemon_setup.cpp` | `drop_privs()`。シグナルハンドラは`daemon.hpp`の`SignalPipe`、`-v ntopng`のZeroMQソケットは`ntopng.hpp`の`NtopngSink`です |
 
 `softflowd.hpp`には、これらのファイルが共有する型(`Flow`/`FlowKey`/
 `ExportRecord`、アドレス、クロック、`ByteWriter`)を残しています(C版の
@@ -531,6 +532,7 @@ include/softflowd_cpp/
   options.hpp / stats.hpp / format.hpp / log.hpp / sender.hpp / control.hpp
                         上の表の関数のまとまりごとに1つのヘッダ
   daemon.hpp            PidFile / daemonize() / SignalPipe(元 daemon.h)
+  daemon_setup.hpp      drop_privs()(元 daemon_setup.h)
   softflowctl.hpp       制御プロトコル定義 / ControlClient(元 softflowctl本体)
   export.hpp            NetFlow v1/v5/v9とIPFIXのエクスポータ + MPLS/biflow
                         (RFC 5103)/絶対時刻4形式
@@ -547,7 +549,7 @@ src/
                         イベントループ + PSAMP受信ソケット(元 softflowd.c)
   flow.cpp ... control.cpp
                         flow / flow_runtime / packet / capture / options / stats /
-                        format / log / sender / netsock / control: 上の表の関数のまとまり
+                        format / log / sender / netsock / control / daemon_setup: 上の表の関数のまとまり
   daemon.cpp            (元 daemon.c)
   softflowctl.cpp       制御プロトコル実装 + softflowctl+本体の main()
                         (元 softflowctl.c)
