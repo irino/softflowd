@@ -27,9 +27,9 @@
  * @brief softflowd, a flow-based traffic analyser: it reads packets from an
  *   interface or a capture file, tracks them as flows, expires the flows and
  *   exports them as NetFlow or IPFIX. This file holds the entry point, which
- *   parses the command line and runs the main loop, the signal handlers and
- *   the daemon set-up; the other parts are in capture.c, control.c, expire.c,
- *   flow.c, format.c, netsock.c, options.c, packet.c, sender.c and stats.c.
+ *   parses the command line and runs the main loop; the other parts are in
+ *   capture.c, control.c, daemon_setup.c, expire.c, flow.c, format.c,
+ *   netsock.c, options.c, packet.c, sender.c and stats.c.
  */
 
 /*
@@ -62,6 +62,7 @@
 #include "globals.h"
 #include "capture.h"
 #include "control.h"
+#include "daemon_setup.h"
 #include "expire.h"
 #include "flow.h"
 #include "format.h"
@@ -95,150 +96,6 @@ int gauge_clock = 0; /**< -g: report cpu clocks */
 clock_t export_clocks = 0;
 /** Number of calls to the export function */
 unsigned long export_calls = 0;
-
-/* Signal handler flags */
-/** Set by the signal handler to the received signal number to request a
- * graceful shutdown. */
-volatile sig_atomic_t graceful_shutdown_request = 0;
-/** Set by SIGUSR1: log the number of the tracked flows and of the packets. */
-static volatile sig_atomic_t stats_log_request = 0;
-/** Set by SIGHUP: log that a reload of the configuration is not implemented. */
-static volatile sig_atomic_t hup_log_request = 0;
-
-/**
- * @brief Signal handler that requests a graceful shutdown.
- *
- * @param signum Signal number; stored in graceful_shutdown_request.
- */
-static void
-sighand_graceful_shutdown (int signum) {
-  graceful_shutdown_request = signum;
-}
-
-/**
- * @brief Signal handler of SIGUSR1: request the log of the statistics.
- *
- * @param signum Signal number; not used.
- */
-static void
-sighand_log_stats (int signum) {
-  (void) signum;
-  stats_log_request = 1;
-}
-
-/**
- * @brief Signal handler of SIGHUP: request the log that there is no reload.
- *
- * @param signum Signal number; not used.
- */
-static void
-sighand_hup (int signum) {
-  (void) signum;
-  hup_log_request = 1;
-}
-
-/**
- * @brief Signal handler for unexpected signals: log and exit immediately.
- *
- * @param signum Signal number.
- */
-static void
-sighand_other (int signum) {
-  /* XXX: this may not be completely safe */
-  logit (LOG_WARNING, "Exiting immediately on unexpected signal %d", signum);
-  _exit (0);
-}
-
-/**
- * @brief Drop privileges and chroot; exits on failure.
- */
-static void
-drop_privs (void) {
-  struct passwd *pw;
-
-  if ((pw = getpwnam (PRIVDROP_USER)) == NULL) {
-    logit (LOG_ERR, "Unable to find unprivileged user \"%s\"", PRIVDROP_USER);
-    exit (1);
-  }
-  if (chdir (PRIVDROP_CHROOT_DIR) != 0) {
-    logit (LOG_ERR, "Unable to chdir to chroot directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, strerror (errno));
-    exit (1);
-  }
-  if (chroot (PRIVDROP_CHROOT_DIR) != 0) {
-    logit (LOG_ERR, "Unable to chroot to directory \"%s\": %s",
-           PRIVDROP_CHROOT_DIR, strerror (errno));
-    exit (1);
-  }
-  if (chdir ("/") != 0) {
-    logit (LOG_ERR, "Unable to chdir to chroot root: %s", strerror (errno));
-    exit (1);
-  }
-  if (setgroups (1, &pw->pw_gid) != 0) {
-    logit (LOG_ERR, "Couldn't setgroups (%u): %s", (unsigned int) pw->pw_gid,
-           strerror (errno));
-    exit (1);
-  }
-#if defined(HAVE_SETRESGID)
-  if (setresgid (pw->pw_gid, pw->pw_gid, pw->pw_gid) == -1)
-#elif defined(HAVE_SETREGID)
-  if (setregid (pw->pw_gid, pw->pw_gid) == -1)
-#else
-  if (setegid (pw->pw_gid) == -1 || setgid (pw->pw_gid) == -1)
-#endif
-  {
-    logit (LOG_ERR, "Couldn't set gid (%u): %s", (unsigned int) pw->pw_gid,
-           strerror (errno));
-    exit (1);
-  }
-#if defined(HAVE_SETRESUID)
-  if (setresuid (pw->pw_uid, pw->pw_uid, pw->pw_uid) == -1)
-#elif defined(HAVE_SETREUID)
-  if (setreuid (pw->pw_uid, pw->pw_uid) == -1)
-#else
-  if (seteuid (pw->pw_uid) == -1 || setuid (pw->pw_uid) == -1)
-#endif
-  {
-    logit (LOG_ERR, "Couldn't set uid (%u): %s", (unsigned int) pw->pw_uid,
-           strerror (errno));
-    exit (1);
-  }
-}
-
-#ifdef ENABLE_NTOPNG
-/**
- * @brief Create the ZeroMQ sockets of the -n destinations of -v ntopng.
- *
- * ZeroMQ starts its I/O threads in the process that makes the socket, and a
- * fork () does not carry them to the child: the sockets are made after
- * daemon (), and before drop_privs ().  Exits on failure.
- *
- * @param target Export target; the destinations are numeric (getnameinfo ()).
- */
-static void
-connect_ntopng_destinations (struct NETFLOW_TARGET *target) {
-  int dest_idx, rc;
-  struct DESTINATION *dest;
-
-  if (target->dialect->version != SOFTFLOWD_NF_VERSION_NTOPNG
-#ifdef ENABLE_NTOPNG_JSON
-      && target->dialect->version != SOFTFLOWD_NF_VERSION_NTOPNG_JSON
-#endif
-  )
-    return;
-  for (dest_idx = 0; dest_idx < target->num_destinations; dest_idx++) {
-    dest = &target->destinations[dest_idx];
-    if (dest->ss.ss_family == 0)
-      continue;
-    if ((rc = connect_ntopng (dest->hostname, dest->servname, &dest->zmq)) !=
-        0) {
-      logit (LOG_ERR, "Could not create ZeroMQ socket for %s:%s: (%d) %s",
-             dest->hostname, dest->servname, rc, strerror (rc));
-      exit (1);
-    }
-  }
-}
-#endif /* ENABLE_NTOPNG */
 
 /**
  * @brief softflowd entry point: parse options, set up capture and export, and
