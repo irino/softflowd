@@ -22,7 +22,13 @@ const IPPROTO_ROUTING: u8 = 43;
 const IPPROTO_FRAGMENT: u8 = 44;
 const IPPROTO_DSTOPTS: u8 = 60;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseError {
+    NonIp,
+    TooShort,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPacket {
     pub af: u16, // libc::AF_INET = 2, libc::AF_INET6 = 10
     pub protocol: u8,
@@ -55,7 +61,7 @@ pub fn parse_packet(
     max_mpls_label: u8,
     full_l4hdr_check: bool,
     timestamp: TimeVal,
-) -> Option<ParsedPacket> {
+) -> Result<ParsedPacket, ParseError> {
     let caplen = caplen as usize;
     let orig_len = orig_len as usize;
     let mut offset: usize;
@@ -69,7 +75,7 @@ pub fn parse_packet(
     match linktype {
         DLT_EN10MB => {
             if caplen < 14 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             dst_mac.copy_from_slice(&pkt[0..6]);
             src_mac.copy_from_slice(&pkt[6..12]);
@@ -79,7 +85,7 @@ pub fn parse_packet(
             // Handle VLAN tags (0x8100 = 802.1Q, 0x88a8 = 802.1ad)
             while ethertype == 0x8100 || ethertype == 0x88a8 {
                 if caplen < offset + 4 {
-                    return None;
+                    return Err(ParseError::NonIp);
                 }
                 let tci = u16::from_be_bytes([pkt[offset], pkt[offset + 1]]);
                 vlan_id = tci & 0x0FFF;
@@ -91,7 +97,7 @@ pub fn parse_packet(
             if ethertype == 0x8847 {
                 loop {
                     if caplen < offset + 4 {
-                        return None;
+                        return Err(ParseError::NonIp);
                     }
                     let shim = u32::from_be_bytes([
                         pkt[offset],
@@ -108,7 +114,7 @@ pub fn parse_packet(
                 }
                 // Try to infer payload IP version
                 if caplen < offset + 1 {
-                    return None;
+                    return Err(ParseError::NonIp);
                 }
                 let ip_ver = (pkt[offset] & 0xF0) >> 4;
                 if ip_ver == 4 {
@@ -116,19 +122,19 @@ pub fn parse_packet(
                 } else if ip_ver == 6 {
                     af = 10; // AF_INET6
                 } else {
-                    return None;
+                    return Err(ParseError::NonIp);
                 }
             } else if ethertype == 0x0800 {
                 af = 2; // AF_INET
             } else if ethertype == 0x86dd {
                 af = 10; // AF_INET6
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
         }
         DLT_RAW => {
             if caplen < 1 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let ip_ver = (pkt[0] & 0xF0) >> 4;
             if ip_ver == 4 {
@@ -136,13 +142,13 @@ pub fn parse_packet(
             } else if ip_ver == 6 {
                 af = 10;
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
             offset = 0;
         }
         DLT_NULL | DLT_LOOP => {
             if caplen < 4 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let family = if linktype == DLT_NULL {
                 // Null loopback is local host byte order
@@ -158,13 +164,13 @@ pub fn parse_packet(
                 // Loopback IPv6 families vary across OS, check standard ones
                 af = 10;
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
             offset = 4;
         }
         DLT_LINUX_SLL => {
             if caplen < 16 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let protocol = u16::from_be_bytes([pkt[14], pkt[15]]);
             offset = 16;
@@ -173,12 +179,12 @@ pub fn parse_packet(
             } else if protocol == 0x86dd {
                 af = 10;
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
         }
         DLT_PPP => {
             if caplen < 5 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let protocol = u16::from_be_bytes([pkt[3], pkt[4]]);
             offset = 5;
@@ -187,17 +193,17 @@ pub fn parse_packet(
             } else if protocol == 0x0057 {
                 af = 10;
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
         }
         DLT_PFLOG => {
             if caplen < 48 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let family = pkt[1];
             offset = 48;
             if caplen < offset + 1 {
-                return None;
+                return Err(ParseError::NonIp);
             }
             let ip_ver = (pkt[offset] & 0xF0) >> 4;
             if family == 2 || ip_ver == 4 {
@@ -205,14 +211,14 @@ pub fn parse_packet(
             } else if family == 24 || family == 28 || family == 10 || ip_ver == 6 {
                 af = 10;
             } else {
-                return None;
+                return Err(ParseError::NonIp);
             }
         }
-        _ => return None,
+        _ => return Err(ParseError::NonIp),
     }
 
     if caplen < offset {
-        return None;
+        return Err(ParseError::TooShort);
     }
 
     // 2. Parse IP Layer
@@ -229,15 +235,15 @@ pub fn parse_packet(
     if af == 2 {
         // IPv4
         if caplen < offset + 20 {
-            return None;
+            return Err(ParseError::TooShort);
         }
         let version = (pkt[offset] & 0xF0) >> 4;
         if version != 4 {
-            return None;
+            return Err(ParseError::TooShort);
         }
         let ihl = ((pkt[offset] & 0x0F) * 4) as usize;
         if caplen < offset + ihl {
-            return None;
+            return Err(ParseError::TooShort);
         }
         tos = pkt[offset + 1];
         protocol = pkt[offset + 9];
@@ -268,11 +274,11 @@ pub fn parse_packet(
     } else if af == 10 {
         // IPv6
         if caplen < offset + 40 {
-            return None;
+            return Err(ParseError::TooShort);
         }
         let version = (pkt[offset] & 0xF0) >> 4;
         if version != 6 {
-            return None;
+            return Err(ParseError::TooShort);
         }
 
         let flow_field = u32::from_be_bytes([
@@ -326,7 +332,7 @@ pub fn parse_packet(
         }
         protocol = nxt;
     } else {
-        return None;
+        return Err(ParseError::TooShort);
     }
 
     let mut src_port = 0;
@@ -383,7 +389,7 @@ pub fn parse_packet(
         }
     }
 
-    Some(ParsedPacket {
+    Ok(ParsedPacket {
         af,
         protocol,
         src_ip,
@@ -403,4 +409,43 @@ pub fn parse_packet(
         timestamp,
         raw_packet: pkt.to_vec(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_packet_non_ip() {
+        let pkt = vec![0; 14]; // Ethernet header with unknown ethertype 0x0000
+        let ts = TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let res = parse_packet(DLT_EN10MB, &pkt, 14, 14, TrackLevel::Full, 0, false, ts);
+        assert_eq!(res, Err(ParseError::NonIp));
+    }
+
+    #[test]
+    fn test_parse_packet_too_short() {
+        let mut pkt = Vec::new();
+        pkt.extend_from_slice(&[0; 12]);
+        pkt.extend_from_slice(&[0x08, 0x00]); // IPv4 ethertype
+        pkt.push(0x45); // IPv4 version, IHL=5 but truncated header
+        let ts = TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let res = parse_packet(
+            DLT_EN10MB,
+            &pkt,
+            pkt.len() as u32,
+            pkt.len() as u32,
+            TrackLevel::Full,
+            0,
+            false,
+            ts,
+        );
+        assert_eq!(res, Err(ParseError::TooShort));
+    }
 }

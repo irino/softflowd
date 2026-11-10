@@ -14,7 +14,7 @@ use common::make_dummy_flow;
 use rsoftflowd::common::{
     FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW, FLOW_END_REASON_FORCE_END,
     FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowTrackParameters,
-    TimeVal, TrackLevel,
+    FlowTracker, TimeVal, TrackLevel,
 };
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
@@ -658,6 +658,18 @@ fn run_rsoftflowd_with_timeout(args: &[&str], timeout: Duration) -> std::process
             }
         }
     }
+}
+
+#[test]
+fn test_packet_counters() {
+    let mut tracker = FlowTracker::new(100);
+    tracker.param.non_ip_packets = 5;
+    tracker.param.bad_packets = 5;
+    tracker.param.total_packets = 5;
+
+    let stats = rsoftflowd::control::render_statistics(&tracker, Some((10, 0, 0)));
+    assert!(stats.contains("Ignored packets: 10 (5 non-IP, 5 too short)"));
+    assert!(stats.contains("Packets processed: 5"));
 }
 
 #[test]

@@ -16,7 +16,14 @@ use rsoftflowd::control::{
 };
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
 use rsoftflowd::opts::RsoftflowdArgs;
-use rsoftflowd::packet_parser::{ParsedPacket, parse_packet};
+use rsoftflowd::packet_parser::{ParseError, ParsedPacket, parse_packet};
+
+#[derive(Debug)]
+pub enum PacketEvent {
+    Parsed(ParsedPacket),
+    NonIp,
+    TooShort,
+}
 
 fn parse_interface_spec(s: &str) -> (u16, String) {
     if let Some((idx_str, name)) = s.split_once(':') {
@@ -430,7 +437,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pcap_stats: std::sync::Arc<std::sync::Mutex<Option<(u64, u64, u64)>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
 
-    let (packet_tx, packet_rx) = channel::<ParsedPacket>();
+    let (packet_tx, packet_rx) = channel::<PacketEvent>();
     let bpf_expression = if !args.bpf_expression.is_empty() {
         Some(args.bpf_expression.join(" "))
     } else {
@@ -721,7 +728,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        if let Some(parsed) = parse_packet(
+                        match parse_packet(
                             linktype,
                             &data,
                             caplen,
@@ -731,7 +738,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             full_l4hdr,
                             timestamp,
                         ) {
-                            let _ = packet_tx_clone.send(parsed);
+                            Ok(parsed) => {
+                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
+                            }
+                            Err(ParseError::NonIp) => {
+                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
+                            }
+                            Err(ParseError::TooShort) => {
+                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
+                            }
                         }
                     }
                     Err(pcap::Error::NoMorePackets) => {
@@ -778,7 +793,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        if let Some(parsed) = parse_packet(
+                        match parse_packet(
                             linktype,
                             &data,
                             caplen,
@@ -788,7 +803,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                             full_l4hdr,
                             timestamp,
                         ) {
-                            let _ = packet_tx_clone.send(parsed);
+                            Ok(parsed) => {
+                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
+                            }
+                            Err(ParseError::NonIp) => {
+                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
+                            }
+                            Err(ParseError::TooShort) => {
+                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
+                            }
                         }
                     }
                     Err(_) => {
@@ -905,9 +928,26 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut channel_disconnected = false;
         loop {
             match packet_rx.try_recv() {
-                Ok(parsed) => {
+                Ok(event) => {
                     if !stop_gather {
-                        process_parsed_packet(&mut tracker, parsed, want_v6, &targets, if_index);
+                        match event {
+                            PacketEvent::Parsed(parsed) => {
+                                process_parsed_packet(
+                                    &mut tracker,
+                                    parsed,
+                                    want_v6,
+                                    &targets,
+                                    if_index,
+                                );
+                            }
+                            PacketEvent::NonIp => {
+                                tracker.param.non_ip_packets += 1;
+                            }
+                            PacketEvent::TooShort => {
+                                tracker.param.bad_packets += 1;
+                                tracker.param.total_packets += 1;
+                            }
+                        }
                     }
                     packets_processed_this_loop += 1;
                     if packets_processed_this_loop > 1000 {
