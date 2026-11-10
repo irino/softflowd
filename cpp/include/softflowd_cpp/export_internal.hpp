@@ -1,6 +1,6 @@
 /**
  * @file export_internal.hpp
- * @brief What export.cpp and export_template.cpp share, for IpfixExporter only.
+ * @brief What export_record.cpp and export_template.cpp share, for IpfixExporter only.
  *
  * Not to be included outside of these files: the exporters are declared in
  * export.hpp.

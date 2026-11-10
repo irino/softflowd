@@ -59,7 +59,7 @@ enum class TimeFormat {
   Seconds,       ///< Seconds since the epoch.
   Milliseconds,  ///< Milliseconds since the epoch.
   Microseconds,  ///< Microseconds since the epoch.
-  Nanoseconds    ///< Nanoseconds since the epoch; written like Microseconds (see write_time_values() in export.cpp).
+  Nanoseconds    ///< Nanoseconds since the epoch; written like Microseconds (see write_time_values() in export_record.cpp).
 };
 
 softflowd_cpp::IpfixTimeFormat

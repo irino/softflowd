@@ -1,9 +1,10 @@
-// Original files: export.c (and compat/ipfix.c)
+// Original files: export_template.c (and compat/ipfix.c, compat/netflow9.c)
 //
 // The data records of NetFlow v9 and IPFIX and IpfixExporter::build_packets ().
-// The exporters of NetFlow v1 and v5 are in export_fixed.cpp, the templates
-// of v9 and IPFIX in export_template.cpp, what the exporters share in
-// export_common.cpp, and PSAMP, like the C version, has a file of its own.
+// Renamed from export.cpp. The exporters of NetFlow v1 and v5 are in
+// export_fixed.cpp, the templates of v9 and IPFIX in export_template.cpp, what
+// the exporters share in export_common.cpp, and PSAMP, like the C version, has
+// a file of its own.
 #include "softflowd_cpp/export.hpp"
 #include "softflowd_cpp/export_internal.hpp"
 #include "softflowd_cpp/packet.hpp"
@@ -554,7 +555,7 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
     std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
   writer.put_u32 (tail.if_index);  // ingressInterface
   writer.put_u32 (tail.if_index);  // egressInterface
-  writer.put_u8 (r.direction);  // flowDirection of endpoint 0; see doc comment above
+  writer.put_u8 (r.direction);     // flowDirection of endpoint 0; see doc comment above
   writer.put_u8 (r.flow_end_reason);
   writer.put_u16 (r.src_port);
   writer.put_u16 (r.dst_port);

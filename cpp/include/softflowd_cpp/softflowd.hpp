@@ -144,7 +144,7 @@ struct IpAddress {
  * shim, TTL octet dropped -- stored verbatim rather than decomposed, so
  * it can be passed straight through to the IPFIX
  * mplsTopLabelStackSectionN field unchanged. See
- * packet.cpp's MplsShimEntry and export.cpp's write_mpls_labels().
+ * packet.cpp's MplsShimEntry and export_record.cpp's write_mpls_labels().
  */
 using MplsLabelStack = std::vector<std::uint32_t>;
 

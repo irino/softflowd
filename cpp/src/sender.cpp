@@ -332,7 +332,7 @@ ExportPipeline::export_now (const std::vector<softflowd_cpp::ExportRecord> &reco
   // records -- one per direction that actually carried traffic
   // (softflowd.c's `if (flows[i]->octets[0] > 0) {...}` /
   // `octets[1] > 0` in compat/netflow5.c, mirrored by this project's own
-  // flatten() helpers in export.cpp). So "records sent" is *not* the same as the number
+  // flatten() helpers in export_record.cpp). So "records sent" is *not* the same as the number
   // of input flows -- count directions with packets independently.
   // Original: with -b, bidir_func () makes one record of each flow.
   std::uint64_t record_count = 0;

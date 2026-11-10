@@ -383,7 +383,10 @@ include/softflowd_cpp/
   netflow.hpp        The sizes of the NetFlow v1 and v5 packets
   psamp.hpp          PSAMP (RFC 5477, per-packet sampling, IPFIX framing)
 src/
-  export.cpp / export_common.cpp / psamp.cpp
+  export_fixed.cpp     NetFlow v1 and v5 (records of a fixed format)
+  export_template.cpp  The templates of NetFlow v9 and IPFIX
+  export_record.cpp    The data records of NetFlow v9 and IPFIX
+  export_common.cpp / psamp.cpp
 ```
 
 Each exporter builds actual wire-format byte buffers from the list of
@@ -584,7 +587,9 @@ include/softflowd_cpp/
   softflowctl.hpp       Control protocol definitions / ControlClient
                         (original: softflowctl itself)
   export.hpp            Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow
-                        (RFC 5103)/all 4 absolute time formats (original: export.c)
+                        (RFC 5103)/all 4 absolute time formats
+                        (original: export.c, export_fixed.c, export_template.c)
+  export_internal.hpp   What export_record.cpp and export_template.cpp share
   export_common.hpp     NTP time, uptime/epoch time, Set padding, -e address,
                         template IDs (original: export_common.h)
   ipfix.hpp             Types of IPFIX and NetFlow v9 (original: ipfix.h)
@@ -602,7 +607,10 @@ src/
   daemon.cpp            (original: daemon.c)
   softflowctl.cpp       Control protocol implementation + softflowctl+'s own
                         main() (original: softflowctl.c)
-  export.cpp / export_common.cpp / psamp.cpp / ntopng.cpp
+  export_fixed.cpp / export_template.cpp / export_record.cpp
+                        NetFlow v1/v5, and the templates and the data records of
+                        v9 and IPFIX (original: export_fixed.c, export_template.c)
+  export_common.cpp / psamp.cpp / ntopng.cpp
 tests/
   test_flow_table.cpp / test_packet_parser.cpp
   test_netflow1.cpp / test_netflow5.cpp

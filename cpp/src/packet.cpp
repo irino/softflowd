@@ -334,7 +334,7 @@ namespace {
  * cancels out to a verbatim pass-through of the original wire bytes' top
  * 3 octets (label(20 bits) | EXP(3 bits) | S(1 bit), dropping only the
  * TTL octet) into the IPFIX mplsTopLabelStackSectionN field -- see
- * export.cpp's write_mpls_labels(). So `section` here is exactly those
+ * export_record.cpp's write_mpls_labels(). So `section` here is exactly those
  * top 3 octets (bits 31-8 of the 4-byte shim), stored verbatim rather
  * than decomposed into a label number, so it can be passed through
  * unchanged instead of needing to be (incompletely -- see the EXP bits)

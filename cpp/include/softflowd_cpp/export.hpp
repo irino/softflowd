@@ -4,9 +4,11 @@
  *
  * The types of the IPFIX family are in ipfix.hpp, the sizes of the NetFlow v1
  * and v5 packets in netflow.hpp, and what the exporters share in
- * export_common.hpp.
+ * export_common.hpp. They are defined in export_fixed.cpp (NetFlow v1 and v5),
+ * export_template.cpp (the templates of NetFlow v9 and IPFIX) and
+ * export_record.cpp (their data records).
  *
- * @original export.c, export_common.h.
+ * @original export.c, export_fixed.c, export_template.c, export_common.h.
  */
 #ifndef SOFTFLOWD_CPP_EXPORT_HPP
 #define SOFTFLOWD_CPP_EXPORT_HPP
