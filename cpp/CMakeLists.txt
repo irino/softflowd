@@ -58,6 +58,7 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/netsock.cpp
   src/control.cpp
   src/export_common.cpp
+  src/export_fixed.cpp
   src/export.cpp
   src/psamp.cpp
   src/ntopng.cpp
