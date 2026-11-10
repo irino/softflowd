@@ -27,9 +27,9 @@
  * @brief softflowd, a flow-based traffic analyser: it reads packets from an
  *   interface or a capture file, tracks them as flows, expires the flows and
  *   exports them as NetFlow or IPFIX. This file holds the entry point, which
- *   parses the command line and runs the main loop; the other parts are in
- *   capture.c, control.c, daemon_setup.c, expire.c, flow.c, format.c,
- *   netsock.c, options.c, packet.c, sender.c and stats.c.
+ *   sets up the capture and the export, and runs the main loop; the other
+ *   parts are in capture.c, control.c, daemon_setup.c, expire.c, flow.c,
+ *   format.c, netsock.c, options.c, packet.c, sender.c and stats.c.
  */
 
 /*
@@ -54,7 +54,6 @@
 
 #include "softflowd.h"
 #include "common.h"
-#include "ipfix.h"
 #include "log.h"
 #include "netflow.h"
 #include "psamp.h"
@@ -71,7 +70,6 @@
 #include "packet.h"
 #include "sender.h"
 #include "stats.h"
-#include <getopt.h>
 #include <netinet/in.h>
 #include <pcap.h>
 #ifdef LINUX
@@ -98,8 +96,8 @@ clock_t export_clocks = 0;
 unsigned long export_calls = 0;
 
 /**
- * @brief softflowd entry point: parse options, set up capture and export, and
- * run the main loop.
+ * @brief softflowd entry point: parse options (parse_command_line ()), set up
+ * capture and export, and run the main loop.
  *
  * @param argc Argument count.
  * @param argv Arguments.
@@ -108,51 +106,10 @@ unsigned long export_calls = 0;
 int
 main (int argc, char **argv) {
   clock_t boottime = clock();
-  char *dev, *capfile, *bpf_prog;
-  const char *pidfile_path, *ctlsock_path;
-  extern char *optarg;
+  char *bpf_prog;
   extern int optind;
-  int ch, dontfork_flag, linktype = 0, ctlsock, err, always_v6, r, dest_idx;
-  static const struct option long_options[] = {
-    {"track-ipv6", no_argument, NULL, '6'},
-    {"adjust-time", no_argument, NULL, 'a'},
-    {"absolute-time", required_argument, NULL, 'A'},
-    {"bidirectional", no_argument, NULL, 'b'},
-    {"pcap-buffer-size", required_argument, NULL, 'B'},
-    {"control-socket", required_argument, NULL, 'c'},
-    {"snaplen", required_argument, NULL, 'C'},
-    {"foreground", no_argument, NULL, 'd'},
-    {"debug", no_argument, NULL, 'D'},
-    {"exporter-ip", required_argument, NULL, 'e'},
-    {"full-transport-header-check", no_argument, NULL, 'f'},
-    {"flow-lookup", required_argument, NULL, 'F'},
-    {"gauge-cpu-clock", no_argument, NULL, 'g'},
-    {"help", no_argument, NULL, 'h'},
-    {"direction-mac", required_argument, NULL, 'H'},
-    {"interface", required_argument, NULL, 'i'},
-    {"reinit-interval", required_argument, NULL, 'I'},
-    {"load-balance", no_argument, NULL, 'l'},
-    {"hoplimit", required_argument, NULL, 'L'},
-    {"max-flows", required_argument, NULL, 'm'},
-#ifdef ENABLE_PTHREAD
-    {"multithread", no_argument, NULL, 'M'},
-#endif /* ENABLE_PTHREAD */
-    {"netflow-dest", required_argument, NULL, 'n'},
-    {"no-promisc", no_argument, NULL, 'N'},
-    {"pidfile", required_argument, NULL, 'p'},
-    {"export-protocol", required_argument, NULL, 'P'},
-    {"read", required_argument, NULL, 'r'},
-    {"psamp-port", required_argument, NULL, 'R'},
-    {"sampling-rate", required_argument, NULL, 's'},
-#ifdef LINUX
-    {"send-interface", required_argument, NULL, 'S'},
-#endif /* LINUX */
-    {"timeout", required_argument, NULL, 't'},
-    {"track", required_argument, NULL, 'T'},
-    {"netflow-version", required_argument, NULL, 'v'},
-    {"mpls-labels", required_argument, NULL, 'x'},
-    {NULL, 0, NULL, 0}};
-  int stop_collection_flag, exit_request, hoplimit;
+  int linktype = 0, ctlsock, err, r, dest_idx;
+  int stop_collection_flag, exit_request;
   pcap_t *pcap = NULL;
   struct FLOWTRACK flowtrack;
   struct NETFLOW_TARGET target;
@@ -160,15 +117,10 @@ main (int argc, char **argv) {
   struct pollfd pl[2];
   int pcapfd = -1;
   struct DESTINATION *dest;
-  int pcap_override_buffer_size = 0;
-  int protocol = IPPROTO_UDP;
-  int version = 0;
-  int rsock = 0, recvport = IPFIX_PORT, timeout_ms = 0;
+  int timeout_ms = 0;
   u_int recvloop = 0;
-  int user_ifindex_flag = 0;
 #ifdef LINUX
   struct ifreq ifr;
-  char *send_ifname = NULL;
 #endif /* LINUX */
 #ifdef ENABLE_PTHREAD
   use_thread = 0;
@@ -177,9 +129,7 @@ main (int argc, char **argv) {
   pthread_mutex_init (&read_mutex, NULL);
   pthread_cond_init (&read_cond, NULL);
 #endif /* ENABLE_PTHREAD */
-  int use_promisc = 1;
-  long int boot_time_reinit_sec = 0;
-  char *timeunit;
+  struct DAEMON_CONFIG cfg;
 
   closefrom (STDERR_FILENO + 1);
 
@@ -187,312 +137,12 @@ main (int argc, char **argv) {
 
   memset (&target, '\0', sizeof (target));
   target.dialect = &nf[0];
-  hoplimit = -1;
   bpf_prog = NULL;
   ctlsock = -1;
-  dev = capfile = NULL;
-  pidfile_path = DEFAULT_PIDFILE;
-  ctlsock_path = DEFAULT_CTLSOCK;
-  dontfork_flag = 0;
-  always_v6 = 0;
 
-  while (
-    (ch = getopt_long (argc, argv,
-                       "6aA:bB:c:C:dDe:fF:ghH:i:I:lL:m:Mn:Np:P:r:R:s:S:t:T:v:x:",
-                       long_options, NULL)) != -1) {
-    switch (ch) {
-      case '6':
-        always_v6 = 1;
-        break;
-      case 'a':
-        flowtrack.param.adjust_time = 1;
-        break;
-      case 'A':
-        if (strcasecmp (optarg, "sec") == 0)
-          flowtrack.param.time_format = 's';
-        else if (strcasecmp (optarg, "milli") == 0)
-          flowtrack.param.time_format = 'm';
-        else if (strcasecmp (optarg, "micro") == 0)
-          flowtrack.param.time_format = 'M';
-        else if (strcasecmp (optarg, "nano") == 0)
-          flowtrack.param.time_format = 'n';
-        else {
-          die_usage ("Unknown time format\n");
-        }
-        break;
-      case 'b':
-        flowtrack.param.bidirection = 1;
-        break;
-      case 'B':
-        pcap_override_buffer_size = atoi (optarg);
-        break;
-      case 'c':
-        if (strcmp (optarg, "none") == 0)
-          ctlsock_path = NULL;
-        else
-          ctlsock_path = optarg;
-        break;
-      case 'C': /* Capture Length */
-        snaplen = atoi (optarg);
-        break;
-      case 'd':
-        dontfork_flag = 1;
-        break;
-      case 'D':
-        verbose_flag = 1;
-        always_v6 = 1;
-        dontfork_flag = 1;
-        break;
-      case 'e':
-        if (optarg != NULL) {
-          struct addrinfo hints;
-          int gai_err;
-          memset (&hints, '\0', sizeof (hints));
-          hints.ai_family = AF_UNSPEC;
-          hints.ai_socktype = protocol == IPPROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
-          hints.ai_flags = 0;
-          hints.ai_protocol = protocol;
-          /* getaddrinfo() does not set errno; report its own error code. */
-          if ((gai_err = getaddrinfo (optarg, NULL, &hints,
-                                      &flowtrack.param.option.exporterAddr)) !=
-              0) {
-            fprintf (stderr, "getaddrinfo: %s\n", gai_strerror (gai_err));
-            break;
-          }
-        }
-        break;
-      case 'f':
-        flowtrack.param.full_l4hdr_check = 1;
-        break;
-      case 'F':
-        if (strcmp (optarg, "tree") == 0)
-          flowtrack.flow_lookup = FLOW_LOOKUP_TREE;
-        else if (strcmp (optarg, "hash-tree") == 0)
-          flowtrack.flow_lookup = FLOW_LOOKUP_HASH_TREE;
-        else if (strcmp (optarg, "hash") == 0)
-          flowtrack.flow_lookup = FLOW_LOOKUP_HASH;
-        else {
-          die_usage ("Invalid flow lookup mode\n\n");
-        }
-        break;
-      case 'g':
-        gauge_clock = 1;
-        break;
-      case 'h':
-        usage();
-        return (0);
-      case 'H':
-        if (optarg != NULL) {
-          if (parse_mac_address (optarg, flowtrack.param.direction_mac) != 0) {
-            fprintf (stderr, "Invalid MAC address %s\n", optarg);
-            exit (1);
-          }
-          flowtrack.param.direction_mac_set = 1;
-        }
-        break;
-      case 'i':
-        if (capfile != NULL || dev != NULL) {
-          die_usage ("Packet source already specified.\n\n");
-        }
-#if defined(HAVE_STRSEP)
-        dev = strsep (&optarg, ":");
-#else  /* defined(HAVE_STRSEP) */
-        dev = strtok (optarg, ":");
-#endif /* defined(HAVE_STRSEP) */
-        if (optarg != NULL) {
-          if (strlen (dev) > 0) {
-            if_index = (u_int16_t) atoi (dev);
-          }
-          dev = optarg;
-          user_ifindex_flag = 1;
-        }
-        if (strlen (dev) == 0) {
-          die_usage ("Wrong interface is specified.\n\n");
-        }
-        if (verbose_flag)
-          fprintf (stderr, "Using %s (idx: %d)\n", dev, if_index);
-        strlcpy (flowtrack.param.option.interfaceName, dev,
-                 sizeof (flowtrack.param.option.interfaceName));
-        break;
-      case 'I':
-        errno = 0; /* strtol() sets errno on error only */
-        boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
-        if ((errno == ERANGE && (boot_time_reinit_sec == LONG_MAX ||
-                                 boot_time_reinit_sec == LONG_MIN)) ||
-            (errno != 0 && boot_time_reinit_sec == 0)) {
-          perror ("strtol");
-          usage();
-          exit (EXIT_FAILURE);
-        }
-        if (timeunit == optarg) {
-          die_usage ("No digits were found in boot_time_reinit\n");
-        }
-        if (*timeunit == 'd' || *timeunit == 'D') { /* days */
-          if (boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
-            boot_time_reinit_sec = BOOTTIME_MAX_DAY;
-          }
-          boot_time_reinit_sec *= (24 * 60 * 60);          /* convert to seconds */
-        } else if (*timeunit == 'h' || *timeunit == 'H') { /* hours */
-          if (boot_time_reinit_sec > BOOTTIME_MAX_HOUR) {
-            boot_time_reinit_sec = BOOTTIME_MAX_HOUR;
-          }
-          boot_time_reinit_sec *= (60 * 60);               /* convert to seconds */
-        } else if (*timeunit == 'm' || *timeunit == 'M') { /* minutes */
-          if (boot_time_reinit_sec > BOOTTIME_MAX_MIN) {
-            boot_time_reinit_sec = BOOTTIME_MAX_MIN;
-          }
-          boot_time_reinit_sec *= 60; /* convert to seconds */
-        } else {
-          if (boot_time_reinit_sec > BOOTTIME_MAX_SEC) { /* seconds */
-            boot_time_reinit_sec = BOOTTIME_MAX_SEC;
-          }
-        }
-        if (verbose_flag) {
-          fprintf (stderr, "boot_time_reinit is %ld seconds.\n",
-                   boot_time_reinit_sec);
-        }
-        break;
-      case 'l':  // load balancing
-        target.is_loadbalance = 1;
-        break;
-      case 'L':
-        hoplimit = atoi (optarg);
-        if (hoplimit < 0 || hoplimit > 255) {
-          die_usage ("Invalid hop limit\n\n");
-        }
-        break;
-      case 'm': {
-        /* Range check on an int: max_flows is unsigned and would wrap. */
-        int max_flows = atoi (optarg);
-        if (max_flows < 1) {
-          die_usage ("Invalid maximum flows\n\n");
-        }
-        flowtrack.param.max_flows = max_flows;
-      } break;
-      case 'M':
-#ifdef ENABLE_PTHREAD
-        use_thread = 1;
-#endif /* ENABLE_PTHREAD */
-        break;
-      case 'n':
-        /* Will exit on failure */
-        target.num_destinations = parse_hostports (optarg, target.destinations,
-                                                   SOFTFLOWD_MAX_DESTINATIONS);
-        break;
-      case 'N':
-        use_promisc = 0;
-        break;
-      case 'p':
-        pidfile_path = optarg;
-        break;
-      case 'P':
-        if (strcasecmp (optarg, "udp") == 0)
-          protocol = IPPROTO_UDP;
-        else if (strcasecmp (optarg, "tcp") == 0)
-          protocol = IPPROTO_TCP;
-#ifdef IPPROTO_SCTP
-        else if (strcasecmp (optarg, "sctp") == 0)
-          protocol = IPPROTO_SCTP;
-#endif
-        else {
-          die_usage ("Unknown transport layer protocol\n");
-        }
-        break;
-      case 'r':
-        if (capfile != NULL || dev != NULL) {
-          die_usage ("Packet source already specified.\n\n");
-        }
-        capfile = optarg;
-        dontfork_flag = 1;
-        ctlsock_path = NULL;
-        strlcpy (flowtrack.param.option.interfaceName, capfile,
-                 sizeof (flowtrack.param.option.interfaceName));
-        break;
-      case 'R':
-        recvport = atoi (optarg);
-        if (recvport < 0 || recvport > 65535) {
-          /* Say so with the usage, and go on with the default port */
-          fprintf (stderr, "Invalid -R port, using the default %d.\n",
-                   IPFIX_PORT);
-          usage();
-          recvport = IPFIX_PORT;
-        }
-        rsock = recvsock ((uint16_t) recvport);
-        if (rsock < 0)
-          exit (1);
-        break;
-      case 's':
-        flowtrack.param.option.sample = atoi (optarg);
-        if (flowtrack.param.option.sample < 2) {
-          flowtrack.param.option.sample = 0;
-        }
-        break;
-#ifdef LINUX
-      case 'S':
-        send_ifname = optarg;
-        break;
-#endif /* LINUX */
-      case 't':
-        /* Will exit on failure */
-        set_timeout (&flowtrack, optarg);
-        break;
-      case 'T':
-        if (strcasecmp (optarg, "full") == 0)
-          flowtrack.param.track_level = TRACK_FULL;
-        else if (strcasecmp (optarg, "port") == 0)
-          flowtrack.param.track_level = TRACK_IP_PROTO_PORT;
-        else if (strcasecmp (optarg, "proto") == 0)
-          flowtrack.param.track_level = TRACK_IP_PROTO;
-        else if (strcasecmp (optarg, "ip") == 0)
-          flowtrack.param.track_level = TRACK_IP_ONLY;
-        else if (strcasecmp (optarg, "vlan") == 0)
-          flowtrack.param.track_level = TRACK_FULL_VLAN;
-        else if (strcasecmp (optarg, "ether") == 0)
-          flowtrack.param.track_level = TRACK_FULL_VLAN_ETHER;
+  parse_command_line (argc, argv, &cfg, &flowtrack, &target);
 
-        else {
-          die_usage ("Unknown flow tracking level\n");
-        }
-        track_level = flowtrack.param.track_level;
-        break;
-      case 'v':
-        if (!strncmp (optarg, "psamp", sizeof ("psamp"))) {
-          flowtrack.param.is_psamp = 1;
-          break;
-        }
-#ifdef ENABLE_NTOPNG
-        if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_STRING,
-                      sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_STRING))) {
-          version = SOFTFLOWD_NF_VERSION_NTOPNG;
-        }
-#ifdef ENABLE_NTOPNG_JSON
-        if (!strncmp (optarg, SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING,
-                      sizeof (SOFTFLOWD_NF_VERSION_NTOPNG_JSON_STRING))) {
-          version = SOFTFLOWD_NF_VERSION_NTOPNG_JSON;
-        }
-#endif /* ENABLE_NTOPNG_JSON */
-#endif /* ENABLE_NTOPNG */
-        version = version ? version : atoi (optarg);
-        target.dialect = lookup_netflow_sender (version);
-        if (target.dialect == NULL) {
-          fprintf (stderr, "Invalid NetFlow version\n");
-          exit (1);
-        }
-        break;
-      case 'x': {
-        /* Range check on an int: max_num_label is u_int8_t and would wrap. */
-        int num_label = atoi (optarg);
-        if (num_label < 1 || num_label > 10) {
-          die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
-        }
-        flowtrack.param.max_num_label = num_label;
-      } break;
-      default:
-        die_usage ("Invalid commandline option.\n");
-    }
-  }
-
-  if (capfile == NULL && dev == NULL && rsock <= 0) {
+  if (cfg.capfile == NULL && cfg.dev == NULL && cfg.rsock <= 0) {
     die_usage ("-i, -r or -R option not specified.\n");
   }
 
@@ -508,11 +158,11 @@ main (int argc, char **argv) {
   bpf_prog = argv_join (argc - optind, argv + optind);
 
   /* Will exit on failure */
-  if (capfile != NULL || dev != NULL)
-    setup_packet_capture (&pcap, &linktype, dev, capfile, bpf_prog,
-                          target.dialect->v6_capable || always_v6, use_promisc,
-                          pcap_override_buffer_size);
-  else if (rsock > 0)
+  if (cfg.capfile != NULL || cfg.dev != NULL)
+    setup_packet_capture (&pcap, &linktype, cfg.dev, cfg.capfile, bpf_prog,
+                          target.dialect->v6_capable || cfg.always_v6, cfg.use_promisc,
+                          cfg.pcap_override_buffer_size);
+  else if (cfg.rsock > 0)
     linktype = 1;  // LINKTYPE_ETHERNET
 
   /*
@@ -521,8 +171,8 @@ main (int argc, char **argv) {
    * auto-detect it from the capture interface.
    */
   if (flowtrack.param.track_level >= TRACK_FULL_VLAN_ETHER &&
-      flowtrack.param.direction_mac_set == 0 && dev != NULL) {
-    if (get_interface_mac (dev, flowtrack.param.direction_mac) == 0) {
+      flowtrack.param.direction_mac_set == 0 && cfg.dev != NULL) {
+    if (get_interface_mac (cfg.dev, flowtrack.param.direction_mac) == 0) {
       flowtrack.param.direction_mac_set = 1;
       if (verbose_flag)
         fprintf (
@@ -532,12 +182,12 @@ main (int argc, char **argv) {
           flowtrack.param.direction_mac[0], flowtrack.param.direction_mac[1],
           flowtrack.param.direction_mac[2], flowtrack.param.direction_mac[3],
           flowtrack.param.direction_mac[4], flowtrack.param.direction_mac[5],
-          dev);
+          cfg.dev);
     } else if (verbose_flag) {
       fprintf (stderr,
                "Could not auto-detect MAC address of %s; "
                "flowDirection will use canonical ordering\n",
-               dev);
+               cfg.dev);
     }
   }
 
@@ -561,20 +211,20 @@ main (int argc, char **argv) {
         /* The ZeroMQ socket is made after the fork: connect_ntopng_destinations () */
       } else
 #endif
-        dest->sock = connsock (&dest->ss, dest->sslen, hoplimit, protocol,
+        dest->sock = connsock (&dest->ss, dest->sslen, cfg.hoplimit, cfg.protocol,
                                flowtrack.param.option.exporterAddr);
 #ifdef LINUX
-      if (dest->sock > 0 && send_ifname != NULL) {
-        bind_device (dest->sock, send_ifname);
+      if (dest->sock > 0 && cfg.send_ifname != NULL) {
+        bind_device (dest->sock, cfg.send_ifname);
       }
-      if (dev != NULL && user_ifindex_flag == 0) {
-        strncpy (ifr.ifr_name, dev, IFNAMSIZ - 1);
+      if (cfg.dev != NULL && cfg.user_ifindex_flag == 0) {
+        strncpy (ifr.ifr_name, cfg.dev, IFNAMSIZ - 1);
         if (ioctl (pcap_get_selectable_fd (pcap), SIOCGIFINDEX, &ifr) < 0) {
           perror ("ioctl SIOCGIFINDEX");
         }
         if_index = ifr.ifr_ifindex;
         if (verbose_flag)
-          fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n", dev,
+          fprintf (stderr, "Using %s (idx: %d as result of SIOCGIFINDEX)\n", cfg.dev,
                    if_index);
       }
 #endif /* LINUX */
@@ -582,10 +232,10 @@ main (int argc, char **argv) {
   }
 
   /* Control socket */
-  if (ctlsock_path != NULL)
-    ctlsock = unix_listener (ctlsock_path); /* Will exit on fail */
+  if (cfg.ctlsock_path != NULL)
+    ctlsock = unix_listener (cfg.ctlsock_path); /* Will exit on fail */
 
-  if (dontfork_flag) {
+  if (cfg.dontfork_flag) {
     loginit (PROGNAME, 1);
 #ifdef ENABLE_NTOPNG
     connect_ntopng_destinations (&target);
@@ -599,7 +249,7 @@ main (int argc, char **argv) {
      * child of the fork of daemon (): measure from here for -g. */
     boottime = clock();
 
-    if ((pidfile = fopen (pidfile_path, "r")) != NULL) {
+    if ((pidfile = fopen (cfg.pidfile_path, "r")) != NULL) {
       int pid;
       if (fscanf (pidfile, "%u", &pid) == EOF) {
         // fscanf error
@@ -616,8 +266,8 @@ main (int argc, char **argv) {
         exit (1);
       }
     }
-    if ((pidfile = fopen (pidfile_path, "w")) == NULL) {
-      fprintf (stderr, "Couldn't open pidfile %s: %s\n", pidfile_path,
+    if ((pidfile = fopen (cfg.pidfile_path, "w")) == NULL) {
+      fprintf (stderr, "Couldn't open pidfile %s: %s\n", cfg.pidfile_path,
                strerror (errno));
       exit (1);
     }
@@ -648,12 +298,12 @@ main (int argc, char **argv) {
     if (dest->ss.ss_family != 0) {
       /* interfaceName holds IFNAMSIZ - 1 characters only: not for a file name */
       logit (LOG_NOTICE, "Exporting flows from %s to [%s]:%s",
-             capfile != NULL ? capfile : flowtrack.param.option.interfaceName,
+             cfg.capfile != NULL ? cfg.capfile : flowtrack.param.option.interfaceName,
              dest->hostname, dest->servname);
     }
   }
   flowtrack.param.option.meteringProcessId = getpid();
-  flowtrack.param.boot_time_reinit = boot_time_reinit_sec;
+  flowtrack.param.boot_time_reinit = cfg.boot_time_reinit_sec;
 
   /* Main processing loop */
   gettimeofday (&flowtrack.param.system_boot_time, NULL);
@@ -662,7 +312,7 @@ main (int argc, char **argv) {
   cb_ctxt.ft = &flowtrack;
   cb_ctxt.target = &target;
   cb_ctxt.linktype = linktype;
-  cb_ctxt.want_v6 = target.dialect->v6_capable || always_v6;
+  cb_ctxt.want_v6 = target.dialect->v6_capable || cfg.always_v6;
 #ifdef ENABLE_PTHREAD
   if (use_thread) {
     if (pthread_create (&read_thread, NULL, process_packet_loop,
@@ -679,7 +329,7 @@ main (int argc, char **argv) {
    * connections are served even while a file such as a FIFO has no data.
    */
   memset (pl, '\0', sizeof (pl));
-  if (capfile != NULL && ctlsock != -1)
+  if (cfg.capfile != NULL && ctlsock != -1)
     pcapfd = pcap_get_selectable_fd (pcap);
 
   for (r = 0; graceful_shutdown_request == 0; r = 0) {
@@ -687,15 +337,15 @@ main (int argc, char **argv) {
      * Silly libpcap's timeout function doesn't work, so we
      * do it here (only if we are reading live)
      */
-    if (capfile == NULL && (dev != NULL || rsock > 0)) {  // online
+    if (cfg.capfile == NULL && (cfg.dev != NULL || cfg.rsock > 0)) {  // online
       memset (pl, '\0', sizeof (pl));
 
       /* This can only be set via the control socket */
-      if (!stop_collection_flag && dev != NULL) {
+      if (!stop_collection_flag && cfg.dev != NULL) {
         pl[0].events = POLLIN | POLLERR | POLLHUP;
         pl[0].fd = pcap_fileno (pcap);
-      } else if (!stop_collection_flag && rsock > 0) {
-        pl[0].fd = rsock;
+      } else if (!stop_collection_flag && cfg.rsock > 0) {
+        pl[0].fd = cfg.rsock;
         pl[0].events = POLLIN | POLLERR | POLLHUP;
       }
       if (ctlsock != -1) {
@@ -750,8 +400,8 @@ main (int argc, char **argv) {
 
     /* If we have data, run it through libpcap */
     if (!stop_collection_flag &&
-        ((capfile != NULL && pcapfd < 0) || pl[0].revents != 0)) {
-      if (capfile != NULL || dev != NULL) {
+        ((cfg.capfile != NULL && pcapfd < 0) || pl[0].revents != 0)) {
+      if (cfg.capfile != NULL || cfg.dev != NULL) {
 #ifdef ENABLE_PTHREAD
         if (use_thread)
           r = pcap_dispatch (pcap, flowtrack.param.max_flows, pcap_memcpy, NULL);
@@ -762,17 +412,17 @@ main (int argc, char **argv) {
         if (r == -1) {
           logit (LOG_ERR, "Exiting on pcap_dispatch: %s", pcap_geterr (pcap));
           break;
-        } else if (r == 0 && capfile != NULL) {
+        } else if (r == 0 && cfg.capfile != NULL) {
           logit (LOG_NOTICE, "Shutting down after "
                              "pcap EOF");
           graceful_shutdown_request = 1;
           break;
         }
-      } else if (rsock > 0) {
+      } else if (cfg.rsock > 0) {
         for (recvloop = 0;
              recvloop < flowtrack.param.max_flows && pl[0].revents != 0;
              recvloop++) {
-          r = recv_psamp (rsock, &cb_ctxt);
+          r = recv_psamp (cfg.rsock, &cb_ctxt);
           if (r == -1) {
             logit (LOG_ERR, "recv_psamp error");
             break;
@@ -812,7 +462,7 @@ main (int argc, char **argv) {
        * expire flows when the flow table is full.
        */
       if (check_expired (&flowtrack, &target,
-                         capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) <
+                         cfg.capfile == NULL ? CE_EXPIRE_NORMAL : CE_EXPIRE_FORCED) <
           0)
         logit (LOG_WARNING, "Unable to export flows");
 
@@ -850,7 +500,7 @@ main (int argc, char **argv) {
     wait_for_export_threads();
 #endif /* ENABLE_PTHREAD */
 
-  if (capfile != NULL && dontfork_flag)
+  if (cfg.capfile != NULL && cfg.dontfork_flag)
     statistics (&flowtrack, stdout, pcap);
 
 #ifdef ENABLE_PTHREAD
@@ -876,12 +526,12 @@ main (int argc, char **argv) {
 #endif /* ENABLE_NTOPNG */
   }
 
-  unlink (pidfile_path);
-  if (ctlsock_path != NULL)
-    unlink (ctlsock_path);
+  unlink (cfg.pidfile_path);
+  if (cfg.ctlsock_path != NULL)
+    unlink (cfg.ctlsock_path);
 
-  if (rsock > 0)
-    close (rsock);
+  if (cfg.rsock > 0)
+    close (cfg.rsock);
   if (gauge_clock) {
     logit (LOG_INFO, "cpu clocks: %ld\n", clock() - boottime);
 #ifdef ENABLE_PTHREAD
