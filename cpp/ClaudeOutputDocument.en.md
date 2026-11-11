@@ -441,7 +441,7 @@ versions keep the same structure:
 | `flow.c`, `expire.c` | `flow.hpp`, `flow.cpp`, `flow_runtime.cpp` | `FlowTable<Backend>` (with the expiry) and `FlowTableRuntime` |
 | `packet.c` | `packet.hpp`, `packet.cpp` | `PacketParser`, `DatalinkKind`, `CapturedPacket`, `classify_frame()` |
 | `capture.c` | `capture.hpp`, `capture.cpp` | `PcapHandle`, `PacketProcessor`, `open_live_capture()`, `get_interface_mac()` |
-| `options.c` | `options.hpp`, `options.cpp` | `DaemonConfig`, the parsing of the values of the options, the usage |
+| `options.c` | `options.hpp`, `options.cpp` | `DaemonConfig`, `parse_command_line()`, the parsing of the values of the options, the usage |
 | `stats.c` | `stats.hpp`, `stats.cpp` | `print_statistics()` and the debug lines of an expiry scan |
 | `format.c` | `format.hpp`, `format.cpp` | the text of addresses, times and flows |
 | `log.c` | `log.hpp`, `log.cpp` | `loginit()`, `logit()` |

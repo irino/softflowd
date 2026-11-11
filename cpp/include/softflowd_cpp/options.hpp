@@ -1,14 +1,16 @@
 /**
  * @file options.hpp
- * @brief The command line of softflowd+: the settings, the values of the options and the usage.
+ * @brief The command line of softflowd+: the settings, the options and the usage.
  *
  * Split from softflowd.cpp. The grammar of the command line is that of the
  * original softflowd(8); see options.cpp. DaemonConfig holds what the options
- * set, and the functions read the values of the options that are not plain
- * numbers or strings, such as a time with qualifiers or a destination.
+ * set, parse_command_line () parses them, and the other functions read the
+ * values of the options that are not plain numbers or strings, such as a time
+ * with qualifiers or a destination.
  *
- * @original The getopt() loop of softflowd.c's main(), usage(), die_usage(),
- * set_timeout() and parse_mac_address() of softflowd.c, and convtime.c.
+ * @original parse_command_line (), usage(), die_usage(), set_timeout() and
+ * parse_mac_address() of options.c, which were in softflowd.c (the getopt()
+ * loop was in its main()), and convtime.c.
  */
 #ifndef SOFTFLOWD_CPP_OPTIONS_HPP
 #define SOFTFLOWD_CPP_OPTIONS_HPP
@@ -180,6 +182,23 @@ parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac);
 
 void
 print_usage ();
+
+/**
+ * @brief Parses the command line: the short options and their long names.
+ *
+ * The options act in the order they are given, as -e and -P do. It exits with
+ * 1 on an invalid option, and with 0 after the usage message of -h. The
+ * arguments after the options are the BPF expression.
+ *
+ * @param argc Argument count.
+ * @param argv Arguments.
+ * @return The settings.
+ *
+ * @original the getopt_long () loop of parse_command_line () of options.c,
+ * which was that of main () of softflowd.c.
+ */
+DaemonConfig
+parse_command_line (int argc, char **argv);
 
 }  // namespace softflowd_cpp
 

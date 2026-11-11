@@ -26,6 +26,7 @@
 #include <cstring>
 #include <limits>
 
+#include <getopt.h>
 #include <netdb.h>
 #include <strings.h>
 #include <sys/socket.h>
@@ -611,6 +612,394 @@ print_usage () {
     static_cast<int> (t.general.count()),
     static_cast<int> (t.maximum_lifetime.count()),
     static_cast<int> (defaults.expiry_interval.count()));
+}
+
+DaemonConfig
+parse_command_line (int argc, char **argv) {
+  DaemonConfig config;
+
+  // This project's own additions are exposed as GNU-style long options
+  // via getopt_long(). Every existing short option keeps its exact
+  // original letter and argument-taking behavior (the optstring below is
+  // unchanged), so any script or invocation built against the original
+  // softflowd's short-option grammar continues to work unmodified;
+  // getopt_long() simply also accepts these long forms alongside them.
+  enum {
+    kOptExportOut = 1000,
+    kOptMaxRuntime,
+    kOptIcmpTypecodeOnly,
+    kOptExpirySecondGranularity,
+    kOptNoExpirySecondGranularity,
+  };
+  static const struct option long_options[] = {
+    {"track-ipv6", no_argument, nullptr, '6'},
+    {"adjust-time", no_argument, nullptr, 'a'},
+    {"absolute-time", required_argument, nullptr, 'A'},
+    {"bidirectional", no_argument, nullptr, 'b'},
+    {"pcap-buffer-size", required_argument, nullptr, 'B'},
+    {"control-socket", required_argument, nullptr, 'c'},
+    {"snaplen", required_argument, nullptr, 'C'},
+    {"foreground", no_argument, nullptr, 'd'},
+    {"debug", no_argument, nullptr, 'D'},
+    {"exporter-ip", required_argument, nullptr, 'e'},
+    {"full-transport-header-check", no_argument, nullptr, 'f'},
+    {"flow-lookup", required_argument, nullptr, 'F'},
+    {"gauge-cpu-clock", no_argument, nullptr, 'g'},
+    {"help", no_argument, nullptr, 'h'},
+    {"direction-mac", required_argument, nullptr, 'H'},
+    {"interface", required_argument, nullptr, 'i'},
+    {"reinit-interval", required_argument, nullptr, 'I'},
+    {"load-balance", no_argument, nullptr, 'l'},
+    {"hoplimit", required_argument, nullptr, 'L'},
+    {"max-flows", required_argument, nullptr, 'm'},
+    {"multithread", no_argument, nullptr, 'M'},
+    {"netflow-dest", required_argument, nullptr, 'n'},
+    {"no-promisc", no_argument, nullptr, 'N'},
+    {"pidfile", required_argument, nullptr, 'p'},
+    {"export-protocol", required_argument, nullptr, 'P'},
+    {"read", required_argument, nullptr, 'r'},
+    {"psamp-port", required_argument, nullptr, 'R'},
+    {"sampling-rate", required_argument, nullptr, 's'},
+    {"send-interface", required_argument, nullptr, 'S'},
+    {"timeout", required_argument, nullptr, 't'},
+    {"track", required_argument, nullptr, 'T'},
+    {"netflow-version", required_argument, nullptr, 'v'},
+    {"mpls-labels", required_argument, nullptr, 'x'},
+    // Additions of the C++ version.
+    {"export-out", required_argument, nullptr, kOptExportOut},
+    {"max-runtime", required_argument, nullptr, kOptMaxRuntime},
+    {"icmp-typecode-only", no_argument, nullptr, kOptIcmpTypecodeOnly},
+    {"expiry-second-granularity", no_argument, nullptr,
+     kOptExpirySecondGranularity},
+    {"no-expiry-second-granularity", no_argument, nullptr,
+     kOptNoExpirySecondGranularity},
+    {nullptr, 0, nullptr, 0},
+  };
+
+  const int fargc = argc;
+  char **fargv = argv;
+  bool export_format_explicit = false;
+
+  ::optind = 1;
+  int opt;
+  try {
+    while ((opt = getopt_long (
+              fargc, fargv,
+              "n:Ni:r:p:c:m:t:d6DhL:T:v:P:A:s:C:R:S:e:x:B:bfF:alI:gH:M",
+              long_options, nullptr)) != -1) {
+      switch (opt) {
+        case 'F':
+          // Original: -F flow-lookup, tree | hash | hash-tree.
+          if (std::string (optarg) == "tree") {
+            config.flow_lookup = softflowd_cpp::FlowLookup::Tree;
+          } else if (std::string (optarg) == "hash") {
+            config.flow_lookup = softflowd_cpp::FlowLookup::Hash;
+          } else if (std::string (optarg) == "hash-tree") {
+            config.flow_lookup = softflowd_cpp::FlowLookup::HashTree;
+          } else {
+            die_usage ("Invalid flow lookup mode\n\n");
+          }
+          break;
+        case kOptExportOut:
+          config.export_out = optarg;
+          break;
+        case kOptMaxRuntime:
+          config.max_runtime = std::chrono::seconds (std::stol (optarg));
+          break;
+        case kOptIcmpTypecodeOnly:
+          // Now the default: only the bytes that are read (ICMP type
+          // and code) are required. Kept as a no-op so existing
+          // invocations still work; -f requires the whole header.
+          break;
+        case 'f':
+          config.full_l4hdr_check = true;
+          break;
+        case 'M':
+          config.multithread = true;
+          break;
+        case kOptExpirySecondGranularity:
+          // See FlowTimeouts::second_granularity's comment. This is
+          // now the default (matching the original's only actual
+          // behavior); the flag is kept as a harmless no-op so
+          // existing invocations that pass it explicitly still work.
+          config.timeouts.second_granularity = true;
+          break;
+        case kOptNoExpirySecondGranularity:
+          // Opts into full sub-second expiry-scheduling precision,
+          // deviating from the original's whole-second `time_t`
+          // expires_at (and, as a result, its expiry queue/export
+          // ordering) in exchange for more precise expiry timing.
+          config.timeouts.second_granularity = false;
+          break;
+        case 'n':
+          // Original: the destinations of a later -n replace those of an
+          // earlier one.
+          config.destinations = parse_destinations (optarg);
+          break;
+        case 'N':
+          config.no_promiscuous = true;
+          break;
+        case 'i':
+          if (!config.pcap_file.empty() || !config.interface.empty()) {
+            die_usage ("Packet source already specified.\n\n");
+          }
+          {
+            // Original: -i [idx:]interface. The index is that of the interface
+            // in the options of NetFlow v9 and IPFIX; without it the index of
+            // the interface is looked up when the daemon starts.
+            std::string name = optarg;
+            const auto colon = name.find (':');
+            if (colon != std::string::npos) {
+              if (colon > 0) {
+                config.if_index = static_cast<std::uint16_t> (
+                  std::atoi (name.substr (0, colon).c_str()));
+              }
+              name.erase (0, colon + 1);
+              config.user_ifindex = true;
+            }
+            if (name.empty()) {
+              die_usage ("Wrong interface is specified.\n\n");
+            }
+            if (config.debug) {
+              std::fprintf (stderr, "Using %s (idx: %d)\n", name.c_str(),
+                            config.if_index);
+            }
+            config.interface = name;
+          }
+          break;
+        case 'r':
+          if (!config.pcap_file.empty() || !config.interface.empty()) {
+            die_usage ("Packet source already specified.\n\n");
+          }
+          config.pcap_file = optarg;
+          config.replay_control = false;
+          break;
+        case 'p':
+          config.pidfile = optarg;
+          break;
+        case 'c':
+          // Original: "none" is no control socket.
+          config.ctl_sock = std::strcmp (optarg, "none") == 0 ? "" : optarg;
+          // Original: -r clears the control socket path and a -c after it
+          // sets it again, so a capture file is controlled only then.
+          config.replay_control = !config.ctl_sock.empty();
+          break;
+        case 'm': {
+          // Range check on an int, as in the C version: 0, negative
+          // values and non-numeric arguments are rejected.
+          const int max_flows = std::atoi (optarg);
+          if (max_flows < 1) {
+            die_usage ("Invalid maximum flows\n\n");
+          }
+          config.max_flows = static_cast<std::size_t> (max_flows);
+          break;
+        }
+        case 't':
+          set_timeout (config, optarg);
+          break;
+        case 'd':
+          config.no_daemonize = true;
+          break;
+        case '6':
+          config.force_ipv6 = true;
+          break;
+        case 'D':
+          config.debug = true;
+          config.no_daemonize = true;
+          config.force_ipv6 = true;
+          break;
+        case 'h':
+          print_usage();
+          std::exit (0);
+        case 'L': {
+          // Original: atoi (), then a range check.
+          const int hoplimit = std::atoi (optarg);
+          if (hoplimit < 0 || hoplimit > 255) {
+            die_usage ("Invalid hop limit\n\n");
+          }
+          config.ttl = hoplimit;
+          break;
+        }
+        case 'T': {
+          const auto level = parse_track_level (optarg);
+          if (!level.has_value()) {
+            die_usage ("Unknown flow tracking level\n");
+          }
+          config.track_level = *level;
+          break;
+        }
+        case 'v': {
+          const auto format = parse_netflow_version (optarg);
+          if (!format.has_value()) {
+            std::fprintf (stderr, "Invalid NetFlow version\n");
+            std::exit (1);
+          }
+          config.export_format = *format;
+          export_format_explicit = true;
+          break;
+        }
+        case 'P': {
+          const auto transport = parse_transport_protocol (optarg);
+          if (!transport.has_value()) {
+            die_usage ("Unknown transport layer protocol\n");
+          }
+          config.transport = *transport;
+          break;
+        }
+        case 'A': {
+          const auto format = parse_time_format (optarg);
+          if (!format.has_value()) {
+            die_usage ("Unknown time format\n");
+          }
+          config.time_format = *format;
+          break;
+        }
+        case 's': {
+          // Original: atoi (); a rate below 2 is no sampling.
+          const int rate = std::atoi (optarg);
+          config.sampling_rate = rate < 2 ? 0 : static_cast<std::uint32_t> (rate);
+          break;
+        }
+        case 'C':
+          // Original: atoi ().
+          config.snaplen = std::atoi (optarg);
+          break;
+        case 'R': {
+          // Original: atoi (); a port that does not fit 16 bits is reported with
+          // the usage, and the default port (IPFIX_PORT of ipfix.h) is used.
+          int port = std::atoi (optarg);
+          if (port < 0 || port > 65535) {
+            std::fprintf (stderr, "Invalid -R port, using the default %d.\n",
+                          kDefaultIpfixPort);
+            print_usage();
+            port = kDefaultIpfixPort;
+          }
+          config.psamp_receive_port = static_cast<std::uint16_t> (port);
+          break;
+        }
+        case 'S':
+          config.send_interface = optarg;
+          break;
+        case 'e': {
+          // Original: the address is resolved when the option is read; one
+          // that cannot be is reported and not used. (The original reports
+          // it with the reason of getaddrinfo (), as it is printed here.)
+          struct addrinfo hints;
+          std::memset (&hints, 0, sizeof (hints));
+          struct addrinfo *res = nullptr;
+          const int err = getaddrinfo (optarg, nullptr, &hints, &res);
+          if (err != 0) {
+            std::fprintf (stderr, "getaddrinfo: %s\n", gai_strerror (err));
+            break;
+          }
+          freeaddrinfo (res);
+          config.source_address = optarg;
+          break;
+        }
+        case 'x': {
+          const int num_label = std::atoi (optarg);
+          if (num_label < 1 || num_label > 10) {
+            die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
+          }
+          config.mpls_labels = num_label;
+          break;
+        }
+        case 'B': {
+          // Original: atoi (); only a positive size is a size.
+          const int size = std::atoi (optarg);
+          config.buffer_bytes = size > 0 ? static_cast<std::size_t> (size) : 0;
+          break;
+        }
+        case 'b':
+          config.bidirectional_ipfix = true;
+          break;
+        case 'a':
+          config.adjust_pcap_time = true;
+          break;
+        case 'l':
+          config.load_balance = true;
+          break;
+        case 'I': {
+          // Original: BOOTTIME_MAX_DAY/HOUR/MIN/SEC clamps in
+          // softflowd.c's -I parsing.
+          constexpr long kBoottimeMaxDay = 49;
+          constexpr long kBoottimeMaxHour = 1193;
+          constexpr long kBoottimeMaxMin = 71582;
+          constexpr long kBoottimeMaxSec = 4294944;
+
+          char *timeunit = nullptr;
+          errno = 0;
+          long sec = std::strtol (optarg, &timeunit, 10);
+          if ((errno == ERANGE && (sec == LONG_MAX || sec == LONG_MIN)) ||
+              (errno != 0 && sec == 0)) {
+            std::perror ("strtol");
+            print_usage();
+            std::exit (1);
+          }
+          if (timeunit == optarg) {
+            die_usage ("No digits were found in boot_time_reinit\n");
+          }
+          if (*timeunit == 'd' || *timeunit == 'D') {
+            if (sec > kBoottimeMaxDay)
+              sec = kBoottimeMaxDay;
+            sec *= 24 * 60 * 60;
+          } else if (*timeunit == 'h' || *timeunit == 'H') {
+            if (sec > kBoottimeMaxHour)
+              sec = kBoottimeMaxHour;
+            sec *= 60 * 60;
+          } else if (*timeunit == 'm' || *timeunit == 'M') {
+            if (sec > kBoottimeMaxMin)
+              sec = kBoottimeMaxMin;
+            sec *= 60;
+          } else {
+            if (sec > kBoottimeMaxSec)
+              sec = kBoottimeMaxSec;
+          }
+          config.boot_time_reinit = std::chrono::seconds (sec);
+          break;
+        }
+        case 'g':
+          config.gauge_clock = true;
+          break;
+        case 'H': {
+          std::array<std::uint8_t, 6> mac;
+          if (!parse_mac_address (optarg, mac)) {
+            std::fprintf (stderr, "Invalid MAC address %s\n", optarg);
+            std::exit (1);
+          }
+          config.direction_mac = mac;
+          break;
+        }
+        case '?':
+        default:
+          die_usage ("Invalid commandline option.\n");
+      }
+    }
+  } catch (const std::exception &e) {
+    std::fprintf (stderr, "%s: %s\n", argv[0], e.what());
+    std::exit (1);
+  }
+  (void) export_format_explicit;  // Netflow5 is already config's default
+
+  std::string bpf;
+  for (int i = optind; i < fargc; ++i) {
+    if (!bpf.empty()) {
+      bpf += " ";
+    }
+    bpf += fargv[i];
+  }
+  config.bpf_filter = bpf;
+
+  if (config.interface.empty() && config.pcap_file.empty() &&
+      !config.psamp_receive_port.has_value()) {
+    die_usage ("-i, -r or -R option not specified.\n");
+  }
+  // Original: -R with -r is not an error, and has no effect.
+  if (config.psamp_receive_port.has_value() && !config.pcap_file.empty()) {
+    config.psamp_receive_port.reset();
+  }
+
+  return config;
 }
 
 }  // namespace softflowd_cpp

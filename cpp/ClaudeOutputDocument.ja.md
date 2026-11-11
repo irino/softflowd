@@ -397,7 +397,7 @@ Rust版でファイル構成を揃えています:
 | `flow.c`、`expire.c` | `flow.hpp`、`flow.cpp`、`flow_runtime.cpp` | `FlowTable<Backend>`(期限切れの処理を含む)と`FlowTableRuntime` |
 | `packet.c` | `packet.hpp`、`packet.cpp` | `PacketParser`、`DatalinkKind`、`CapturedPacket`、`classify_frame()` |
 | `capture.c` | `capture.hpp`、`capture.cpp` | `PcapHandle`、`PacketProcessor`、`open_live_capture()`、`get_interface_mac()` |
-| `options.c` | `options.hpp`、`options.cpp` | `DaemonConfig`、オプションの値の解析、usage |
+| `options.c` | `options.hpp`、`options.cpp` | `DaemonConfig`、`parse_command_line()`、オプションの値の解析、usage |
 | `stats.c` | `stats.hpp`、`stats.cpp` | `print_statistics()`と期限切れ走査のデバッグ行 |
 | `format.c` | `format.hpp`、`format.cpp` | アドレス・時刻・フローの文字列 |
 | `log.c` | `log.hpp`、`log.cpp` | `loginit()`、`logit()` |
