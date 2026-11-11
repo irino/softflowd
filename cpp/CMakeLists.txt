@@ -36,8 +36,9 @@ find_library(PCAP_LIBRARY pcap REQUIRED)
 find_package(Threads REQUIRED)
 
 # The sources follow the files of the C version, one file for each group of
-# functions: softflowd.cpp holds main() with the loops of the capture file and
-# of the live capture, and flow / flow_runtime / packet / capture / options /
+# functions: softflowd.cpp holds main(), run_file.cpp and run_live.cpp the loops
+# of the capture file and of the live capture, run_common.cpp what they share,
+# and flow / flow_runtime / packet / capture / options /
 # stats / format / log / sender / netsock / control / daemon_setup hold the
 # other groups (see ClaudeOutputDocument.en.md for the table).
 # export_fixed.cpp / export_template.cpp /
@@ -58,6 +59,9 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
   src/capture.cpp
   src/netsock.cpp
   src/control.cpp
+  src/run_common.cpp
+  src/run_file.cpp
+  src/run_live.cpp
   src/daemon_setup.cpp
   src/export_common.cpp
   src/export_fixed.cpp
@@ -69,7 +73,7 @@ set(SOFTFLOWD_CPP_LOGIC_SOURCES
 )
 
 # Compiled once, with SOFTFLOWD_CPP_NO_MAIN (which compiles out softflowd.cpp,
-# main() included, and control.cpp), as an object library that the test
+# main() included, run_file.cpp, run_live.cpp and control.cpp), as an object library that the test
 # executables link against, since each test supplies its own main().
 add_library(softflow_core OBJECT ${SOFTFLOWD_CPP_LOGIC_SOURCES})
 target_include_directories(softflow_core PUBLIC include)
