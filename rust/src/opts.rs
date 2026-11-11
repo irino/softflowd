@@ -16,7 +16,7 @@ use clap::Parser;
                   overlying protocol is TCP or UDP) address/port tuples."
 )]
 pub struct RsoftflowdArgs {
-    /// Specify interface to listen on ([idx:]interface)
+    /// Specify interface to listen on (\[idx:\]interface)
     #[arg(
         short = 'i',
         long = "interface",

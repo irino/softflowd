@@ -45,7 +45,7 @@
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
 | R4 | `cargo clippy -D warnings` が失敗する (警告 20 件) | 2026-11-02 | 解消 | 0003 Fix the warnings of clippy in the Rust version | 2026-11-02、ローカル |
-| R5 | `cargo doc -D warnings` が失敗する | 2026-11-02 | 未解消 | | |
+| R5 | `cargo doc -D warnings` が失敗する | 2026-11-02 | 解消 | rust/src/opts.rs のリンク未解決をエスケープ | 2026-11-11、cargo doc 通過 |
 | R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 未解消 | | |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |

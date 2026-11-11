@@ -47,7 +47,7 @@ changes when a patch is applied.
 | R2 | No Rust job in CI | 2026-11-02 | fixed | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02, the commands run locally on a clean checkout |
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
 | R4 | `cargo clippy -D warnings` fails (20 warnings) | 2026-11-02 | fixed | 0003 Fix the warnings of clippy in the Rust version | 2026-11-02, local |
-| R5 | `cargo doc -D warnings` fails | 2026-11-02 | open | | |
+| R5 | `cargo doc -D warnings` fails | 2026-11-02 | fixed | Escape unresolved link in rust/src/opts.rs | 2026-11-11, cargo doc passes |
 | R6 | The main part of the daemon is in the binary | 2026-11-02 | open | | |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
