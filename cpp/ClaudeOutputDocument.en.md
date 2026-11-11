@@ -437,7 +437,8 @@ versions keep the same structure:
 
 | C version | C++ files | What they hold |
 |---|---|---|
-| `softflowd.c` | `softflowd.cpp` | `main()`, the loop that reads a capture file (`-r`), the loop of the live capture (`-i`) |
+| `softflowd.c` | `softflowd.cpp` | `main()` |
+| `softflowd.c` | `run.hpp`, `run_file.cpp`, `run_live.cpp`, `run_common.cpp` | The loop that reads a capture file (`-r`), the loop of the live capture (`-i`) and what they share; they are the two halves of the loop of `main()` of the C version |
 | `flow.c`, `expire.c` | `flow.hpp`, `flow.cpp`, `flow_runtime.cpp` | `FlowTable<Backend>` (with the expiry) and `FlowTableRuntime` |
 | `packet.c` | `packet.hpp`, `packet.cpp` | `PacketParser`, `DatalinkKind`, `CapturedPacket`, `classify_frame()` |
 | `capture.c` | `capture.hpp`, `capture.cpp` | `PcapHandle`, `PacketProcessor`, `open_live_capture()`, `get_interface_mac()` |
@@ -468,8 +469,9 @@ of `FlowTable`, so there is no separate file for it.
 `softflowd.cpp` contains `main()`, but the test executables
 (`test_flow_table`, `test_packet_parser`) each supply their own `main()`
 too -- linking the same `.cpp` into both would be a duplicate-symbol error.
-To avoid this, the code of `softflowd.cpp` that only the daemon needs,
-`main()` included, is wrapped in `#ifndef SOFTFLOWD_CPP_NO_MAIN`, and
+To avoid this, the code that only the daemon needs (`main()` in `softflowd.cpp`,
+and `run_file.cpp` and `run_live.cpp`, which use the control socket) is wrapped
+in `#ifndef SOFTFLOWD_CPP_NO_MAIN`, and
 `CMakeLists.txt` compiles the same list of source files
 (`SOFTFLOWD_CPP_LOGIC_SOURCES`) two different ways:
 
@@ -586,6 +588,7 @@ include/softflowd_cpp/
                         One header for each group of functions in the table above
   daemon.hpp            PidFile / daemonize() / SignalPipe (original: daemon.h)
   daemon_setup.hpp      drop_privs() (original: daemon_setup.h)
+  run.hpp               run_pcap_file() / run_live_capture(): the two halves of the loop of main()
   softflowctl.hpp       Control protocol definitions / ControlClient
                         (original: softflowctl itself)
   export.hpp            Exporters of NetFlow v1/v5/v9 and IPFIX + MPLS/biflow
@@ -600,8 +603,10 @@ include/softflowd_cpp/
   psamp.hpp             PSAMP + PsampReceiver (the -R receive-mode decoder;
                         original: psamp.h)
 src/
-  softflowd.cpp         main() + the loop of the capture file + the live-capture
-                        event loop + the PSAMP receive socket (original: softflowd.c)
+  softflowd.cpp         main() (original: softflowd.c)
+  run_file.cpp          the loop of the capture file (-r)
+  run_live.cpp          the live-capture event loop + the PSAMP receive socket
+  run_common.cpp        what the two loops share
   flow.cpp ... control.cpp
                         flow / flow_runtime / packet / capture / options / stats /
                         format / log / sender / netsock / control / daemon_setup: the

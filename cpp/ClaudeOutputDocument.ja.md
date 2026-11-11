@@ -393,7 +393,8 @@ Rust版でファイル構成を揃えています:
 
 | C版 | C++版のファイル | 内容 |
 |---|---|---|
-| `softflowd.c` | `softflowd.cpp` | `main()`、キャプチャファイルを読むループ(`-r`)、ライブキャプチャのループ(`-i`) |
+| `softflowd.c` | `softflowd.cpp` | `main()` |
+| `softflowd.c` | `run.hpp`、`run_file.cpp`、`run_live.cpp`、`run_common.cpp` | キャプチャファイルを読むループ(`-r`)、ライブキャプチャのループ(`-i`)とその共通部分。C版の`main()`のループを2つに分けたものです |
 | `flow.c`、`expire.c` | `flow.hpp`、`flow.cpp`、`flow_runtime.cpp` | `FlowTable<Backend>`(期限切れの処理を含む)と`FlowTableRuntime` |
 | `packet.c` | `packet.hpp`、`packet.cpp` | `PacketParser`、`DatalinkKind`、`CapturedPacket`、`classify_frame()` |
 | `capture.c` | `capture.hpp`、`capture.cpp` | `PcapHandle`、`PacketProcessor`、`open_live_capture()`、`get_interface_mac()` |
@@ -421,8 +422,9 @@ Rust版でファイル構成を揃えています:
 
 `softflowd.cpp`は`main()`を含む一方、テスト実行ファイル(`test_flow_table`,
 `test_packet_parser`)も自前の`main()`を持つため、単純に同じ`.cpp`をリンクすると
-シンボルが衝突します。これを避けるため、`softflowd.cpp`のうちデーモンだけが
-必要とするコード(`main()`を含む)は`#ifndef SOFTFLOWD_CPP_NO_MAIN`で囲んであり、
+シンボルが衝突します。これを避けるため、デーモンだけが必要とするコード
+(`softflowd.cpp`の`main()`と、制御ソケットを使う`run_file.cpp`、`run_live.cpp`)は
+`#ifndef SOFTFLOWD_CPP_NO_MAIN`で囲んであり、
 `CMakeLists.txt`は同じソースファイルの一覧(`SOFTFLOWD_CPP_LOGIC_SOURCES`)を
 次のように2通りにビルドします:
 
@@ -533,6 +535,7 @@ include/softflowd_cpp/
                         上の表の関数のまとまりごとに1つのヘッダ
   daemon.hpp            PidFile / daemonize() / SignalPipe(元 daemon.h)
   daemon_setup.hpp      drop_privs()(元 daemon_setup.h)
+  run.hpp               run_pcap_file() / run_live_capture(): main()のループを2つに分けたもの
   softflowctl.hpp       制御プロトコル定義 / ControlClient(元 softflowctl本体)
   export.hpp            NetFlow v1/v5/v9とIPFIXのエクスポータ + MPLS/biflow
                         (RFC 5103)/絶対時刻4形式
@@ -545,8 +548,10 @@ include/softflowd_cpp/
   ntopng.hpp            ZeroMQ経由のntopngへのエクスポート(元 ntopng.c)
   psamp.hpp             PSAMP + PsampReceiver(-R受信モード用デコーダ、元 psamp.h)
 src/
-  softflowd.cpp         main() + キャプチャファイルのループ + ライブキャプチャ
-                        イベントループ + PSAMP受信ソケット(元 softflowd.c)
+  softflowd.cpp         main()(元 softflowd.c)
+  run_file.cpp          キャプチャファイルのループ(-r)
+  run_live.cpp          ライブキャプチャのイベントループ + PSAMP受信ソケット
+  run_common.cpp        2つのループの共通部分
   flow.cpp ... control.cpp
                         flow / flow_runtime / packet / capture / options / stats /
                         format / log / sender / netsock / control / daemon_setup: 上の表の関数のまとまり

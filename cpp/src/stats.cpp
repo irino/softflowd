@@ -30,7 +30,7 @@ namespace softflowd_cpp {
  *
  * @original softflowd.c's statistics(), called only when reading from a
  * pcap file (-r) in foreground mode (-d) -- see the call site in
- * run_pcap_file() below. Formatting intentionally mirrors the C version.
+ * run_pcap_file() (run_file.cpp). Formatting intentionally mirrors the C version.
  */
 void
 print_statistics (const softflowd_cpp::FlowTableStats &s, std::size_t active_flows,

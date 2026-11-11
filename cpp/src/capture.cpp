@@ -116,7 +116,7 @@ PcapHandle::open_live (const std::string &device, int snaplen,
   // reported the underlying descriptor readable -- exactly the kind of
   // latency that would make a live daemon sluggish to react to control
   // commands and signals interleaved with packet processing (see
-  // run_live_capture() in softflowd.cpp).
+  // run_live_capture() in run_live.cpp).
   check (pcap_set_immediate_mode (handle, 1), "pcap_set_immediate_mode");
   if (buffer_bytes > 0) {
     check (pcap_set_buffer_size (handle, static_cast<int> (buffer_bytes)),
@@ -196,7 +196,7 @@ PcapHandle::next_packet () {
     // process's wall clock otherwise) as the reference time for flow
     // expiry when replaying a capture file. Both this process's
     // current time and libpcap's recorded time are always captured
-    // here; run_pcap_file()/run_live_capture() (softflowd.cpp) decide
+    // here; run_pcap_file()/run_live_capture() (run_file.cpp, run_live.cpp) decide
     // which one to actually use based on whether -a was given.
     packet.wall_timestamp = std::chrono::system_clock::from_time_t (header->ts.tv_sec) +
                             std::chrono::microseconds (header->ts.tv_usec);

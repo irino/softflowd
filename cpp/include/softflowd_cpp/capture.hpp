@@ -86,7 +86,7 @@ public:
      * quickly a live-captured packet becomes visible to next_packet(),
      * which in turn keeps the control-socket/signal-handling side of the
      * daemon's event loop responsive under load (see run_live_capture()
-     * in softflowd.cpp).
+     * in run_live.cpp).
      */
   static PcapHandle
   open_live (const std::string &device, int snaplen,
