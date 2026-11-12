@@ -35,6 +35,23 @@ These are imported by `softflowd_test.py`; they are not meant to be run.
 | `softflowd_test_parity.py` | Parity checks, part 1: what softflowd+ (C++) must do byte for byte like softflowd (C), offline (exported datagrams, control replies, logs). |
 | `softflowd_test_parity_live.py` | Parity checks, part 2: live capture, daemon, signals, CLI errors, and the comparison of a pair (`run_single_comparison`). |
 
+## Steps of a pair comparison
+
+`softflowd_test.py` compares pairs A vs B (A is the reference).  The steps that
+are printed for a pair, and which pairs get them:
+
+| Step | Check | Pairs |
+|---|---|---|
+| 1 | CLI options | all |
+| 2 | control socket (`softflowctl`) | all (`--skip-ctl` skips it) |
+| 3 | exported flows, decoded by nfdump or the built-in collector | all |
+| 4 | measurement (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`) | all, when one of these is on |
+| 5 | PSAMP sender and receiver (`--skip-psamp` skips it) | the pairs of step 6, or `--psamp` |
+| 6 | byte for byte: datagrams, control replies, logs, CLI errors, live capture (`--skip-parity` skips it) | `PARITY_PAIRS` in `softflowd_test_parity.py` (`softflowd-static` vs `softflowd`, `softflowd-direct` vs `softflowd`, `softflowd` vs `softflowd+`), or `--strict` |
+
+`--skip-static` and `--skip-direct` leave out the `softflowd-static` and
+`softflowd-direct` builds and their pairs.
+
 ## Dependencies
 
 An arrow means "imports".  `softflowd_collector.py` and

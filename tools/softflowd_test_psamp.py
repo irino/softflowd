@@ -233,7 +233,7 @@ def psamp_compare(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str,
 
 def test_psamp_compat(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optional[str]) -> bool:
     """Compat step: the PSAMP sender and receiver of A and B.  For C and C++ builds: the Rust PSAMP records differ."""
-    print("  [Step 4] Verifying PSAMP export and receive...")
+    print("  [Step 5] Verifying PSAMP export and receive...")
     if not (ctl_a and ctl_b and os.path.exists(ctl_a) and os.path.exists(ctl_b)):
         print_yellow("    - SKIPPED (softflowctl is needed to stop the PSAMP receiver)")
         return True

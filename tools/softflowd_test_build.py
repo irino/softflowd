@@ -113,12 +113,20 @@ def cached_binaries(cache_entry: str, names: Sequence[str],
 
 
 def store_binary_cache(cache_entry: str, paths: Sequence[str], what: str) -> None:
-    """Store the built binaries in the cache; a failure only costs a rebuild next time."""
+    """Store the built binaries in the cache; a failure only costs a rebuild next time.
+
+    The binaries that the entry already holds (same key, so same sources) are kept: a run
+    that skips a variant does not drop it from the cache.
+    """
     tmp = f"{cache_entry}.tmp.{os.getpid()}"
     try:
         os.makedirs(tmp)
         for path in paths:
             shutil.copy2(path, os.path.join(tmp, os.path.basename(path)))
+        if os.path.isdir(cache_entry):
+            for name in os.listdir(cache_entry):
+                if not os.path.exists(os.path.join(tmp, name)):
+                    shutil.copy2(os.path.join(cache_entry, name), os.path.join(tmp, name))
         # Rename into place only when complete so the cache never holds a partial set.
         if os.path.isdir(cache_entry):
             shutil.rmtree(cache_entry)
@@ -128,10 +136,6 @@ def store_binary_cache(cache_entry: str, paths: Sequence[str], what: str) -> Non
         print_yellow(f"Warning: could not cache the {what} binaries: {e}")
         shutil.rmtree(tmp, ignore_errors=True)
 
-
-# Binary names build_c_dev() produces, in the order build_c_variants() returns them.
-DEV_BINARIES = tuple(f"{b}{suffix}" for _, _, _, suffix in C_BUILD_VARIANTS
-                     for b in ("softflowd", "softflowctl"))
 
 # Number of development builds kept in the cache.
 DEV_CACHE_KEEP = 5
@@ -187,16 +191,25 @@ def prune_dev_cache(dev_cache_dir: str, keep: int = DEV_CACHE_KEEP) -> None:
         pass
 
 
-def build_c_dev(output_dir: str) -> Tuple[str, ...]:
+def dev_variants(skip: Sequence[str] = ()) -> list:
+    """The entries of C_BUILD_VARIANTS that build_c_dev() builds: all but those named in skip."""
+    return [v for v in C_BUILD_VARIANTS if v[0] not in skip]
+
+
+def build_c_dev(output_dir: str, skip: Sequence[str] = ()) -> Tuple[str, ...]:
     """
     Compile C development version (current working source tree including uncommitted/current changes)
-    in 3 configurations:
-      1. Default (softflowd / softflowctl)
-      2. Legacy (softflowd-legacy / softflowctl-legacy)
-      3. Static compat export (softflowd-static / softflowctl-static)
+    in the configurations of C_BUILD_VARIANTS, except those whose short name is in skip
+    (the default one cannot be skipped):
+      default (softflowd / softflowctl), legacy (softflowd-legacy / softflowctl-legacy),
+      static compat export (softflowd-static / ...), direct copies (softflowd-direct / ...)
+    Returns [softflowd, softflowctl, ...] in the order of dev_variants(skip).
     The binaries are cached in CACHE_DIR under a hash of the build inputs, so
     an unchanged tree is not compiled again.
     """
+    variants = dev_variants(skip)
+    names = tuple(f"{b}{suffix}" for _, _, _, suffix in variants
+                  for b in ("softflowd", "softflowctl"))
     cache_entry = None
     if helper.CACHE_DIR:
         try:
@@ -208,7 +221,7 @@ def build_c_dev(output_dir: str) -> Tuple[str, ...]:
             dev_cache_dir = os.path.join(helper.CACHE_DIR, "dev")
             cache_entry = os.path.join(dev_cache_dir, key[:16])
             state = "uncommitted changes" if dirty else "same as HEAD"
-            cached = None if helper.REBUILD_DEV else cached_binaries(cache_entry, DEV_BINARIES,
+            cached = None if helper.REBUILD_DEV else cached_binaries(cache_entry, names,
                                                               output_dir)
             if cached:
                 print_cyan(f"\n[Build] Using cached C development binaries "
@@ -219,7 +232,7 @@ def build_c_dev(output_dir: str) -> Tuple[str, ...]:
     if cache_entry is None:
         print_cyan("\n[Build] Compiling C development version (current source tree)...")
     paths = tuple(build_c_variants(PROJECT_ROOT, output_dir, "C development", "",
-                                   C_BUILD_VARIANTS))
+                                   variants))
     if cache_entry:
         store_binary_cache(cache_entry, paths, "development")
         prune_dev_cache(os.path.dirname(cache_entry))

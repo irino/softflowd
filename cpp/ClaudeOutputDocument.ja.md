@@ -24,7 +24,7 @@
 C++版を、小さなパッチを重ねてC言語版の最新実装に追従させました。基準はC版のビルドです。
 `tools/softflowd_test.py --a ./softflowd --b ./cpp/build/softflowd+ --strict --psamp`
 が、エクスポートされたデータグラムのバイト単位の一致、制御コマンドの応答、`-D`ログのexpire行、
-`lo`でのライブキャプチャがエクスポートするフローを比較します(Step 5)。対象外は、C版の互換コード
+`lo`でのライブキャプチャがエクスポートするフローを比較します(Step 6)。対象外は、C版の互換コード
 (`--enable-legacy`、`--enable-compat-export`)とntopng 5.x以前向けのJSONエクスポートです。
 実行ファイルは`softflowd+`と`softflowctl+`です。
 

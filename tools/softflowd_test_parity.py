@@ -1,5 +1,5 @@
 """
-Parity checks (1/2): what softflowd+ (C++) must do byte for byte like softflowd (C),
+Parity checks (1/2): what the builds of PARITY_PAIRS must do byte for byte like softflowd (C),
 the offline checks of the exported datagrams.
 """
 
@@ -19,16 +19,25 @@ from softflowd_test_helper import PROJECT_ROOT, parity_loopback_pcap, print_gree
 
 
 # ==========================================================================
-# parity: what softflowd+ (C++) must do byte for byte like softflowd (C)
+# parity: what softflowd+ (C++) and the C build variants must do byte for byte like softflowd (C)
 # ==========================================================================
 #
-# The pair softflowd vs softflowd+ (or any pair with --strict) is compared more
-# strictly than the other pairs: not only the flows that a collector decodes,
+# The pairs of PARITY_PAIRS (or any pair with --strict) are compared more
+# strictly than the other pairs (step 6): not only the flows that a collector decodes,
 # but the datagrams themselves, the replies of the control socket, the lines of
 # the expiry debug log and the flows that a live capture exports.  These are
 # the checks that were done by hand while softflowd+ followed softflowd.
 
-PARITY_PAIRS = {("softflowd", "softflowd+")}
+# (A, B) pairs that must do the same byte for byte: the C build variants (static and direct
+# copies) differ from the default build only in how the exporter is compiled, and softflowd+
+# is the C++ version of softflowd.  The stable pairs differ on purpose (fixed bugs, new
+# features), and softflowd vs rsoftflowd is compared in this way with --a, --b and --strict
+# only (see rust/doc/DIFFERENCES-FROM-C.en.md, D12).
+PARITY_PAIRS = {
+    ("softflowd-static", "softflowd"),
+    ("softflowd-direct", "softflowd"),
+    ("softflowd", "softflowd+"),
+}
 
 # Options added to `-a -r PCAP -n 127.0.0.1:PORT -v VERSION`.
 PARITY_ARGS = {

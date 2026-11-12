@@ -23,10 +23,14 @@ Features:
 Default comparison matrix:
   1. stable-softflowd-legacy vs softflowd-legacy
   2. stable-softflowd vs softflowd
-  3. softflowd-static vs softflowd
-  4. softflowd-direct vs softflowd
+  3. softflowd-static vs softflowd (skippable)
+  4. softflowd-direct vs softflowd (skippable)
   5. softflowd vs softflowd+ (skippable)
   6. softflowd vs rsoftflowd (skippable)
+
+The pairs 3 to 5 are also compared by the PSAMP sender and receiver (step 5) and byte for
+byte (step 6): the exported datagrams, the control socket replies, the logs, the command line
+errors and a live capture.  The other pairs differ on purpose in some of these.
 
 Each pair is A vs B: A is the comparison source (reference), B the target, and
 the binary names are shown in the titles of the results.
@@ -46,8 +50,12 @@ Options:
     --skip-ctl              : Skip softflowctl control socket tests
     --skip-cpp              : Skip C++ tests / builds
     --skip-rust             : Skip Rust tests / builds
-    --skip-psamp            : Skip the PSAMP sender and receiver comparison (step 4), which the
-                              pairs softflowd-static and softflowd-direct vs softflowd run
+    --skip-static           : Skip the softflowd-static build (--enable-compat-export=static)
+                              and its pair
+    --skip-direct           : Skip the softflowd-direct build (--enable-direct-copies) and its pair
+    --skip-psamp            : Skip the PSAMP sender and receiver comparison (step 5), which the
+                              pairs 3 to 5 run
+    --skip-parity           : Skip the byte for byte comparison (step 6) of the pairs 3 to 5
     --psamp                 : Run that comparison for the --a/--b pair too (C builds only)
     --ntopng                : Also check -v ntopng (TLV, ntopng 6.0 or later) and -v ntopng-json
                               (JSON, 5.x or earlier) on the sample pcaps, the PCAP files and a
@@ -138,11 +146,11 @@ from typing import Dict, Optional
 import softflowd_test_helper as helper
 import softflowd_test_verify as verify
 from softflowd_test_build import (
-    C_BUILD_VARIANTS,
     build_c_dev,
     build_c_stable,
     build_cpp,
     build_rust,
+    dev_variants,
 )
 from softflowd_test_helper import (
     PROJECT_ROOT,
@@ -199,9 +207,21 @@ def compat_main():
         help="Skip Rust (rsoftflowd) build and test matrix pairs"
     )
     parser.add_argument(
+        "--skip-static",
+        action="store_true",
+        help="Skip the softflowd-static build (--enable-compat-export=static) and its pair"
+    )
+    parser.add_argument(
+        "--skip-direct",
+        action="store_true",
+        help="Skip the softflowd-direct build (--enable-direct-copies) and its pair"
+    )
+    parser.add_argument(
         "--skip-psamp",
         action="store_true",
-        help="Skip the PSAMP sender and receiver comparison of the C development pairs"
+        help="Skip the PSAMP sender and receiver comparison (step 5) of the pairs that "
+             "get the byte for byte comparison (softflowd-static, softflowd-direct and "
+             "softflowd+ against softflowd)"
     )
     parser.add_argument(
         "--psamp",
@@ -212,8 +232,9 @@ def compat_main():
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Also compare the --a/--b pair byte for byte, as the pair softflowd vs "
-             "softflowd+ always is (step 5): exported datagrams, control socket replies, "
+        help="Also compare the --a/--b pair byte for byte, as the pairs softflowd-static "
+             "and softflowd-direct vs softflowd and softflowd vs softflowd+ always are "
+             "(step 6): exported datagrams, control socket replies, "
              "the expiry lines of the debug log, -M and, as root, a live capture on lo. "
              "It also checks that a refactoring changes no output: --a is the softflowd+ "
              "before and --b the softflowd+ after (their usage must be the same)"
@@ -221,7 +242,8 @@ def compat_main():
     parser.add_argument(
         "--skip-parity",
         action="store_true",
-        help="Skip the byte for byte comparison (step 5) of the pair softflowd vs softflowd+"
+        help="Skip the byte for byte comparison (step 6) of the pairs softflowd-static, "
+             "softflowd-direct and softflowd+ against softflowd"
     )
     parser.add_argument(
         "--ntopng",
@@ -530,8 +552,10 @@ def compat_main():
         binaries["stable-softflowctl-legacy"] = st_leg_c
 
         # Build C Development variants (current working directory tree)
-        dev_paths = build_c_dev(build_dir)
-        for i, (short, _, _, suffix) in enumerate(C_BUILD_VARIANTS):
+        skipped = [v for v, skip in (("static", args.skip_static),
+                                     ("direct", args.skip_direct)) if skip]
+        dev_paths = build_c_dev(build_dir, skipped)
+        for i, (short, _, _, suffix) in enumerate(dev_variants(skipped)):
             binaries[f"softflowd{suffix}"] = dev_paths[i * 2]
             binaries[f"softflowctl{suffix}"] = dev_paths[i * 2 + 1]
 
@@ -570,18 +594,18 @@ def compat_main():
             binaries[name] = path if (path and os.path.exists(path)) else None
 
     # 2. Define standard compatibility comparison matrix requested by user
-    # The pairs of C development builds, which also compare the PSAMP sender and receiver.
-    PSAMP_PAIRS = {("softflowd-static", "softflowd"), ("softflowd-direct", "softflowd")}
     comparison_pairs = [
         # (A daemon, B daemon, A ctl, B ctl): A is the comparison source, B the target
         ("stable-softflowd-legacy", "softflowd-legacy", "stable-softflowctl-legacy", "softflowctl-legacy"),
         ("stable-softflowd", "softflowd", "stable-softflowctl", "softflowctl"),
+    ]
+    if not args.skip_static:
         # --enable-compat-export=static as A, the default (dynamic) build as B
         # (the same two builds that `bench -b static,dynamic` compares)
-        ("softflowd-static", "softflowd", "softflowctl-static", "softflowctl"),
+        comparison_pairs.append(("softflowd-static", "softflowd", "softflowctl-static", "softflowctl"))
+    if not args.skip_direct:
         # --enable-direct-copies as a variant to check ASan/UBSan implications
-        ("softflowd-direct", "softflowd", "softflowctl-direct", "softflowctl"),
-    ]
+        comparison_pairs.append(("softflowd-direct", "softflowd", "softflowctl-direct", "softflowctl"))
 
     if not args.skip_cpp:
         comparison_pairs.append(("softflowd", "softflowd+", "softflowctl", "softflowctl+"))
@@ -618,8 +642,7 @@ def compat_main():
             auto_ignore_icmp_reclass=args.auto_ignore_icmp_reclass,
             ignore_ipv6=args.ignore_ipv6,
             include_collector_metadata=args.include_collector_metadata,
-            test_psamp=(not args.skip_psamp and ((a_name, b_name) in PSAMP_PAIRS
-                                                 or (a_name, b_name) in PARITY_PAIRS)),
+            test_psamp=(not args.skip_psamp and (a_name, b_name) in PARITY_PAIRS),
             test_strict=(not args.skip_parity and (a_name, b_name) in PARITY_PAIRS)
         )
         if not passed:

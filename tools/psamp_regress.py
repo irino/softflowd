@@ -50,7 +50,7 @@ Tools used (all in the same repository)
   tools/softflowd_test_psamp.py (and softflowd_test_helper.py, softflowd_collector.py)
                            psamp_send(), psamp_roundtrip() and psamp_compare() run
                            the daemons and compare them: the compat command runs
-                           the same comparison as its step 4 for the C development
+                           the same comparison as its step 5 for the C development
                            pairs.  datagrams_to_csv() decodes the v5/v9/IPFIX
                            datagrams of the receiver.
   tools/gen_ci_smoke_pcap.py

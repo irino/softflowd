@@ -164,7 +164,7 @@ jobs:
             pcaps/http.cap pcaps/v6-http.cap
 
   # The C++ version in cpp/ (softflowd+ and softflowctl+): its unit tests, and
-  # a comparison with the C version of this tree (step 5 of the compat test:
+  # a comparison with the C version of this tree (step 6 of the compat test:
   # the exported datagrams byte for byte, the control replies, the logs, the
   # errors of the command line, and, as root, a live capture on lo).  The C++
   # version is built with AddressSanitizer and UndefinedBehaviorSanitizer.

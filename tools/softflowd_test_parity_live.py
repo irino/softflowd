@@ -1,5 +1,5 @@
 """
-Parity checks (2/2): what softflowd+ (C++) must do byte for byte like softflowd (C),
+Parity checks (2/2): what the builds of PARITY_PAIRS must do byte for byte like softflowd (C),
 the checks of a live capture, the daemon, the CLI and the comparison of a pair.
 """
 
@@ -621,7 +621,7 @@ def parity_cli(a_daemon: str, b_daemon: str, pcap: str) -> bool:
 
 def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optional[str]) -> bool:
     """Compat step for a strict pair: what was checked by hand while softflowd+ followed softflowd."""
-    print("  [Step 5] Verifying that B does what A does, byte for byte...")
+    print("  [Step 6] Verifying that B does what A does, byte for byte...")
     pcaps = parity_make_pcaps(tempfile.mkdtemp(dir=helper.SUITE_TMP_DIR))
     ok = parity_cli(a_daemon, b_daemon, pcaps["smoke"])
     ok = parity_cli_errors(a_daemon, b_daemon, pcaps["smoke"]) and ok
@@ -686,11 +686,12 @@ def run_single_comparison(
     ):
         return False
 
-    # 4. PSAMP (C builds and the C++ build)
+    # 4. Measuring (done by test_differential_output() when --gauge-clock etc. is on)
+    # 5. PSAMP (C builds and the C++ build)
     if test_psamp and not test_psamp_compat(a_daemon, b_daemon, ctl_a, ctl_b):
         return False
 
-    # 5. Byte for byte (the pair softflowd vs softflowd+, or --strict)
+    # 6. Byte for byte (the pairs of PARITY_PAIRS, or --strict)
     if test_strict and not test_parity(a_daemon, b_daemon, ctl_a, ctl_b):
         return False
 

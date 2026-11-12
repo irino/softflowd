@@ -27,7 +27,7 @@ The C++ version was brought up to the current C version in small patches. The
 C build is the reference: `tools/softflowd_test.py --a
 ./softflowd --b ./cpp/build/softflowd+ --strict --psamp` compares the exported
 datagrams byte for byte, the control replies, the expiry lines of the `-D` log
-and the flows that a live capture on `lo` exports (Step 5). Not covered: the
+and the flows that a live capture on `lo` exports (Step 6). Not covered: the
 compatibility code of the C version (`--enable-legacy`,
 `--enable-compat-export`) and the JSON export for ntopng 5.x and earlier.
 The executables are `softflowd+` and `softflowctl+`.
