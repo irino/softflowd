@@ -47,7 +47,7 @@ What is tested
 Tools used (all in the same repository)
   softflowd, softflowctl   from the build directories; softflowd runs with -d (no
                            daemon), so run it as a normal user.
-  tools/softflowd_test_collector.py
+  tools/softflowd_test_psamp.py (and softflowd_test_helper.py, softflowd_collector.py)
                            psamp_send(), psamp_roundtrip() and psamp_compare() run
                            the daemons and compare them: the compat command runs
                            the same comparison as its step 4 for the C development
@@ -92,7 +92,7 @@ def report(ok, text):
 
 
 def check(new, new_ctl, pcaps, c):
-    """What the build must do; c is the softflowd_test_collector module."""
+    """What the build must do; c is the softflowd_test_psamp module."""
     print('== check: NEW=%s' % new)
     # template and sequence number
     m = c.psamp_messages(c.psamp_send(new, pcaps['v4s']))
@@ -139,7 +139,7 @@ def main():
     ap.add_argument('build', nargs='+', metavar='BUILD_DIR',
                     help='NEW_BUILD_DIR, or BASE_BUILD_DIR NEW_BUILD_DIR')
     ap.add_argument('--tools', default=os.path.dirname(os.path.abspath(__file__)),
-                    help='directory of gen_ci_smoke_pcap.py and softflowd_test_collector.py '
+                    help='directory of gen_ci_smoke_pcap.py and softflowd_test_psamp.py (with the modules it imports) '
                          '(default: the directory of this script)')
     args = ap.parse_args()
     if len(args.build) > 2:
@@ -149,7 +149,7 @@ def main():
             if not os.access(os.path.join(b, exe), os.X_OK):
                 ap.error('%s/%s not found; build softflowd first' % (b, exe))
     sys.path.insert(0, args.tools)
-    import softflowd_test_collector as c
+    import softflowd_test_psamp as c
 
     pcaps = c.psamp_make_pcaps(tempfile.mkdtemp(prefix='psamp_regress_'))
     daemon = lambda b: os.path.join(b, 'softflowd')
