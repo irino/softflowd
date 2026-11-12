@@ -2,6 +2,8 @@ use clap::CommandFactory;
 use std::fs;
 use std::path::Path;
 
+#[path = "src/common.rs"]
+mod common;
 #[path = "src/opts.rs"]
 mod opts;
 

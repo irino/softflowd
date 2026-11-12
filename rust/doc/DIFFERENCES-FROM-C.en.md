@@ -32,11 +32,11 @@ changes when a patch is applied.
 | D5 | Program name and version not unified | 2026-11-02 | fixed | 0016 Remove alias binaries | 2026-11-02, cargo build generates only rsoftflowd and rsoftflowctl |
 | D6 | Logging | 2026-11-02 | fixed | Implement syslog and stderr logging matching C versions and messages | 2026-11-02, integration test captures stderr and compares first four lines with C wording |
 | D7 | PSAMP message headers (sequence number and export time) differ from C | 2026-11-02 | fixed | Fix PSAMP sequence number and export time in psamp.rs | 2026-11-07, integration test checks sequence numbers of the first 20 messages for a 120-packet pcap |
-| D8 | compat step 5 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 5 ran for the first time (its result is D12) |
+| D8 | compat step 6 not reached (not measured) | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, step 6 ran for the first time (its result is D12) |
 | D9 | Maximum lifetime: C compares with `>`, Rust with `>=` | 2026-11-02 | fixed | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02, unit test maximum_lifetime_expiry_boundary passes (fails on old code) |
 | D10 | Overflow eviction: C keeps the previous flowEndReason, Rust writes lack of resources | 2026-11-02 | open | | |
 | D11 | NetFlow v9 option template: C has interfaceName (IE 82), Rust has not | 2026-11-02 | fixed | 0015 Add interfaceName to the NetFlow v9 option template | 2026-11-02, unit test test_netflow_v9_option_template_has_interface_name passes (fails on old code) |
-| D12 | compat step 5: most byte-for-byte checks differ (see the text) | 2026-11-02 | open | | |
+| D12 | compat step 6: most byte-for-byte checks differ (see the text) | 2026-11-02 | open | | |
 | D13 | Command line (part of D3): wrong `-t` options are accepted, and a large time panics | 2026-11-02 | fixed | 0012 Reject the wrong -t options as the C version does | 2026-11-02, the 75 cases of D3 run again: the cases of `-t` no longer differ (exit status differs in 38 cases, was 47); unit tests of `parse_duration` and `apply_timeouts` |
 | D14 | Command line (part of D3): `-T port` panics; C accepts it | 2026-11-02 | fixed | 0013 Accept -T port in the Rust version | 2026-11-02, the 75 cases of D3 run again: no panic is left (exit status differs in 37 cases, was 38); a test of the names of the levels |
 | D15 | Overflow eviction: Rust dropped evicted flows instead of exporting them (part of D12) | 2026-11-02 | fixed | Export evicted flows in evict_oldest_flow() | 2026-11-02, unit test test_flow_eviction_exports passes (fails on old code) |
@@ -51,6 +51,7 @@ changes when a patch is applied.
 | R6 | The main part of the daemon is in the binary | 2026-11-02 | open | | |
 | R6-1 | accumulate_stats() moved to stats.rs (part of R6) | 2026-11-11 | fixed | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-2 | Expiry code moved to expire.rs (part of R6) | 2026-11-12 | fixed | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings pass |
+| R6-3 | Option helpers moved to opts.rs (part of R6) | 2026-11-13 | fixed | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings pass |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
 | R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |
@@ -199,7 +200,7 @@ With `-d`, messages go to stderr as plain text without timestamp or level prefix
 
 The PSAMP message headers (IPFIX message header sequence number and export time), template `dataLinkFrameSection` field length (fixed at 1390 bytes, matching C `PSAMP_DATALINKFRAME_SIZE`), and `sectionExportedOctets` (reporting actual captured frame length `caplen`, capped at 1390 bytes) were aligned with the C version. `observationTimeMicroseconds` retains Rust's RFC-compliant NTP fraction calculation `((tv_usec * 2^32) / 1,000,000)` (noting C's non-compliant $+1\mu s$ offset quirk).
 
-### D8. Step 5 of the compat test (not measured)
+### D8. Step 6 of the compat test (not measured)
 
 The byte for byte comparison stops at the failing step 3, so it was not run.
 It needs D1 and D2 fixed first.
@@ -229,9 +230,9 @@ option fields: samplingInterval (34), samplingAlgorithm (35) and interfaceName
 the first two only (`put_templates()`, the `version == 9` branch).  How much it
 changes the size of the first v9 datagram was not isolated; see D12.
 
-### D12. Byte-for-byte comparison, compat step 5 (measured)
+### D12. Byte-for-byte comparison, compat step 6 (measured)
 
-Step 5 ran for the first time on 2026-11-02, after 0011 made step 3 pass.
+Step 6 ran for the first time on 2026-11-02, after 0011 made step 3 pass.
 Command: the one in "How to reproduce" with `--a` and `--b` and `--strict`
 (C against Rust).  The causes were not analyzed; this is what was seen.
 

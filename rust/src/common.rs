@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 
@@ -25,7 +27,7 @@ impl TrackLevel {
         }
     }
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         match self {
             TrackLevel::IpOnly => "ip",
             TrackLevel::IpProto => "proto",

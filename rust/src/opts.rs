@@ -1,4 +1,8 @@
+#![allow(dead_code)]
+
 use clap::Parser;
+
+use crate::common::FlowTracker;
 
 /// Traffic flow monitoring daemon rewritten in Rust.
 ///
@@ -347,6 +351,154 @@ pub struct RsoftflowctlArgs {
     pub command: String,
 }
 
+pub fn parse_interface_spec(s: &str) -> (u16, String) {
+    if let Some((idx_str, name)) = s.split_once(':') {
+        if !idx_str.is_empty()
+            && let Ok(idx) = idx_str.parse::<u16>()
+        {
+            return (idx, name.to_string());
+        }
+        return (0, name.to_string());
+    }
+    (0, s.to_string())
+}
+
+/// Parse a time such as `90`, `5m` or `1h30m` into seconds.
+///
+/// Original: `convtime()` in `convtime.c`.  A time that does not fit in an
+/// `i32` is an error, as in `set_timeout()` of the C version.  A sign and
+/// white space, which `strtol()` accepts there, are not accepted here.
+pub fn parse_duration(s: &str) -> Option<i32> {
+    if s.is_empty() {
+        return None;
+    }
+    let mut total: i64 = 0;
+    let mut rest = s;
+    while !rest.is_empty() {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        let secs: i64 = rest[..digits].parse().ok()?;
+        rest = &rest[digits..];
+        let mult: i64 = match rest.bytes().next() {
+            None => 1,
+            Some(b's' | b'S') => 1,
+            Some(b'm' | b'M') => 60,
+            Some(b'h' | b'H') => 3600,
+            Some(b'd' | b'D') => 3600 * 24,
+            Some(b'w' | b'W') => 3600 * 24 * 7,
+            Some(_) => return None,
+        };
+        rest = rest.get(1..).unwrap_or("");
+        total = total.checked_add(secs.checked_mul(mult)?)?;
+        if total > i64::from(i32::MAX) {
+            return None;
+        }
+    }
+    i32::try_from(total).ok()
+}
+
+pub fn parse_mac_address(mac_str: &str) -> Option<[u8; 6]> {
+    let parts: Vec<&str> = mac_str.split([':', '-']).collect();
+    if parts.len() != 6 {
+        return None;
+    }
+    let mut mac = [0u8; 6];
+    for i in 0..6 {
+        match u8::from_str_radix(parts[i], 16) {
+            Ok(val) => mac[i] = val,
+            Err(_) => return None,
+        }
+    }
+    Some(mac)
+}
+
+const BOOTTIME_MAX_DAY: u64 = 49;
+const BOOTTIME_MAX_HOUR: u64 = 1193;
+const BOOTTIME_MAX_MIN: u64 = 71582;
+const BOOTTIME_MAX_SEC: u64 = 4294944;
+
+pub fn parse_boot_time_reinit(s: &str) -> Option<u64> {
+    if s.is_empty() {
+        return None;
+    }
+    let digits_len = s.bytes().take_while(u8::is_ascii_digit).count();
+    if digits_len == 0 {
+        return None;
+    }
+    let num_str = &s[..digits_len];
+    let mut val: u64 = num_str.parse().ok()?;
+    let rest = &s[digits_len..];
+    let unit = if rest.is_empty() {
+        's'
+    } else if rest.len() == 1 {
+        let c = rest.chars().next()?.to_ascii_lowercase();
+        match c {
+            'd' | 'h' | 'm' | 's' => c,
+            _ => return None,
+        }
+    } else {
+        return None;
+    };
+
+    match unit {
+        'd' => {
+            if val > BOOTTIME_MAX_DAY {
+                val = BOOTTIME_MAX_DAY;
+            }
+            val = val.checked_mul(24 * 60 * 60)?;
+        }
+        'h' => {
+            if val > BOOTTIME_MAX_HOUR {
+                val = BOOTTIME_MAX_HOUR;
+            }
+            val = val.checked_mul(60 * 60)?;
+        }
+        'm' => {
+            if val > BOOTTIME_MAX_MIN {
+                val = BOOTTIME_MAX_MIN;
+            }
+            val = val.checked_mul(60)?;
+        }
+        _ => {
+            if val > BOOTTIME_MAX_SEC {
+                val = BOOTTIME_MAX_SEC;
+            }
+        }
+    }
+    Some(val)
+}
+
+/// Apply the `-t name=time` options.
+///
+/// Original: `set_timeout()` in `softflowd.c`.  On a wrong option it returns
+/// the message, and the caller prints it and exits with 1.
+pub fn apply_timeouts(tracker: &mut FlowTracker, timeout_specs: &[String]) -> Result<(), String> {
+    for spec in timeout_specs {
+        let (name, value) = match spec.split_once('=') {
+            Some((name, value)) if !value.is_empty() => (name, value),
+            _ => return Err(format!("Invalid -t option \"{}\".", spec)),
+        };
+        let val = parse_duration(value).ok_or_else(|| "Invalid -t timeout.".to_string())?;
+        match name {
+            "tcp" => tracker.param.tcp_timeout = val,
+            "tcp.rst" => tracker.param.tcp_rst_timeout = val,
+            "tcp.fin" => tracker.param.tcp_fin_timeout = val,
+            "udp" => tracker.param.udp_timeout = val,
+            "icmp" => tracker.param.icmp_timeout = val,
+            "general" => tracker.param.general_timeout = val,
+            "maxlife" => tracker.param.maximum_lifetime = val,
+            "expint" => tracker.param.expiry_interval = val,
+            _ => return Err("Invalid -t name.".to_string()),
+        }
+        if tracker.param.general_timeout == 0 {
+            return Err("\"general\" flow timeout must be greater than zero".to_string());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,5 +563,63 @@ mod tests {
         .unwrap();
         assert_eq!(args.ctlsock, "/tmp/test.sock");
         assert_eq!(args.command, "statistics");
+    }
+
+    #[test]
+    fn test_parse_boot_time_reinit() {
+        assert_eq!(parse_boot_time_reinit("10"), Some(10));
+        assert_eq!(parse_boot_time_reinit("2h"), Some(7200));
+        assert_eq!(parse_boot_time_reinit("50d"), Some(4233600));
+        assert_eq!(parse_boot_time_reinit("abc"), None);
+        assert_eq!(parse_boot_time_reinit("1x2"), None);
+        assert_eq!(parse_boot_time_reinit("99999999999999999999"), None);
+    }
+
+    #[test]
+    fn parse_duration_follows_convtime() {
+        assert_eq!(parse_duration("90"), Some(90));
+        assert_eq!(parse_duration("5m"), Some(300));
+        assert_eq!(parse_duration("1h30m"), Some(5400));
+        assert_eq!(parse_duration("1W"), Some(604800));
+        assert_eq!(parse_duration("5s5"), Some(10));
+        // The largest time that fits in an i32 (24855 days is 2147472000 s).
+        assert_eq!(parse_duration("2147483647"), Some(i32::MAX));
+        assert_eq!(parse_duration("24855d"), Some(2147472000));
+        assert_eq!(parse_duration(""), None);
+        assert_eq!(parse_duration("abc"), None);
+        assert_eq!(parse_duration("-1"), None);
+        assert_eq!(parse_duration("5x"), None);
+        assert_eq!(parse_duration("m"), None);
+        assert_eq!(parse_duration("2147483648"), None);
+        assert_eq!(parse_duration("24856d"), None);
+        assert_eq!(parse_duration("99999999999"), None);
+        assert_eq!(parse_duration("99999999999999999999999"), None);
+    }
+
+    fn timeouts(specs: &[&str]) -> Result<(), String> {
+        let mut tracker = FlowTracker::new(8192);
+        let specs: Vec<String> = specs.iter().map(|s| s.to_string()).collect();
+        apply_timeouts(&mut tracker, &specs)
+    }
+
+    #[test]
+    fn apply_timeouts_rejects_what_the_c_version_rejects() {
+        assert_eq!(timeouts(&["tcp=1h", "udp=30", "maxlife=2d"]), Ok(()));
+        for bad in [
+            "tcp",
+            "tcp=",
+            "tcp=xyz",
+            "udp=abc",
+            "udp=",
+            "udp=-1",
+            "bogus=1",
+            "expint=abc",
+            "maxlife=99999999999",
+            "general=0",
+        ] {
+            assert!(timeouts(&[bad]).is_err(), "{bad} was accepted");
+        }
+        // The names are case sensitive, as in the C version.
+        assert!(timeouts(&["TCP=5"]).is_err());
     }
 }

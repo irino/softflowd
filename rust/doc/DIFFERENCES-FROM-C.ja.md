@@ -30,11 +30,11 @@
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
 | D6 | ログ | 2026-11-02 | 解消 | C版に合わせた syslog および標準エラー出力のログ出力とメッセージの実装 | 2026-11-02、標準エラー出力をキャプチャして最初の 4 行を C の文言と比較する統合テスト |
 | D7 | PSAMP メッセージヘッダ（シーケンス番号とエクスポート時刻）が C と異なる | 2026-11-02 | 解消 | psamp.rs における PSAMP のシーケンス番号とエクスポート時刻の修正 | 2026-11-07, 120 パケットの pcap に対する最初の 20 メッセージのシーケンス番号を統合テストで検証 |
-| D8 | compat のステップ 5 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 5 が初めて動いた(結果は D12) |
+| D8 | compat のステップ 6 に未到達 (未測定) | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、ステップ 6 が初めて動いた(結果は D12) |
 | D9 | 最大寿命: C は `>`、Rust は `>=` で比較 | 2026-11-02 | 解消 | 0014 Compare the maximum lifetime with > as the C version does | 2026-11-02、単体テスト maximum_lifetime_expiry_boundary が成功 (旧コードでは失敗) |
 | D10 | 過負荷での追い出し: C は前の flowEndReason のまま、Rust は lack of resources | 2026-11-02 | 未解消 | | |
 | D11 | NetFlow v9 のオプションテンプレート: C は interfaceName (IE 82) を持ち、Rust は持たない | 2026-11-02 | 解消 | 0015 Add interfaceName to the NetFlow v9 option template | 2026-11-02、NetFlow v9 のオプションテンプレートに interfaceName が含まれることを確認する単体テストが成功 (旧コードでは失敗) |
-| D12 | compat のステップ 5: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
+| D12 | compat のステップ 6: バイト単位の比較の大半が違う (本文を参照) | 2026-11-02 | 未解消 | | |
 | D13 | コマンドライン (D3 の一部): 不正な `-t` を受理し、大きな時間で panic する | 2026-11-02 | 解消 | 0012 Reject the wrong -t options as the C version does | 2026-11-02、D3 の 75 件を再実行: `-t` の件は C と同じになった(終了ステータスが違うのは 38 件、以前は 47 件)。`parse_duration` と `apply_timeouts` の単体テスト |
 | D14 | コマンドライン (D3 の一部): `-T port` が panic する。C は受理する | 2026-11-02 | 解消 | 0013 Accept -T port in the Rust version | 2026-11-02、D3 の 75 件を再実行: panic は残っていない(終了ステータスが違うのは 37 件、以前は 38 件)。レベル名のテスト |
 | D15 | 過負荷での追い出し: Rust は追い出したフローを破棄していた (D12 の一部) | 2026-11-02 | 解消 | evict_oldest_flow() で追い出したフローのエクスポートを追加 | 2026-11-02、単体テスト test_flow_eviction_exports が成功 (旧コードでは失敗) |
@@ -49,6 +49,7 @@
 | R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 未解消 | | |
 | R6-1 | accumulate_stats() を stats.rs に移動 (R6 の一部) | 2026-11-11 | 解消 | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-2 | 有効期限切れ処理コードを expire.rs に移動 (R6 の一部) | 2026-11-12 | 解消 | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings 通過 |
+| R6-3 | オプションヘルパーを opts.rs に移動 (R6 の一部) | 2026-11-13 | 解消 | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
 | R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`manual_is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 解消 | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02、Rust 1.91.1 で CI ジョブの 3 つの cargo コマンド: fmt、clippy、テスト 18 件が成功。CI のジョブ自体はまだ動かしていない |
@@ -192,7 +193,7 @@ ntopng へのエクスポート (`-v ntopng`) はオプションの Cargo 機能
 
 PSAMP メッセージヘッダ（IPFIX メッセージヘッダのシーケンス番号およびエクスポート時刻）、テンプレートの `dataLinkFrameSection` フィールド長（C 版の `PSAMP_DATALINKFRAME_SIZE` に合わせて 1390 バイトに固定）、および `sectionExportedOctets`（実際のキャプチャフレーム長 `caplen` を 1390 バイト上限で報告）を C 版に合わせました。`observationTimeMicroseconds` では、C 版の非準拠な $+1\mu s$ オフセットのクィークに対し、Rust の RFC 準拠の NTP 小数部計算 `((tv_usec * 2^32) / 1,000,000)` を維持しています。
 
-### D8. compat テストのステップ 5 (未測定)
+### D8. compat テストのステップ 6 (未測定)
 
 バイト単位の比較はステップ 3 の失敗で止まるため、実行していません。
 D1 と D2 を直してから測ります。
@@ -221,9 +222,9 @@ Rust は最初の 2 つだけを書きます(`put_templates()` の `version == 9
 v9 の最初のデータグラムの大きさにどれだけ影響するかは切り分けていません。
 D12 を見てください。
 
-### D12. バイト単位の比較、compat のステップ 5 (実測)
+### D12. バイト単位の比較、compat のステップ 6 (実測)
 
-ステップ 5 は、0011 でステップ 3 が通るようになったため、2026-11-02 に初めて
+ステップ 6 は、0011 でステップ 3 が通るようになったため、2026-11-02 に初めて
 動きました。コマンドは「再現手順」のものに `--a`、`--b`、`--strict` を付けた
 もの(C と Rust の比較)です。原因は分析していません。見えたことを書きます。
 
