@@ -46,13 +46,13 @@ before a commit that adds a declaration.
 ctest --test-dir cpp/build --output-on-failure      # unit tests
 ```
 
-The comparison with the C version is `tools/softflowd_test_collector.py compat`.
+The comparison with the C version is `tools/softflowd_test.py`.
 Build the C version first (`autoreconf -if && ./configure && make`; add
 `--enable-ntopng` to compare ntopng):
 
 ```sh
 python3 tools/gen_ci_smoke_pcap.py /tmp/pc/http.cap
-python3 tools/softflowd_test_collector.py compat --a ./softflowd --b ./cpp/build/softflowd+ \
+python3 tools/softflowd_test.py --a ./softflowd --b ./cpp/build/softflowd+ \
   --ctl-a ./softflowctl --ctl-b ./cpp/build/softflowctl+ --strict --psamp --pcap-dir /tmp/pc \
   --no-benchmark --no-gauge-clock --no-cache
 ```

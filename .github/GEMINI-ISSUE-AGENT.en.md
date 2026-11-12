@@ -47,7 +47,7 @@ repository (see "Differences from netsim").
 
 The loop checks the format, clippy and the unit and integration tests only.
 It does not compare the output with the C version. Run
-`tools/softflowd_test_collector.py compat` (see
+`tools/softflowd_test.py` (see
 `rust/doc/DIFFERENCES-FROM-C.en.md`) or let `build.yml` run on the pull
 request, and review the diff before the merge.
 

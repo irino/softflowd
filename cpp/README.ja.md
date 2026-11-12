@@ -41,12 +41,12 @@ Doxygen(図にはGraphviz)が必要です。ソースのコメントはDoxygen�
 ctest --test-dir cpp/build --output-on-failure      # 単体テスト
 ```
 
-C版との比較は`tools/softflowd_test_collector.py compat`です。先にC版をビルドします
+C版との比較は`tools/softflowd_test.py`です。先にC版をビルドします
 (`autoreconf -if && ./configure && make`。ntopngを比較するときは`--enable-ntopng`を付けます)。
 
 ```sh
 python3 tools/gen_ci_smoke_pcap.py /tmp/pc/http.cap
-python3 tools/softflowd_test_collector.py compat --a ./softflowd --b ./cpp/build/softflowd+ \
+python3 tools/softflowd_test.py --a ./softflowd --b ./cpp/build/softflowd+ \
   --ctl-a ./softflowctl --ctl-b ./cpp/build/softflowctl+ --strict --psamp --pcap-dir /tmp/pc \
   --no-benchmark --no-gauge-clock --no-cache
 ```

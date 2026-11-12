@@ -44,7 +44,7 @@ GitHub の Issue から、Rust 版 (`rust/`) のコーディングエージェ�
 ## 確認していないこと
 
 ループで確認するのは、整形、clippy、単体テストと統合テストだけです。出力を C 版と
-比べることはしません。`tools/softflowd_test_collector.py compat`
+比べることはしません。`tools/softflowd_test.py`
 (`rust/doc/DIFFERENCES-FROM-C.ja.md` を参照)を実行するか、プルリクエストで
 `build.yml` を動かし、マージの前に差分を確認してください。
 

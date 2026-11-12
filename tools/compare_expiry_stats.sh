@@ -6,7 +6,7 @@
 # Every pcap is replayed with a flow table of only 4 flows (-m 4), so that
 # nearly every flow is expired by force.  Which flows are chosen depends on
 # the order of the expiry events, which the flow sets exported by the compat
-# test (tools/softflowd_test_collector.py compat) do not show, because that
+# test (tools/softflowd_test.py) do not show, because that
 # test only sees what is left at the end.  The statistics of both binaries
 # must be the same: the number of flows expired and exported, and the flow
 # bytes and packets.  The tail of the "Flows exported" line (datagrams and

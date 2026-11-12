@@ -74,12 +74,12 @@ Do not delete a fixed row; the history is the point.
 # Needs rustc/cargo 1.85 or newer (edition 2024) and libpcap-dev.
 python3 tools/gen_ci_smoke_pcap.py -n 20 pcaps/http.cap
 python3 tools/gen_ci_smoke_pcap.py -6 -n 20 pcaps/v6-http.cap
-python3 tools/softflowd_test_collector.py compat --skip-cpp \
+python3 tools/softflowd_test.py --skip-cpp \
     --collector python --pcap-dir pcaps --no-benchmark --no-gauge-clock
 ```
 
 The last pair of the output, `A=softflowd vs B=rsoftflowd`, is the Rust one.
-See `tools/softflowd_test_collector.py` for the other options.
+See `tools/softflowd_test.py` for the other options.
 
 ## Result of the compat test (measured)
 
@@ -280,7 +280,7 @@ date.
   `psamp.rs` 1, `lib.rs` 1, `net_util_unsafe.rs` 1; the word may be in a
   comment).
 - **R8**: `rust/tests/run_compat_tests.py` (480 lines) and `rust/doc/test.ja.md`
-  are the prototype of `tools/softflowd_test_collector.py` (the maintainer's
+  are the prototype of `tools/softflowd_test.py` (the maintainer's
   statement of 2026-11-02) and are to be deleted.  Whether other scripts in
   `tools/` duplicate it was checked: only `tools/deprecated/collector.pl` and
   `tools/deprecated/benchmark_export.sh`, which `collect` and `bench` replace,

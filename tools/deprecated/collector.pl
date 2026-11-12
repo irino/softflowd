@@ -8,9 +8,9 @@
 # XXX Doesn't support NetFlow 9
 
 # DEPRECATED: this collector only understands NetFlow v1 and v5 and is no
-# longer maintained.  Use tools/softflowd_test_collector.py collect instead; it
+# longer maintained.  Use tools/softflowd_collector.py instead; it
 # decodes NetFlow v1, v5, v9 and IPFIX
-# (python3 tools/softflowd_test_collector.py collect -p PORT [-6]).
+# (python3 tools/softflowd_collector.py -p PORT [-6]).
 
 my $af;
 
@@ -207,7 +207,7 @@ sub process_nf_v5($$)
 
 ############################################################################
 
-print STDERR "collector.pl is deprecated: use tools/softflowd_test_collector.py collect "
+print STDERR "collector.pl is deprecated: use tools/softflowd_collector.py "
 	. "(supports NetFlow v1, v5, v9 and IPFIX)\n";
 
 # Commandline options

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the C version and the C++ version (cpp/), runs the unit tests of the
-# C++ version, and compares the two with tools/softflowd_test_collector.py
-# compat: the exported datagrams, the control replies, the logs, the errors of
+# C++ version, and compares the two with tools/softflowd_test.py
+# (compat): the exported datagrams, the control replies, the logs, the errors of
 # the command line, and, as root, a live capture on lo.  The C++ version is
 # built with AddressSanitizer and UndefinedBehaviorSanitizer (the build type
 # Debug of cpp/CMakeLists.txt), so that an error of memory aborts the run.
@@ -46,7 +46,7 @@ python3 tools/gen_ci_smoke_pcap.py -6 -n 20 pcaps/v6-http.cap
 $SUDO mkdir -p /var/empty
 
 # softflowd vs softflowd+.  Root, for the live capture on lo.
-$SUDO env "PATH=$PATH" python3 tools/softflowd_test_collector.py compat \
+$SUDO env "PATH=$PATH" python3 tools/softflowd_test.py \
     --a ./softflowd --b ./cpp/build/softflowd+ \
     --ctl-a ./softflowctl --ctl-b ./cpp/build/softflowctl+ \
     --strict --psamp --pcap-dir pcaps --no-benchmark --no-gauge-clock --no-cache
@@ -54,7 +54,7 @@ $SUDO env "PATH=$PATH" python3 tools/softflowd_test_collector.py compat \
 if [ "$NTOPNG" = on ]; then
     # The C version built above has the ntopng support (it needs libzmq); its
     # messages are compared with those of the C++ version built above.
-    $SUDO env "PATH=$PATH" python3 tools/softflowd_test_collector.py compat \
+    $SUDO env "PATH=$PATH" python3 tools/softflowd_test.py \
         --a ./softflowd --b ./cpp/build/softflowd+ \
         --ctl-a ./softflowctl --ctl-b ./cpp/build/softflowctl+ \
         --skip-parity --skip-psamp --skip-ctl --ntopng \

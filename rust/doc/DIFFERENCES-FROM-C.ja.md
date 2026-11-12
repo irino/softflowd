@@ -70,12 +70,12 @@
 # rustc/cargo 1.85 以上 (edition 2024) と libpcap-dev が必要です。
 python3 tools/gen_ci_smoke_pcap.py -n 20 pcaps/http.cap
 python3 tools/gen_ci_smoke_pcap.py -6 -n 20 pcaps/v6-http.cap
-python3 tools/softflowd_test_collector.py compat --skip-cpp \
+python3 tools/softflowd_test.py --skip-cpp \
     --collector python --pcap-dir pcaps --no-benchmark --no-gauge-clock
 ```
 
 出力の最後の組 `A=softflowd vs B=rsoftflowd` が Rust です。
-ほかのオプションは `tools/softflowd_test_collector.py` を見てください。
+ほかのオプションは `tools/softflowd_test.py` を見てください。
 
 ## compat テストの結果 (実測)
 
@@ -270,7 +270,7 @@ D12 を見てください。
   `psamp.rs` 1、`lib.rs` 1、`net_util_unsafe.rs` 1。コメント中の語を含む
   可能性があります)。
 - **R8**: `rust/tests/run_compat_tests.py`(480 行)と `rust/doc/test.ja.md` は
-  `tools/softflowd_test_collector.py` の原型です(保守者の 2026-11-02 の説明)。
+  `tools/softflowd_test.py` の原型です(保守者の 2026-11-02 の説明)。
   削除する予定です。`tools/` の他のスクリプトが重複しているかは確認済みで、
   重複しているのは `tools/deprecated/collector.pl` と
   `tools/deprecated/benchmark_export.sh` だけです(`collect` と `bench` に

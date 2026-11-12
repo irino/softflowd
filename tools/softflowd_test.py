@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 """
-softflowd_test_collector.py -- test, benchmark and collector tools for softflowd.
+softflowd_test.py -- backward compatibility and variants test suite for softflowd.
 
-Standard library only.  The collector itself lives in softflowd_collector.py
-(same directory), which this script imports; three subcommands:
+Standard library only.  The same as `softflowd_test_suite.py compat` (or `test`).
+The pieces of the suite are the softflowd_test_*.py modules next to this script;
+see tools/README.md.
 
-  tools/softflowd_test_collector.py collect [-p PORT] [-b ADDR] [-6]  flow collector (default)
-  tools/softflowd_test_collector.py compat  [options] [PCAP...]       backward compatibility and variants
-  tools/softflowd_test_collector.py bench   [options] PCAP...         export benchmark
-
-Options after the subcommand belong to that subcommand; `-h` after a
-subcommand shows its help.  Without a subcommand the arguments go to collect
-(the successor of collector.pl), so run the former run_compat_suite.py
-usage as `compat [options]`.
-
-----------------------------------------------------------------------------
-compat
-----------------------------------------------------------------------------
 softflowd Comprehensive Backward Compatibility Test Suite
 
 This script verifies backward compatibility between softflowd stable version (1.1.1)
@@ -43,7 +32,7 @@ Each pair is A vs B: A is the comparison source (reference), B the target, and
 the binary names are shown in the titles of the results.
 
 Usage:
-    tools/softflowd_test_collector.py compat [OPTIONS] [PCAP...]
+    tools/softflowd_test.py [OPTIONS] [PCAP...]
 
 Positional PCAP files are tested in addition to the sample pcaps: each one is
 exported as NetFlow v1, v5, v9 and IPFIX by daemons A and B of each pair, the flows are compared, and the daemons are measured on it.  A pcap
@@ -136,48 +125,6 @@ Options:
                               pcaps are tiny, so use this for numbers that mean something
     --bench-csv FILE          : Write the -g/--benchmark results of all pairs as CSV
     -h, --help              : Show this help message
-
-----------------------------------------------------------------------------
-bench
-----------------------------------------------------------------------------
-benchmark -- compare softflowd's NetFlow/IPFIX export implementations across
-one or more pcap files and NetFlow/IPFIX versions.  Options and output files
-are those of the former benchmark_export.sh.
-
-Usage:
-  tools/softflowd_test_collector.py bench [options] pcap1.pcap [pcap2.pcap ...]
-
-Requires: hyperfine (falls back to a plain timing loop if missing).  perf
-(-p) and valgrind/callgrind_annotate (-C) are optional.  -g relies on
-softflowd's own -g flag, so it needs no extra tool.
-
-For each (pcap, build variant, version) combination:
-  1. Builds (once per variant, reused across pcaps/versions) a dedicated
-     softflowd-<variant> binary via autoreconf/configure/make.
-  2. Starts a local UDP sink on 127.0.0.1:PORT so packets are actually
-     received and discarded, rather than bouncing ICMP port-unreachable
-     errors back at the sender.
-  3. Runs the binary via hyperfine (warmup runs pull the pcap into the page
-     cache before the timed runs) or a plain timing loop.
-  4. Appends one row per combination to OUTFILE.
-  5. With -p, also runs `perf stat` once per combination.
-  6. With -C, also runs callgrind once per combination and records the total
-     instruction count (Ir) and the self Ir spent in the exporter sources
-     (export*.c, ipfix.c, netflow*.c, psamp.c).
-  7. With -g, also runs the binary once per combination with -g and records
-     the "cpu clocks" and "cpu clocks (export)" counters in OUTFILE.gauge.csv.
-
-----------------------------------------------------------------------------
-collect (the default without a subcommand)
-----------------------------------------------------------------------------
-Prints the NetFlow v1/v5/v9 and IPFIX flows received on a UDP port, one CSV
-row per flow with the column names of `nfdump -o csv` (ts, te, td, sa, da,
-sp, dp, pr, flg, stos, ipkt, ibyt, in, out).  Fields that are not mapped to
-one of those columns are kept in the trailing "x" column as "name=value"
-pairs instead of being dropped, so that a difference in any exported field
-still shows up when two builds are compared.  This replaces collector.pl,
-which only understands NetFlow v1 and v5.  compat uses the same decoder when
-nfdump is not installed.
 """
 
 import argparse
@@ -190,8 +137,6 @@ from typing import Dict, Optional
 
 import softflowd_test_helper as helper
 import softflowd_test_verify as verify
-from softflowd_collector import collect_main
-from softflowd_test_bench import bench_main
 from softflowd_test_build import (
     C_BUILD_VARIANTS,
     build_c_dev,
@@ -220,8 +165,8 @@ from softflowd_test_verify import MeasureSettings, finish_measurements
 def compat_main():
     parser = argparse.ArgumentParser(
         description="softflowd Comprehensive Backward Compatibility Test Suite",
-        epilog="Other subcommands: bench (export benchmark) and collect (flow "
-               "collector); run them with -h for their options."
+        epilog="See also softflowd_bench.py (export benchmark) and softflowd_collector.py "
+               "(flow collector); softflowd_test_suite.py runs all three."
     )
     parser.add_argument(
         "--stable-commit",
@@ -526,7 +471,7 @@ def compat_main():
         helper.COLLECTOR_BACKEND = "nfdump" if have_nfdump else "python"
         if not have_nfdump:
             print_yellow("nfdump/nfcapd not found: using the built-in Python collector "
-                         "(softflowd_test_collector.py collect)")
+                         "(softflowd_collector.py)")
     else:
         helper.COLLECTOR_BACKEND = args.collector
     if helper.COLLECTOR_BACKEND == "nfdump":
@@ -693,31 +638,5 @@ def compat_main():
         sys.exit(1)
 
 
-# ==========================================================================
-# Entry point
-# ==========================================================================
-
-SUBCOMMANDS = {
-    "compat": compat_main,
-    "bench": bench_main,
-    "collect": collect_main,
-}
-
-
-def main() -> int:
-    argv = sys.argv
-    if len(argv) >= 2 and argv[1] in SUBCOMMANDS:
-        name, rest = argv[1], argv[2:]
-    elif len(argv) == 1 or argv[1].startswith("-"):
-        name, rest = "collect", argv[1:]  # the successor of collector.pl
-    else:
-        print(f"unknown subcommand '{argv[1]}' "
-              f"(expected: {', '.join(SUBCOMMANDS)})", file=sys.stderr)
-        return 2
-    sys.argv = [f"{os.path.basename(argv[0])} {name}"] + rest
-    result = SUBCOMMANDS[name]()
-    return result if isinstance(result, int) else 0
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    compat_main()

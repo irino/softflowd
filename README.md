@@ -51,9 +51,8 @@ softflowd and includes a few handy features, such as the ability
 to filter flows it receives as well as Perl and Python APIs to its
 storage format. NB. You don't have to use flowd: any NetFlow compatible
 collector should work with softflowd. An example Python collector for
-testing purposes is included as "tools/softflowd_test_collector.py collect"
-(the default when no subcommand is given); it decodes NetFlow v1, v5, v9
-and IPFIX. The old Perl collector,
+testing purposes is included as "tools/softflowd_collector.py"; it decodes
+NetFlow v1, v5, v9 and IPFIX. The old Perl collector,
 tools/deprecated/collector.pl, is deprecated: it only supports NetFlow v1
 and v5.
 
@@ -171,14 +170,14 @@ the copyright of the files that come from OpenBSD.
 
 ## Benchmarking and Compatibility Testing
 
-tools/softflowd_test_collector.py bench compares the NetFlow/IPFIX export build
+tools/softflowd_bench.py compares the NetFlow/IPFIX export build
 variants (see --enable-compat-export in ./configure --help)
 across one or more pcap files and NetFlow/IPFIX versions, using
 hyperfine for timing. Optional flags add callgrind instruction counts
 (-C) and softflowd's own -g cpu-clock counters (-g) to the comparison.
-Run tools/softflowd_test_collector.py bench -h for details.
+Run tools/softflowd_bench.py -h for details.
 
-tools/softflowd_test_collector.py compat (formerly run_compat_suite.py) is a
+tools/softflowd_test.py (formerly run_compat_suite.py) is a
 regression test suite that replays sample pcap files, and any pcap files
 given on the command line, through two softflowd builds (e.g. a stable
 release and a development build) and diffs their NetFlow/IPFIX output as
@@ -188,7 +187,9 @@ records the -g cpu clock counters and the run time (time or hyperfine) of
 both builds in the same run, which needs no extra tool; --no-gauge-clock
 and --no-benchmark turn this off, and --callgrind and/or --perf add the
 callgrind instruction counts and perf stat.
-Run tools/softflowd_test_collector.py compat --help for details.
+Run tools/softflowd_test.py --help for details.
+
+See tools/README.md for the files in tools/ and how they depend on each other.
 
 The old shell script tools/deprecated/benchmark_export.sh is deprecated: it
 is only a thin wrapper of the bench subcommand.

@@ -54,8 +54,7 @@ git config core.hooksPath .githooks
 The hook also keeps its earlier check of the clang-format of the staged C
 changes. `git commit --no-verify` skips it for one commit; CI still runs.
 
-The comparison with the C version is `tools/softflowd_test_collector.py
-compat`; the commands are in
+The comparison with the C version is `tools/softflowd_test.py`; the commands are in
 [doc/DIFFERENCES-FROM-C.en.md](doc/DIFFERENCES-FROM-C.en.md).
 
 ## Development

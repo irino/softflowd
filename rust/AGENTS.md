@@ -26,7 +26,7 @@
   `.githooks/pre-commit` checks the clang-format of the staged C changes
   (the check that was there before), and runs the three commands above for a commit that changes the source of `rust/`.
   Skip it for one commit with `git commit --no-verify` (CI still runs).
-- Comparison with the C version: `python3 tools/softflowd_test_collector.py compat --skip-cpp`
+- Comparison with the C version: `python3 tools/softflowd_test.py --skip-cpp`
   (see the commands in `doc/DIFFERENCES-FROM-C.en.md`).
 
 ## Code Style Guidelines

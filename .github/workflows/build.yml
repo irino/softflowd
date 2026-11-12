@@ -113,7 +113,7 @@ jobs:
   # Replays sample pcaps through softflowd 1.1.1 (the stable reference) and
   # through this tree, and diffs the NetFlow v1/v5/v9 and IPFIX flows they
   # export, so that an unintended change in the exported flow data fails the
-  # build (tools/softflowd_test_collector.py compat).  The flows are decoded
+  # build (tools/softflowd_test.py).  The flows are decoded
   # either by the built-in Python collector or by nfcapd/nfdump.  The pcaps
   # are generated, so the job does not depend on downloading them.
   compat-test:
@@ -149,7 +149,7 @@ jobs:
 
       - name: Compatibility test (stable 1.1.1 vs this tree)
         run: |
-          python3 tools/softflowd_test_collector.py compat --skip-cpp --skip-rust \
+          python3 tools/softflowd_test.py --skip-cpp --skip-rust \
             --collector ${{ matrix.collector }} --pcap-dir pcaps
 
       # The statistics do not depend on the collector, so check them once.

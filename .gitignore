@@ -23,7 +23,7 @@ Makefile.in
 .dirstamp
 *.o
 
-# built binaries and the per-variant copies made by tools/softflowd_test_collector.py bench
+# built binaries and the per-variant copies made by tools/softflowd_bench.py
 /softflowd
 /softflowctl
 /softflowd-dynamic

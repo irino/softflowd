@@ -55,7 +55,7 @@ git config core.hooksPath .githooks
 そのまま行います。`git commit --no-verify` で 1 回の commit だけ省略できます。
 CI は実行されます。
 
-C 版との比較は `tools/softflowd_test_collector.py compat` です。コマンドは
+C 版との比較は `tools/softflowd_test.py` です。コマンドは
 [doc/DIFFERENCES-FROM-C.ja.md](doc/DIFFERENCES-FROM-C.ja.md) にあります。
 
 ## 開発

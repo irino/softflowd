@@ -1,5 +1,35 @@
+#!/usr/bin/env python3
 """
-Export benchmark of softflowd: `softflowd_test_collector.py bench`.
+softflowd_bench.py -- export benchmark of softflowd.
+
+The same as `softflowd_test_suite.py bench`.
+
+benchmark -- compare softflowd's NetFlow/IPFIX export implementations across
+one or more pcap files and NetFlow/IPFIX versions.  Options and output files
+are those of the former benchmark_export.sh.
+
+Usage:
+  tools/softflowd_bench.py [options] pcap1.pcap [pcap2.pcap ...]
+
+Requires: hyperfine (falls back to a plain timing loop if missing).  perf
+(-p) and valgrind/callgrind_annotate (-C) are optional.  -g relies on
+softflowd's own -g flag, so it needs no extra tool.
+
+For each (pcap, build variant, version) combination:
+  1. Builds (once per variant, reused across pcaps/versions) a dedicated
+     softflowd-<variant> binary via autoreconf/configure/make.
+  2. Starts a local UDP sink on 127.0.0.1:PORT so packets are actually
+     received and discarded, rather than bouncing ICMP port-unreachable
+     errors back at the sender.
+  3. Runs the binary via hyperfine (warmup runs pull the pcap into the page
+     cache before the timed runs) or a plain timing loop.
+  4. Appends one row per combination to OUTFILE.
+  5. With -p, also runs `perf stat` once per combination.
+  6. With -C, also runs callgrind once per combination and records the total
+     instruction count (Ir) and the self Ir spent in the exporter sources
+     (export*.c, ipfix.c, netflow*.c, psamp.c).
+  7. With -g, also runs the binary once per combination with -g and records
+     the "cpu clocks" and "cpu clocks (export)" counters in OUTFILE.gauge.csv.
 """
 
 import argparse
@@ -333,3 +363,7 @@ def bench_main() -> int:
         log(f"== perf stat details: {args.outfile}.perf.log ==")
     print_summaries(args)
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(bench_main())

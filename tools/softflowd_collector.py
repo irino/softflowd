@@ -7,9 +7,9 @@ nfdump column names:
 
   tools/softflowd_collector.py [-p PORT] [-b ADDR] [-6]
 
-softflowd_test_collector.py (compat and bench) imports this module for the
-decoder (Decoder) and the UDP receiver (UdpSink); `softflowd_test_collector.py
-collect` is the same as running this script.
+The same as `softflowd_test_suite.py collect`.  softflowd_test.py (compat) and
+softflowd_bench.py import this module for the decoder (Decoder) and the UDP
+receiver (UdpSink).
 """
 
 import argparse
@@ -376,9 +376,9 @@ def collect_main() -> int:
     ap = argparse.ArgumentParser(
         description="Print NetFlow v1/v5/v9 and IPFIX flows received on a "
                     "UDP port (CSV, nfdump column names).",
-        epilog="This is the default of softflowd_test_collector.py, too.  The other "
-               "subcommands are compat (backward compatibility test) and bench "
-               "(export benchmark); run them with -h for their options.")
+        epilog="See also softflowd_test.py (backward compatibility test) and "
+               "softflowd_bench.py (export benchmark); softflowd_test_suite.py "
+               "runs all three.")
     ap.add_argument("-p", "--port", type=int, default=2055,
                     help="UDP port to listen on (default: 2055)")
     ap.add_argument("-b", "--bind", default=None,
