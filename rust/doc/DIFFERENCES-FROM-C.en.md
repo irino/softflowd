@@ -55,6 +55,7 @@ changes when a patch is applied.
 | R6-4 | Packet processing moved to capture.rs (part of R6) | 2026-11-13 | fixed | Move process_parsed_packet() to capture.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-5 | main() split into functions, targets and capture moved (part of R6) | 2026-11-14 | fixed | Split main() into functions (targets, capture, signals, loop) | cargo test, fmt, clippy -D warnings pass |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
+| R7-1 | Replace the clock() calls with a safe CPU clock helper (part of R7) | 2026-11-14 | fixed | Replace clock() with nix clock_gettime CPU clock helper | cargo test, fmt, clippy -D warnings pass |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
 | R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |
 | R10 | Nothing checks the Rust version before a commit | 2026-11-02 | fixed | 0010 Add the checks of the Rust version to the pre-commit hook | 2026-11-02, tried in a scratch clone (see the text of R10) |

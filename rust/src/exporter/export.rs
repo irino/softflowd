@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use crate::common::{Flow, FlowTrackParameters, TrackLevel};
+use crate::common::{Flow, FlowTrackParameters, TrackLevel, cpu_clock};
 use crate::exporter::{
     SendParameter,
     export_common::{
@@ -429,11 +429,8 @@ fn emit_group(
 // -------------------------------------------------------------------
 
 fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
-    unsafe extern "C" {
-        fn clock() -> libc::clock_t;
-    }
     let gauge_clock = sp.param.gauge_clock;
-    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+    let start = if gauge_clock { cpu_clock() } else { 0 };
 
     let tail_fields = if version == 1 {
         &FIELD_NETFLOWV1_TAIL[..]
@@ -496,7 +493,7 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
     sp.param.packets_sent += num_packets as u64;
 
     if gauge_clock {
-        let elapsed = unsafe { clock() } - start;
+        let elapsed = cpu_clock() - start;
         sp.param.export_clocks += elapsed as i64;
         sp.param.export_calls += 1;
     }
@@ -957,11 +954,8 @@ fn put_templates(
 }
 
 pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
-    unsafe extern "C" {
-        fn clock() -> libc::clock_t;
-    }
     let gauge_clock = sp.param.gauge_clock;
-    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+    let start = if gauge_clock { cpu_clock() } else { 0 };
 
     let tmpls = build_templates(sp.param, bi_flag, version);
     let num_flows = sp.flows.len();
@@ -1143,7 +1137,7 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
     sp.param.packets_sent += num_packets as u64;
 
     if gauge_clock {
-        let elapsed = unsafe { clock() } - start;
+        let elapsed = cpu_clock() - start;
         sp.param.export_clocks += elapsed as i64;
         sp.param.export_calls += 1;
     }
@@ -1164,12 +1158,9 @@ pub fn send_ipfix_bi(sp: SendParameter) -> i32 {
 }
 
 pub fn send_flows(sp: SendParameter) -> i32 {
-    unsafe extern "C" {
-        fn clock() -> libc::clock_t;
-    }
     let gauge_clock = sp.param.gauge_clock;
     let param_ptr = sp.param as *mut FlowTrackParameters;
-    let start = if gauge_clock { unsafe { clock() } } else { 0 };
+    let start = if gauge_clock { cpu_clock() } else { 0 };
     let r = match sp.target.version {
         1 => send_netflow_v1(sp),
         5 => send_netflow_v5(sp),
@@ -1194,7 +1185,7 @@ pub fn send_flows(sp: SendParameter) -> i32 {
         _ => -1,
     };
     if gauge_clock {
-        let elapsed = unsafe { clock() } - start;
+        let elapsed = cpu_clock() - start;
         unsafe {
             (*param_ptr).export_clocks += elapsed as i64;
             (*param_ptr).export_calls += 1;

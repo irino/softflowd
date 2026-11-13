@@ -19,7 +19,7 @@ ntopng = ["dep:zmq"]
 [dependencies]
 pcap = "2.0.0"
 clap = { version = "4.5", features = ["derive"] }
-nix = { version = "0.29.0", features = ["socket", "signal", "user", "net", "fs", "process"] }
+nix = { version = "0.29.0", features = ["socket", "signal", "user", "net", "fs", "process", "time"] }
 byteorder = "1.5.0"
 log = "0.4.22"
 env_logger = "0.11.5"
@@ -31,3 +31,5 @@ syslog = "6.1"
 [build-dependencies]
 clap = { version = "4.5", features = ["derive"] }
 clap_mangen = "0.2"
+nix = { version = "0.29.0", features = ["time"] }
+libc = "0.2.155"

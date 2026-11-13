@@ -9,7 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rsoftflowd::capture::{PacketEvent, process_parsed_packet, setup_packet_capture};
-use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel};
+use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
     start_control_server,
@@ -139,10 +139,7 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     let track_level = TrackLevel::from_name(&args.track_level)
         .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
-    unsafe extern "C" {
-        fn clock() -> libc::clock_t;
-    }
-    let boottime = unsafe { clock() };
+    let boottime = cpu_clock();
 
     let (user_ifidx, capture_dev) = if let Some(ref if_spec) = args.interface {
         let (idx, name) = parse_interface_spec(if_spec);
@@ -528,10 +525,7 @@ fn run_main_loop(
     }
 
     if tracker.param.gauge_clock {
-        unsafe extern "C" {
-            fn clock() -> libc::clock_t;
-        }
-        let total_clocks = unsafe { clock() } - boottime;
+        let total_clocks = cpu_clock() - boottime;
         eprintln!("cpu clocks: {}", total_clocks);
         eprintln!(
             "cpu clocks (export): {} ({} calls)",

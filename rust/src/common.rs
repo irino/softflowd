@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use nix::time::{ClockId, clock_gettime};
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 
@@ -379,6 +380,14 @@ pub enum FlowLookupMode {
     Hash,
 }
 
+/// Return the CPU time of the process in microseconds (the unit of clock() with CLOCKS_PER_SEC = 1000000),
+/// using nix::time::clock_gettime(ClockId::CLOCK_PROCESS_CPUTIME_ID).
+pub fn cpu_clock() -> libc::clock_t {
+    let ts = clock_gettime(ClockId::CLOCK_PROCESS_CPUTIME_ID)
+        .expect("clock_gettime(CLOCK_PROCESS_CPUTIME_ID) failed");
+    (ts.tv_sec() as libc::clock_t) * 1_000_000 + (ts.tv_nsec() as libc::clock_t) / 1_000
+}
+
 impl FlowLookupMode {
     /// Parse the argument of `-F` (case-insensitive).
     pub fn from_name(s: &str) -> Option<Self> {
@@ -470,5 +479,22 @@ impl FlowTracker {
             let maxdepth = counts.values().cloned().max().unwrap_or(0) as u32;
             (used, maxdepth)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cpu_clock_monotonic() {
+        let t1 = cpu_clock();
+        let mut sum: u64 = 0;
+        for i in 0..100000 {
+            sum = sum.wrapping_add(i);
+        }
+        let _ = sum;
+        let t2 = cpu_clock();
+        assert!(t2 >= t1);
     }
 }

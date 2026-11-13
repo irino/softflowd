@@ -1,3 +1,6 @@
+extern crate libc;
+extern crate nix;
+
 pub mod capture;
 pub mod common;
 pub mod control;
