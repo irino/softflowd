@@ -159,6 +159,9 @@ ExportPipeline::ExportPipeline (const DaemonConfig &config, softflowd_cpp::TimeP
           config.track_level >= softflowd_cpp::TrackLevel::FullVlanEther) {
         ipfix_->set_direction_mac (*config.direction_mac);
       }
+      // Original: option.interfaceName is the file of -r, or the interface of -i.
+      ipfix_->set_interface_name (!config.pcap_file.empty() ? config.pcap_file
+                                                            : config.interface);
       if (!config.source_address.empty()) {
         ipfix_->set_exporter_addresses (
           softflowd_cpp::resolve_exporter_addresses (config.source_address));

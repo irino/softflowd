@@ -60,7 +60,7 @@ python3 tools/softflowd_test.py --a ./softflowd --b ./cpp/build/softflowd+ \
 
 - バージョン表示は`v0.0.1`です(C版は`v1.1.1`)。
 - 統計の`Flow table:`行は、ハッシュ関数が異なるため一致しません。
-- 未実装: `--enable-ifname`(オプションレコードのinterfaceName)、互換コード
+- 未実装: `--enable-ifname`(データレコードのinterfaceName。オプションレコードには常に入ります)、互換コード
   (`--enable-legacy`、`--enable-compat-export`)、ntopng 5.x以前のJSONエクスポート。
 - 確認したのは`lo`のみです。実NICとBSDは未確認です。
 - デーモンは、停止後にpidファイルと制御ソケットが残ります(C版と同じです。chrootの中のユーザー

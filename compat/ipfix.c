@@ -164,26 +164,31 @@ ipfix_init_bifields (struct IPFIX_SOFTFLOWD_TEMPLATE *template,
  * @brief Add the flow start/end time fields chosen by the time format option
  * (-A).
  *
+ * Only IPFIX has absolute time fields: NetFlow v9 (RFC 3954) always uses the
+ * relative sysUpTime form, whatever -A says.
+ *
  * @param param    Tracking parameters (time_format).
  * @param template Template to extend.
  * @param index    Position to start at; advanced.
+ * @param version  Export version: 9 or 10.
  * @return Sum of the lengths of the added fields.
  */
 static int
 ipfix_init_template_time (struct FLOWTRACKPARAMETERS *param,
                           struct IPFIX_SOFTFLOWD_TEMPLATE *template,
-                          u_int *index) {
+                          u_int *index, u_int16_t version) {
   int length = 0;
-  if (param->time_format == 's') {
+  const char time_format = (version == 10) ? param->time_format : 0;
+  if (time_format == 's') {
     length = ipfix_init_fields (template->r, index, field_timesec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  } else if (param->time_format == 'm') {
+  } else if (time_format == 'm') {
     length = ipfix_init_fields (template->r, index, field_timemsec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  } else if (param->time_format == 'M') {
+  } else if (time_format == 'M') {
     length = ipfix_init_fields (template->r, index, field_timeusec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
-  } else if (param->time_format == 'n') {
+  } else if (time_format == 'n') {
     length = ipfix_init_fields (template->r, index, field_timensec,
                                 IPFIX_SOFTFLOWD_TEMPLATE_TIMERECORDS);
   } else {
@@ -222,7 +227,7 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
     length += ipfix_init_fields (template->r, &index, field_v4,
                                  IPFIX_SOFTFLOWD_TEMPLATE_IPRECORDS);
   }
-  length += ipfix_init_template_time (param, template, &index);
+  length += ipfix_init_template_time (param, template, &index, version);
   length += ipfix_init_fields (template->r, &index, field_common,
                                IPFIX_SOFTFLOWD_TEMPLATE_COMMONRECORDS);
   if (icmp_flag) {
@@ -421,6 +426,7 @@ ipfix_init_option (struct timeval *system_boot_time,
  * @param flow             Flow whose start and end are stored.
  * @param system_boot_time Base for the relative (sysUpTime) form.
  * @param param            Tracking parameters (time_format).
+ * @param version          Export version; NetFlow v9 has the relative form only.
  * @return Length of the time fields in octets (16 for the 64-bit forms,
  * otherwise 8), or -1 on error.
  */
@@ -428,15 +434,15 @@ static int
 copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
                 const struct FLOW *flow,
                 const struct timeval *system_boot_time,
-                struct FLOWTRACKPARAMETERS *param) {
-  int length = (param->time_format == 'm' || param->time_format == 'M' ||
-                param->time_format == 'n')
+                struct FLOWTRACKPARAMETERS *param, u_int16_t version) {
+  const char time_format = (version == 10) ? param->time_format : 0;
+  int length = (time_format == 'm' || time_format == 'M' || time_format == 'n')
                  ? 16
                  : 8;
   if (dt == NULL)
     return -1;
 
-  switch (param->time_format) {
+  switch (time_format) {
     struct ntp_time_t ntptime;
     case 's':
       dt->u32.start = htonl (flow->flow_start.tv_sec);
@@ -476,7 +482,7 @@ copy_data_time (union IPFIX_SOFTFLOWD_DATA_TIME *dt,
  * @param len_used Receives the number of bytes written.
  * @param bi_flag  Non-zero to emit one biflow record instead of one per
  * direction.
- * @param version  Export version (not needed by this encoder).
+ * @param version  Export version (NetFlow v9 has no absolute time).
  * @return Number of records written, or -1 on error.
  */
 int
@@ -487,7 +493,6 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   u_int16_t ifidx = sp->ifidx;
   struct FLOWTRACKPARAMETERS *param = sp->param;
   const struct timeval *system_boot_time = &param->system_boot_time;
-  (void) version;
 
   struct IPFIX_SOFTFLOWD_DATA_V4ADDR *d4[2] = {NULL, NULL};
   struct IPFIX_SOFTFLOWD_DATA_V6ADDR *d6[2] = {NULL, NULL};
@@ -528,7 +533,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
     }
 
     dt[i] = (union IPFIX_SOFTFLOWD_DATA_TIME *) &packet[offset];
-    offset += copy_data_time (dt[i], flow, system_boot_time, param);
+    offset += copy_data_time (dt[i], flow, system_boot_time, param, version);
 
     dc[i] = (struct IPFIX_SOFTFLOWD_DATA_COMMON *) &packet[offset];
     dc[i]->octetDeltaCount = htonl (flow->octets[i]);
@@ -583,7 +588,9 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
       } else {
         dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *) &packet[offset];
-        dbi->icmpTypeCode = flow->port[1];
+        /* RFC 5103: the reverse field holds the type and code of the reverse
+         * direction, as the record i == 1 would. */
+        dbi->icmpTypeCode = flow->port[0];
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
       }
     }

@@ -218,11 +218,7 @@ static const IPFIX_FIELD_TABLE_TYPE field_option[] = {
   DEF_FIELD_ENC (PSAMP_samplingPacketInterval, 4, enc_samplingPacketInterval),
   DEF_FIELD_ENC (PSAMP_samplingPacketSpace, 4, enc_samplingPacketSpace),
   DEF_FIELD_ENC (PSAMP_selectorAlgorithm, 2, enc_selectorAlgorithm),
-#ifdef ENABLE_IFNAME
   DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName),
-#else
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero),
-#endif
   DEF_FIELD_ENC (IPFIX_exporterIPv4Address, 4, enc_exporterAddress),
   DEF_FIELD_ENC (IPFIX_exporterIPv6Address, 16, enc_exporterAddress),
   DEF_FIELD_ENC (IPFIX_originalExporterIPv4Address, 4,
@@ -241,12 +237,7 @@ static const IPFIX_FIELD_TABLE_TYPE field_nf9scope[] = {DEF_FIELD_ENC (
 static const IPFIX_FIELD_TABLE_TYPE field_nf9option[] = {
   DEF_FIELD_ENC (IPFIX_samplingInterval, 4, enc_samplingInterval),
   DEF_FIELD_ENC (IPFIX_samplingAlgorithm, 1, enc_samplingAlgorithm),
-#ifdef ENABLE_IFNAME
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)
-#else
-  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_zero)
-#endif
-};
+  DEF_FIELD_ENC (IPFIX_interfaceName, IFNAMSIZ, enc_interfaceName)};
 
 /* Shared template sized for IPFIX (reused by NetFlow v9).
  * Divided by IPFIX_FIELD_TABLE_TYPE (the actual element type)

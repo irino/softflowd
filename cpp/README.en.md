@@ -66,8 +66,8 @@ sequence, and the job `cpp-test` of `.github/workflows/build.yml` runs it.
 
 - The version is `v0.0.1` (the C version: `v1.1.1`).
 - The `Flow table:` line of the statistics differs (another hash function).
-- Not implemented: `--enable-ifname` (the interfaceName of the option records),
-  the compatibility code (`--enable-legacy`, `--enable-compat-export`) and the
+- Not implemented: `--enable-ifname` (the interfaceName of the data records; the
+  option records always carry it), the compatibility code (`--enable-legacy`, `--enable-compat-export`) and the
   JSON export for ntopng 5.x and earlier.
 - Checked on `lo` only, not on a physical NIC or on BSD.
 - A daemon leaves its pid file and control socket when it stops (the same as the

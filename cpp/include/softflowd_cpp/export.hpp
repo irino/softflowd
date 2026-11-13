@@ -248,6 +248,20 @@ public:
   }
 
   /**
+   * @brief Sets the interface name of the option records.
+   *
+   * @param name The capture interface (-i) or the file that -r reads.  Like the
+   * original, which copies it into IFNAMSIZ (16) octets, at most 15 octets of
+   * it are exported.
+   *
+   * @original option.interfaceName, set by -i and -r.
+   */
+  void
+  set_interface_name (const std::string &name) {
+    interface_name_ = name;
+  }
+
+  /**
    * @brief Sets the direction MAC from which flowDirection is derived.
    *
    * Only meaningful when the flows carry Ethernet addresses (-T ether).
@@ -383,6 +397,7 @@ private:
   std::uint32_t sampling_rate_;                               ///< -s.
   TrackLevel track_level_;                                    ///< -T: VLAN and Ethernet fields.
   ExporterAddresses exporter_addresses_;                      ///< The addresses of -e.
+  std::string interface_name_;                                ///< The interfaceName of the option records.
   std::optional<std::array<std::uint8_t, 6>> direction_mac_;  ///< -H.
   std::uint32_t v9_sequence_{1};                              ///< NetFlow v9 counts packets, from 1.
   std::uint32_t sequence_{0};                                 ///< The count of Data Records built so far.

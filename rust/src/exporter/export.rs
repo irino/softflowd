@@ -220,13 +220,10 @@ fn enc_meteringProcessId(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
     dst[..4].copy_from_slice(&bytes);
 }
 
-fn enc_samplingPacketInterval(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
-    let rate = if ctx.sp.param.sample_rate > 1 {
-        ctx.sp.param.sample_rate
-    } else {
-        1
-    };
-    let bytes = rate.to_be_bytes();
+fn enc_samplingPacketInterval(dst: &mut [u8], length: usize, _ctx: &ExportCtx) {
+    // RFC 5477 8.2.2: the number of packets that are consecutively sampled.
+    // Sampling 1 in N packets is an interval of 1 and a space of N - 1.
+    let bytes = 1u32.to_be_bytes();
     let n = length.min(4);
     dst[..n].copy_from_slice(&bytes[4 - n..]);
 }
@@ -934,11 +931,8 @@ fn put_templates(
         + (sp.param.system_boot_time.tv_usec as u64) / 1000;
     packet.extend_from_slice(&boot_ms.to_be_bytes());
 
-    let interval = if sp.param.sample_rate > 1 {
-        sp.param.sample_rate
-    } else {
-        1
-    };
+    // RFC 5477 8.2.2: 1 in N packets is an interval of 1 and a space of N - 1.
+    let interval: u32 = 1;
     let space = if sp.param.sample_rate > 0 {
         sp.param.sample_rate - 1
     } else {

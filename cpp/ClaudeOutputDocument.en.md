@@ -116,8 +116,8 @@ version.
 - The compat check of ntopng covers IPv4, IPv6 and the same address at both
   ends (byte for byte), and a daemon with a ZeroMQ subscriber.
 - Live capture was checked on `lo` only, not on a physical NIC or on BSD.
-  `--enable-ifname` and the interfaceName of the option records are not
-  implemented.
+  `--enable-ifname` (the interfaceName of the data records) is not
+  implemented; the option records always carry the interfaceName.
 - The number of export packets of a forced expiry in a live capture depends on
   how libpcap hands over the packets (the C version varies between runs too)
   and is not matched.

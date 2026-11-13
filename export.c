@@ -238,10 +238,12 @@ enc_flowEndMicroSeconds (u_char *dst, u_int16_t length,
 }
 EXPORT_ENC_HTON (enc_vlanId, ctx->flow->vlanid[ctx->i], 2)
 EXPORT_ENC_HTON (enc_postVlanId, ctx->flow->vlanid[ctx->i ^ 1], 2)
-#ifdef ENABLE_IFNAME
 /**
  * @brief Encode the interface name (the capture interface, or the file name
  * with -r), truncated to the field length.
+ *
+ * It is always written to the option records.  --enable-ifname only adds it to
+ * the data records of NetFlow v9 and IPFIX.
  *
  * @param dst    Where to write the encoded value.
  * @param length Length of the field in octets.
@@ -257,7 +259,6 @@ enc_interfaceName (u_char *dst, u_int16_t length,
   /* Copies string up to its own length (capped at 'n'), leaving remaining field
    * bytes zeroed by the packet buffer's initial clearance. */
 }
-#endif /* ENABLE_IFNAME */
 
 EXPORT_ENC_HTON (enc_nf9OptionScopeInterface, ctx->sp->ifidx, 4)
 EXPORT_ENC_HTON (enc_samplingInterval,
@@ -270,10 +271,9 @@ EXPORT_ENC_HTON (enc_systemInitTimeMilliseconds,
                  8)
 EXPORT_ENC_HTON (enc_meteringProcessId,
                  (u_int32_t) ctx->sp->param->option.meteringProcessId, 4)
-EXPORT_ENC_HTON (enc_samplingPacketInterval,
-                 ctx->sp->param->option.sample > 1 ? ctx->sp->param->option.sample
-                                                   : 1,
-                 length)
+/* RFC 5477 8.2.2: the number of packets that are consecutively sampled.  Sampling
+ * 1 in N packets is an interval of 1 and a space of N - 1. */
+EXPORT_ENC_HTON (enc_samplingPacketInterval, 1, length)
 EXPORT_ENC_HTON (enc_samplingPacketSpace,
                  ctx->sp->param->option.sample > 0
                    ? ctx->sp->param->option.sample - 1

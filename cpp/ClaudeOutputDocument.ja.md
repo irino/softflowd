@@ -100,8 +100,8 @@ cmake -S cpp -B /tmp/build-zmq -DSOFTFLOWD_CPP_NTOPNG=ON && cmake --build /tmp/b
   書き込めないディレクトリでは失敗しました(`EACCES`)。
 - ntopngのcompat検査は、IPv4、IPv6、両端が同じアドレスの会話(バイト単位で比較)と、ZeroMQの購読側を
   置いたデーモンを対象にします。
-- ライブキャプチャは`lo`でのみ確認しました。実NICとBSDは未確認です。`--enable-ifname`と
-  オプションレコードのinterfaceNameは未実装です。
+- ライブキャプチャは`lo`でのみ確認しました。実NICとBSDは未確認です。`--enable-ifname`(データレコードの
+  interfaceName)は未実装です。オプションレコードには常にinterfaceNameが入ります。
 - ライブでの強制expireのエクスポートパケット数は、libpcapのパケットの渡し方で決まります
   (C版も実行ごとにばらつきます)。一致は目指しません。
 

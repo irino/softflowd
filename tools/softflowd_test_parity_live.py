@@ -373,9 +373,19 @@ def parity_statistics(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     return False
 
 
+def _hide_program_name(text: str, daemon: str) -> str:
+    """Replace the name of the program by PROG: the path and the file name of the daemon, and, for a
+    build variant (softflowd-static), the name softflowd that the program prints for itself."""
+    base = os.path.basename(daemon)
+    text = text.replace(daemon, "PROG").replace(base, "PROG")
+    if base.startswith("softflowd-"):
+        text = text.replace("softflowd", "PROG")
+    return text
+
+
 def _clean_log(text: str, daemon: str) -> List[str]:
     """The lines of a log without the name, the version and the numbers that differ between A and B."""
-    text = text.replace(daemon, "PROG").replace(os.path.basename(daemon), "PROG")
+    text = _hide_program_name(text, daemon)
     text = re.sub(r"PROG v\d+\.\d+\.\d+ ", "PROG vX ", text)
     text = re.sub(r"\]:\d+", "]:PORT", text)
     return [line for line in text.splitlines() if line.strip()]
@@ -541,11 +551,10 @@ def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
             out, err, rc = r.stdout, r.stderr, r.returncode
         except subprocess.TimeoutExpired:
             out, err, rc = "", "", "TIMEOUT"
-        norm = os.path.basename(daemon)
 
         def clean(t: str) -> str:
             t = t.replace(helper.SUITE_TMP_DIR, "TMP").replace(pcap, "PCAP")      # the paths may contain the program name
-            t = t.replace("/var/run/softflowd.", "/var/run/DEFAULT.").replace(daemon, "PROG").replace(norm, "PROG")
+            t = _hide_program_name(t.replace("/var/run/softflowd.", "/var/run/DEFAULT."), daemon)
             t = re.sub(r"version \d+\.\d+\.\d+", "version X", t)
             t = re.sub(r"PROG v\d+\.\d+\.\d+ ", "PROG vX ", t)
             # The block of the options that A does not have: its heading and the indented lines that follow
@@ -629,7 +638,13 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     ok = parity_statistics(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
-    ok = parity_multithread(b_daemon, pcaps) and ok
+    # -M must not change what softflowd+ exports.  The C builds do not keep this: with -M (a thread
+    # for the export) the number of the datagrams and the uptime in their headers depend on the timing
+    # (three runs of one C build with -M differ from each other), so there is nothing to compare.
+    if os.path.basename(b_daemon).startswith("softflowd+"):
+        ok = parity_multithread(b_daemon, pcaps) and ok
+    else:
+        print_yellow("    - -M: not compared (the export of a C build with -M depends on the timing)")
     if ctl_a and ctl_b and os.path.exists(ctl_a) and os.path.exists(ctl_b):
         ok = parity_control_replies(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
         ok = parity_expire_all_time(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok

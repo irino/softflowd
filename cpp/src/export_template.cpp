@@ -7,6 +7,7 @@
 #include "softflowd_cpp/export_internal.hpp"
 
 #include <algorithm>
+#include <string>
 #include <unistd.h>  // getpid() -- see write_options_set()
 
 namespace softflowd_cpp {
@@ -55,6 +56,22 @@ time_field_pair (IpfixTimeFormat format) {
       return {{156, 8}, {157, 8}};  // flowStartNanoseconds, flowEndNanoseconds
   }
   return {{22, 4}, {21, 4}};
+}
+
+/**
+ * @brief Write an interface name into a field of `length` octets: zero padded,
+ * and cut so that a terminating zero is left, as strlcpy() does in the original.
+ *
+ * @param writer Where to write.
+ * @param name   The interface name, or the file name of -r.
+ * @param length Length of the field in octets.
+ */
+static void
+put_interface_name (ByteWriter &writer, const std::string &name, std::size_t length) {
+  const std::size_t n = std::min (name.size(), length - 1);
+  for (std::size_t i = 0; i < length; ++i) {
+    writer.put_u8 (i < n ? static_cast<std::uint8_t> (name[i]) : 0);
+  }
 }
 
 /**
@@ -130,11 +147,7 @@ IpfixExporter::write_options_set (ByteWriter &writer) const {
       writer.put_u32 (if_index_);
       writer.put_u32 (sampling_rate_ > 1 ? sampling_rate_ : 1);
       writer.put_u8 (1);  // deterministic sampling
-      // interfaceName: empty unless the original is built with
-      // --enable-ifname, which is off by default.
-      for (std::size_t i = 0; i < kIfNameLength; ++i) {
-        writer.put_u8 (0);
-      }
+      put_interface_name (writer, interface_name_, kIfNameLength);
       finish_set_unpadded (writer, set_start);
     }
     return;
@@ -192,14 +205,12 @@ IpfixExporter::write_options_set (ByteWriter &writer) const {
       boot_wall_time_.time_since_epoch());
     writer.put_u64 (static_cast<std::uint64_t> (
       std::max<std::int64_t> (0, boot_epoch_ms.count())));         // systemInitTimeMilliseconds
-    writer.put_u32 (sampling_rate_ > 1 ? sampling_rate_ : 1);      // samplingPacketInterval
+    // RFC 5477 8.2.2: the number of packets that are consecutively sampled;
+    // sampling 1 in N packets is an interval of 1 and a space of N - 1.
+    writer.put_u32 (1);                                            // samplingPacketInterval
     writer.put_u32 (sampling_rate_ > 0 ? sampling_rate_ - 1 : 0);  // samplingPacketSpace
     writer.put_u16 (1);                                            // selectorAlgorithm (PSAMP_selectorAlgorithm_count)
-    for (int i = 0; i < 16; ++i) {
-      // interfaceName: empty unless the original is built with
-      // --enable-ifname, which is off by default.
-      writer.put_u8 (0);
-    }
+    put_interface_name (writer, interface_name_, 16);  // interfaceName
     // exporterIPv4/6Address and originalExporterIPv4/6Address all carry the
     // address of -e, or zero when there is none for the family.
     const std::array<std::uint8_t, 4> v4 =

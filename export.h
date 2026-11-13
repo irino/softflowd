@@ -96,9 +96,7 @@ export_encoder_fn
   enc_nf9OptionScopeInterface,
   enc_samplingInterval,
   enc_samplingAlgorithm;
-#ifdef ENABLE_IFNAME
 export_encoder_fn enc_interfaceName;
-#endif
 /** @endcond */
 
 /* Per RFC 7011 6.1.9, Micro and Nano IEs share identical NTP 64-bit encoding.
