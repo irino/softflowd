@@ -506,6 +506,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   u_int freclen = 0, nflows = 0, offset = 0;
   u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
+  int icmp_template = tmplindex == TMPLICMPV4 || tmplindex == TMPLICMPV6;
   int i = 0, k = 0;
   freclen = templates[tmplindex].data_len;
   if (len < freclen * frecnum)
@@ -542,7 +543,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
 #endif /* ENABLE_IFNAME */
     offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_COMMON);
 
-    if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
+    if (!icmp_template) {
       dtr[i] = (struct IPFIX_SOFTFLOWD_DATA_TRANSPORT *) &packet[offset];
       dtr[i]->sourceTransportPort = flow->port[i];
       dtr[i]->destinationTransportPort = flow->port[i ^ 1];
@@ -577,7 +578,7 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
       dbc->packetDeltaCount = htonl (flow->packets[1]);
       dbc->ipClassOfService = flow->tos[1];
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BICOMMON);
-      if (flow->protocol != IPPROTO_ICMP && flow->protocol != IPPROTO_ICMPV6) {
+      if (!icmp_template) {
         dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *) &packet[offset];
         dbtr->tcpControlBits = flow->tcp_flags[1];
         offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
