@@ -1,3 +1,4 @@
+pub mod capture;
 pub mod common;
 pub mod control;
 pub mod expire;

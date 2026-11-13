@@ -52,6 +52,7 @@ changes when a patch is applied.
 | R6-1 | accumulate_stats() moved to stats.rs (part of R6) | 2026-11-11 | fixed | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-2 | Expiry code moved to expire.rs (part of R6) | 2026-11-12 | fixed | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-3 | Option helpers moved to opts.rs (part of R6) | 2026-11-13 | fixed | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings pass |
+| R6-4 | Packet processing moved to capture.rs (part of R6) | 2026-11-13 | fixed | Move process_parsed_packet() to capture.rs | cargo test, fmt, clippy -D warnings pass |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
 | R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |

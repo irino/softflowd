@@ -5,21 +5,18 @@ use std::sync::mpsc::channel;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rsoftflowd::common::{
-    ExpiryReason, FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowKey,
-    FlowLookupMode, FlowTracker, TimeVal, TrackLevel,
-};
+use rsoftflowd::capture::process_parsed_packet;
+use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
     start_control_server,
 };
 use rsoftflowd::expire::*;
-use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
+use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget};
 use rsoftflowd::opts::{
     RsoftflowdArgs, apply_timeouts, parse_boot_time_reinit, parse_interface_spec, parse_mac_address,
 };
 use rsoftflowd::packet_parser::{ParseError, ParsedPacket, parse_packet};
-use rsoftflowd::stats::accumulate_stats;
 
 #[derive(Debug)]
 pub enum PacketEvent {
@@ -876,157 +873,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::process::exit(0);
 }
 
-fn process_parsed_packet(
-    tracker: &mut FlowTracker,
-    parsed: ParsedPacket,
-    want_v6: bool,
-    targets: &NetflowTarget,
-    ifidx: u16,
-) {
-    if !want_v6 && parsed.af == 10 {
-        tracker.param.non_ip_packets += 1;
-        return;
-    }
-
-    if tracker.param.total_packets == 0 {
-        tracker.param.system_boot_time = parsed.timestamp;
-    }
-
-    // -I オプション対応: ブートタイムの再初期化
-    if tracker.param.boot_time_reinit > 0 {
-        let diff = parsed.timestamp.tv_sec - tracker.param.system_boot_time.tv_sec;
-        if diff >= tracker.param.boot_time_reinit as i64 {
-            log::info!("Reinitializing system boot time due to -I option.");
-            tracker.param.system_boot_time = parsed.timestamp;
-        }
-    }
-
-    // Sampling
-    if tracker.param.sample_rate > 0
-        && !(tracker.param.total_packets + tracker.param.non_sampled_packets)
-            .is_multiple_of(tracker.param.sample_rate as u64)
-    {
-        tracker.param.non_sampled_packets += 1;
-        return;
-    }
-
-    tracker.param.total_packets += 1;
-
-    let timeval_packet = parsed.timestamp;
-    tracker.param.last_packet_time = timeval_packet;
-
-    // PSAMP mode: export immediately
-    if tracker.param.is_psamp {
-        rsoftflowd::exporter::psamp::send_psamp(
-            &parsed.raw_packet,
-            parsed.raw_packet.len() as u32,
-            parsed.timestamp,
-            targets,
-            tracker.param.total_packets,
-            &mut tracker.param,
-        );
-        return;
-    }
-
-    // Fragment packets count
-    if parsed.is_frag {
-        tracker.param.frag_packets += 1;
-    }
-
-    let (key, ndx) = FlowKey::canonical(
-        parsed.af,
-        parsed.protocol,
-        parsed.src_ip,
-        parsed.dst_ip,
-        parsed.src_port,
-        parsed.dst_port,
-        parsed.vlan_id,
-        0, // outbound vlan
-        parsed.src_mac,
-        parsed.dst_mac,
-        &parsed.mpls_labels,
-        tracker.param.track_level,
-    );
-
-    // Hash lookup mode: expire resident flow on collision
-    if tracker.flow_lookup == FlowLookupMode::Hash {
-        let slot = key.hash_index(tracker.nbuckets);
-        if let Some(resident_key) = tracker.flow_slots.get(&slot).cloned()
-            && resident_key != key
-            && let Some(mut resident_flow) = tracker.flows.remove(&resident_key)
-        {
-            if let Some(exp_key) = resident_flow.expiry_key {
-                tracker.expiries.remove(&exp_key);
-            }
-            resident_flow.expiry_reason = ExpiryReason::Collision;
-            resident_flow.flow_end_reason = FLOW_END_REASON_LACK_OF_RESOURCE;
-            tracker.param.flows_force_expired += 1;
-            accumulate_stats(tracker, &resident_flow);
-            let flow_refs = vec![&resident_flow];
-            let sp = SendParameter {
-                flows: &flow_refs,
-                target: targets,
-                ifidx,
-                param: &mut tracker.param,
-                verbose: false,
-            };
-            let _ = send_flows(sp);
-        }
-        tracker.flow_slots.insert(slot, key.clone());
-    }
-
-    // Get or create flow
-    if !tracker.flows.contains_key(&key) {
-        // Enforce max flows limit (evict oldest first)
-        if tracker.flows.len() >= tracker.param.max_flows as usize {
-            evict_oldest_flow(tracker, targets, ifidx);
-        }
-
-        let mut flow = Flow {
-            flow_seq: tracker.param.next_flow_seq,
-            flow_start: timeval_packet,
-            flow_last: timeval_packet,
-            octets: [0, 0],
-            packets: [0, 0],
-            tcp_flags: [0, 0],
-            tos: [0, 0],
-            ip6_flowlabel: [0, 0],
-            src_mac: parsed.src_mac,
-            dst_mac: parsed.dst_mac,
-            flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
-            key: key.clone(),
-            expiry_key: None,
-            expiry_reason: ExpiryReason::General,
-        };
-
-        tracker.param.next_flow_seq += 1;
-
-        flow.octets[ndx] = parsed.length;
-        flow.packets[ndx] = 1;
-        flow.tcp_flags[ndx] = parsed.tcp_flags;
-        flow.tos[ndx] = parsed.tos;
-        flow.ip6_flowlabel[ndx] = parsed.ip6_flowlabel;
-
-        // Set expiry
-        update_flow_expiry(&mut tracker.expiries, &tracker.param, &mut flow);
-        tracker.flows.insert(key, flow);
-    } else {
-        let flow = tracker.flows.get_mut(&key).unwrap();
-        flow.octets[ndx] = flow.octets[ndx].saturating_add(parsed.length);
-        flow.packets[ndx] = flow.packets[ndx].saturating_add(1);
-        flow.tcp_flags[ndx] |= parsed.tcp_flags;
-        flow.tos[ndx] = parsed.tos;
-        flow.flow_last = timeval_packet;
-
-        // Update expiry
-        update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsoftflowd::common::FLOW_END_REASON_ACTIVE_TIMEOUT;
+    use rsoftflowd::common::{
+        ExpiryReason, FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_IDLE_TIMEOUT, Flow, FlowKey,
+    };
 
     #[test]
     fn maximum_lifetime_expiry_boundary() {

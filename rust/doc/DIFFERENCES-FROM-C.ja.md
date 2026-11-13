@@ -50,6 +50,7 @@
 | R6-1 | accumulate_stats() を stats.rs に移動 (R6 の一部) | 2026-11-11 | 解消 | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-2 | 有効期限切れ処理コードを expire.rs に移動 (R6 の一部) | 2026-11-12 | 解消 | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-3 | オプションヘルパーを opts.rs に移動 (R6 の一部) | 2026-11-13 | 解消 | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings 通過 |
+| R6-4 | パケット処理を capture.rs に移動 (R6 の一部) | 2026-11-13 | 解消 | Move process_parsed_packet() to capture.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
 | R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`manual_is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 解消 | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02、Rust 1.91.1 で CI ジョブの 3 つの cargo コマンド: fmt、clippy、テスト 18 件が成功。CI のジョブ自体はまだ動かしていない |
