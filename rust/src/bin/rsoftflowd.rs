@@ -1,29 +1,25 @@
 use clap::Parser;
 use nix::sys::signal::{self, SigAction, SigHandler, Signal};
-use std::net::{IpAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::io::Write;
+use std::net::{IpAddr, ToSocketAddrs};
+use std::os::unix::net::UnixListener;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rsoftflowd::capture::process_parsed_packet;
-use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel};
+use rsoftflowd::capture::{PacketEvent, process_parsed_packet, setup_packet_capture};
+use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
     start_control_server,
 };
 use rsoftflowd::expire::*;
-use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget};
+use rsoftflowd::exporter::NetflowTarget;
+use rsoftflowd::netsock::setup_export_targets;
 use rsoftflowd::opts::{
     RsoftflowdArgs, apply_timeouts, parse_boot_time_reinit, parse_interface_spec, parse_mac_address,
 };
-use rsoftflowd::packet_parser::{ParseError, ParsedPacket, parse_packet};
-
-#[derive(Debug)]
-pub enum PacketEvent {
-    Parsed(ParsedPacket),
-    NonIp,
-    TooShort,
-}
 
 fn validate_hostport(s: &str) -> Result<(), String> {
     if s.is_empty() {
@@ -64,6 +60,9 @@ extern "C" fn sig_handler(sig: libc::c_int) {
     }
 }
 
+/// Register signal handlers for SIGINT, SIGTERM, SIGHUP.
+///
+/// Original: daemon.c (`register_signals()`)
 fn register_signals() {
     let sa = SigAction::new(
         SigHandler::Handler(sig_handler),
@@ -77,6 +76,9 @@ fn register_signals() {
     }
 }
 
+/// Drop privileges from root to 'nobody'.
+///
+/// Original: daemon.c (`drop_privileges()`)
 fn drop_privileges() {
     #[cfg(unix)]
     {
@@ -92,10 +94,7 @@ fn drop_privileges() {
     }
 }
 
-pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = RsoftflowdArgs::parse();
-
-    // Option validations
+fn validate_options(args: &RsoftflowdArgs) {
     if args.interface.is_none() && args.pcap_file.is_none() {
         eprintln!("Must specify a packet source (-i or -r).\n");
         std::process::exit(1);
@@ -134,7 +133,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+}
 
+fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowTracker) {
     let track_level = TrackLevel::from_name(&args.track_level)
         .expect("Invalid track level specified. Choose ip, proto, full, vlan, or ether");
 
@@ -227,27 +228,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 4. Resolve and setup Netflow Exporter Targets
-    let is_ntopng = args.netflow_version.to_lowercase() == "ntopng";
-    let is_psamp = args.netflow_version.to_lowercase() == "psamp";
-    let version = if is_ntopng {
-        0x7fff0001
-    } else if is_psamp {
-        10
-    } else {
-        args.netflow_version.parse::<u32>().unwrap_or(5)
-    };
-    tracker.param.is_psamp = is_psamp;
-    let want_v6 = args.always_v6 || version == 9 || version == 10;
+    tracker.param.adjust_time = args.adjust_time;
 
-    let mut targets = NetflowTarget {
-        destinations: Vec::new(),
-        version,
-        is_loadbalance: args.load_balance,
-    };
+    (track_level, boottime, if_index, tracker)
+}
 
-    // 5. Start UNIX domain socket control server (before daemonizing, as in C)
-    let (cmd_tx, cmd_rx) = channel::<ControlCommand>();
+fn resolve_ctl_path(args: &RsoftflowdArgs) -> Option<String> {
     let ctl_path = args
         .ctlsock
         .as_deref()
@@ -265,101 +251,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some("/var/run/softflowd.ctl".to_string())
             }
         });
-    let ctl_path = if ctl_path.as_deref() == Some("") {
+    if ctl_path.as_deref() == Some("") {
         None
     } else {
         ctl_path
-    };
-
-    let mut control_listener = None;
-    if let Some(ref path) = ctl_path {
-        match start_control_server(path.clone(), cmd_tx.clone()) {
-            Ok(listener) => control_listener = Some(listener),
-            Err(e) => {
-                eprintln!("Failed to start control server: {}\n", e);
-                std::process::exit(1);
-            }
-        }
     }
+}
 
-    // 7. Packet Capture Setup (libpcap) - before daemonizing, as in C
-    let pcap_file_mode = args.pcap_file.is_some();
-    tracker.param.adjust_time = args.adjust_time;
-
-    let pcap_stats: std::sync::Arc<std::sync::Mutex<Option<(u64, u64, u64)>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
-
-    let (packet_tx, packet_rx) = channel::<PacketEvent>();
-    let bpf_expression = if !args.bpf_expression.is_empty() {
-        Some(args.bpf_expression.join(" "))
-    } else {
-        None
-    };
-
-    let mut pcap_file_capture = None;
-    let mut pcap_device_capture = None;
-
-    if let Some(ref file_path) = args.pcap_file {
-        match pcap::Capture::from_file(file_path) {
-            Ok(mut capture) => {
-                if let Some(ref filter) = bpf_expression {
-                    log::info!("Applying BPF filter: \"{}\"", filter);
-                    if let Err(e) = capture.filter(filter, true) {
-                        eprintln!("PCAP capture error: {}\n", e);
-                        std::process::exit(1);
-                    }
-                }
-                pcap_file_capture = Some(capture);
-            }
-            Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
-                std::process::exit(1);
-            }
-        }
-    } else if let Some(ref dev_name) = capture_dev {
-        if dev_name.is_empty() {
-            eprintln!("Wrong interface is specified.\n");
-            std::process::exit(1);
-        }
-        let snaplen = args.capture_length.unwrap_or(256) as i32;
-        let mut builder = match pcap::Capture::from_device(dev_name.as_str()) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
-                std::process::exit(1);
-            }
-        }
-        .snaplen(snaplen)
-        .promisc(!args.no_promisc);
-
-        if let Some(buf_size) = args.buffer_size {
-            builder = builder.buffer_size(buf_size as i32);
-        } else {
-            builder = builder.buffer_size(1024 * 1024);
-        }
-        builder = builder.immediate_mode(true);
-        let mut capture = match builder.open() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
-                std::process::exit(1);
-            }
-        };
-
-        if let Some(ref filter) = bpf_expression {
-            log::info!("Applying BPF filter: \"{}\"", filter);
-            if let Err(e) = capture.filter(filter, true) {
-                eprintln!("PCAP capture error: {}\n", e);
-                std::process::exit(1);
-            }
-        }
-        pcap_device_capture = Some(capture);
-    } else {
-        eprintln!("Must specify either a live interface (-i) or offline pcap file (-r)\n");
-        std::process::exit(1);
-    }
-
-    // 2. Daemonize if requested (before logging init as C does)
+fn daemonize_and_init_log(args: &RsoftflowdArgs) {
     if !args.dont_fork && !args.debug && args.pcap_file.is_none() {
         let res = nix::unistd::daemon(true, false);
         if let Err(e) = res {
@@ -368,7 +267,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 1. Logging setup
     let log_level = if args.debug {
         log::LevelFilter::Debug
     } else {
@@ -400,8 +298,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+}
 
-    // Resolve PID file path
+fn resolve_and_write_pidfile(args: &RsoftflowdArgs) -> Option<String> {
     let pidfile_path = match args.pidfile.as_deref() {
         Some("none") => None,
         Some(path) => Some(path.to_string()),
@@ -414,7 +313,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Write PID file
     if let Some(ref path) = pidfile_path {
         if let Ok(content) = std::fs::read_to_string(path)
             && let Ok(pid) = content.trim().parse::<i32>()
@@ -436,253 +334,25 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Drop privileges if running as root
-    drop_privileges();
+    pidfile_path
+}
 
-    if let Some(ref col_str) = args.collector {
-        for addr_str in col_str.split(',') {
-            let addr_str = addr_str.trim();
-            if addr_str.is_empty() {
-                continue;
-            }
-            if is_ntopng {
-                #[cfg(feature = "ntopng")]
-                {
-                    match zmq::Context::new() {
-                        context => match context.socket(zmq::PUB) {
-                            Ok(socket) => {
-                                let connect_str = format!("tcp://{}", addr_str);
-                                log::info!("Connecting ZMQ socket '{}'", connect_str);
-                                if let Err(e) = socket.connect(&connect_str) {
-                                    log::error!(
-                                        "Failed to connect ZMQ socket {}: {}",
-                                        connect_str,
-                                        e
-                                    );
-                                    std::process::exit(1);
-                                }
-                                targets.destinations.push(Destination {
-                                    socket: ExportSocket::Zmq { context, socket },
-                                    arg: addr_str.to_string(),
-                                });
-                            }
-                            Err(e) => {
-                                log::error!("Failed to create ZMQ socket: {}", e);
-                                std::process::exit(1);
-                            }
-                        },
-                    }
-                }
-                #[cfg(not(feature = "ntopng"))]
-                {
-                    eprintln!("ntopng export not enabled\n");
-                    std::process::exit(1);
-                }
-            } else {
-                match addr_str.to_socket_addrs() {
-                    Ok(mut addrs) => {
-                        if let Some(socket_addr) = addrs.next() {
-                            let proto = args.transport_protocol.to_lowercase();
-                            let socket = match proto.as_str() {
-                                "tcp" => match TcpStream::connect(socket_addr) {
-                                    Ok(s) => ExportSocket::Tcp(s),
-                                    Err(e) => {
-                                        log::error!(
-                                            "Failed to connect to TCP collector {}: {}",
-                                            socket_addr,
-                                            e
-                                        );
-                                        std::process::exit(1);
-                                    }
-                                },
-                                _ => {
-                                    // Default UDP
-                                    let s = UdpSocket::bind("0.0.0.0:0")
-                                        .expect("Failed to bind UDP socket");
-                                    if let Some(hl) = args.hoplimit {
-                                        let _ = s.set_ttl(hl as u32);
-                                    }
-                                    if let Err(e) = s.connect(socket_addr) {
-                                        log::error!(
-                                            "Failed to connect UDP collector {}: {}",
-                                            socket_addr,
-                                            e
-                                        );
-                                        std::process::exit(1);
-                                    }
-
-                                    // Bind to specific device if requested (Linux only)
-                                    #[cfg(target_os = "linux")]
-                                    if let Some(ref send_if) = args.send_interface
-                                        && let Err(e) =
-                                            rsoftflowd::net_util_unsafe::bind_socket_to_device(
-                                                &s, send_if,
-                                            )
-                                    {
-                                        log::error!(
-                                            "Failed to bind to interface {}: {}",
-                                            send_if,
-                                            e
-                                        );
-                                        std::process::exit(1);
-                                    }
-
-                                    ExportSocket::Udp(s)
-                                }
-                            };
-                            targets.destinations.push(Destination {
-                                socket,
-                                arg: addr_str.to_string(),
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to resolve collector address {}: {}", addr_str, e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-    }
-
-    // 6. Signal integration
-    register_signals();
-
-    let max_num_label = tracker.param.max_num_label;
-    let full_l4hdr = args.full_transport_header_check;
-
-    if let Some(mut capture) = pcap_file_capture {
-        let linktype = capture.get_datalink().0;
-        let packet_tx_clone = packet_tx.clone();
-        let pcap_stats_clone = pcap_stats.clone();
-
-        thread::spawn(move || {
-            log::debug!("Packet capture thread started.");
-            loop {
-                if GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
-                    log::debug!("Packet capture thread shutting down.");
-                    break;
-                }
-                match capture.next_packet() {
-                    Ok(raw_packet) => {
-                        let caplen = raw_packet.header.caplen;
-                        let len = raw_packet.header.len;
-                        #[allow(clippy::unnecessary_cast)]
-                        let timestamp = TimeVal {
-                            tv_sec: raw_packet.header.ts.tv_sec as i64,
-                            tv_usec: raw_packet.header.ts.tv_usec as i32,
-                        };
-                        let data = raw_packet.data.to_vec();
-
-                        if let Ok(st) = capture.stats() {
-                            let mut s = pcap_stats_clone.lock().unwrap();
-                            *s =
-                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
-                        }
-
-                        match parse_packet(
-                            linktype,
-                            &data,
-                            caplen,
-                            len,
-                            track_level,
-                            max_num_label,
-                            full_l4hdr,
-                            timestamp,
-                        ) {
-                            Ok(parsed) => {
-                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
-                            }
-                            Err(ParseError::NonIp) => {
-                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
-                            }
-                            Err(ParseError::TooShort) => {
-                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
-                            }
-                        }
-                    }
-                    Err(pcap::Error::NoMorePackets) => {
-                        log::info!("Shutting down after pcap EOF");
-                        if let Ok(st) = capture.stats() {
-                            let mut s = pcap_stats_clone.lock().unwrap();
-                            *s =
-                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
-                        }
-                        break;
-                    }
-                    Err(e) => {
-                        log::error!("PCAP capture error: {}", e);
-                        break;
-                    }
-                }
-            }
-            log::debug!("Packet capture thread exited.");
-        });
-    } else if let Some(mut capture) = pcap_device_capture {
-        let linktype = capture.get_datalink().0;
-        let packet_tx_clone = packet_tx.clone();
-        let pcap_stats_clone = pcap_stats.clone();
-
-        thread::spawn(move || {
-            loop {
-                if GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst) {
-                    break;
-                }
-                match capture.next_packet() {
-                    Ok(raw_packet) => {
-                        let caplen = raw_packet.header.caplen;
-                        let len = raw_packet.header.len;
-                        #[allow(clippy::unnecessary_cast)]
-                        let timestamp = TimeVal {
-                            tv_sec: raw_packet.header.ts.tv_sec as i64,
-                            tv_usec: raw_packet.header.ts.tv_usec as i32,
-                        };
-                        let data = raw_packet.data.to_vec();
-
-                        if let Ok(st) = capture.stats() {
-                            let mut s = pcap_stats_clone.lock().unwrap();
-                            *s =
-                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
-                        }
-
-                        match parse_packet(
-                            linktype,
-                            &data,
-                            caplen,
-                            len,
-                            track_level,
-                            max_num_label,
-                            full_l4hdr,
-                            timestamp,
-                        ) {
-                            Ok(parsed) => {
-                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
-                            }
-                            Err(ParseError::NonIp) => {
-                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
-                            }
-                            Err(ParseError::TooShort) => {
-                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
-            }
-        });
-    } else {
-        log::error!("Must specify either a live interface (-i) or offline pcap file (-r)");
-        std::process::exit(1);
-    }
-
-    drop(packet_tx);
-
-    // Drop privileges if running as root
-    drop_privileges();
-
-    // 8. Main Event Loop
+#[allow(clippy::too_many_arguments)]
+fn run_main_loop(
+    args: RsoftflowdArgs,
+    mut tracker: FlowTracker,
+    targets: NetflowTarget,
+    want_v6: bool,
+    ctl_path: Option<String>,
+    control_listener: Option<UnixListener>,
+    pcap_file_mode: bool,
+    pcap_stats: Arc<Mutex<Option<(u64, u64, u64)>>>,
+    packet_rx: std::sync::mpsc::Receiver<PacketEvent>,
+    pidfile_path: Option<String>,
+    boottime: libc::clock_t,
+    if_index: u16,
+    cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "rsoftflowd v{} starting data collection",
         env!("CARGO_PKG_VERSION")
@@ -843,7 +513,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     log::info!("Shutting down complete, exiting.");
-    use std::io::Write;
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
 
@@ -870,7 +539,96 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    std::process::exit(0);
+    Ok(())
+}
+
+/// Main entry point of rsoftflowd.
+///
+/// Original: softflowd.c (`main()`)
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = RsoftflowdArgs::parse();
+
+    validate_options(&args);
+    let (track_level, boottime, if_index, mut tracker) = init_tracker(&args);
+
+    let is_ntopng = args.netflow_version.to_lowercase() == "ntopng";
+    let is_psamp = args.netflow_version.to_lowercase() == "psamp";
+    let version = if is_ntopng {
+        0x7fff0001
+    } else if is_psamp {
+        10
+    } else {
+        args.netflow_version.parse::<u32>().unwrap_or(5)
+    };
+    tracker.param.is_psamp = is_psamp;
+    let want_v6 = args.always_v6 || version == 9 || version == 10;
+
+    let mut targets = NetflowTarget {
+        destinations: Vec::new(),
+        version,
+        is_loadbalance: args.load_balance,
+    };
+
+    let (cmd_tx, cmd_rx) = channel::<ControlCommand>();
+    let ctl_path = resolve_ctl_path(&args);
+    let mut control_listener = None;
+    if let Some(ref path) = ctl_path {
+        match start_control_server(path.clone(), cmd_tx) {
+            Ok(listener) => control_listener = Some(listener),
+            Err(e) => {
+                eprintln!("Failed to start control server: {}\n", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let pcap_stats = Arc::new(Mutex::new(None));
+    let (packet_tx, packet_rx) = channel::<PacketEvent>();
+
+    let capture_dev = if let Some(ref if_spec) = args.interface {
+        let (_, name) = parse_interface_spec(if_spec);
+        if name.is_empty() {
+            eprintln!("Wrong interface is specified.\n");
+            std::process::exit(1);
+        }
+        Some(name)
+    } else {
+        None
+    };
+
+    let pcap_file_mode = setup_packet_capture(
+        &args,
+        capture_dev.as_deref(),
+        track_level,
+        tracker.param.max_num_label,
+        args.full_transport_header_check,
+        packet_tx,
+        pcap_stats.clone(),
+        &GRACEFUL_SHUTDOWN,
+    );
+
+    daemonize_and_init_log(&args);
+    let pidfile_path = resolve_and_write_pidfile(&args);
+    drop_privileges();
+    setup_export_targets(&args, &mut targets, is_ntopng);
+    register_signals();
+    drop_privileges();
+
+    run_main_loop(
+        args,
+        tracker,
+        targets,
+        want_v6,
+        ctl_path,
+        control_listener,
+        pcap_file_mode,
+        pcap_stats,
+        packet_rx,
+        pidfile_path,
+        boottime,
+        if_index,
+        cmd_rx,
+    )
 }
 
 #[cfg(test)]
@@ -878,7 +636,10 @@ mod tests {
     use super::*;
     use rsoftflowd::common::{
         ExpiryReason, FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_IDLE_TIMEOUT, Flow, FlowKey,
+        TimeVal,
     };
+    use rsoftflowd::exporter::{Destination, ExportSocket};
+    use rsoftflowd::packet_parser::ParsedPacket;
 
     #[test]
     fn maximum_lifetime_expiry_boundary() {
@@ -966,7 +727,7 @@ mod tests {
     #[test]
     fn test_flow_eviction_exports() {
         use byteorder::{BigEndian, ByteOrder};
-        use std::net::Ipv4Addr;
+        use std::net::{Ipv4Addr, UdpSocket};
 
         for lookup_mode in [
             FlowLookupMode::Tree,

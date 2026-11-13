@@ -48,11 +48,12 @@ changes when a patch is applied.
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
 | R4 | `cargo clippy -D warnings` fails (20 warnings) | 2026-11-02 | fixed | 0003 Fix the warnings of clippy in the Rust version | 2026-11-02, local |
 | R5 | `cargo doc -D warnings` fails | 2026-11-02 | fixed | Escape unresolved link in rust/src/opts.rs | 2026-11-11, cargo doc passes |
-| R6 | The main part of the daemon is in the binary | 2026-11-02 | open | | |
+| R6 | The main part of the daemon is in the binary | 2026-11-02 | fixed | Split main() into functions (targets, capture, signals, loop) | cargo test, fmt, clippy -D warnings pass |
 | R6-1 | accumulate_stats() moved to stats.rs (part of R6) | 2026-11-11 | fixed | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-2 | Expiry code moved to expire.rs (part of R6) | 2026-11-12 | fixed | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-3 | Option helpers moved to opts.rs (part of R6) | 2026-11-13 | fixed | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings pass |
 | R6-4 | Packet processing moved to capture.rs (part of R6) | 2026-11-13 | fixed | Move process_parsed_packet() to capture.rs | cargo test, fmt, clippy -D warnings pass |
+| R6-5 | main() split into functions, targets and capture moved (part of R6) | 2026-11-14 | fixed | Split main() into functions (targets, capture, signals, loop) | cargo test, fmt, clippy -D warnings pass |
 | R7 | `unsafe` in 22 lines | 2026-11-02 | open | | |
 | R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
 | R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |
@@ -277,8 +278,8 @@ date.
   failing (2444 lines of diff), `cargo clippy --all-targets -- -D warnings`
   failing (20 warnings) and `cargo doc` with `-D warnings` failing (an
   unresolved link `idx:`).  `cargo test` passed (17 tests).
-- **R6**: `src/bin/rsoftflowd.rs` has 1056 lines; the main part of the daemon
-  is in the binary, not in the library.
+- **R6**: `src/bin/rsoftflowd.rs` main() has been split into functions, with targets
+  and capture setup moved to `netsock.rs` and `capture.rs`.
 - **R7**: `unsafe` appears in 22 lines (`rsoftflowd.rs` 7, `export.rs` 12,
   `psamp.rs` 1, `lib.rs` 1, `net_util_unsafe.rs` 1; the word may be in a
   comment).

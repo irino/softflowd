@@ -46,11 +46,12 @@
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
 | R4 | `cargo clippy -D warnings` が失敗する (警告 20 件) | 2026-11-02 | 解消 | 0003 Fix the warnings of clippy in the Rust version | 2026-11-02、ローカル |
 | R5 | `cargo doc -D warnings` が失敗する | 2026-11-02 | 解消 | rust/src/opts.rs のリンク未解決をエスケープ | 2026-11-11、cargo doc 通過 |
-| R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 未解消 | | |
+| R6 | デーモンの主処理がバイナリ側にある | 2026-11-02 | 解消 | main() を関数に分割 (targets, capture, signals, loop) | cargo test, fmt, clippy -D warnings 通過 |
 | R6-1 | accumulate_stats() を stats.rs に移動 (R6 の一部) | 2026-11-11 | 解消 | Move accumulate_stats() to stats.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-2 | 有効期限切れ処理コードを expire.rs に移動 (R6 の一部) | 2026-11-12 | 解消 | Move expiry code to expire.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-3 | オプションヘルパーを opts.rs に移動 (R6 の一部) | 2026-11-13 | 解消 | Move option helpers to opts.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R6-4 | パケット処理を capture.rs に移動 (R6 の一部) | 2026-11-13 | 解消 | Move process_parsed_packet() to capture.rs | cargo test, fmt, clippy -D warnings 通過 |
+| R6-5 | main() を関数に分割、targets と capture を移動 (R6 の一部) | 2026-11-14 | 解消 | Split main() into functions (targets, capture, signals, loop) | cargo test, fmt, clippy -D warnings 通過 |
 | R7 | `unsafe` が 22 行にある | 2026-11-02 | 未解消 | | |
 | R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
 | R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`manual_is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 解消 | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02、Rust 1.91.1 で CI ジョブの 3 つの cargo コマンド: fmt、clippy、テスト 18 件が成功。CI のジョブ自体はまだ動かしていない |
@@ -267,8 +268,8 @@ D12 を見てください。
   (差分 2444 行)、`cargo clippy --all-targets -- -D warnings` が失敗
   (警告 20 件)、`-D warnings` 付きの `cargo doc` が失敗(`idx:` のリンク未解決)
   でした。`cargo test` は成功(17 件)でした。
-- **R6**: `src/bin/rsoftflowd.rs` は 1056 行で、デーモンの主処理がライブラリ
-  でなくバイナリ側にあります。
+- **R6**: `src/bin/rsoftflowd.rs` の `main()` は関数に分割され、targets と
+  capture のセットアップはそれぞれ `netsock.rs` と `capture.rs` に移動されました。
 - **R7**: `unsafe` は 22 行にあります(`rsoftflowd.rs` 7、`export.rs` 12、
   `psamp.rs` 1、`lib.rs` 1、`net_util_unsafe.rs` 1。コメント中の語を含む
   可能性があります)。
