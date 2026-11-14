@@ -386,7 +386,7 @@ def collect_main() -> int:
     ap.add_argument("-6", "--ipv6", action="store_true",
                     help="listen on IPv6 (default: IPv4)")
     args = ap.parse_args()
-    host = args.bind or ("::" if args.ipv6 else "0.0.0.0")
+    host = args.bind or ("::1" if args.ipv6 else "127.0.0.1")
     sink_sock = socket.socket(
         socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_DGRAM)
     sink_sock.bind((host, args.port))
