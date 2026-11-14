@@ -57,7 +57,7 @@ changes when a patch is applied.
 | R7 | `unsafe` in 22 lines | 2026-11-02 | fixed | Replace static mut and raw pointer with safe code in export.rs and psamp.rs | cargo test, fmt, clippy -D warnings pass |
 | R7-1 | Replace the clock() calls with a safe CPU clock helper (part of R7) | 2026-11-14 | fixed | Replace clock() with nix clock_gettime CPU clock helper | cargo test, fmt, clippy -D warnings pass |
 | R7-3 | Remove the last unsafe code: signals, geteuid and SO_BINDTODEVICE (part of R7) | 2026-11-14 | fixed | Remove last unsafe code using signal-hook and nix setsockopt, and add #![forbid(unsafe_code)] | cargo test, fmt, clippy -D warnings pass |
-| R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | | |
+| R8 | `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` duplicate the tools | 2026-11-02 | open | Delete `rust/tests/run_compat_tests.py` and `rust/doc/test.ja.md` | the `rust/` part is fixed; the part outside `rust/` is still open |
 | R9 | CI fails when the stable Rust gets newer: new clippy lints (`collapsible_if`, `manual_is_multiple_of`) | 2026-11-02 (the log of the `rust` job) | fixed | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02, the three cargo commands of the CI job with Rust 1.91.1: fmt, clippy and 18 tests pass; the CI job itself has not run yet |
 | R10 | Nothing checks the Rust version before a commit | 2026-11-02 | fixed | 0010 Add the checks of the Rust version to the pre-commit hook | 2026-11-02, tried in a scratch clone (see the text of R10) |
 
@@ -286,11 +286,11 @@ date.
   `psamp.rs` 1, `lib.rs` 1, `net_util_unsafe.rs` 1; the word may be in a
   comment).
 - **R8**: `rust/tests/run_compat_tests.py` (480 lines) and `rust/doc/test.ja.md`
-  are the prototype of `tools/softflowd_test.py` (the maintainer's
-  statement of 2026-11-02) and are to be deleted.  Whether other scripts in
-  `tools/` duplicate it was checked: only `tools/deprecated/collector.pl` and
-  `tools/deprecated/benchmark_export.sh`, which `collect` and `bench` replace,
-  do.
+  were the prototype of `tools/softflowd_test.py`.  Both files have been
+  deleted, so the `rust/` part is fixed; the part outside `rust/` is still
+  open.  Whether other scripts in `tools/` duplicate it was checked: only
+  `tools/deprecated/collector.pl` and `tools/deprecated/benchmark_export.sh`,
+  which `collect` and `bench` replace, do.
 - **R9**: the `rust` job of CI installed the newest stable Rust, whose clippy
   has new lints.  The log showed `collapsible_if` in `src/control.rs` and
   `src/exporter/export_common.rs`; a local run with Rust 1.91.1 showed

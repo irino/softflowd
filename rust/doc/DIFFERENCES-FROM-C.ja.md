@@ -55,7 +55,7 @@
 | R7 | `unsafe`が 22 行にある | 2026-11-02 | 解消 | Replace static mut and raw pointer with safe code in export.rs and psamp.rs | cargo test, fmt, clippy -D warnings 通過 |
 | R7-1 | clock() の呼び出しを安全な CPU クロックヘルパーに置き換え (R7 の一部) | 2026-11-14 | 解消 | clock() を nix の clock_gettime CPU クロックヘルパーに置き換え | cargo test, fmt, clippy -D warnings 通過 |
 | R7-3 | 最後の unsafe コードの削除: シグナル、geteuid、SO_BINDTODEVICE (R7 の一部) | 2026-11-14 | 解消 | signal-hook と nix setsockopt を使用して最後の unsafe コードを削除し、#![forbid(unsafe_code)] を追加 | cargo test, fmt, clippy -D warnings 通過 |
-| R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | | |
+| R8 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` が tools と重複 | 2026-11-02 | 未解消 | `rust/tests/run_compat_tests.py` と `rust/doc/test.ja.md` を削除 | `rust/` 部分は解消; `rust/` 外の部分は未解消 |
 | R9 | stable の Rust が新しくなると CI が失敗する: clippy の新しい lint (`collapsible_if`、`manual_is_multiple_of`) | 2026-11-02 (`rust` ジョブのログ) | 解消 | 0008 Fix the clippy findings of Rust 1.91 and require Rust 1.88; 0009 Pin the Rust version of the Rust version and let CI use it | 2026-11-02、Rust 1.91.1 で CI ジョブの 3 つの cargo コマンド: fmt、clippy、テスト 18 件が成功。CI のジョブ自体はまだ動かしていない |
 | R10 | commit の前に Rust 版を検査するものがない | 2026-11-02 | 解消 | 0010 Add the checks of the Rust version to the pre-commit hook | 2026-11-02、作業用の clone で確認(R10 の本文を参照) |
 
@@ -275,9 +275,10 @@ D12 を見てください。
 - **R7**: `unsafe` は 22 行にあります(`rsoftflowd.rs` 7、`export.rs` 12、
   `psamp.rs` 1、`lib.rs` 1、`net_util_unsafe.rs` 1。コメント中の語を含む
   可能性があります)。
-- **R8**: `rust/tests/run_compat_tests.py`(480 行)と `rust/doc/test.ja.md` は
-  `tools/softflowd_test.py` の原型です(保守者の 2026-11-02 の説明)。
-  削除する予定です。`tools/` の他のスクリプトが重複しているかは確認済みで、
+- **R8**: `rust/tests/run_compat_tests.py` (480 行) と `rust/doc/test.ja.md` は
+  `tools/softflowd_test.py` の原型でした。両ファイルは削除されたため、
+  `rust/` 部分は解消され、`rust/` 外の部分は未解消です。
+  `tools/` の他のスクリプトが重複しているかは確認済みで、
   重複しているのは `tools/deprecated/collector.pl` と
   `tools/deprecated/benchmark_export.sh` だけです(`collect` と `bench` に
   置き換え済み)。
