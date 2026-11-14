@@ -11,8 +11,8 @@ use crate::exporter::{
         IPFIX_SOFTFLOWD_V4_TEMPLATE_ID, IPFIX_SOFTFLOWD_V6_TEMPLATE_ID, IPFIX_TEMPLATE_SET_ID,
         NETFLOW9_OPTION_TEMPLATE_SET_ID, NETFLOW9_TEMPLATE_SET_ID, REVERSE_PEN, TMPLICMPV4,
         TMPLICMPV6, TMPLMAX, TMPLV4, TMPLV6, conv_unix_to_ntp, decrement_pkts_until_template,
-        export_build_flow_header, get_pkts_until_template, ipfix_flow_direction,
-        ipfix_flow_to_template_index, set_pkts_until_template, valuate_icmp,
+        export_build_flow_header, get_pkts_until_template, interface_name_field,
+        ipfix_flow_direction, ipfix_flow_to_template_index, set_pkts_until_template, valuate_icmp,
     },
 };
 use std::net::IpAddr;
@@ -189,9 +189,9 @@ fn enc_postVlanId(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
 }
 
 fn enc_interfaceName(dst: &mut [u8], length: usize, ctx: &ExportCtx) {
-    let name_bytes = ctx.sp.param.interface_name.as_bytes();
-    let n = length.min(name_bytes.len()).min(dst.len());
-    dst[..n].copy_from_slice(&name_bytes[..n]);
+    let field = interface_name_field(&ctx.sp.param.interface_name);
+    let n = length.min(field.len()).min(dst.len());
+    dst[..n].copy_from_slice(&field[..n]);
 }
 
 fn enc_nf9OptionScopeInterface(dst: &mut [u8], _length: usize, ctx: &ExportCtx) {
@@ -831,7 +831,7 @@ fn put_templates(
         packet.extend_from_slice(&4u16.to_be_bytes()); // scope_length
         packet.extend_from_slice(&12u16.to_be_bytes()); // option_length (3 fields * 4 = 12)
 
-        packet.extend_from_slice(&1u16.to_be_bytes()); // scope: interface
+        packet.extend_from_slice(&2u16.to_be_bytes()); // scope: interface
         packet.extend_from_slice(&4u16.to_be_bytes());
 
         packet.extend_from_slice(&34u16.to_be_bytes()); // samplingInterval
@@ -860,11 +860,7 @@ fn put_templates(
         packet.extend_from_slice(&rate.to_be_bytes());
         packet.push(1); // samplingAlgorithm: deterministic (1)
 
-        let mut ifname_buf = [0u8; 16];
-        let name_bytes = sp.param.interface_name.as_bytes();
-        let copy_len = name_bytes.len().min(15);
-        ifname_buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-        packet.extend_from_slice(&ifname_buf);
+        packet.extend_from_slice(&interface_name_field(&sp.param.interface_name));
 
         let opt_data_len = (packet.len() - opt_data_start) as u16;
         packet[opt_data_len_offset..opt_data_len_offset + 2]
@@ -928,11 +924,7 @@ fn put_templates(
 
     packet.extend_from_slice(&1u16.to_be_bytes());
 
-    let mut ifname_buf = [0u8; 16];
-    let name_bytes = sp.param.interface_name.as_bytes();
-    let copy_len = name_bytes.len().min(15);
-    ifname_buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-    packet.extend_from_slice(&ifname_buf);
+    packet.extend_from_slice(&interface_name_field(&sp.param.interface_name));
 
     packet.extend_from_slice(&[0u8; 40]);
 

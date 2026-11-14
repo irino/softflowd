@@ -43,8 +43,8 @@ changes when a patch is applied.
 | D16 | NetFlow v5 flow_sequence grows twice as fast as in C (part of D12) | 2026-11-07 | fixed | Fix flow_sequence in export_build_flow_header() for NetFlow v5 | 2026-11-07, unit test test_exporter_netflow_v5_sequence_numbers passes (fails on old code) |
 | D17 | Command line (part of D3): startup order and validation of `-n`, `-I`, interface, BPF filter, and control socket differ from C | 2026-11-02 | fixed | Check options and open capture before daemonizing, and reject bad -n and -I | 2026-11-07, unit tests for `parse_boot_time_reinit`, integration tests for exit status 1 without daemonizing |
 | D18 | Ignored packets statistics: Rust did not count non-IP and too short packets (part of D12) | 2026-11-10 | fixed | Count non-IP and too short packets in parse_packet() and capture loop | 2026-11-10, unit tests for parse_packet() and counter test pass |
-| D19 | NetFlow v9 option template: scope type is 1 (System) in Rust, 2 (Interface) in C | 2026-11-15 | open | | |
-| D20 | interfaceName of the option records is empty with `-r` in Rust; C writes the file name | 2026-11-15 | open | | |
+| D19 | NetFlow v9 option template: scope type is 1 (System) in Rust, 2 (Interface) in C | 2026-11-15 | fixed | Use the Interface scope type in the NetFlow v9 option template | 2026-11-15, option template flowset identical to C for http.cap and v6-http.cap (`-v 9 -a`); `test_netflow_v9_option_template_has_interface_name` now expects scope type 2 and fails on the old code |
+| D20 | interfaceName of the option records is empty with `-r` in Rust; C writes the file name | 2026-11-15 | fixed | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15, option data record identical to C for http.cap and v6-http.cap (`-v 9 -a`, `-v 10 -a`) except the PID; unit tests of `interface_name_field()`, integration test `test_d20_option_record_interface_name_is_file_name` (fails on the old code) |
 | D21 | Biflow (`-b`) template of ICMP: C has a reverse icmpTypeCode, Rust has not | 2026-11-15 | accepted | not fixed on purpose (see the text) | 2026-11-15, decoded templates compared |
 | D22 | Overflow eviction (`-m`): C evicts in batches after a dispatch, Rust evicts one flow at a time and sends one datagram per flow (part of D12) | 2026-11-15 | open | | |
 | D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | open | | |
@@ -392,11 +392,12 @@ records.)
 **Acceptance Criteria**
 
 1. With `-r FILE`, the interfaceName of the option data record is `FILE` as
-   it was written on the command line (not the base name), first 16 bytes,
-   zero padded.
+   it was written on the command line (not the base name), first 15 bytes,
+   zero padded (the field is 16 bytes and ends with a NUL).
 2. With `-i IF`, it is `IF`.
-3. A name of 16 bytes or more is cut at 16 bytes, as C does (C copies at most
-   the field length; no terminating NUL is added).
+3. A name of 15 bytes or more is cut at 15 bytes and the field ends with a
+   NUL, as C does (C keeps the name in a buffer of 16 bytes, `IFNAMSIZ`, with
+   `strlcpy`, so the 16th byte is always NUL).
 4. The option data record of the first datagram of `http.cap` and
    `v6-http.cap` is identical to C for `-v 9` and `-v 10`, except the PID
    field.

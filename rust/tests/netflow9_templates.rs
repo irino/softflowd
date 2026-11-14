@@ -107,7 +107,7 @@ fn test_netflow_v9_templates_follow_the_c_version() {
 fn test_netflow_v9_option_template_has_interface_name() {
     let packet = export_netflow_v9();
     let (scope_fields, option_fields) = nf9_option_template(&packet);
-    assert_eq!(scope_fields, vec![1]); // scope: interface
+    assert_eq!(scope_fields, vec![2]); // scope: Interface (RFC 3954, 6.1)
     assert!(option_fields.contains(&34), "no samplingInterval");
     assert!(option_fields.contains(&35), "no samplingAlgorithm");
     assert!(option_fields.contains(&82), "no interfaceName");

@@ -144,3 +144,46 @@ pub fn export_build_flow_header(
         }
     }
 }
+
+/// Length of the interfaceName field (IE 82) of the option records.
+pub const INTERFACE_NAME_FIELD_LEN: usize = 16;
+
+/// Encode the interface name of the option records: the capture interface,
+/// or the file name with `-r`, cut at 15 bytes and padded with zeros.  Like
+/// the C version (it keeps the name in a buffer of 16 bytes with strlcpy), the
+/// field always ends with a NUL.
+///
+/// Original: export.c (`enc_interfaceName()`)
+pub fn interface_name_field(name: &str) -> [u8; INTERFACE_NAME_FIELD_LEN] {
+    let mut field = [0u8; INTERFACE_NAME_FIELD_LEN];
+    let bytes = name.as_bytes();
+    let n = bytes.len().min(INTERFACE_NAME_FIELD_LEN - 1);
+    field[..n].copy_from_slice(&bytes[..n]);
+    field
+}
+
+#[cfg(test)]
+mod interface_name_tests {
+    use super::*;
+
+    #[test]
+    fn short_name_is_zero_padded() {
+        let f = interface_name_field("eth0");
+        assert_eq!(&f[..4], b"eth0");
+        assert!(f[4..].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn long_name_is_cut_at_15_bytes_and_ends_with_nul() {
+        let f = interface_name_field("/tmp/a-long-file-name.pcap");
+        assert_eq!(&f, b"/tmp/a-long-fil\0");
+    }
+
+    #[test]
+    fn name_of_exactly_15_bytes_is_kept() {
+        assert_eq!(
+            &interface_name_field("0123456789abcde"),
+            b"0123456789abcde\0"
+        );
+    }
+}

@@ -41,8 +41,8 @@
 | D16 | NetFlow v5 の flow_sequence が C 版の2倍の速さで増加する (D12 の一部) | 2026-11-07 | fixed | export_build_flow_header() の NetFlow v5 における flow_sequence を修正 | 2026-11-07, NetFlow v5 のシーケンス番号に関するテストが通過 (旧コードでは失敗) |
 | D17 | コマンドライン (D3 の一部): 起動順序や `-n`、`-I`、インターフェイス、BPF フィルタ、制御ソケットの検証が C 版と違う | 2026-11-02 | 解消 | Check options and open capture before daemonizing, and reject bad -n and -I | 2026-11-07, `parse_boot_time_reinit` の単体テスト、デーモン化せずに終了ステータス 1 になる統合テスト |
 | D18 | 無視されたパケットの統計: Rust が non-IP および too short パケットを数えていなかった (D12 の一部) | 2026-11-10 | 解消 | parse_packet() およびキャプチャループで non-IP と too short パケットをカウントするよう修正 | 2026-11-10、parse_packet() の単体テストおよびカウンタのテストが通過 |
-| D19 | NetFlow v9 の option template: scope type が Rust は 1 (System)、C は 2 (Interface) | 2026-11-15 | 未解消 | | |
-| D20 | option レコードの interfaceName が、`-r` のとき Rust は空、C はファイル名 | 2026-11-15 | 未解消 | | |
+| D19 | NetFlow v9 の option template: scope type が Rust は 1 (System)、C は 2 (Interface) | 2026-11-15 | 解消 | Use the Interface scope type in the NetFlow v9 option template | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`) で option template flowset が C と同一。`test_netflow_v9_option_template_has_interface_name` が scope type 2 を期待するようになり、旧コードで失敗する |
+| D20 | option レコードの interfaceName が、`-r` のとき Rust は空、C はファイル名 | 2026-11-15 | 解消 | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`、`-v 10 -a`) で option data レコードが PID を除いて C と同一。`interface_name_field()` の単体テスト、統合テスト `test_d20_option_record_interface_name_is_file_name` (旧コードで失敗) |
 | D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 許容 | 意図的に修正しない (本文を参照) | 2026-11-15、デコードしたテンプレートを比較 |
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 未解消 | | |
@@ -378,10 +378,12 @@ NetFlow v9 と IPFIX の両方で。(`--enable-ifname` は同じ値をデータ�
 **受け入れ基準 (Acceptance Criteria)**
 
 1. `-r FILE` では、option data レコードの interfaceName はコマンドラインに
-   書いた `FILE` のまま (ベース名にしない)。先頭 16 バイトで、0 で埋める。
+   書いた `FILE` のまま (ベース名にしない)。先頭 15 バイトで、0 で埋める
+   (フィールドは 16 バイトで、末尾は NUL)。
 2. `-i IF` では `IF`。
-3. 16 バイト以上の名前は C と同じく 16 バイトで切る (C はフィールド長までを
-   コピーし、終端の NUL は付けない)。
+3. 15 バイト以上の名前は C と同じく 15 バイトで切り、フィールドは NUL で終わる
+   (C は名前を 16 バイト (`IFNAMSIZ`) のバッファに `strlcpy` で持つので、
+   16 バイト目は常に NUL)。
 4. `-v 9` と `-v 10` で、`http.cap` と `v6-http.cap` の最初のデータグラムの
    option data レコードが、PID のフィールドを除いて C と同一。
 5. インターフェース名とファイル名の option レコードの単体テスト。どちらも

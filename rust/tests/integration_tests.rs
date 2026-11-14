@@ -881,3 +881,51 @@ fn test_ntopng_exporter() {
     assert_eq!(msg_payload[0], 1);
     assert_eq!(msg_payload[1], 1);
 }
+
+// -------------------------------------------------------------
+// Test D20: the interfaceName of the option records is the file name with -r
+// -------------------------------------------------------------
+fn first_export_datagram(version: &str, pcap_path: &str) -> Vec<u8> {
+    let recv = UdpSocket::bind("127.0.0.1:0").unwrap();
+    recv.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let port = recv.local_addr().unwrap().port();
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_rsoftflowd"))
+        .args([
+            "-r",
+            pcap_path,
+            "-v",
+            version,
+            "-n",
+            &format!("127.0.0.1:{port}"),
+        ])
+        .output()
+        .expect("Failed to execute rsoftflowd");
+    assert!(status.status.success());
+    let mut buf = vec![0u8; 65535];
+    let n = recv.recv(&mut buf).expect("no datagram");
+    buf.truncate(n);
+    buf
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn test_d20_option_record_interface_name_is_file_name() {
+    // 18 bytes: the field of 16 bytes holds the first 15 and a NUL (as C).
+    let pcap_path = "/tmp/test_d20.pcap";
+    create_temp_pcap(pcap_path).unwrap();
+    for version in ["9", "10"] {
+        let dg = first_export_datagram(version, pcap_path);
+        assert!(
+            contains(&dg, b"/tmp/test_d20.p\0"),
+            "NetFlow v{version}: the file name is not in the option record"
+        );
+        assert!(
+            !contains(&dg, b"/tmp/test_d20.pc"),
+            "NetFlow v{version}: the name is longer than 15 bytes"
+        );
+    }
+    let _ = std::fs::remove_file(pcap_path);
+}

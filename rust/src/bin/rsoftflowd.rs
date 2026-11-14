@@ -163,8 +163,11 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     } else {
         args.sampling_rate
     };
+    // The interface, or the file name with -r (as the C version does).
     if let Some(ref ifname) = capture_dev {
         tracker.param.interface_name = ifname.clone();
+    } else if let Some(ref file) = args.pcap_file {
+        tracker.param.interface_name = file.clone();
     }
     if let Some(ref exp_ip_str) = args.exporter_ip
         && let Ok(ip) = exp_ip_str.parse::<IpAddr>()
