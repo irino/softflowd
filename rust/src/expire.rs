@@ -111,19 +111,41 @@ pub fn evict_oldest_flow(tracker: &mut FlowTracker, targets: &NetflowTarget, ifi
     }
 }
 
+/// Which flows `scan_expiries()` expires.
+///
+/// Original: softflowd.h, CE_EXPIRE_NORMAL, CE_EXPIRE_ALL and CE_EXPIRE_FORCED
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpireMode {
+    /// Flows whose expiry time has passed, and the forced ones.
+    Normal,
+    /// Every flow.
+    All,
+    /// Only the forced ones (`expires_at == 0`), as with `-r`.
+    Forced,
+}
+
+impl ExpireMode {
+    /// The number the C version uses, as it appears in the debug log.
+    pub fn c_value(self) -> i32 {
+        match self {
+            ExpireMode::Normal => 0,
+            ExpireMode::All => -1,
+            ExpireMode::Forced => 1,
+        }
+    }
+}
+
 /// Scan the tree of expiry events and process expired flows.
 ///
 /// Original: expire.c, check_expired()
 pub fn scan_expiries(
     tracker: &mut FlowTracker,
     targets: &NetflowTarget,
-    force_all: bool,
+    mode: ExpireMode,
     ifidx: u16,
 ) -> usize {
-    log::debug!(
-        "Starting expiry scan: mode {}",
-        if force_all { 1 } else { 0 }
-    );
+    log::debug!("Starting expiry scan: mode {}", mode.c_value());
+    let force_all = mode == ExpireMode::All;
 
     let now_sec = if tracker.param.adjust_time && tracker.param.last_packet_time.tv_sec > 0 {
         tracker.param.last_packet_time.tv_sec as u32
@@ -136,13 +158,14 @@ pub fn scan_expiries(
 
     let mut expired_keys = Vec::new();
     for (&exp_key, flow_key) in &tracker.expiries {
-        if force_all || exp_key.expires_at == 0 || exp_key.expires_at <= now_sec {
+        if force_all
+            || exp_key.expires_at == 0
+            || (mode != ExpireMode::Forced && exp_key.expires_at < now_sec)
+        {
             expired_keys.push((exp_key, flow_key.clone()));
         } else {
-            // Since BTreeMap is sorted, we can stop at first non-expired flow!
-            if !force_all {
-                break;
-            }
+            // The tree is sorted by the expiry time, so the rest is not expired.
+            break;
         }
     }
 
@@ -156,15 +179,22 @@ pub fn scan_expiries(
                     tracker.flow_slots.remove(&slot);
                 }
             }
+            // As in C: a flow that has lived as long as the maximum lifetime
+            // is counted as such, and the log line comes before the flush mark.
+            let max_life = tracker.param.maximum_lifetime;
+            if max_life != 0 && (flow.flow_last.tv_sec - flow.flow_start.tv_sec) as i32 >= max_life
+            {
+                flow.expiry_reason = ExpiryReason::MaxLife;
+            }
+            log::debug!(
+                "Queuing flow seq:{} ({:p}) for expiry reason {}",
+                flow.flow_seq,
+                &flow,
+                flow.expiry_reason as i32
+            );
             if force_all {
                 flow.expiry_reason = ExpiryReason::Flush;
             }
-            log::debug!(
-                "Queuing flow seq:{} ({:p}) for expiry reason {:?}",
-                flow.flow_seq,
-                &flow,
-                flow.expiry_reason
-            );
             accumulate_stats(tracker, &flow);
             expired_flows.push(flow);
         }
@@ -174,10 +204,6 @@ pub fn scan_expiries(
     log::debug!("Finished scan {} flow(s) to be evicted", count);
 
     if count > 0 {
-        for flow in &expired_flows {
-            log::debug!("EXPIRED: {} ({:p})", format_flow(flow), flow);
-        }
-
         // Convert to array of refs
         let flow_refs: Vec<&Flow> = expired_flows.iter().collect();
         let sp = SendParameter {
@@ -187,7 +213,16 @@ pub fn scan_expiries(
             param: &mut tracker.param,
             verbose: true,
         };
-        let _ = send_flows(sp);
+        let r = send_flows(sp);
+        log::debug!("sent {} netflow packets", r);
+        // Each flow counts as two records in C.
+        if r <= 0 {
+            tracker.param.flows_dropped += count as u64 * 2;
+        }
+        // As in C, the flows are logged after they are sent.
+        for flow in &expired_flows {
+            log::debug!("EXPIRED: {} ({:p})", format_flow(flow), flow);
+        }
     }
 
     count
@@ -197,7 +232,7 @@ pub fn scan_expiries(
 ///
 /// Original: expire.c, expire_all_flows()
 pub fn expire_all_flows(tracker: &mut FlowTracker, targets: &NetflowTarget, ifidx: u16) -> usize {
-    scan_expiries(tracker, targets, true, ifidx)
+    scan_expiries(tracker, targets, ExpireMode::All, ifidx)
 }
 
 /// Flush all flows.

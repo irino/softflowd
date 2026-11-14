@@ -469,7 +469,13 @@ fn run_main_loop(
         // Periodic flow expiry checks
         let scan_interval = Duration::from_secs(tracker.param.expiry_interval.max(1) as u64);
         if last_expiry_scan.elapsed() >= scan_interval {
-            scan_expiries(&mut tracker, &targets, false, if_index);
+            // As in C: with -r, flows do not expire by time, only the forced ones.
+            let mode = if pcap_file_mode {
+                ExpireMode::Forced
+            } else {
+                ExpireMode::Normal
+            };
+            scan_expiries(&mut tracker, &targets, mode, if_index);
             last_expiry_scan = Instant::now();
         }
 

@@ -48,7 +48,7 @@ changes when a patch is applied.
 | D21 | Biflow (`-b`) template of ICMP: C has a reverse icmpTypeCode, Rust has not | 2026-11-15 | accepted | not fixed on purpose (see the text) | 2026-11-15, decoded templates compared |
 | D22 | Overflow eviction (`-m`): C evicts in batches after a dispatch, Rust evicts one flow at a time and sends one datagram per flow (part of D12) | 2026-11-15 | open | | |
 | D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | open | | |
-| D24 | Expiry scan: modes, `<` against `<=`, missing "Forcing expiry" log (part of D12) | 2026-11-15 | open | | |
+| D24 | Expiry scan: modes, `<` against `<=`, missing "Forcing expiry" log (part of D12) | 2026-11-15 | fixed | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15, `ExpireMode` (0, -1, 1), `-r` scans only forced flows, `expires_at < now`; the `-d` log of `smoke` and `smoke -m 100` is identical to C; `tests/expire_modes.rs`. Also matched to C in the same scan: the reason of the `Queuing flow` line is the number and comes before the flush mark, the maximum lifetime is counted with `>=`, `sent N netflow packets` is logged before the `EXPIRED` lines, and `flows_dropped` grows when the send fails. The `-d` logs of the `-m` cases still differ: D22 |
 | D25 | Packet statistics: `Packets processed` and `Ignored packets` differ for non-IP and too short packets (part of D12) | 2026-11-15 | open | | |
 | D26 | Command line: texts of errors and of `-h`/`--help` differ (part of D12; the exit status is D3) | 2026-11-15 | open | | |
 | D27 | `-g -M`: the CPU clock lines differ (part of D12) | 2026-11-15 | open | | |

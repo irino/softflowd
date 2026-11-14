@@ -46,7 +46,7 @@
 | D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 許容 | 意図的に修正しない (本文を参照) | 2026-11-15、デコードしたテンプレートを比較 |
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 未解消 | | |
-| D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 未解消 | | |
+| D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
 | D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 未解消 | | |
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
