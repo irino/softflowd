@@ -37,8 +37,8 @@ from softflowd_test_parity import (
     parity_v5_header,
 )
 from softflowd_test_psamp import test_psamp_compat
+from softflowd_test_measure import fmt_gauge
 from softflowd_test_verify import (
-    _fmt_gauge,
     test_cli_compatibility,
     test_control_socket_compatibility,
     test_differential_output,
@@ -110,62 +110,63 @@ def parity_live_ifidx(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> b
     return ok
 
 
-def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
-    """The times of a live capture are those of libpcap, as phdr->ts in the original: (1) the packets that
-    are read together keep their time, and (2) with -a the time of the last packet is the current time, so
-    that no idle flow expires while no packet arrives, and statistics and expire-all show that time."""
-    ok = True
-    flt = "udp and dst port 41001"
-    paths = [os.path.join(helper.SUITE_TMP_DIR, f"livetime_{n}.ctl") for n in "ab"]
-    ctls = (ctl_a, ctl_b)
+LIVE_TIME_FILTER = "udp and dst port 41001"  # the test traffic of parity_live_time ()
 
-    def run(extra: List[str], body) -> List:
-        socks, procs = [], []
-        for n, daemon in enumerate((a_daemon, b_daemon)):
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.bind(("127.0.0.1", 0))
-            s.settimeout(3.0)
-            socks.append(s)
-            if os.path.exists(paths[n]):
-                os.remove(paths[n])
-            procs.append(subprocess.Popen([daemon, "-d", "-c", paths[n], "-i", "lo", "-v", "5", "-n",
-                                           f"127.0.0.1:{s.getsockname()[1]}"] + extra + [flt],
-                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for path in paths:
-            for _ in range(100):
-                if os.path.exists(path):
-                    break
-                time.sleep(0.1)
-        time.sleep(1.5)
-        try:
-            return body(socks, procs)
-        finally:
-            for ctl, path in zip(ctls, paths):
-                subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
-            for proc in procs:
-                try:
-                    proc.wait(10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-            for s in socks:
-                s.close()
 
-    def ctl_out(n: int, command: str) -> str:
-        return subprocess.run([ctls[n], "-c", paths[n], command], capture_output=True, text=True,
-                              timeout=10).stdout
+def _run_live_pair(a_daemon: str, b_daemon: str, ctls: Tuple[str, str], paths: List[str],
+                   extra: List[str], body) -> List:
+    """Run A and B on lo with -v 5 and the test traffic filter, each with a UDP socket to export to and a
+    control socket at paths[n], and return body (sockets, processes).  Both are shut down afterwards."""
+    socks, procs = [], []
+    for n, daemon in enumerate((a_daemon, b_daemon)):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(("127.0.0.1", 0))
+        s.settimeout(3.0)
+        socks.append(s)
+        if os.path.exists(paths[n]):
+            os.remove(paths[n])
+        procs.append(subprocess.Popen([daemon, "-d", "-c", paths[n], "-i", "lo", "-v", "5", "-n",
+                                       f"127.0.0.1:{s.getsockname()[1]}"] + extra + [LIVE_TIME_FILTER],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    for path in paths:
+        for _ in range(100):
+            if os.path.exists(path):
+                break
+            time.sleep(0.1)
+    time.sleep(1.5)
+    try:
+        return body(socks, procs)
+    finally:
+        for ctl, path in zip(ctls, paths):
+            subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+        for proc in procs:
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        for s in socks:
+            s.close()
 
-    def record(sock) -> Tuple[int, int, int]:
-        """(packets, first, last) of the flow of the test traffic in the next datagram."""
-        d = sock.recv(65535)
-        for i in range((len(d) - 24) // 48):
-            r = d[24 + 48 * i:24 + 48 * (i + 1)]
-            pkts = struct.unpack(">I", r[16:20])[0]
-            first, last = struct.unpack(">II", r[24:32])
-            if pkts:
-                return pkts, first, last
-        raise socket.timeout
 
-    # (1) two packets that are captured 1 s apart, and read together because the daemon was stopped
+def _live_ctl_out(ctl: str, path: str, command: str) -> str:
+    """The output of a softflowctl command."""
+    return subprocess.run([ctl, "-c", path, command], capture_output=True, text=True, timeout=10).stdout
+
+
+def _live_flow_record(sock) -> Tuple[int, int, int]:
+    """(packets, first, last) of the flow of the test traffic in the next NetFlow v5 datagram."""
+    d = sock.recv(65535)
+    for i in range((len(d) - 24) // 48):
+        r = d[24 + 48 * i:24 + 48 * (i + 1)]
+        pkts = struct.unpack(">I", r[16:20])[0]
+        first, last = struct.unpack(">II", r[24:32])
+        if pkts:
+            return pkts, first, last
+    raise socket.timeout
+
+
+def _live_time_stalled(a_daemon: str, b_daemon: str, ctls: Tuple[str, str], paths: List[str]) -> bool:
+    """(1) two packets that are captured 1 s apart, and read together because the daemon was stopped."""
     def stalled(socks, procs):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         for p in procs:
@@ -181,16 +182,16 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
         s.close()
         out = []
         for n in range(2):
-            ctl_out(n, "expire-all")
+            _live_ctl_out(ctls[n], paths[n], "expire-all")
             try:
-                pkts, first, last = record(socks[n])
+                pkts, first, last = _live_flow_record(socks[n])
                 out.append((pkts, last - first))
             except socket.timeout:
                 out.append(None)
         return out
 
     try:
-        a, b = run([], stalled)
+        a, b = _run_live_pair(a_daemon, b_daemon, ctls, paths, [], stalled)
         same = a and b and a[0] == b[0] == 2 and abs(a[1] - b[1]) <= 2 and a[1] >= 900
         detail = f"duration A {a[1] if a else None} ms, B {b[1] if b else None} ms, 1000 ms between the packets"
     except (OSError, subprocess.SubprocessError) as e:
@@ -198,10 +199,12 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
     if same:
         print_green(f"    - live on lo, packets that are read together: MATCHED ({detail})")
     else:
-        ok = False
         print_red(f"    - live on lo, packets that are read together: DIFFERENT ({detail})")
+    return bool(same)
 
-    # (2) -a: the time of the last packet is the current time
+
+def _live_time_adjusted(a_daemon: str, b_daemon: str, ctls: Tuple[str, str], paths: List[str]) -> bool:
+    """(2) -a: the time of the last packet is the current time."""
     def adjusted(socks, procs):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.sendto(b"x" * 40, ("127.0.0.1", 41001))
@@ -210,11 +213,11 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
         time.sleep(3.5)                 # idle for more than -t general=1 and expint=1
         out = []
         for n in range(2):
-            stat = ctl_out(n, "statistics")
+            stat = _live_ctl_out(ctls[n], paths[n], "statistics")
             since = re.search(r"since (\S+) UTC", stat)
             expired = re.search(r"Flows expired: (\d+)", stat)
             since_s = calendar.timegm(time.strptime(since.group(1), "%Y-%m-%dT%H:%M:%S")) if since else None
-            ctl_out(n, "expire-all")
+            _live_ctl_out(ctls[n], paths[n], "expire-all")
             try:
                 secs = parity_v5_header(socks[n].recv(65535))[1]
             except socket.timeout:
@@ -225,7 +228,7 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
         return out
 
     try:
-        a, b = run(["-a", "-t", "general=1", "-t", "expint=1"], adjusted)
+        a, b = _run_live_pair(a_daemon, b_daemon, ctls, paths, ["-a", "-t", "general=1", "-t", "expint=1"], adjusted)
         # a time of the packet that is cut to the second is 0 or 1 s before the time at which it was sent
         same = all(x[0] == 0 and x[1] in (0, -1) and x[2] in (0, -1) for x in (a, b))
         detail = (f"A: expired {a[0]} before expire-all, since {a[1]} s, export {a[2]} s; "
@@ -235,9 +238,18 @@ def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bo
     if same:
         print_green(f"    - live on lo, -a (statistics, idle, expire-all): MATCHED ({detail})")
     else:
-        ok = False
         print_red(f"    - live on lo, -a (statistics, idle, expire-all): DIFFERENT ({detail})")
-    return ok
+    return same
+
+
+def parity_live_time(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
+    """The times of a live capture are those of libpcap, as phdr->ts in the original: (1) the packets that
+    are read together keep their time, and (2) with -a the time of the last packet is the current time, so
+    that no idle flow expires while no packet arrives, and statistics and expire-all show that time."""
+    paths = [os.path.join(helper.SUITE_TMP_DIR, f"livetime_{n}.ctl") for n in "ab"]
+    ctls = (ctl_a, ctl_b)
+    ok = _live_time_stalled(a_daemon, b_daemon, ctls, paths)
+    return _live_time_adjusted(a_daemon, b_daemon, ctls, paths) and ok
 
 
 # Command lines that the C version reports as an error (or accepts in an odd way), for parity_cli_errors ().
@@ -315,7 +327,7 @@ def parity_live_gauge(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> b
         same = a is not None and b is not None and (a[1] is None) == (b[1] is None) and \
             (a[1] is None or a[2] == b[2])
         if same:
-            print_green(f"    - live on lo, cpu clocks of {label}: MATCHED (A {_fmt_gauge(a)}, B {_fmt_gauge(b)})")
+            print_green(f"    - live on lo, cpu clocks of {label}: MATCHED (A {fmt_gauge(a)}, B {fmt_gauge(b)})")
         else:
             ok = False
             print_red(f"    - live on lo, cpu clocks of {label}: DIFFERENT (A {a}, B {b})")
@@ -602,7 +614,7 @@ def parity_gauge(a_daemon: str, b_daemon: str, pcap: str) -> bool:
         same = a is not None and b is not None and (a[1] is None) == (b[1] is None) and \
             (a[1] is None or a[2] == b[2])
         if same:
-            print_green(f"    - cpu clocks of {label}: MATCHED (A {_fmt_gauge(a)}, B {_fmt_gauge(b)})")
+            print_green(f"    - cpu clocks of {label}: MATCHED (A {fmt_gauge(a)}, B {fmt_gauge(b)})")
         else:
             ok = False
             print_red(f"    - cpu clocks of {label}: DIFFERENT (A {a}, B {b}{'' if calls else ', a counter is missing'})")

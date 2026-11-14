@@ -28,8 +28,10 @@ These are imported by `softflowd_test.py`; they are not meant to be run.
 | Module | Contents |
 |---|---|
 | `softflowd_test_helper.py` | Helpers shared by the compat suite and the bench (`run_command`, `build_c`, `perf_stat`, `callgrind_profile`, `parse_gauge`, ...), the sample pcaps, the output helpers, and the settings that `compat_main()` sets from the command line (see "Shared state"). |
+| `softflowd_test_args.py` | The command line of `softflowd_test.py`: the options and the checks of their combinations. |
 | `softflowd_test_build.py` | Builds of the C stable / development, C++ and Rust binaries, with the binary cache. |
-| `softflowd_test_verify.py` | The checks of the exported flows (collector output, CLI, control socket) and the measurements (`--gauge-clock`, `--benchmark`). |
+| `softflowd_test_measure.py` | The measurements (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`): the `-g` counters, the timing, the table and the CSV file. |
+| `softflowd_test_verify.py` | The checks of the CLI options, the control socket and the flows that the collector receives. |
 | `softflowd_test_psamp.py` | PSAMP checks (`-v psamp` sender and `-R` receiver). Also used by `psamp_regress.py`. |
 | `softflowd_test_ntopng.py` | ntopng checks (the ZMQ export of `-v ntopng`). |
 | `softflowd_test_parity.py` | Parity checks, part 1: what softflowd+ (C++) must do byte for byte like softflowd (C), offline (exported datagrams, control replies, logs). |
@@ -62,17 +64,22 @@ graph TD
     bench --> collector
     bench --> test_helper
     test --> test_helper
-    test --> test_verify
+    test --> test_measure
+    test --> test_args
     test --> test_build
     test --> test_ntopng
     test --> test_parity
     test --> test_parity_live
+    test_args --> test_helper
     test_build --> test_helper
+    test_measure --> test_helper
+    test_measure --> collector
     test_ntopng --> test_helper
     test_parity --> test_helper
     test_parity_live --> test_helper
     test_parity_live --> test_parity
     test_parity_live --> test_psamp
+    test_parity_live --> test_measure
     test_parity_live --> test_verify
     test_psamp --> test_helper
     test_psamp --> collector
@@ -81,6 +88,7 @@ graph TD
     test_suite --> test
     test_verify --> test_helper
     test_verify --> collector
+    test_verify --> test_measure
 ```
 
 Node names are the file names without `softflowd_` and `.py` (`test` is
@@ -91,19 +99,21 @@ list:
 |---|---|
 | `softflowd_collector.py` | (none) |
 | `softflowd_test_helper.py` | (none) |
+| `softflowd_test_args.py` | helper |
 | `softflowd_test_build.py` | helper |
 | `softflowd_test_ntopng.py` | helper |
 | `softflowd_test_parity.py` | helper |
 | `softflowd_test_psamp.py` | collector, helper |
-| `softflowd_test_verify.py` | collector, helper |
-| `softflowd_test_parity_live.py` | helper, parity, psamp, verify |
+| `softflowd_test_measure.py` | collector, helper |
+| `softflowd_test_verify.py` | collector, helper, measure |
+| `softflowd_test_parity_live.py` | helper, measure, parity, psamp, verify |
 | `softflowd_bench.py` | collector, helper |
-| `softflowd_test.py` | build, helper, ntopng, parity, parity_live, verify |
+| `softflowd_test.py` | args, build, helper, measure, ntopng, parity, parity_live |
 | `softflowd_test_suite.py` | bench, collector, test |
 
 The names in the right column are shortened in the same way.  There are no
-import cycles.  `softflowd_test_verify.py`
-holds the checks and the measurements together because they call each other.
+import cycles: the checks (`verify`) use the measurements (`measure`), never the
+other way round.
 
 ### Shared state
 
@@ -111,9 +121,9 @@ holds the checks and the measurements together because they call each other.
 at run time: `SUITE_TMP_DIR`, `COLLECTOR_BACKEND`, `PCAP_DIR`, `CACHE_DIR`,
 `REBUILD_STABLE`, `REBUILD_DEV`, `REFRESH_PCAP` and `COMPAT_PCAPS` live in
 `softflowd_test_helper.py`; `MEASURE` and `BUILD_OPTIMIZED_FOR_MEASURE` live in
-`softflowd_test_verify.py`.  Because they change after the import, every other
+`softflowd_test_measure.py`.  Because they change after the import, every other
 module reads and writes them through the module (`helper.SUITE_TMP_DIR`,
-`verify.MEASURE`), never with `from ... import`: an imported copy would keep
+`measure.MEASURE`), never with `from ... import`: an imported copy would keep
 the value that the name had at the import.
 
 ## Other files
