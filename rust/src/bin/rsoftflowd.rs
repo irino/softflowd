@@ -573,6 +573,22 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // The source is opened before the daemonization and before the privileges
+    // are dropped, as the C version does.  The capture thread starts reading
+    // after the start-up log lines below.
+    let (capture_start_tx, capture_start_rx) = channel::<()>();
+    let pcap_file_mode = setup_packet_capture(
+        &args,
+        capture_dev.as_deref(),
+        track_level,
+        tracker.param.max_num_label,
+        args.full_transport_header_check,
+        packet_tx,
+        pcap_stats.clone(),
+        &GRACEFUL_SHUTDOWN,
+        capture_start_rx,
+    );
+
     daemonize_and_init_log(&args);
     let pidfile_path = resolve_and_write_pidfile(&args);
     drop_privileges();
@@ -595,17 +611,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
     }
-
-    let pcap_file_mode = setup_packet_capture(
-        &args,
-        capture_dev.as_deref(),
-        track_level,
-        tracker.param.max_num_label,
-        args.full_transport_header_check,
-        packet_tx,
-        pcap_stats.clone(),
-        &GRACEFUL_SHUTDOWN,
-    );
+    let _ = capture_start_tx.send(());
 
     run_main_loop(
         tracker,

@@ -9,7 +9,7 @@ use crate::opts::RsoftflowdArgs;
 use crate::packet_parser::{ParseError, ParsedPacket, parse_packet};
 use crate::stats::accumulate_stats;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -21,7 +21,11 @@ pub enum PacketEvent {
 }
 
 /// Opens the packet capture source (live interface or PCAP file), applies BPF filters,
-/// and starts the capture thread.
+/// and starts the capture thread.  The thread waits for a message on
+/// `start_rx` before it reads the first packet, so that the caller can open the
+/// source with the privileges it has, then daemonize, drop the privileges and
+/// write its start-up log lines before any packet, or the end of a file, is
+/// seen.
 ///
 /// Original: capture.c (`setup_packet_capture()`)
 #[allow(clippy::too_many_arguments)]
@@ -34,6 +38,7 @@ pub fn setup_packet_capture(
     packet_tx: Sender<PacketEvent>,
     pcap_stats: Arc<Mutex<Option<(u64, u64, u64)>>>,
     graceful_shutdown: &'static AtomicBool,
+    start_rx: Receiver<()>,
 ) -> bool {
     let pcap_file_mode = args.pcap_file.is_some();
     let bpf_expression = if !args.bpf_expression.is_empty() {
@@ -112,6 +117,9 @@ pub fn setup_packet_capture(
         let graceful_shutdown_clone = graceful_shutdown;
 
         thread::spawn(move || {
+            if start_rx.recv().is_err() {
+                return;
+            }
             log::debug!("Packet capture thread started.");
             loop {
                 if graceful_shutdown_clone.load(std::sync::atomic::Ordering::SeqCst) {
@@ -179,6 +187,9 @@ pub fn setup_packet_capture(
         let pcap_stats_clone = pcap_stats.clone();
 
         thread::spawn(move || {
+            if start_rx.recv().is_err() {
+                return;
+            }
             loop {
                 if graceful_shutdown.load(std::sync::atomic::Ordering::SeqCst) {
                     break;
