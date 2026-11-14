@@ -81,10 +81,11 @@ pub fn setup_export_targets(args: &RsoftflowdArgs, targets: &mut NetflowTarget, 
                                     // Bind to specific device if requested (Linux only)
                                     #[cfg(target_os = "linux")]
                                     if let Some(ref send_if) = args.send_interface
-                                        && let Err(e) =
-                                            crate::net_util_unsafe::bind_socket_to_device(
-                                                &s, send_if,
-                                            )
+                                        && let Err(e) = nix::sys::socket::setsockopt(
+                                            &s,
+                                            nix::sys::socket::sockopt::BindToDevice,
+                                            &std::ffi::OsString::from(send_if),
+                                        )
                                     {
                                         log::error!(
                                             "Failed to bind to interface {}: {}",

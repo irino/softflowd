@@ -37,7 +37,7 @@
   Functions keep the snake_case names of the C version.
   Types follow Rust style (`struct FLOW` becomes `Flow`).
   The name of the C/C++ original is to be kept in the rustdoc comment (an `Original:` section).
-- `unsafe` is used in a few places (R7 in `doc/DIFFERENCES-FROM-C.en.md`). As a general rule, the use of `unsafe` code is prohibited. If it must be used due to a lack of alternatives, it should be localized (e.g., in a file named `unsafe.rs`).
+- `unsafe` is prohibited (R7 in `doc/DIFFERENCES-FROM-C.en.md`). As a general rule, the use of `unsafe` code is prohibited. If it must be used due to a lack of alternatives, it should be localized (e.g., in a file named `unsafe.rs`).
 - 
 ## Git
 - Commit message: English, no Conventional Commits prefix, one imperative sentence like the existing log,

@@ -1,8 +1,10 @@
+#![forbid(unsafe_code)]
 use clap::Parser;
-use nix::sys::signal::{self, SigAction, SigHandler, Signal};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use std::io::Write;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::os::unix::net::UnixListener;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -50,30 +52,18 @@ fn validate_hostport(s: &str) -> Result<(), String> {
     Ok(())
 }
 
-static GRACEFUL_SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-extern "C" fn sig_handler(sig: libc::c_int) {
-    if sig == libc::SIGHUP {
-        log::info!("SIGHUP received");
-    } else {
-        GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-}
+static GRACEFUL_SHUTDOWN: std::sync::LazyLock<Arc<AtomicBool>> =
+    std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+static HUP_RECEIVED: std::sync::LazyLock<Arc<AtomicBool>> =
+    std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 /// Register signal handlers for SIGINT, SIGTERM, SIGHUP.
 ///
 /// Original: daemon.c (`register_signals()`)
 fn register_signals() {
-    let sa = SigAction::new(
-        SigHandler::Handler(sig_handler),
-        signal::SaFlags::empty(),
-        signal::SigSet::empty(),
-    );
-    unsafe {
-        let _ = signal::sigaction(Signal::SIGINT, &sa);
-        let _ = signal::sigaction(Signal::SIGTERM, &sa);
-        let _ = signal::sigaction(Signal::SIGHUP, &sa);
-    }
+    let _ = signal_hook::flag::register(SIGINT, Arc::clone(&GRACEFUL_SHUTDOWN));
+    let _ = signal_hook::flag::register(SIGTERM, Arc::clone(&GRACEFUL_SHUTDOWN));
+    let _ = signal_hook::flag::register(SIGHUP, Arc::clone(&HUP_RECEIVED));
 }
 
 /// Drop privileges from root to 'nobody'.
@@ -82,7 +72,7 @@ fn register_signals() {
 fn drop_privileges() {
     #[cfg(unix)]
     {
-        if unsafe { libc::geteuid() } == 0 {
+        if nix::unistd::geteuid().is_root() {
             if let Some(pw) = nix::unistd::User::from_name("nobody").ok().flatten() {
                 let _ = nix::unistd::setgid(pw.gid);
                 let _ = nix::unistd::setuid(pw.uid);
@@ -440,6 +430,14 @@ fn run_main_loop(
                     let _ = resp.send(render_help().to_string());
                 }
             }
+        }
+
+        if GRACEFUL_SHUTDOWN.swap(false, Ordering::SeqCst) {
+            log::info!("Signal received, shutting down.");
+            break;
+        }
+        if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
+            log::info!("SIGHUP received, re-opening logs (not implemented yet)");
         }
 
         // Process incoming packet events
