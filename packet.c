@@ -552,13 +552,22 @@ datalink_check (int linktype, const u_int8_t *pkt, u_int32_t caplen,
   else if (frametype == ETH_P_MPLS_UC && num_label != NULL) {
     u_int32_t shim = 0;
     u_int8_t ip_version = 0;
+    u_int32_t mpls_off = dl->skiplen + vlan_size;
     do {
-      MEMCPY (&shim,
-              pkt + dl->skiplen + vlan_size + *num_label * sizeof (shim),
-              shim);
+      /*
+       * The label stack is sender-controlled.  Without these checks a stack
+       * with no bottom-of-stack bit reads past caplen, and once the 8-bit
+       * counter wraps it re-reads the same words forever, wedging capture.
+       */
+      if (*num_label == 255 ||
+          mpls_off + (*num_label + 1) * sizeof (shim) > caplen)
+        return (-1);
+      MEMCPY (&shim, pkt + mpls_off + *num_label * sizeof (shim), shim);
       *num_label += 1;
     } while (!((ntohl (shim) & MPLS_LS_S_MASK) >> MPLS_LS_S_SHIFT));
-    ip_version = (pkt[dl->skiplen + vlan_size + *num_label * 4] & 0xf0) >> 4;
+    if (mpls_off + *num_label * sizeof (shim) >= caplen)
+      return (-1);
+    ip_version = (pkt[mpls_off + *num_label * sizeof (shim)] & 0xf0) >> 4;
     if (ip_version == 4)
       *af = AF_INET;
     else if (ip_version == 6)
