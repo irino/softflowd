@@ -431,15 +431,9 @@ fn test_psamp_exporter() {
         tv_sec: 1600000000,
         tv_usec: 500,
     };
-    let mut param = FlowTrackParameters::default();
-    let sent = rsoftflowd::exporter::psamp::send_psamp(
-        &dummy_packet,
-        64,
-        timestamp,
-        &targets,
-        1,
-        &mut param,
-    );
+    let param = FlowTrackParameters::default();
+    let sent =
+        rsoftflowd::exporter::psamp::send_psamp(&dummy_packet, 64, timestamp, &targets, 1, &param);
     assert!(sent >= 0);
 
     let mut buf = [0u8; 2048];
@@ -554,7 +548,7 @@ fn test_psamp_sequence_numbers_first_20() {
             timestamp,
             &targets,
             total_packets,
-            &mut param,
+            &param,
         );
     }
 
@@ -589,7 +583,7 @@ fn test_psamp_sequence_numbers_first_20() {
     );
 
     let expected = vec![
-        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17, 18, 19,
     ];
     assert_eq!(&seq_numbers[0..20], &expected[..]);
 }

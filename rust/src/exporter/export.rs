@@ -16,6 +16,7 @@ use crate::exporter::{
     },
 };
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 const IPFIX_MPLS_TOP_LABEL_STACK_SECTION: u16 = 70;
 const IPFIX_MPLS_LABEL_STACK_SECTION_SIZE: usize = 3;
@@ -428,10 +429,7 @@ fn emit_group(
 // NetFlow v1 / v5: Fixed Export
 // -------------------------------------------------------------------
 
-fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
-    let gauge_clock = sp.param.gauge_clock;
-    let start = if gauge_clock { cpu_clock() } else { 0 };
-
+fn send_fixed_flow(sp: &mut SendParameter, version: u16) -> i32 {
     let tail_fields = if version == 1 {
         &FIELD_NETFLOWV1_TAIL[..]
     } else {
@@ -455,7 +453,7 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
         }
 
         if j + need > maxflows {
-            if send_fixed_packet(&mut sp, &mut packet, offset, j as u16) < 0 {
+            if send_fixed_packet(sp, &mut packet, offset, j as u16) < 0 {
                 return -1;
             }
             j = 0;
@@ -472,11 +470,7 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
             if flow.octets[k] == 0 {
                 continue;
             }
-            let ctx = ExportCtx {
-                sp: &sp,
-                flow,
-                i: k,
-            };
+            let ctx = ExportCtx { sp, flow, i: k };
             offset = emit_group(&FIELD_NETFLOW_V1V5_COMMON, &mut packet, offset, &ctx);
             offset = emit_group(tail_fields, &mut packet, offset, &ctx);
             j += 1;
@@ -484,19 +478,13 @@ fn send_fixed_flow(mut sp: SendParameter, version: u16) -> i32 {
     }
 
     if j != 0 {
-        if send_fixed_packet(&mut sp, &mut packet, offset, j as u16) < 0 {
+        if send_fixed_packet(sp, &mut packet, offset, j as u16) < 0 {
             return -1;
         }
         num_packets += 1;
     }
 
     sp.param.packets_sent += num_packets as u64;
-
-    if gauge_clock {
-        let elapsed = cpu_clock() - start;
-        sp.param.export_clocks += elapsed as i64;
-        sp.param.export_calls += 1;
-    }
 
     num_packets
 }
@@ -518,11 +506,11 @@ fn send_fixed_packet(sp: &mut SendParameter, packet: &mut [u8], offset: usize, c
     0
 }
 
-pub fn send_netflow_v1(sp: SendParameter) -> i32 {
+pub fn send_netflow_v1(sp: &mut SendParameter) -> i32 {
     send_fixed_flow(sp, 1)
 }
 
-pub fn send_netflow_v5(sp: SendParameter) -> i32 {
+pub fn send_netflow_v5(sp: &mut SendParameter) -> i32 {
     send_fixed_flow(sp, 5)
 }
 
@@ -953,10 +941,7 @@ fn put_templates(
         .copy_from_slice(&opt_data_len.to_be_bytes());
 }
 
-pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
-    let gauge_clock = sp.param.gauge_clock;
-    let start = if gauge_clock { cpu_clock() } else { 0 };
-
+pub fn send_ipfix_flows(sp: &mut SendParameter, bi_flag: bool, version: u16) -> i32 {
     let tmpls = build_templates(sp.param, bi_flag, version);
     let num_flows = sp.flows.len();
     if version != 9 && version != 10 {
@@ -969,14 +954,14 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
 
     let mut num_packets = 0;
     let mut j = 0;
-    static mut SEQUENCE: u32 = 1;
+    static SEQUENCE: AtomicU32 = AtomicU32::new(1);
 
     while j < num_flows {
         let mut packet = Vec::with_capacity(IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
         let _ = export_build_flow_header(&mut packet, version, sp.param);
 
         if get_pkts_until_template() <= 0 {
-            put_templates(&mut packet, &tmpls, bi_flag, version, &sp);
+            put_templates(&mut packet, &tmpls, bi_flag, version, sp);
             set_pkts_until_template(IPFIX_DEFAULT_TEMPLATE_INTERVAL);
 
             if sp.target.is_loadbalance && sp.target.destinations.len() > 1 {
@@ -987,11 +972,7 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                     packet[8..12].copy_from_slice(&seq.to_be_bytes());
                 } else {
                     packet[2..4].copy_from_slice(&1u16.to_be_bytes());
-                    let seq = unsafe {
-                        let s = SEQUENCE;
-                        SEQUENCE += 1;
-                        s
-                    };
+                    let seq = SEQUENCE.fetch_add(1, Ordering::Relaxed);
                     packet[12..16].copy_from_slice(&seq.to_be_bytes());
                 }
                 let mut sent = 0;
@@ -1049,20 +1030,12 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
                 if !bi_flag && flow.octets[dir] == 0 {
                     continue;
                 }
-                let ctx = ExportCtx {
-                    sp: &sp,
-                    flow,
-                    i: dir,
-                };
+                let ctx = ExportCtx { sp, flow, i: dir };
                 let old_len = flow_bytes.len();
                 flow_bytes.resize(old_len + tmpl.data_len, 0);
                 let mut off = emit_group(&tmpl.fields, &mut flow_bytes, old_len, &ctx);
                 if bi_flag && dir == 0 {
-                    let bictx = ExportCtx {
-                        sp: &sp,
-                        flow,
-                        i: 1,
-                    };
+                    let bictx = ExportCtx { sp, flow, i: 1 };
                     off = emit_group(&tmpl.bi_fields, &mut flow_bytes, off, &bictx);
                 }
                 for k in 0..sp.param.max_num_label as usize {
@@ -1111,11 +1084,7 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
             packet[8..12].copy_from_slice(&seq.to_be_bytes());
         } else {
             packet[2..4].copy_from_slice(&(records as u16).to_be_bytes());
-            let seq = unsafe {
-                let s = SEQUENCE;
-                SEQUENCE += 1;
-                s
-            };
+            let seq = SEQUENCE.fetch_add(1, Ordering::Relaxed);
             packet[12..16].copy_from_slice(&seq.to_be_bytes());
         }
 
@@ -1136,46 +1105,39 @@ pub fn send_ipfix_flows(sp: SendParameter, bi_flag: bool, version: u16) -> i32 {
     sp.param.flows_exported += j as u64;
     sp.param.packets_sent += num_packets as u64;
 
-    if gauge_clock {
-        let elapsed = cpu_clock() - start;
-        sp.param.export_clocks += elapsed as i64;
-        sp.param.export_calls += 1;
-    }
-
     num_packets
 }
 
-pub fn send_netflow_v9(sp: SendParameter) -> i32 {
+pub fn send_netflow_v9(sp: &mut SendParameter) -> i32 {
     send_ipfix_flows(sp, false, 9)
 }
 
-pub fn send_ipfix(sp: SendParameter) -> i32 {
+pub fn send_ipfix(sp: &mut SendParameter) -> i32 {
     send_ipfix_flows(sp, false, 10)
 }
 
-pub fn send_ipfix_bi(sp: SendParameter) -> i32 {
+pub fn send_ipfix_bi(sp: &mut SendParameter) -> i32 {
     send_ipfix_flows(sp, true, 10)
 }
 
-pub fn send_flows(sp: SendParameter) -> i32 {
+pub fn send_flows(mut sp: SendParameter) -> i32 {
     let gauge_clock = sp.param.gauge_clock;
-    let param_ptr = sp.param as *mut FlowTrackParameters;
     let start = if gauge_clock { cpu_clock() } else { 0 };
     let r = match sp.target.version {
-        1 => send_netflow_v1(sp),
-        5 => send_netflow_v5(sp),
-        9 => send_netflow_v9(sp),
+        1 => send_netflow_v1(&mut sp),
+        5 => send_netflow_v5(&mut sp),
+        9 => send_netflow_v9(&mut sp),
         10 => {
             if sp.param.bidirection {
-                send_ipfix_bi(sp)
+                send_ipfix_bi(&mut sp)
             } else {
-                send_ipfix(sp)
+                send_ipfix(&mut sp)
             }
         }
         0x7fff0001 => {
             #[cfg(feature = "ntopng")]
             {
-                crate::exporter::ntopng::send_ntopng(sp)
+                crate::exporter::ntopng::send_ntopng(&mut sp)
             }
             #[cfg(not(feature = "ntopng"))]
             {
@@ -1186,10 +1148,8 @@ pub fn send_flows(sp: SendParameter) -> i32 {
     };
     if gauge_clock {
         let elapsed = cpu_clock() - start;
-        unsafe {
-            (*param_ptr).export_clocks += elapsed as i64;
-            (*param_ptr).export_calls += 1;
-        }
+        sp.param.export_clocks += elapsed as i64;
+        sp.param.export_calls += 1;
     }
     r
 }

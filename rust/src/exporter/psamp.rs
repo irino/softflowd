@@ -3,6 +3,7 @@ use crate::exporter::NetflowTarget;
 use crate::exporter::export_common::IPFIX_SOFTFLOWD_MAX_PACKET_SIZE;
 use byteorder::{BigEndian, WriteBytesExt};
 use std::io::Write;
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
 const PSAMP_SOFTFLOWD_TEMPLATE_ID: u16 = 3072;
 const PSAMP_SELECTION_SEQUENCE_ID: u16 = 301;
@@ -13,6 +14,16 @@ const PSAMP_DATA_LINK_FRAME_SECTION: u16 = 315;
 const PSAMP_FIXED_FIELDS_SIZE: usize = 8 + 8 + 2;
 pub const PSAMP_DATALINKFRAME_SIZE: usize =
     IPFIX_SOFTFLOWD_MAX_PACKET_SIZE - 16 - 4 - PSAMP_FIXED_FIELDS_SIZE;
+
+static PSAMP_SEQUENCE_NUMBER: AtomicU32 = AtomicU32::new(0);
+static PSAMP_PKTS_UNTIL_TEMPLATE: AtomicI32 = AtomicI32::new(-1);
+
+pub fn psamp_resend_template() {
+    let current = PSAMP_PKTS_UNTIL_TEMPLATE.load(Ordering::Relaxed);
+    if current > 0 {
+        PSAMP_PKTS_UNTIL_TEMPLATE.store(0, Ordering::Relaxed);
+    }
+}
 
 fn write_psamp_template(packet: &mut Vec<u8>) {
     // Set ID = 2 (IPFIX Template Set)
@@ -57,19 +68,20 @@ pub fn send_psamp(
     tv: TimeVal,
     target: &NetflowTarget,
     total_packets: u64,
-    param: &mut FlowTrackParameters,
+    param: &FlowTrackParameters,
 ) -> i32 {
     let mut packet = Vec::with_capacity(1500);
 
     let mut send_template = false;
-    if param.psamp_pkts_until_template <= 0 {
+    let current_pkts = PSAMP_PKTS_UNTIL_TEMPLATE.load(Ordering::Relaxed);
+    if current_pkts <= 0 {
         send_template = true;
-        param.psamp_pkts_until_template = 16;
+        PSAMP_PKTS_UNTIL_TEMPLATE.store(16, Ordering::Relaxed);
     }
-    param.psamp_pkts_until_template -= 1;
+    PSAMP_PKTS_UNTIL_TEMPLATE.fetch_sub(1, Ordering::Relaxed);
 
     let now = crate::exporter::get_active_now(param);
-    let seq = param.psamp_sequence_number;
+    let seq = PSAMP_SEQUENCE_NUMBER.load(Ordering::Relaxed);
 
     if send_template {
         // Send a template packet first
@@ -145,7 +157,7 @@ pub fn send_psamp(
     let mut sent = 0;
     let _ = target.send_multi_destinations(&packet, &mut sent);
 
-    param.psamp_sequence_number += 1;
+    PSAMP_SEQUENCE_NUMBER.fetch_add(1, Ordering::Relaxed);
 
     1
 }

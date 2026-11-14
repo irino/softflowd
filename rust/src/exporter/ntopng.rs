@@ -199,12 +199,12 @@ fn send_ntopng_message(sp: &SendParameter, start_at_flow: usize) -> usize {
     flow
 }
 
-pub fn send_ntopng(sp: SendParameter) -> i32 {
+pub fn send_ntopng(sp: &mut SendParameter) -> i32 {
     let mut flow_idx = 0;
     let mut packets = 0;
 
     while flow_idx < sp.flows.len() {
-        flow_idx = send_ntopng_message(&sp, flow_idx);
+        flow_idx = send_ntopng_message(sp, flow_idx);
         packets += 1;
     }
 
