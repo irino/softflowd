@@ -109,11 +109,12 @@ pub fn setup_packet_capture(
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
         let pcap_stats_clone = pcap_stats.clone();
+        let graceful_shutdown_clone = graceful_shutdown;
 
         thread::spawn(move || {
             log::debug!("Packet capture thread started.");
             loop {
-                if graceful_shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                if graceful_shutdown_clone.load(std::sync::atomic::Ordering::SeqCst) {
                     log::debug!("Packet capture thread shutting down.");
                     break;
                 }
@@ -156,12 +157,12 @@ pub fn setup_packet_capture(
                         }
                     }
                     Err(pcap::Error::NoMorePackets) => {
-                        log::info!("Shutting down after pcap EOF");
                         if let Ok(st) = capture.stats() {
                             let mut s = pcap_stats_clone.lock().unwrap();
                             *s =
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
+                        log::info!("Shutting down after pcap EOF");
                         break;
                     }
                     Err(e) => {

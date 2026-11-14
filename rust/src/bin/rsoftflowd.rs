@@ -76,7 +76,6 @@ fn drop_privileges() {
             if let Some(pw) = nix::unistd::User::from_name("nobody").ok().flatten() {
                 let _ = nix::unistd::setgid(pw.gid);
                 let _ = nix::unistd::setuid(pw.uid);
-                log::info!("Dropped privileges to nobody");
             } else {
                 log::warn!("Could not find 'nobody' user to drop privileges");
             }
@@ -329,7 +328,6 @@ fn resolve_and_write_pidfile(args: &RsoftflowdArgs) -> Option<String> {
 
 #[allow(clippy::too_many_arguments)]
 fn run_main_loop(
-    args: RsoftflowdArgs,
     mut tracker: FlowTracker,
     targets: NetflowTarget,
     want_v6: bool,
@@ -343,22 +341,6 @@ fn run_main_loop(
     if_index: u16,
     cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!(
-        "rsoftflowd v{} starting data collection",
-        env!("CARGO_PKG_VERSION")
-    );
-    let cap_src = args
-        .pcap_file
-        .as_deref()
-        .unwrap_or_else(|| args.interface.as_deref().unwrap_or(""));
-    for dest in &targets.destinations {
-        let (host, serv) = if let Some(idx) = dest.arg.rfind(':') {
-            (&dest.arg[..idx], &dest.arg[idx + 1..])
-        } else {
-            (&dest.arg[..], "")
-        };
-        log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
-    }
     let mut last_expiry_scan = Instant::now();
     let mut stop_gather = false;
     let pid = std::process::id();
@@ -591,6 +573,29 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    daemonize_and_init_log(&args);
+    let pidfile_path = resolve_and_write_pidfile(&args);
+    drop_privileges();
+    setup_export_targets(&args, &mut targets, is_ntopng);
+    register_signals();
+
+    log::info!(
+        "rsoftflowd v{} starting data collection",
+        env!("CARGO_PKG_VERSION")
+    );
+    let cap_src = args
+        .pcap_file
+        .as_deref()
+        .unwrap_or_else(|| args.interface.as_deref().unwrap_or(""));
+    for dest in &targets.destinations {
+        let (host, serv) = if let Some(idx) = dest.arg.rfind(':') {
+            (&dest.arg[..idx], &dest.arg[idx + 1..])
+        } else {
+            (&dest.arg[..], "")
+        };
+        log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
+    }
+
     let pcap_file_mode = setup_packet_capture(
         &args,
         capture_dev.as_deref(),
@@ -602,15 +607,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         &GRACEFUL_SHUTDOWN,
     );
 
-    daemonize_and_init_log(&args);
-    let pidfile_path = resolve_and_write_pidfile(&args);
-    drop_privileges();
-    setup_export_targets(&args, &mut targets, is_ntopng);
-    register_signals();
-    drop_privileges();
-
     run_main_loop(
-        args,
         tracker,
         targets,
         want_v6,
