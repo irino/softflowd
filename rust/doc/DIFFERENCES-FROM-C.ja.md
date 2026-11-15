@@ -45,13 +45,15 @@
 | D20 | option レコードの interfaceName が、`-r` のとき Rust は空、C はファイル名 | 2026-11-15 | 解消 | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`、`-v 10 -a`) で option data レコードが PID を除いて C と同一。`interface_name_field()` の単体テスト、統合テスト `test_d20_option_record_interface_name_is_file_name` (旧コードで失敗) |
 | D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 許容 | 意図的に修正しない (本文を参照) | 2026-11-15、デコードしたテンプレートを比較 |
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 解消 | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15、`smoke`、`smoke6`、`vlan`、`slow`、`many` の全ての `-m` と `-t maxlife=1 -m 7` のケース (`-v 1`、`5`、`9`、`10`) で、データグラムと `-D` ログが C と同一 (D23 を除く)。live の "burst over -m 10" が MATCHED。`test_flow_eviction_exports` と `tests/expire_modes.rs`。バッチは 1 回 `-m` パケット (`-r` では揃うまで待つ)。`next_expire_is_now()` は `next_expire() == 0` に相当 |
-| D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 未解消 | | |
+| D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33) |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
 | D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 解消 | Align packet statistics and capture loop counters with C | 2026-11-15、non-IP および too short パケットのカウンタの単体テスト、統合テストが通過 |
 | D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 未解消 | | |
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
+| D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 未解消 | | |
+| D33 | `-b` と `-H` (と `-T ether`): v9 では逆方向の MAC アドレス、IPFIX ではサイズが違う | 2026-11-15 | 未解消 | | |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
@@ -512,6 +514,8 @@ C と Rust が v9 または IPFIX のデータグラムを別のレコードで�
   説明しないので、旧注記の「意図的」はまだ示されていない。
 - `-b` の ICMP ケースのサイズ差は、ここではなく D21 による。
 
+**2026-11-15 の更新 (原因を特定、C 版で修正)。**  C は、biflow でないとき、すべてのフローについて 2 レコード分の空きを要求する。`ipfix_flow_to_flowset()` (`export_template.c`) の `frecnum = bi_flag ? 1 : 2` と `len < data_len * frecnum` で、片方向にしか octets がないフローでも「満杯」を返す。データグラムが最大で 1 レコード早く閉じられていた (v9 の IPv4: 残り 60 バイト、レコード 42 バイト、要求 84 バイト)。Rust は実際のサイズで詰める。メンテナの決定: MTU の許す限り詰める (RFC に規定はない)。C 側を、要求するレコード数を `bi_flag ? 1 : (octets[0] != 0) + (octets[1] != 0)` に変更し、Rust は変更しない。変更後、`http.cap` と `v6-http.cap` (`-v 9`、`-v 10`、`-a`) のデータグラムは (IPFIX の option レコードの PID を除き) バイト単位で一致する。注意: C 版は安定版 1.1.1 と、データグラムの終わる位置 (レコードではない) が変わる。stable 対 dev の比較はデコードしたレコードを比べる。
+
 ### D24. expiry scan (ソース、一部実測)
 
 **目的 (Goal)**
@@ -585,6 +589,14 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   オプション解析をラップする必要があるかもしれない。D3 と同じくメンテナの判断。
   互換性の基準は getopt 形式の短いオプション。
 
+**変更の設計 (2026-11-15)。** *メンテナが下の A、B、C を選び、その選択をここに書くまで着手しない。* 最初の段階は小さなモデルではなく Claude が行う。
+
+75 ケースについて、C と Rust の 1 行目と終了ステータスを正確に並べた表が `rust/doc/CLI-PARITY-CASES.md` (生成物。75 件中 22 件は既に同じ)。違い: (1) clap が拒否するコマンドラインで Rust の終了ステータスは 2 (C は 1。D3)、(2) 文言 (`./softflowd: invalid option -- 'z'`、`option requires an argument -- 'i'`、`Packet source already specified.`、`-i, -r or -R option not specified.`)、(3) `-h` と `--help` は clap のヘルプを標準出力に出す。C は `Usage: ...` を標準エラーに出し、終了ステータス 0。
+
+選択肢: **A** clap を残してエラーを翻訳する。`Command::try_get_matches_from`、`ErrorKind::UnknownArgument`、`MissingValue`、`ArgumentConflict`、`InvalidValue` を C の文言に対応づけて終了ステータス 1 で終わる関数を作る。`-h`/`--help` は C の usage (`options.c` の `usage()` のコピーに Rust の追加分) を標準エラーに出して 0 で終わる。**B** getopt_long 風の小さな解析器を書く。正確だが大きな変更 (メンテナは小さな diff を好む)。**C** 差を許容する (ゲートで D26/D3 を許容にする)。Claude は **A** を推奨する。`-h` だけなら C も許容できる。
+
+*ゲート:* 完了したら `D26` と `D3` の登録を削除する。
+
 ### D27. `-g -M` の CPU clock の行 (実測)
 
 **目的 (Goal)**
@@ -601,6 +613,18 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
 
 - 実測: `-M` 付きの C は合計 (1228) だけ。Rust は合計 (455) と
   `cpu clocks (export): 8 (1 calls)`。`-M` なしでは両方とも 2 行を出す。
+
+**変更の設計 (2026-11-15、実装者向け)。**
+
+*ファイル:* `rust/src/bin/rsoftflowd.rs` の `main` の末尾 (`if tracker.param.gauge_clock {`)。
+
+*C の動作* (`softflowd.c:535-545`): `cpu clocks: N` を出し、`-M` があれば `cpu clocks (export): n/a with threaded export` を出す。`-M` がなければ `cpu clocks (export): N (K calls)` を出す。Rust は `-M` (`args.use_thread`) を受け付けるが、呼び出したスレッドで export し、常に数値を出す。
+
+*変更:* `if tracker.param.gauge_clock` のブロックで、`args.use_thread` が真なら `cpu clocks (export): n/a with threaded export` を出し、偽なら今の行を出す。他は変えない (`eprintln!` のまま。出力先はこの項目の対象外)。
+
+*テスト:* `rust/tests/integration_tests.rs` に統合テストを追加する。`rsoftflowd -r <pcap> -g -M -n 127.0.0.1:<port>` を実行し、標準エラーに `cpu clocks (export): n/a with threaded export` があり `calls)` がないこと。`-M` なしでは `calls)` があること。旧コードで失敗する。
+
+*ゲート:* `tools/gate_expected.json` の `D27` の登録を削除する。compat の "cpu clocks of -g -M" ("live on lo, cpu clocks of -g -M" も) が MATCHED で、"cpu clocks of -g" は MATCHED のまま。両方の文書で D27 の行を `解消` にする。
 
 ### D28. control socket の応答とシグナル (2026-11-02 に実測、一部再測定)
 
@@ -622,6 +646,30 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   ログに出し、Rust は `Shutting down complete, exiting.` を足す。他のシグナルと
   応答は 2026-11-02 の実測で、詳しくは再実行していない。
 - `daemon` の項目は 2026-11-15 にはスキップした。
+
+**変更の設計 (2026-11-15、実装者向け)。** 6 つの小さな編集で、それぞれ 1 行から数行。編集のたびに、下に挙げる compat の項目を実行する。
+
+1. *`timeouts` の応答* (`rust/src/control.rs`、`tcp = 3600 ...` を書く所): C の 8 行 (`stats.c:258-267`) をそのまま書く (`%d` は秒。前の文字列は右端をそろえる空白つき):
+```
+           TCP timeout: 3600s
+  TCP post-RST timeout: 120s
+  TCP post-FIN timeout: 300s
+           UDP timeout: 300s
+          ICMP timeout: 300s
+       General timeout: 3600s
+      Maximum lifetime: 604800s
+       Expiry interval: 60s
+```
+   応答は `softflowd[PID]: Printing timeouts:` と pid で始まる (今もそうなっている)。プログラム名はハーネスが期待するまま。
+2. *`shutdown` コマンド*: ログ行 `Shutdown command received.` を削除する (`rsoftflowd.rs` の 363 行付近)。C は最後に `Shutting down on user request` (WARNING) を 1 回だけ出す。
+3. *`exit` コマンド*: `Exit command received.` を削除し、すぐ終了する所で `log::warn!` で `Exiting immediately on user request` を出す (C: `softflowd.c:493`)。
+4. *最後の行*: `log::info!("Shutting down complete, exiting.")` (`rsoftflowd.rs` の 521 行付近) を削除する。C はここで何も書かない。
+5. *SIGHUP*: 文言は `SIGHUP received (config reload not implemented)` (C: `softflowd.c:388`)。Rust は `SIGHUP received, re-opening logs (not implemented yet)`。
+6. *SIGUSR1* (実バグ): Rust は扱っておらず、既定の動作でプロセスが終了する。他のシグナルと同じように登録し (`signal_hook::flag::register(SIGUSR1, ...)`、`rsoftflowd.rs` の 60 行付近)、メインループでフラグが立っていたら、info レベルで `stats: tracked=<テーブルのフロー数> total_packets=<パケット数>` を出す (C: `softflowd.c:377-384`、`%u` と `%llu`)。
+
+*テスト:* (a) `timeouts` の文言の単体テスト、(b) 統合テスト: `rsoftflowd -d -r <ファイル> ...` を起動し、SIGUSR1 を送って、プロセスが生きていてログに `stats: tracked=` があること、(c) compat の項目 "control replies ending with shutdown / exit"、"the log of the shutdown command"、"the log of the exit command"、"live on lo, SIGINT / SIGTERM"。ハーネスに SIGUSR1 と SIGHUP の項目を足す (後の「追加するテスト」を参照)。
+
+*ゲート:* 3 つの `D28` の登録を削除する。D28 の行を `解消` にする。
 
 ### D29. 起動ログの順序と、root での余分な行 (実測、Rust のバグ)
 
@@ -694,6 +742,82 @@ export してから終了する。
 - Rust のフローキーは、アドレスが等しいときに方向を決めない。C は決める
   (C と C++ の同一アドレス Biflow)。
 - `loopback` のケースのデータグラム数の差は、D22 ではなくこれによる。
+
+### D32. IPFIX の option data レコードが `-e` を無視する (実測)
+
+**目的 (Goal)**
+
+`-e ADDRESS` を、C と同じく IPFIX の option data レコードに書く。IPv4 アドレスなら `exporterIPv4Address` (130) と `originalExporterIPv4Address` (403)、IPv6 アドレスなら `exporterIPv6Address` (131) と `originalExporterIPv6Address` (404)。他のフィールドはゼロ。
+
+**受け入れ基準 (Acceptance Criteria)**
+
+1. compat の `-v 10 -a -e 192.0.2.1` が、全 pcap で C と同一 (PID を除く)。
+2. 新しい compat 項目 `-e 2001:db8::1` (IPv6) が C と同一。先に C で実行し、option レコードをデコードして (`analysis-tools/dec.py`)、どの 4 フィールドにアドレスが入るかを確認する。
+3. `exporter_ip` がある場合 (v4 と v6) とない場合の option data レコードの単体テスト。旧コードで失敗する。
+4. `tools/gate_expected.json` の `D32` の登録を削除する。
+
+**背景 (Context)**
+
+- 実測 (`http.cap -v 10 -a -e 192.0.2.1`): 最初のデータグラムの byte 380〜383 と 400〜403。C は `c0 00 02 01`、Rust はゼロ。
+- ソース: `rust/src/exporter/export.rs` の `send_ipfix_flows()`。interfaceName の後に `packet.extend_from_slice(&[0u8; 40]);` (4 + 16 + 4 + 16 バイト) を書いている。`enc_exporterAddress()` (253 行) はアドレスを書く方法を知っているが、ここでは使われていない。C は `export.c` の `enc_exporterAddress()` が、合う種類の最初のアドレスを書く。
+- *変更:* 40 個のゼロを、option template の順 (130/4、131/16、403/4、404/16) の 4 フィールドに置き換え、それぞれ上の規則で埋める。
+
+
+### D33. `-b` と `-H`、`-T ether` (実測、未分析)
+
+**目的 (Goal)**
+
+`-H` と `-T ether` を使った Biflow の差を見つけて取り除く。
+
+**受け入れ基準 (Acceptance Criteria)**
+
+1. 下の 2 つの差のそれぞれの原因をここに書く。
+2. compat の `-b -T ether -H 02:00:00:00:00:01` (v9 と IPFIX) が C と同一。残す差は理由を付けて「許容」と書く (その場合ゲートに「許容」の登録を作る)。
+3. ゲートの `D33` の登録を削除するか、「許容」に変える。
+
+**背景 (Context)**
+
+- v9 (`smoke -v 9 -a -b -T ether -H 02:00:00:00:00:01`): データグラムのサイズは同じ。1 レコードにつき 1 バイト違う (offset 505、621、…。間隔はレコード長 116)。逆方向の MAC アドレスのフィールド (template 1024 の `sourceMacAddress` と 57 番のフィールド) の最後のバイトが、C は `00`、Rust は `02`。`-H` で指定したアドレスを、C がゼロを書く方向に使っている (またはその逆) ように見える。
+- IPFIX (`-v 10 -a -b -T ether -H ...`): データグラムのサイズが違う (C 1384 と Rust 1428、C 1368 と Rust 1412、C 1364 と Rust 1416)。template かレコードが違う。一部は許容した D21 (ICMP の template) かもしれない。まず template のセットを調べる (`dec.py`)。
+- まだ読んでいないもの: C (`packet.c`、`flow.c`) と Rust で `-H` (`--direction-mac`) が方向をどう決めるか。この項目は Claude が行う。
+
+
+## 品質ゲートとテスト (2026-11-15)
+
+### ゲート: `tools/softflowd_test_suite.py gate`
+
+パッチを受け入れてよいかを 1 つのコマンドで答える:
+
+```
+tools/softflowd_test_suite.py gate --rust-dir rust -- \
+    --a ./softflowd --b rust/target/release/rsoftflowd \
+    --ctl-a ./softflowctl --ctl-b rust/target/release/rsoftflowctl \
+    --skip-build --skip-cpp --skip-rust --skip-static --skip-direct --skip-psamp \
+    --collector python --no-benchmark --no-gauge-clock
+```
+
+`softflowd_test.py --strict` を実行し、続いて `rust/` で `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test` を実行して、最後の 1 行に `GATE: PASS ...` か `GATE: FAIL ...` を出す。`--from-log FILE` は保存した出力を判定し、`--report FILE` は JSON を書く。規則は `tools/softflowd_test_gate.py` と `tools/gate_expected.json` にある:
+
+| 分類 | 意味 | ゲート |
+|---|---|---|
+| accepted (許容) | 意図的に残す差 (D21) | 通る |
+| open (未解消) | ここで追跡している既知の差 (D3、D26、D27、D28、D32、D33) | 通る |
+| UNEXPECTED | それ以外の差や失敗 | **失敗** |
+| STALE | どの行にも当たらない登録 (差が消えた) | **失敗**: 直したパッチが登録を削除する |
+| DOCS | この文書の行がない、または `解消` の登録 | **失敗** |
+
+項目を直すパッチは、`gate_expected.json` の登録を削除し、**両方の**文書で項目の行を `解消` にし、旧コードで失敗するテストを足す。他を壊すパッチは UNEXPECTED の行を出す。Claude がパッチを見る手順: (1) `git am` が通る、(2) 項目の登録を削除して `GATE: PASS`、(3) 設計に書いたファイルだけが変わり、diff が小さい、(4) `src/` を戻す (`git stash -- rust/src`) と新しいテストが失敗する、(5) 両方の文書の行が更新されている、(6) コミットメッセージが何をなぜ直したかを書いている。
+
+### 追加するテスト (提案。価値の高い順)
+
+1. **壊れたパケットのコーパス** (D25 のようなバグを見つける): `http.cap`、`v6-http.cap`、`vlan` から、各パケットを 0 バイトから元の長さまですべての長さで切った pcap と、固定の seed でビットを反転した pcap を作る。両方のバイナリに `-v 5`、`-v 9`、`-v 10` で読ませ、export されたレコードと最後の統計が同一で、Rust の終了ステータスが 101 (panic) でないこと。compat のステップ `--fuzz N` として足す。
+2. **シャットダウンとシグナル** (D30 のようなバグを見つける): `lo` の live で `-m 10`、`-m 100`、既定の 3 通り。60 フローを送り、SIGINT、SIGTERM、`softflowctl shutdown`、`exit` で止める。export されるレコードが C と同じであること (`exit` では C は何も export しない)。SIGUSR1 (プロセスが生きていること) と SIGHUP も足す。
+3. **権限と起動の順序** (D29 の回帰を見つける): root で `-i lo` がキャプチャできる。`-i nonexistent0` は daemon 化する前に終了ステータス 1 で終わる。`-d` の最初の 4 行のログが C の順序で、50 回繰り返しても崩れない (競合)。
+4. **golden データグラム**: パッチの前に compat の全 pcap・全オプションのデータグラムを保存し、後で比べる。形式に関係しないパッチは 1 バイトも変えてはならない (`--save-golden DIR` と `--check-golden DIR`)。
+5. **速度のガード**: 30 万パケットの pcap で `softflowd_test_suite.py bench` を実行し、Rust が C の 5 倍を超えたら失敗 (今は約 3 倍)。D25 のように別スレッドへ処理を移す変更が測定される。
+6. **`-e`、`-H`、`-b` のオプション行列**: 全 pcap で `-b`、`-H`、`-T`、`-e` (v4 と v6)、`-s`、`-A` のすべての組合せを実行する。D32 と D33 は行列にこれらのオプションがあったから見つかった。
+7. **CLI の表**: `CLI-PARITY-CASES.md` の 75 ケースを、1 行目だけでなく標準エラーの全体で比べる (D26 の後)。
+8. **文書のチェック** (ゲートで実施済み): すべての登録に、open または accepted の行がある。
 
 ## リポジトリの状態 (ソース)
 

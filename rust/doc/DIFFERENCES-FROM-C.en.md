@@ -47,13 +47,15 @@ changes when a patch is applied.
 | D20 | interfaceName of the option records is empty with `-r` in Rust; C writes the file name | 2026-11-15 | fixed | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15, option data record identical to C for http.cap and v6-http.cap (`-v 9 -a`, `-v 10 -a`) except the PID; unit tests of `interface_name_field()`, integration test `test_d20_option_record_interface_name_is_file_name` (fails on the old code) |
 | D21 | Biflow (`-b`) template of ICMP: C has a reverse icmpTypeCode, Rust has not | 2026-11-15 | accepted | not fixed on purpose (see the text) | 2026-11-15, decoded templates compared |
 | D22 | Overflow eviction (`-m`): C evicts in batches after a dispatch, Rust evicts one flow at a time and sends one datagram per flow (part of D12) | 2026-11-15 | fixed | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15, the datagrams and the `-D` log of all `-m` and `-t maxlife=1 -m 7` cases of `smoke`, `smoke6`, `vlan`, `slow` and `many` are identical to C (`-v 1`, `5`, `9`, `10`), apart from D23; the live item "burst over -m 10" MATCHED; `test_flow_eviction_exports` and `tests/expire_modes.rs`. Batch: `-m` packets per round (with `-r` the round waits for them); `next_expire_is_now()` as `next_expire() == 0` |
-| D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | open | | |
+| D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | fixed | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15, with this change of the C version the datagrams of v9 and IPFIX of `http.cap` and `v6-http.cap` are byte for byte the same as Rust (except the PID); compat: 168 runs differ 134 -> 24 (the rest is D21, D32, D33) |
 | D24 | Expiry scan: modes, `<` against `<=`, missing "Forcing expiry" log (part of D12) | 2026-11-15 | fixed | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15, `ExpireMode` (0, -1, 1), `-r` scans only forced flows, `expires_at < now`; the `-d` log of `smoke` and `smoke -m 100` is identical to C; `tests/expire_modes.rs`. Also matched to C in the same scan: the reason of the `Queuing flow` line is the number and comes before the flush mark, the maximum lifetime is counted with `>=`, `sent N netflow packets` is logged before the `EXPIRED` lines, and `flows_dropped` grows when the send fails. The `-d` logs of the `-m` cases still differ: D22 |
 | D25 | Packet statistics: `Packets processed` and `Ignored packets` differ for non-IP and too short packets (part of D12) | 2026-11-15 | fixed | Align packet statistics and capture loop counters with C | 2026-11-15, unit tests for non-ip and too short packet counters, integration tests pass |
 | D26 | Command line: texts of errors and of `-h`/`--help` differ (part of D12; the exit status is D3) | 2026-11-15 | open | | |
 | D27 | `-g -M`: the CPU clock lines differ (part of D12) | 2026-11-15 | open | | |
 | D28 | Control socket replies and the log lines on signals differ (part of D12) | 2026-11-15 | open | | |
 | D29 | Start-up log lines can come out of order, and `Dropped privileges to nobody` is extra (found by `cargo test`) | 2026-11-15 | fixed | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (including 20 repetitions of `test_d6_logging_stderr_first_four_lines`) pass as an ordinary user; follow-up: the capture source is opened again before the daemonization and the drop of the privileges (live capture as root, exit status 1 for a missing interface); the capture thread waits for the start-up log lines; `test_d6_logging_stderr_first_four_lines` passed 100 of 100 runs |
+| D32 | The option data record of IPFIX ignores `-e` (the exporter address is written as zeros) | 2026-11-15 | open | | |
+| D33 | `-b` with `-H` (and `-T ether`): the MAC address of the reverse direction differs in v9, the sizes in IPFIX | 2026-11-15 | open | | |
 | D30 | The flows left in the table were not exported at shutdown (SIGINT, SIGTERM, `softflowctl shutdown`) | 2026-11-15 | fixed | Export the flows left in the table at shutdown again | 2026-11-15, compat item "live on lo, burst over -m 10" (60 of 60 records; 50 or less before) |
 | D31 | Both ends with the same address (as on `lo`): C makes one Biflow, Rust makes two flows | 2026-11-15 | fixed | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15, unit test `test_d31_same_address_biflow` (fails on old code) |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
@@ -534,6 +536,8 @@ either make the packing the same or write down why the difference stays.
   explain the early stop, so the old note ("intentional") is not shown yet.
 - The size differences of the `-b` ICMP cases come from D21, not from here.
 
+**Update of 2026-11-15 (cause found, fixed in the C version).**  C asks for room for two records for every flow when no Biflow is used: `ipfix_flow_to_flowset()` (`export_template.c`) has `frecnum = bi_flag ? 1 : 2` and returns "full" when `len < data_len * frecnum`, also when only one direction has octets.  A datagram was closed up to one record too early (v9 IPv4: remaining 60 bytes, record 42 bytes, 84 asked).  Rust packs by the real size.  Decision of the maintainer: pack as far as the MTU allows (the RFCs have no rule).  The C version is changed to ask for `bi_flag ? 1 : (octets[0] != 0) + (octets[1] != 0)` records; the Rust version is not changed.  After the change the datagrams of `http.cap` and `v6-http.cap` (`-v 9`, `-v 10`, `-a`) are byte for byte the same (the PID in the IPFIX option record excepted).  Note: the C version now differs from the stable version 1.1.1 in where a datagram ends (not in the records); the stable-against-dev comparison compares the decoded records.
+
 ### D24. Expiry scan (source, partly measured)
 
 **Goal**
@@ -606,6 +610,14 @@ the difference is written down as accepted.
   option parsing of Rust to be wrapped.  A decision for the maintainer, as in
   D3.  The compatibility baseline is the getopt-style short options.
 
+**Design of the change (2026-11-15).**  *Do not start before the maintainer has chosen A, B or C below and the choice is written here.*  Claude, not a small model, should do the first step.
+
+The table of the 75 cases, with the exact first line and exit status of C and of Rust, is `rust/doc/CLI-PARITY-CASES.md` (generated; 22 of 75 are the same already).  What is different: (1) the exit status is 2 in Rust for a command line that clap rejects (C: 1; D3); (2) the text (`./softflowd: invalid option -- 'z'`, `option requires an argument -- 'i'`, `Packet source already specified.`, `-i, -r or -R option not specified.`); (3) `-h` and `--help` print the clap help to standard output; C prints `Usage: ...` to standard error, exit status 0.
+
+Choices: **A** keep clap and translate its errors: `Command::try_get_matches_from`, a function that maps `ErrorKind::UnknownArgument`, `MissingValue`, `ArgumentConflict`, `InvalidValue` to the C text and exits with 1; `-h`/`--help` write the usage of C (copy of `usage()` of `options.c`, plus the Rust additions) to standard error and exit 0.  **B** write a small getopt_long-style parser: exact, but a large change (the maintainer prefers small diffs).  **C** accept the difference (the gate keeps D26/D3 as accepted).  Claude recommends **A**; C is acceptable for `-h`.
+
+*Gate:* when done, delete the entries `D26` and `D3`.
+
 ### D27. `-g -M` CPU clock lines (measured)
 
 **Goal**
@@ -622,6 +634,18 @@ the difference is written down as accepted.
 
 - Measured: C with `-M`: only the total (1228); Rust: total (455) and
   `cpu clocks (export): 8 (1 calls)`.  Without `-M` both print both lines.
+
+**Design of the change (2026-11-15, written for the implementer).**
+
+*File:* `rust/src/bin/rsoftflowd.rs`, the end of `main` (`if tracker.param.gauge_clock {`).
+
+*What C does* (`softflowd.c:535-545`): it prints `cpu clocks: N`, and then, if `-M` is given, the line `cpu clocks (export): n/a with threaded export`; without `-M` it prints `cpu clocks (export): N (K calls)`.  The Rust version accepts `-M` (`args.use_thread`) but exports in the calling thread, and always prints the number.
+
+*Change:* in the `if tracker.param.gauge_clock` block, print `cpu clocks (export): n/a with threaded export` when `args.use_thread` is true, and the existing line otherwise.  Do not change anything else (keep `eprintln!`; the stream is not part of this item).
+
+*Tests:* an integration test in `rust/tests/integration_tests.rs`: run `rsoftflowd -r <pcap> -g -M -n 127.0.0.1:<port>`; stderr contains `cpu clocks (export): n/a with threaded export` and no `calls)`; without `-M` it contains `calls)`.  It fails on the old code.
+
+*Gate:* delete the entry `D27` of `tools/gate_expected.json`; the compat items "cpu clocks of -g -M" (and "live on lo, cpu clocks of -g -M") are MATCHED; "cpu clocks of -g" stays MATCHED.  Set the row of D27 to `fixed` in both documents.
 
 ### D28. Control socket replies and signals (measured on 2026-11-02, partly re-measured)
 
@@ -644,6 +668,30 @@ SIGTERM and SIGUSR1 are the same as C.
   request`; Rust adds `Shutting down complete, exiting.`.  The other signals
   and the replies were measured on 2026-11-02 and not re-run in detail.
 - The `daemon` item was skipped on 2026-11-15.
+
+**Design of the change (2026-11-15, written for the implementer).**  Six small edits; each one is a line or a few lines.  After each edit run the compat items named below.
+
+1. *`timeouts` reply* (`rust/src/control.rs`, the code that writes `tcp = 3600 ...`): write the eight lines of C (`stats.c:258-267`), exactly (`%d` is the value in seconds; the text before it is padded with spaces to the right edge):
+```
+           TCP timeout: 3600s
+  TCP post-RST timeout: 120s
+  TCP post-FIN timeout: 300s
+           UDP timeout: 300s
+          ICMP timeout: 300s
+       General timeout: 3600s
+      Maximum lifetime: 604800s
+       Expiry interval: 60s
+```
+   The reply starts with `softflowd[PID]: Printing timeouts:` and the pid; that is already so.  The program name stays what the harness expects.
+2. *`shutdown` command*: delete the log line `Shutdown command received.` (`rsoftflowd.rs`, near line 363).  C logs only `Shutting down on user request` (WARNING), once, at the end.
+3. *`exit` command*: delete `Exit command received.`; where the program leaves at once, log `Exiting immediately on user request` with `log::warn!` (C: `softflowd.c:493`).
+4. *The last line*: delete `log::info!("Shutting down complete, exiting.")` (`rsoftflowd.rs`, near line 521).  C writes nothing there.
+5. *SIGHUP*: the text is `SIGHUP received (config reload not implemented)` (C: `softflowd.c:388`); Rust has `SIGHUP received, re-opening logs (not implemented yet)`.
+6. *SIGUSR1* (a real bug): Rust does not handle it, so the default action ends the process.  Register it as the others are (`signal_hook::flag::register(SIGUSR1, ...)`, `rsoftflowd.rs` near line 60) and, in the main loop, when the flag is set, log `stats: tracked=<flows in the table> total_packets=<packets>` at info level (C: `softflowd.c:377-384`; `%u` and `%llu`).
+
+*Tests:* (a) a unit test of the `timeouts` text; (b) an integration test: start `rsoftflowd -d -r <fifo or file> ...`, send SIGUSR1, and check that the process is still alive and the log has `stats: tracked=`; (c) the compat items "control replies ending with shutdown / exit", "the log of the shutdown command", "the log of the exit command", "live on lo, SIGINT / SIGTERM".  Add to the harness (see "Tests to add" below) an item for SIGUSR1 and SIGHUP.
+
+*Gate:* delete the three entries `D28`.  Set the row of D28 to `fixed`.
 
 ### D29. Start-up log order, and an extra line as root (measured, a Rust bug)
 
@@ -719,6 +767,82 @@ port 53 and `127.0.0.1` port 40000) are one Biflow, as in C (RFC 5103).
   equal; C does (the same-address Biflow of the C and C++ versions).
 - The datagram counts of the `loopback` cases differ because of this, not
   because of D22.
+
+### D32. The option data record of IPFIX ignores `-e` (measured)
+
+**Goal**
+
+`-e ADDRESS` is written to the option data record of IPFIX, as in C: `exporterIPv4Address` (130) and `originalExporterIPv4Address` (403) for an IPv4 address; `exporterIPv6Address` (131) and `originalExporterIPv6Address` (404) for an IPv6 address; the other fields are zero.
+
+**Acceptance Criteria**
+
+1. The compat items `-v 10 -a -e 192.0.2.1` are identical to C for all pcaps (the PID excepted).
+2. A new compat item `-e 2001:db8::1` (IPv6) is identical to C; first run C with it and decode the option record (`analysis-tools/dec.py`) to confirm which of the four fields get the address.
+3. A unit test of the option data record with `exporter_ip` set (v4 and v6) and not set; it fails on the old code.
+4. The entry `D32` of `tools/gate_expected.json` is deleted.
+
+**Context**
+
+- Measured (`http.cap -v 10 -a -e 192.0.2.1`): bytes 380-383 and 400-403 of the first datagram: C `c0 00 02 01`, Rust zeros.
+- Source: `rust/src/exporter/export.rs`, `send_ipfix_flows()`: after the interface name the record gets `packet.extend_from_slice(&[0u8; 40]);` (4 + 16 + 4 + 16 bytes).  `enc_exporterAddress()` (line 253) already knows how to write the address and is not used here.  C: `enc_exporterAddress()` in `export.c` writes the first address of the right family.
+- *Change:* replace the 40 zero bytes by four fields in the order of the option template (130/4, 131/16, 403/4, 404/16), each filled by the rule above.
+
+
+### D33. `-b` with `-H` and `-T ether` (measured, not analyzed)
+
+**Goal**
+
+Find and remove the differences of the Biflow with `-H` and `-T ether`.
+
+**Acceptance Criteria**
+
+1. The cause of each of the two differences below is written here.
+2. The compat items `-b -T ether -H 02:00:00:00:00:01` for v9 and IPFIX are identical to C, or a difference that stays is written down as accepted with its reason (then it gets an entry of kind "accepted" in `tools/gate_expected.json`).
+3. The entry `D33` of the gate is deleted or turned into "accepted".
+
+**Context**
+
+- v9 (`smoke -v 9 -a -b -T ether -H 02:00:00:00:00:01`): datagrams of the same size; bytes differ at one byte per record (offsets 505, 621, ...: the distance is the record length, 116): C `00`, Rust `02` in the last byte of the MAC address field of the reverse direction (template 1024, fields `sourceMacAddress` and the field 57).  It looks like the address given by `-H` is used for a direction where C writes zeros, or the reverse.
+- IPFIX (`-v 10 -a -b -T ether -H ...`): the sizes of the datagrams differ in both directions (C 1384, Rust 1428; C 1368, Rust 1412; C 1364, Rust 1416): different templates or records.  Part of it can be D21 (the ICMP templates), which is accepted; check the template sets first (`dec.py`).
+- Not yet read: how `-H` (`--direction-mac`) chooses the direction in C (`packet.c`, `flow.c`) and in Rust.  Claude should do this item.
+
+
+## Quality gate and tests (2026-11-15)
+
+### The gate: `tools/softflowd_test_suite.py gate`
+
+One command that says whether a patch is acceptable:
+
+```
+tools/softflowd_test_suite.py gate --rust-dir rust -- \
+    --a ./softflowd --b rust/target/release/rsoftflowd \
+    --ctl-a ./softflowctl --ctl-b rust/target/release/rsoftflowctl \
+    --skip-build --skip-cpp --skip-rust --skip-static --skip-direct --skip-psamp \
+    --collector python --no-benchmark --no-gauge-clock
+```
+
+It runs `softflowd_test.py --strict`, then `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test` in `rust/`, and prints one last line, `GATE: PASS ...` or `GATE: FAIL ...`.  `--from-log FILE` judges a saved output; `--report FILE` writes JSON.  The rules, in `tools/softflowd_test_gate.py` and `tools/gate_expected.json`:
+
+| Class | Meaning | Gate |
+|---|---|---|
+| accepted | a difference that is kept on purpose (D21) | passes |
+| open | a known difference that is tracked here (D3, D26, D27, D28, D32, D33) | passes |
+| UNEXPECTED | any other difference or failure | **fails** |
+| STALE | an entry that no line matched: the difference is gone | **fails**: the patch that fixed it must delete the entry |
+| DOCS | an entry whose row here is missing or is `fixed` | **fails** |
+
+So a patch that fixes an item must: delete its entry from `gate_expected.json`, set the row of the item to `fixed` in **both** documents, and add a test that fails on the old code.  A patch that breaks something else gives an UNEXPECTED line.  Claude's review of a patch is: (1) `git am` applies; (2) `GATE: PASS` with the entries of the item deleted; (3) only the files named in the design were changed, and the diff is small; (4) the new test fails when `src/` is reverted (`git stash -- rust/src`); (5) the rows of both documents are updated; (6) the commit message says what and why.
+
+### Tests to add (proposals, in the order of value)
+
+1. **Corpus of garbage** (finds bugs like D25): a script makes pcaps from `http.cap`, `v6-http.cap` and `vlan` by cutting every packet at every length from 0 to its size, and by flipping bits with a fixed seed; both binaries read them with `-v 5`, `-v 9` and `-v 10`; the exported records and the final statistics must be identical, and the exit status of Rust must not be 101 (a panic).  Add as a compat step, `--fuzz N`.
+2. **Shutdown and signals** (finds bugs like D30): live on `lo` with `-m 10`, `-m 100` and the default: send 60 flows, then stop with SIGINT, SIGTERM, `softflowctl shutdown` and `exit`: records exported must equal C for each (`exit`: C exports nothing).  Add SIGUSR1 (the process must stay alive) and SIGHUP.
+3. **Privilege and start order** (finds the regression of D29): as root, `-i lo` must capture; `-i nonexistent0` must exit with status 1 before it daemonizes; the first four log lines of `-d` are in the order of C, repeated 50 times (a race).
+4. **Golden datagrams**: before a patch, save the datagrams of all pcaps and options of the compat matrix; after it, compare.  A patch that is not about the format must not change one byte.  (`--save-golden DIR` and `--check-golden DIR`.)
+5. **Speed guard**: `softflowd_test_suite.py bench` on a pcap of 300 000 packets; fail when Rust takes more than 5 times the time of C (it is about 3 times now).  A change that moves work to another thread, as D25 did, is then measured.
+6. **`-e`, `-H`, `-b` option matrix**: run all pcaps with every combination of `-b`, `-H`, `-T`, `-e` (v4 and v6), `-s`, `-A`; D32 and D33 were found only because the matrix had these options.
+7. **CLI table**: run the 75 cases of `CLI-PARITY-CASES.md` with the full standard error, not only the first line (after D26).
+8. **Document check** (done in the gate): every entry has a row that is open or accepted.
 
 ## Repository state (source)
 
