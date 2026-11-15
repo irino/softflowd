@@ -1082,3 +1082,80 @@ fn test_d27_gauge_clock_threaded() {
     assert!(stderr2.contains("calls)"));
     let _ = std::fs::remove_file(pcap_path);
 }
+
+#[test]
+fn test_d32_option_record_exporter_address() {
+    // IPv4 address
+    let ip4 = "192.0.2.1".parse::<std::net::IpAddr>().unwrap();
+    let packet_v4 = run_export_with_exporter_ip(ip4);
+    let octets4 = match ip4 {
+        std::net::IpAddr::V4(v4) => v4.octets().to_vec(),
+        _ => unreachable!(),
+    };
+    if !packet_v4.windows(4).any(|w| w == octets4) {
+        panic!(
+            "IPv4 address not found in packet: {:?} (looking for {:?})",
+            packet_v4, octets4
+        );
+    }
+
+    // IPv6 address
+    let ip6 = "2001:db8::1".parse::<std::net::IpAddr>().unwrap();
+    let packet_v6 = run_export_with_exporter_ip(ip6);
+    let octets6 = match ip6 {
+        std::net::IpAddr::V6(v6) => v6.octets().to_vec(),
+        _ => unreachable!(),
+    };
+    if !packet_v6.windows(16).any(|w| w == octets6) {
+        panic!(
+            "IPv6 address not found in packet: {:?} (looking for {:?})",
+            packet_v6, octets6
+        );
+    }
+}
+
+fn run_export_with_exporter_ip(exporter_ip: std::net::IpAddr) -> Vec<u8> {
+    let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
+    let recv_addr = recv_socket
+        .local_addr()
+        .expect("Failed to get local address");
+    let send_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP sender socket");
+    send_socket
+        .connect(recv_addr)
+        .expect("Failed to connect to receiver socket");
+
+    let targets = NetflowTarget {
+        destinations: vec![Destination {
+            socket: ExportSocket::Udp(send_socket),
+            arg: recv_addr.to_string(),
+        }],
+        version: 10,
+        is_loadbalance: false,
+    };
+
+    let flow = make_dummy_flow();
+    let flow_refs = vec![&flow];
+    let mut param = FlowTrackParameters {
+        exporter_ip: Some(exporter_ip),
+        ..Default::default()
+    };
+
+    let sp = SendParameter {
+        flows: &flow_refs,
+        target: &targets,
+        ifidx: 1,
+        param: &mut param,
+        verbose: false,
+    };
+
+    // Reset template interval
+    rsoftflowd::exporter::export_common::set_pkts_until_template(0);
+    send_flows(sp);
+
+    let mut buf = [0u8; 2048];
+    recv_socket
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive");
+    buf[..received_len].to_vec()
+}

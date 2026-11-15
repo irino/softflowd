@@ -52,7 +52,7 @@
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
-| D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 未解消 | | |
+| D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 解消 | | |
 | D33 | `-b` と `-H` (と `-T ether`): v9 では逆方向の MAC アドレス、IPFIX ではサイズが違う | 2026-11-15 | 未解消 | | |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |

@@ -35,8 +35,8 @@ pub fn get_pkts_until_template() -> i32 {
     IPFIX_PKTS_UNTIL_TEMPLATE.load(Ordering::Relaxed)
 }
 
-pub fn set_pkts_until_template(val: i32) {
-    IPFIX_PKTS_UNTIL_TEMPLATE.store(val, Ordering::Relaxed);
+pub fn set_pkts_until_template(n: i32) {
+    IPFIX_PKTS_UNTIL_TEMPLATE.store(n, Ordering::Relaxed);
 }
 
 pub fn decrement_pkts_until_template() {

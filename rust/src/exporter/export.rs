@@ -926,7 +926,22 @@ fn put_templates(
 
     packet.extend_from_slice(&interface_name_field(&sp.param.interface_name));
 
-    packet.extend_from_slice(&[0u8; 40]);
+    let mut exporter_addr = [0u8; 4 + 16 + 4 + 16];
+    if let Some(ip) = sp.param.exporter_ip {
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                let octets = v4.octets();
+                exporter_addr[0..4].copy_from_slice(&octets);
+                exporter_addr[20..24].copy_from_slice(&octets);
+            }
+            std::net::IpAddr::V6(v6) => {
+                let octets = v6.octets();
+                exporter_addr[4..20].copy_from_slice(&octets);
+                exporter_addr[24..40].copy_from_slice(&octets);
+            }
+        }
+    }
+    packet.extend_from_slice(&exporter_addr);
 
     let opt_data_len = (packet.len() - opt_data_start) as u16;
     packet[opt_data_len_offset..opt_data_len_offset + 2]
