@@ -14,10 +14,17 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 #[derive(Debug)]
+pub struct RawPacketEvent {
+    pub linktype: i32,
+    pub data: Vec<u8>,
+    pub caplen: u32,
+    pub orig_len: u32,
+    pub timestamp: TimeVal,
+}
+
+#[derive(Debug)]
 pub enum PacketEvent {
-    Parsed(ParsedPacket),
-    NonIp,
-    TooShort,
+    Raw(RawPacketEvent),
 }
 
 /// Opens the packet capture source (live interface or PCAP file), applies BPF filters,
@@ -32,9 +39,9 @@ pub enum PacketEvent {
 pub fn setup_packet_capture(
     args: &RsoftflowdArgs,
     capture_dev: Option<&str>,
-    track_level: TrackLevel,
-    max_num_label: u8,
-    full_l4hdr: bool,
+    _track_level: TrackLevel,
+    _max_num_label: u8,
+    _full_l4hdr: bool,
     packet_tx: Sender<PacketEvent>,
     pcap_stats: Arc<Mutex<Option<(u64, u64, u64)>>>,
     graceful_shutdown: &'static AtomicBool,
@@ -143,26 +150,14 @@ pub fn setup_packet_capture(
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        match parse_packet(
+                        let raw_event = RawPacketEvent {
                             linktype,
-                            &data,
+                            data,
                             caplen,
-                            len,
-                            track_level,
-                            max_num_label,
-                            full_l4hdr,
+                            orig_len: len,
                             timestamp,
-                        ) {
-                            Ok(parsed) => {
-                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
-                            }
-                            Err(ParseError::NonIp) => {
-                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
-                            }
-                            Err(ParseError::TooShort) => {
-                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
-                            }
-                        }
+                        };
+                        let _ = packet_tx_clone.send(PacketEvent::Raw(raw_event));
                     }
                     Err(pcap::Error::NoMorePackets) => {
                         if let Ok(st) = capture.stats() {
@@ -211,26 +206,14 @@ pub fn setup_packet_capture(
                                 Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
                         }
 
-                        match parse_packet(
+                        let raw_event = RawPacketEvent {
                             linktype,
-                            &data,
+                            data,
                             caplen,
-                            len,
-                            track_level,
-                            max_num_label,
-                            full_l4hdr,
+                            orig_len: len,
                             timestamp,
-                        ) {
-                            Ok(parsed) => {
-                                let _ = packet_tx_clone.send(PacketEvent::Parsed(parsed));
-                            }
-                            Err(ParseError::NonIp) => {
-                                let _ = packet_tx_clone.send(PacketEvent::NonIp);
-                            }
-                            Err(ParseError::TooShort) => {
-                                let _ = packet_tx_clone.send(PacketEvent::TooShort);
-                            }
-                        }
+                        };
+                        let _ = packet_tx_clone.send(PacketEvent::Raw(raw_event));
                     }
                     Err(_) => {
                         continue;
@@ -244,6 +227,77 @@ pub fn setup_packet_capture(
     }
 
     pcap_file_mode
+}
+
+pub fn process_raw_packet(
+    tracker: &mut FlowTracker,
+    raw: RawPacketEvent,
+    want_v6: bool,
+    targets: &NetflowTarget,
+    ifidx: u16,
+) {
+    if tracker.param.total_packets == 0 && tracker.param.non_sampled_packets == 0 {
+        tracker.param.system_boot_time = raw.timestamp;
+    }
+
+    if tracker.param.boot_time_reinit > 0 {
+        let diff = raw.timestamp.tv_sec - tracker.param.system_boot_time.tv_sec;
+        if diff >= tracker.param.boot_time_reinit as i64 {
+            log::info!("Reinitializing system boot time due to -I option.");
+            tracker.param.system_boot_time = raw.timestamp;
+        }
+    }
+
+    // Sampling
+    if tracker.param.sample_rate > 0
+        && !(tracker.param.total_packets + tracker.param.non_sampled_packets)
+            .is_multiple_of(tracker.param.sample_rate as u64)
+    {
+        tracker.param.non_sampled_packets += 1;
+        return;
+    }
+
+    tracker.param.total_packets += 1;
+    tracker.param.last_packet_time = raw.timestamp;
+
+    if tracker.param.is_psamp {
+        send_psamp(
+            &raw.data,
+            raw.caplen,
+            raw.timestamp,
+            targets,
+            tracker.param.total_packets,
+            &tracker.param,
+        );
+        return;
+    }
+
+    match parse_packet(
+        raw.linktype,
+        &raw.data,
+        raw.caplen,
+        raw.orig_len,
+        tracker.param.track_level,
+        tracker.param.max_num_label,
+        tracker.param.full_l4hdr_check,
+        raw.timestamp,
+    ) {
+        Ok(parsed) => {
+            if !want_v6 && parsed.af == 10 {
+                tracker.param.non_ip_packets += 1;
+                tracker.param.total_packets -= 1;
+                return;
+            }
+            process_valid_parsed_packet(tracker, parsed, targets, ifidx);
+        }
+        Err(ParseError::NonIp) => {
+            tracker.param.non_ip_packets += 1;
+            tracker.param.total_packets -= 1;
+        }
+        Err(ParseError::TooShort) => {
+            tracker.param.bad_packets += 1;
+        }
+    }
 }
 
 /// Processes a parsed packet, updating flow tracking state and exporting flows or PSAMP records as needed.
@@ -300,6 +354,17 @@ pub fn process_parsed_packet(
         );
         return;
     }
+
+    process_valid_parsed_packet(tracker, parsed, targets, ifidx);
+}
+
+fn process_valid_parsed_packet(
+    tracker: &mut FlowTracker,
+    parsed: ParsedPacket,
+    targets: &NetflowTarget,
+    ifidx: u16,
+) {
+    let timeval_packet = parsed.timestamp;
 
     // Fragment packets count
     if parsed.is_frag {

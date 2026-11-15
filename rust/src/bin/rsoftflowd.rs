@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rsoftflowd::capture::{PacketEvent, process_parsed_packet, setup_packet_capture};
+use rsoftflowd::capture::{PacketEvent, process_raw_packet, setup_packet_capture};
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
@@ -449,21 +449,14 @@ fn run_main_loop(
                 Ok(event) => {
                     if !stop_gather {
                         match event {
-                            PacketEvent::Parsed(parsed) => {
-                                process_parsed_packet(
+                            PacketEvent::Raw(raw_event) => {
+                                process_raw_packet(
                                     &mut tracker,
-                                    parsed,
+                                    raw_event,
                                     want_v6,
                                     &targets,
                                     if_index,
                                 );
-                            }
-                            PacketEvent::NonIp => {
-                                tracker.param.non_ip_packets += 1;
-                            }
-                            PacketEvent::TooShort => {
-                                tracker.param.bad_packets += 1;
-                                tracker.param.total_packets += 1;
                             }
                         }
                     }
@@ -758,6 +751,7 @@ mod tests {
     #[test]
     fn test_flow_eviction_exports() {
         use byteorder::{BigEndian, ByteOrder};
+        use rsoftflowd::capture::process_parsed_packet;
         use std::net::{Ipv4Addr, UdpSocket};
 
         for lookup_mode in [

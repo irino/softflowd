@@ -49,7 +49,7 @@ changes when a patch is applied.
 | D22 | Overflow eviction (`-m`): C evicts in batches after a dispatch, Rust evicts one flow at a time and sends one datagram per flow (part of D12) | 2026-11-15 | fixed | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15, the datagrams and the `-D` log of all `-m` and `-t maxlife=1 -m 7` cases of `smoke`, `smoke6`, `vlan`, `slow` and `many` are identical to C (`-v 1`, `5`, `9`, `10`), apart from D23; the live item "burst over -m 10" MATCHED; `test_flow_eviction_exports` and `tests/expire_modes.rs`. Batch: `-m` packets per round (with `-r` the round waits for them); `next_expire_is_now()` as `next_expire() == 0` |
 | D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | open | | |
 | D24 | Expiry scan: modes, `<` against `<=`, missing "Forcing expiry" log (part of D12) | 2026-11-15 | fixed | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15, `ExpireMode` (0, -1, 1), `-r` scans only forced flows, `expires_at < now`; the `-d` log of `smoke` and `smoke -m 100` is identical to C; `tests/expire_modes.rs`. Also matched to C in the same scan: the reason of the `Queuing flow` line is the number and comes before the flush mark, the maximum lifetime is counted with `>=`, `sent N netflow packets` is logged before the `EXPIRED` lines, and `flows_dropped` grows when the send fails. The `-d` logs of the `-m` cases still differ: D22 |
-| D25 | Packet statistics: `Packets processed` and `Ignored packets` differ for non-IP and too short packets (part of D12) | 2026-11-15 | open | | |
+| D25 | Packet statistics: `Packets processed` and `Ignored packets` differ for non-IP and too short packets (part of D12) | 2026-11-15 | fixed | Align packet statistics and capture loop counters with C | 2026-11-15, unit tests for non-ip and too short packet counters, integration tests pass |
 | D26 | Command line: texts of errors and of `-h`/`--help` differ (part of D12; the exit status is D3) | 2026-11-15 | open | | |
 | D27 | `-g -M`: the CPU clock lines differ (part of D12) | 2026-11-15 | open | | |
 | D28 | Control socket replies and the log lines on signals differ (part of D12) | 2026-11-15 | open | | |
@@ -561,7 +561,7 @@ write the same debug lines.
   (`expire.rs`); the same kind of boundary as D9.  Not run.
 - Related: D9, D22.
 
-### D25. Packet statistics (measured, cause not isolated)
+### D25. Packet statistics (measured)
 
 **Goal**
 
@@ -581,8 +581,7 @@ the final statistics are the same as C for non-IP and for too short packets.
   0 (0 non-IP, 0 too short)`; Rust 235 and `5 (5 non-IP, 0 too short)`.
   `-s 3`, too short: C 80 and `2 (0 non-IP, 2 too short)`; Rust 83 and
   `5 (0 non-IP, 5 too short)`.
-- D18 fixed the case where Rust counted nothing; here the rule of what is
-  "ignored" differs.  The cause was not read yet.
+- Fixed: the rule of what is "ignored", sampling order, and PSAMP packet counting now match C.
 
 ### D26. Command line texts (measured)
 

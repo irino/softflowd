@@ -667,6 +667,49 @@ fn test_packet_counters() {
 }
 
 #[test]
+fn test_process_raw_packet_non_ip_and_too_short() {
+    let mut tracker = FlowTracker::new(100);
+    let targets = NetflowTarget {
+        destinations: vec![],
+        version: 5,
+        is_loadbalance: false,
+    };
+
+    // Non-IP packet (Ethernet frame with unknown ethertype 0x0000)
+    let non_ip_raw = rsoftflowd::capture::RawPacketEvent {
+        linktype: rsoftflowd::packet_parser::DLT_EN10MB,
+        data: vec![0; 14],
+        caplen: 14,
+        orig_len: 14,
+        timestamp: TimeVal {
+            tv_sec: 1000,
+            tv_usec: 0,
+        },
+    };
+    rsoftflowd::capture::process_raw_packet(&mut tracker, non_ip_raw, true, &targets, 1);
+    assert_eq!(tracker.param.non_ip_packets, 1);
+    assert_eq!(tracker.param.total_packets, 0);
+
+    // Too short packet (Ethernet header + truncated IPv4 header)
+    let mut short_data = vec![0; 12];
+    short_data.extend_from_slice(&[0x08, 0x00]); // IPv4 ethertype
+    short_data.push(0x45); // IPv4 version, IHL=5 but truncated
+    let too_short_raw = rsoftflowd::capture::RawPacketEvent {
+        linktype: rsoftflowd::packet_parser::DLT_EN10MB,
+        data: short_data.clone(),
+        caplen: short_data.len() as u32,
+        orig_len: short_data.len() as u32,
+        timestamp: TimeVal {
+            tv_sec: 1000,
+            tv_usec: 0,
+        },
+    };
+    rsoftflowd::capture::process_raw_packet(&mut tracker, too_short_raw, true, &targets, 1);
+    assert_eq!(tracker.param.bad_packets, 1);
+    assert_eq!(tracker.param.total_packets, 1);
+}
+
+#[test]
 fn test_cli_error_exits_1() {
     let cases = vec![
         vec!["-i", "nonexistent0", "-n", "127.0.0.1:9"],

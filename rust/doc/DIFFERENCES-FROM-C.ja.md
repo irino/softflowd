@@ -47,7 +47,7 @@
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 解消 | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15、`smoke`、`smoke6`、`vlan`、`slow`、`many` の全ての `-m` と `-t maxlife=1 -m 7` のケース (`-v 1`、`5`、`9`、`10`) で、データグラムと `-D` ログが C と同一 (D23 を除く)。live の "burst over -m 10" が MATCHED。`test_flow_eviction_exports` と `tests/expire_modes.rs`。バッチは 1 回 `-m` パケット (`-r` では揃うまで待つ)。`next_expire_is_now()` は `next_expire() == 0` に相当 |
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
-| D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
+| D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 解消 | Align packet statistics and capture loop counters with C | 2026-11-15、non-IP および too short パケットのカウンタの単体テスト、統合テストが通過 |
 | D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 未解消 | | |
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 未解消 | | |
@@ -540,7 +540,7 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   実行はしていない。
 - 関連: D9、D22。
 
-### D25. パケット統計 (実測、原因は未特定)
+### D25. パケット統計 (実測)
 
 **目的 (Goal)**
 
@@ -560,8 +560,7 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   0 (0 non-IP, 0 too short)`。Rust は 235 と `5 (5 non-IP, 0 too short)`。
   `-s 3`、too short: C は 80 と `2 (0 non-IP, 2 too short)`、Rust は 83 と
   `5 (0 non-IP, 5 too short)`。
-- D18 は Rust が何も数えない場合を直した。ここでは何を「無視」とするかの規則が
-  違う。原因はまだ読んでいない。
+- 修正: 何を「無視 (ignored)」とするかの規則、サンプリングの順序、および PSAMP パケットのカウントが C と一致するようになった。
 
 ### D26. コマンドラインの文言 (実測)
 
