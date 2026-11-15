@@ -455,7 +455,10 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   struct EXPORT_CTX ctx = {.sp = sp, .flow = flow, .i = 0};
 
   (void) version; /* only used to size frecnum via bi_flag */
-  if (len < tmpl->t.data_len * frecnum)
+  /* Room is needed only for the records that are written: a flow that has
+   * octets in one direction only needs one record (not two). */
+  u_int need = bi_flag ? 1 : (flow->octets[0] != 0) + (flow->octets[1] != 0);
+  if (len < tmpl->t.data_len * need)
     return (-1);
 
   for (ctx.i = 0; ctx.i < frecnum; ctx.i++) {
