@@ -618,7 +618,7 @@ Choices: **A** keep clap and translate its errors: `Command::try_get_matches_fro
 
 *Gate:* when done, delete the entries `D26` and `D3`.
 
-### D27. `-g -M` CPU clock lines (measured)
+### D27. `-g -M` CPU clock lines (measured) - FIXED (2026-11-15)
 
 **Goal**
 

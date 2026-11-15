@@ -597,7 +597,7 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
 
 *ゲート:* 完了したら `D26` と `D3` の登録を削除する。
 
-### D27. `-g -M` の CPU clock の行 (実測)
+### D27. `-g -M` の CPU clock の行 (実測) - 解消 (2026-11-15)
 
 **目的 (Goal)**
 

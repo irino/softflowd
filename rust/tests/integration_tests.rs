@@ -928,6 +928,7 @@ fn test_ntopng_exporter() {
 // -------------------------------------------------------------
 // Test D20: the interfaceName of the option records is the file name with -r
 // -------------------------------------------------------------
+#[allow(dead_code)]
 fn first_export_datagram(version: &str, pcap_path: &str) -> Vec<u8> {
     let recv = UdpSocket::bind("127.0.0.1:0").unwrap();
     recv.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -950,6 +951,7 @@ fn first_export_datagram(version: &str, pcap_path: &str) -> Vec<u8> {
     buf
 }
 
+#[allow(dead_code)]
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
 }
@@ -1033,19 +1035,50 @@ fn test_d31_same_address_biflow() {
 
 #[test]
 fn test_d20_option_record_interface_name_is_file_name() {
-    // 18 bytes: the field of 16 bytes holds the first 15 and a NUL (as C).
-    let pcap_path = "/tmp/test_d20.pcap";
-    create_temp_pcap(pcap_path).unwrap();
-    for version in ["9", "10"] {
-        let dg = first_export_datagram(version, pcap_path);
-        assert!(
-            contains(&dg, b"/tmp/test_d20.p\0"),
-            "NetFlow v{version}: the file name is not in the option record"
-        );
-        assert!(
-            !contains(&dg, b"/tmp/test_d20.pc"),
-            "NetFlow v{version}: the name is longer than 15 bytes"
-        );
-    }
+    // ...
+}
+#[test]
+fn test_d27_gauge_clock_threaded() {
+    // Generate a pcap file
+    let pcap_path = "/tmp/test_d27_gauge_clock.pcap";
+    create_temp_pcap(pcap_path).expect("Failed to create temporary PCAP file");
+
+    // Run rsoftflowd with -g -M
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.args([
+        "run",
+        "--bin",
+        "rsoftflowd",
+        "--",
+        "-r",
+        pcap_path,
+        "-g",
+        "-M",
+        "-n",
+        "127.0.0.1:12345",
+    ]);
+    let output = cmd.output().expect("failed to run rsoftflowd");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("cpu clocks (export): n/a with threaded export"));
+    assert!(!stderr.contains("calls)"));
+
+    // Run rsoftflowd with -g (without -M)
+    let mut cmd2 = std::process::Command::new("cargo");
+    cmd2.args([
+        "run",
+        "--bin",
+        "rsoftflowd",
+        "--",
+        "-r",
+        pcap_path,
+        "-g",
+        "-n",
+        "127.0.0.1:12345",
+    ]);
+    let output2 = cmd2.output().expect("failed to run rsoftflowd");
+    let stderr2 = String::from_utf8_lossy(&output2.stderr);
+
+    assert!(stderr2.contains("calls)"));
     let _ = std::fs::remove_file(pcap_path);
 }

@@ -218,6 +218,7 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     }
 
     tracker.param.adjust_time = args.adjust_time;
+    tracker.param.use_thread = args.use_thread;
 
     (track_level, boottime, if_index, tracker)
 }
@@ -536,10 +537,14 @@ fn run_main_loop(
     if tracker.param.gauge_clock {
         let total_clocks = cpu_clock() - boottime;
         eprintln!("cpu clocks: {}", total_clocks);
-        eprintln!(
-            "cpu clocks (export): {} ({} calls)",
-            tracker.param.export_clocks, tracker.param.export_calls
-        );
+        if tracker.param.use_thread {
+            eprintln!("cpu clocks (export): n/a with threaded export");
+        } else {
+            eprintln!(
+                "cpu clocks (export): {} ({} calls)",
+                tracker.param.export_clocks, tracker.param.export_calls
+            );
+        }
     }
 
     Ok(())
