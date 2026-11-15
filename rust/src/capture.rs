@@ -2,7 +2,7 @@ use crate::common::{
     ExpiryReason, FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowKey,
     FlowLookupMode, FlowTracker, TimeVal, TrackLevel,
 };
-use crate::expire::{evict_oldest_flow, update_flow_expiry};
+use crate::expire::update_flow_expiry;
 use crate::exporter::psamp::send_psamp;
 use crate::exporter::{NetflowTarget, SendParameter, send_flows};
 use crate::opts::RsoftflowdArgs;
@@ -350,11 +350,8 @@ pub fn process_parsed_packet(
 
     // Get or create flow
     if !tracker.flows.contains_key(&key) {
-        // Enforce max flows limit (evict oldest first)
-        if tracker.flows.len() >= tracker.param.max_flows as usize {
-            evict_oldest_flow(tracker, targets, ifidx);
-        }
-
+        // As in C, the table may go over -m for the length of a batch of
+        // packets; expire_over_limit() brings it back after the batch.
         let mut flow = Flow {
             flow_seq: tracker.param.next_flow_seq,
             flow_start: timeval_packet,

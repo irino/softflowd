@@ -426,8 +426,26 @@ fn run_main_loop(
         // Process incoming packet events
         let mut packets_processed_this_loop = 0;
         let mut channel_disconnected = false;
+        // As pcap_dispatch(max_flows) of C: a batch is at most `-m` packets.  With
+        // -r the batch is complete unless the file ends, so that it does not
+        // depend on the speed of the capture thread.
+        let batch_limit = tracker.param.max_flows as usize;
         loop {
-            match packet_rx.try_recv() {
+            let next = if pcap_file_mode {
+                packet_rx
+                    .recv_timeout(Duration::from_millis(50))
+                    .map_err(|e| match e {
+                        std::sync::mpsc::RecvTimeoutError::Timeout => {
+                            std::sync::mpsc::TryRecvError::Empty
+                        }
+                        std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                            std::sync::mpsc::TryRecvError::Disconnected
+                        }
+                    })
+            } else {
+                packet_rx.try_recv()
+            };
+            match next {
                 Ok(event) => {
                     if !stop_gather {
                         match event {
@@ -450,7 +468,7 @@ fn run_main_loop(
                         }
                     }
                     packets_processed_this_loop += 1;
-                    if packets_processed_this_loop > 1000 {
+                    if packets_processed_this_loop >= batch_limit {
                         break;
                     }
                 }
@@ -462,6 +480,17 @@ fn run_main_loop(
                     break;
                 }
             }
+        }
+
+        // Over -m after the batch, or a flow is due: scan, and force-expire the
+        // oldest flows over -m, exporting them together, as C does.
+        if tracker.flows.len() > tracker.param.max_flows as usize || next_expire_is_now(&tracker) {
+            let mode = if pcap_file_mode {
+                ExpireMode::Forced
+            } else {
+                ExpireMode::Normal
+            };
+            expire_over_limit(&mut tracker, &targets, mode, if_index);
         }
 
         // Periodic flow expiry checks
@@ -787,6 +816,10 @@ mod tests {
                 process_parsed_packet(&mut tracker, parsed, true, &targets, 1);
             }
 
+            // The batch is over: the table is brought back to -m, and the flows
+            // that leave are exported (here and with expire_all_flows(), all 6).
+            expire_over_limit(&mut tracker, &targets, ExpireMode::Forced, 1);
+            assert!(tracker.flows.len() <= 5);
             expire_all_flows(&mut tracker, &targets, 1);
 
             recv_socket
