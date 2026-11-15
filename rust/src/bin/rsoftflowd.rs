@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 use clap::Parser;
-use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM, SIGUSR1};
 use std::io::Write;
 use std::net::{IpAddr, ToSocketAddrs};
 use std::os::unix::net::UnixListener;
@@ -56,6 +56,8 @@ static GRACEFUL_SHUTDOWN: std::sync::LazyLock<Arc<AtomicBool>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 static HUP_RECEIVED: std::sync::LazyLock<Arc<AtomicBool>> =
     std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
+static USR1_RECEIVED: std::sync::LazyLock<Arc<AtomicBool>> =
+    std::sync::LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 /// Register signal handlers for SIGINT, SIGTERM, SIGHUP.
 ///
@@ -64,6 +66,7 @@ fn register_signals() {
     let _ = signal_hook::flag::register(SIGINT, Arc::clone(&GRACEFUL_SHUTDOWN));
     let _ = signal_hook::flag::register(SIGTERM, Arc::clone(&GRACEFUL_SHUTDOWN));
     let _ = signal_hook::flag::register(SIGHUP, Arc::clone(&HUP_RECEIVED));
+    let _ = signal_hook::flag::register(SIGUSR1, Arc::clone(&USR1_RECEIVED));
 }
 
 /// Drop privileges from root to 'nobody'.
@@ -361,7 +364,6 @@ fn run_main_loop(
                     let _ = resp.send(format!("{}Dumping flow data:\n{}", prefix, dump_str));
                 }
                 ControlCommand::Shutdown { resp } => {
-                    log::info!("Shutdown command received.");
                     GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
                     let _ = resp.send(format!("{}Shutting down gracefully...\n", prefix));
                 }
@@ -377,7 +379,7 @@ fn run_main_loop(
                     let _ = resp.send(format!("{}Deleted {} flows.\n", prefix, count));
                 }
                 ControlCommand::Exit { resp } => {
-                    log::info!("Exit command received.");
+                    log::warn!("Exiting immediately on user request");
                     let _ = resp.send(format!("{}Exiting now...\n", prefix));
                     if let Some(ref path) = ctl_path {
                         let _ = std::fs::remove_file(path);
@@ -421,7 +423,14 @@ fn run_main_loop(
         // A shutdown request is handled at the end of the loop, where the flows
         // are exported before the program exits.
         if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
-            log::info!("SIGHUP received, re-opening logs (not implemented yet)");
+            log::info!("SIGHUP received (config reload not implemented)");
+        }
+        if USR1_RECEIVED.swap(false, Ordering::SeqCst) {
+            log::info!(
+                "stats: tracked={} total_packets={}",
+                tracker.flows.len(),
+                tracker.param.total_packets
+            );
         }
 
         // Process incoming packet events
@@ -518,10 +527,6 @@ fn run_main_loop(
             break;
         }
     }
-
-    log::info!("Shutting down complete, exiting.");
-    let _ = std::io::stdout().flush();
-    let _ = std::io::stderr().flush();
 
     // Close control socket listener first, then remove file
     drop(control_listener);

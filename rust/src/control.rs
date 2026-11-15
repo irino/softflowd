@@ -251,20 +251,24 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
 
 pub fn render_timeouts(tracker: &FlowTracker) -> String {
     let p = &tracker.param;
-    let mut out = String::new();
-    out.push_str(&format!(
-        "  tcp = {}   tcp.rst = {}   tcp.fin = {}\n",
-        p.tcp_timeout, p.tcp_rst_timeout, p.tcp_fin_timeout
-    ));
-    out.push_str(&format!(
-        "  udp = {}      icmp = {}   general = {}\n",
-        p.udp_timeout, p.icmp_timeout, p.general_timeout
-    ));
-    out.push_str(&format!(
-        "  maxlife = {}   expint = {}\n",
-        p.maximum_lifetime, p.expiry_interval
-    ));
-    out
+    format!(
+        "           TCP timeout: {}s\n\
+         TCP post-RST timeout: {}s\n\
+         TCP post-FIN timeout: {}s\n\
+                  UDP timeout: {}s\n\
+                 ICMP timeout: {}s\n\
+              General timeout: {}s\n\
+             Maximum lifetime: {}s\n\
+              Expiry interval: {}s\n",
+        p.tcp_timeout,
+        p.tcp_rst_timeout,
+        p.tcp_fin_timeout,
+        p.udp_timeout,
+        p.icmp_timeout,
+        p.general_timeout,
+        p.maximum_lifetime,
+        p.expiry_interval
+    )
 }
 
 pub fn render_help() -> &'static str {

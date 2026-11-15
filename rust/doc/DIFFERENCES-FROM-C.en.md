@@ -647,7 +647,7 @@ Choices: **A** keep clap and translate its errors: `Command::try_get_matches_fro
 
 *Gate:* delete the entry `D27` of `tools/gate_expected.json`; the compat items "cpu clocks of -g -M" (and "live on lo, cpu clocks of -g -M") are MATCHED; "cpu clocks of -g" stays MATCHED.  Set the row of D27 to `fixed` in both documents.
 
-### D28. Control socket replies and signals (measured on 2026-11-02, partly re-measured)
+### D28. Control socket replies and signals (measured on 2026-11-02, partly re-measured) - FIXED (2026-11-15)
 
 **Goal**
 

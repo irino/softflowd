@@ -626,7 +626,7 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
 
 *ゲート:* `tools/gate_expected.json` の `D27` の登録を削除する。compat の "cpu clocks of -g -M" ("live on lo, cpu clocks of -g -M" も) が MATCHED で、"cpu clocks of -g" は MATCHED のまま。両方の文書で D27 の行を `解消` にする。
 
-### D28. control socket の応答とシグナル (2026-11-02 に実測、一部再測定)
+### D28. control socket の応答とシグナル (2026-11-02 に実測、一部再測定) - 解消 (2026-11-15)
 
 **目的 (Goal)**
 

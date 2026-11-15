@@ -598,7 +598,7 @@ fn test_control_rendering() {
     assert!(stats.contains("Packets dropped by interface: 2"));
 
     let timeouts = rsoftflowd::control::render_timeouts(&tracker);
-    assert!(timeouts.contains("tcp ="));
+    assert!(timeouts.contains("TCP timeout:"));
 
     let help = rsoftflowd::control::render_help();
     assert!(help.contains("Valid control words are:"));
