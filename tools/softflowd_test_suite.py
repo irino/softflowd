@@ -9,12 +9,14 @@ Standard library only.  One entry point for the three tools of this directory
   tools/softflowd_test_suite.py test    [options] [PCAP...]       the same as compat
   tools/softflowd_test_suite.py bench   [options] PCAP...         export benchmark
   tools/softflowd_test_suite.py collect [-p PORT] [-b ADDR] [-6]  flow collector
+  tools/softflowd_test_suite.py gate    [options] [-- compat options]    quality gate: only known differences
 
 Each subcommand is also a script of its own, which takes the same options:
 
   compat / test  tools/softflowd_test.py
   bench          tools/softflowd_bench.py
   collect        tools/softflowd_collector.py
+  gate           tools/softflowd_test_gate.py
 
 Options after the subcommand belong to that subcommand; `-h` after a
 subcommand shows its help.  Without a subcommand the arguments go to compat,
@@ -27,6 +29,7 @@ import sys
 
 from softflowd_bench import bench_main
 from softflowd_collector import collect_main
+from softflowd_test_gate import gate_main
 from softflowd_test import compat_main
 
 SUBCOMMANDS = {
@@ -34,6 +37,7 @@ SUBCOMMANDS = {
     "test": compat_main,  # alias of compat
     "bench": bench_main,
     "collect": collect_main,
+    "gate": gate_main,
 }
 DEFAULT_SUBCOMMAND = "compat"
 

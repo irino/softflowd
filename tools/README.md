@@ -12,6 +12,8 @@ they import each other by module name.
 | `softflowd_test.py` | Backward compatibility and variants test suite: builds the C stable / development, C++ and Rust binaries, replays pcaps through two builds (A vs B) and compares the exported flows, the control socket replies, the PSAMP and ntopng exports, and the parity of softflowd+ with softflowd. Optionally measures the daemons (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`). | `softflowd_test_suite.py compat` (alias `test`) |
 | `softflowd_bench.py` | Export benchmark: compares the export build variants across pcaps and NetFlow/IPFIX versions with hyperfine (or a plain timing loop), perf and callgrind. | `softflowd_test_suite.py bench` |
 | `softflowd_collector.py` | Flow collector: prints NetFlow v1/v5/v9 and IPFIX flows received on a UDP port as CSV with the column names of `nfdump -o csv`. The successor of `deprecated/collector.pl`. | `softflowd_test_suite.py collect` |
+| `softflowd_test_gate.py` | Quality gate for a pair of builds (the Rust version against C): runs `softflowd_test.py --strict` (and cargo fmt, clippy, test with `--rust-dir`), sorts every reported difference with `gate_expected.json` (accepted, open, unexpected, stale) and checks the entries against `rust/doc/DIFFERENCES-FROM-C.en.md`; the last line is `GATE: PASS` or `GATE: FAIL`. Depends on `softflowd_test.py` (it runs it). | `softflowd_test_suite.py gate` |
+| `gate_expected.json` | The differences that the gate accepts or tracks, with their ids in the differences document. | |
 
 Each script takes the same options as the subcommand it corresponds to
 (`softflowd_test.py -h`, `softflowd_test_suite.py compat -h` and so on).

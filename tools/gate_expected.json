@@ -1,0 +1,16 @@
+{
+  "_comment": "Differences between the C version and the Rust version that the gate accepts. status 'accepted': kept on purpose. status 'open': tracked in rust/doc/DIFFERENCES-FROM-C.*.md and must shrink: the patch that fixes it deletes its entry here (a stale entry fails the gate). 'pattern' is a regular expression searched in a line of the output of softflowd_test.py --strict.",
+  "entries": [
+    {"id": "D21", "status": "accepted", "pattern": "-v 10 -a -b(?: -T ether)?: DIFFERENT: (?:datagram \\d+: \\d+ bytes from A|\\d+ datagrams from A)", "reason": "ICMP is never a Biflow in C; the reverse icmpTypeCode of the C template is not copied"},
+    {"id": "D32", "status": "open", "pattern": "-e 192\\.0\\.2\\.1: DIFFERENT", "reason": "the option data record ignores -e (hard-coded zeros)"},
+    {"id": "D33", "status": "open", "pattern": "-b -T ether -H \\S+: DIFFERENT", "reason": "-b with -H: reverse-direction MAC, and sizes with -v 10"},
+    {"id": "D27", "status": "open", "pattern": "cpu clocks of -g -M: DIFFERENT", "reason": "C prints 'n/a with threaded export' with -M"},
+    {"id": "D28", "status": "open", "pattern": "control replies ending with (?:shutdown|exit): DIFFERENT", "reason": "reply of timeouts differs"},
+    {"id": "D28", "status": "open", "pattern": "the log of the (?:shutdown|exit) command: DIFFERENT", "reason": "log lines of the control commands"},
+    {"id": "D28", "status": "open", "pattern": "live on lo, SIG\\w+: DIFFERENT", "reason": "extra log line at a signal"},
+    {"id": "D26", "status": "open", "pattern": "command lines that are wrong: \\d+ of \\d+ DIFFER", "reason": "texts of the command line errors"},
+    {"id": "D26", "status": "open", "pattern": "(?:standard (?:output|error)) differs", "reason": "texts of the command line errors and -h"},
+    {"id": "D3", "status": "open", "pattern": "exit status differs: A '1', B '2'", "reason": "clap exits with 2"},
+    {"id": "SUM", "status": "open", "pattern": "exported datagrams: \\d+ of \\d+ runs DIFFER", "reason": "the sum of the lines above; every differing run has its own line that is checked"}
+  ]
+}
