@@ -99,14 +99,15 @@ impl FlowKey {
         track_level: TrackLevel,
     ) -> (Self, usize) {
         // Check which direction is index 0 or 1
-        let ndx = if src_ip > dst_ip { 1 } else { 0 };
+        let a_is_lower = src_ip < dst_ip || (src_ip == dst_ip && src_port <= dst_port);
+        let ndx = if a_is_lower { 0 } else { 1 };
 
         let mut addr = [src_ip, dst_ip];
         let mut port = [src_port, dst_port];
         let mut vlanid = [src_vlan, dst_vlan];
         let mut ethermac = [src_mac, dst_mac];
 
-        if ndx == 1 {
+        if !a_is_lower {
             addr = [dst_ip, src_ip];
             port = [dst_port, src_port];
             vlanid = [dst_vlan, src_vlan];

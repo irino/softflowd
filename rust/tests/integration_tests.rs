@@ -13,8 +13,8 @@ use common::make_dummy_flow;
 
 use rsoftflowd::common::{
     FLOW_END_REASON_ACTIVE_TIMEOUT, FLOW_END_REASON_END_OF_FLOW, FLOW_END_REASON_FORCE_END,
-    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowTrackParameters,
-    FlowTracker, TimeVal, TrackLevel,
+    FLOW_END_REASON_IDLE_TIMEOUT, FLOW_END_REASON_LACK_OF_RESOURCE, Flow, FlowKey,
+    FlowTrackParameters, FlowTracker, TimeVal, TrackLevel,
 };
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
@@ -909,6 +909,83 @@ fn first_export_datagram(version: &str, pcap_path: &str) -> Vec<u8> {
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn test_d31_same_address_biflow() {
+    let mut tracker = FlowTracker::new(100);
+    tracker.param.track_level = TrackLevel::Full;
+
+    let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
+    // Packet 1: port 53 to 40000
+    let (key1, ndx1) = FlowKey::canonical(
+        2,
+        17,
+        addr,
+        addr,
+        53,
+        40000,
+        0,
+        0,
+        [0; 6],
+        [0; 6],
+        &[],
+        TrackLevel::Full,
+    );
+    assert_eq!(ndx1, 0);
+
+    // Packet 2: port 40000 to 53 (same flow key, reverse direction)
+    let (key2, ndx2) = FlowKey::canonical(
+        2,
+        17,
+        addr,
+        addr,
+        40000,
+        53,
+        0,
+        0,
+        [0; 6],
+        [0; 6],
+        &[],
+        TrackLevel::Full,
+    );
+    assert_eq!(key1, key2);
+    assert_eq!(ndx2, 1);
+
+    // Simulate processing both packets into tracker.flows
+    let flow: &mut Flow = tracker.flows.entry(key1.clone()).or_insert_with(|| Flow {
+        flow_seq: 1,
+        flow_start: TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        },
+        flow_last: TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        },
+        octets: [0, 0],
+        packets: [0, 0],
+        tcp_flags: [0, 0],
+        tos: [0, 0],
+        ip6_flowlabel: [0, 0],
+        src_mac: [0; 6],
+        dst_mac: [0; 6],
+        flow_end_reason: 1,
+        key: key1.clone(),
+        expiry_key: None,
+        expiry_reason: rsoftflowd::common::ExpiryReason::General,
+    });
+    flow.octets[ndx1] += 177;
+    flow.packets[ndx1] += 4;
+    flow.octets[ndx2] += 177;
+    flow.packets[ndx2] += 4;
+
+    assert_eq!(tracker.flows.len(), 1);
+    let f = tracker.flows.get(&key1).unwrap();
+    assert_eq!(f.octets[0], 177);
+    assert_eq!(f.packets[0], 4);
+    assert_eq!(f.octets[1], 177);
+    assert_eq!(f.packets[1], 4);
 }
 
 #[test]
