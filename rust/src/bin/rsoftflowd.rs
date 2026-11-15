@@ -417,10 +417,8 @@ fn run_main_loop(
             }
         }
 
-        if GRACEFUL_SHUTDOWN.swap(false, Ordering::SeqCst) {
-            log::info!("Signal received, shutting down.");
-            break;
-        }
+        // A shutdown request is handled at the end of the loop, where the flows
+        // are exported before the program exits.
         if HUP_RECEIVED.swap(false, Ordering::SeqCst) {
             log::info!("SIGHUP received, re-opening logs (not implemented yet)");
         }

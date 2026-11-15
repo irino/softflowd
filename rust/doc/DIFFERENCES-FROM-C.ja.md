@@ -52,6 +52,8 @@
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 未解消 | | |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
+| D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
+| D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 未解消 | | |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
 | R2 | CI に Rust のジョブがない | 2026-11-02 | 解消 | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02、クリーンな checkout で同じコマンドをローカル実行 |
 | R3 | `cargo fmt --check` が失敗する | 2026-11-02 | 解消 | 0002 Format the Rust version with cargo fmt | 2026-11-02、ローカル |
@@ -647,6 +649,52 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   書く。順序は競合で決まる。`drop_privileges()` (`rsoftflowd.rs:82`) は root の
   ときだけログを書く。
 - 競合は root に依存しないので、CI でも失敗しうる。
+
+### D30. シャットダウン時にテーブルに残ったフローが export されなかった (実測、Rust のバグ)
+
+**目的 (Goal)**
+
+SIGINT、SIGTERM、`softflowctl shutdown` のとき、C と同じく、テーブルの全フローを
+export してから終了する。
+
+**受け入れ基準 (Acceptance Criteria)**
+
+1. compat の "live on lo, burst over -m 10" で、`-m 10` でもそれより大きい `-m` でも、
+   60 件中 60 件が 1 回ずつ export される。
+2. ログに `Shutting down on user request` が 1 回出る。
+
+**背景 (Context)**
+
+- 実測: `-m 100` で 60 フローのとき export は 0 件 (`-m 10` では 50 件)。テーブルが
+  満杯になって押し出されたフローだけが出ていた。
+- 原因: コミット `75afd87` がメインループの先頭に、シャットダウンのフラグを消して
+  `break` する判定を足した。全フローを export するコードはループの末尾にあり、
+  到達しなくなった。この判定を削除し、末尾で要求を処理する。余分な行
+  `Signal received, shutting down.` もなくなる (D28 を参照)。
+
+### D31. 両端が同じアドレス (実測、ソースは未読)
+
+**目的 (Goal)**
+
+同じアドレス間 (例: `127.0.0.1` のポート 53 と `127.0.0.1` のポート 40000) の
+両方向のパケットを、C と同じく 1 つの Biflow にする (RFC 5103)。
+
+**受け入れ基準 (Acceptance Criteria)**
+
+1. compat の pcap `loopback` が、`-v 1`、`-v 5`、`-v 9`、`-v 10`、さらに `-b`、`-m 5`、
+   `-t maxlife=1 -m 7` でも、C と同じデータグラムになる。
+2. `loopback` の `-D` ログが C と同一。
+3. 同じアドレスの 2 パケット (ポート 53 から 40000 と、その逆) が、両方向を持つ
+   1 フローになる単体テスト。
+
+**背景 (Context)**
+
+- 実測 (`loopback -v 9 -a -D -m 5`): C は `EXPIRED: [127.0.0.1]:53 <>
+  [127.0.0.1]:40000 octets>:177 packets>:4 octets<:177 packets<:4`。Rust は 2 つの
+  フローで `octets<:0`。
+- Rust のフローキーは、アドレスが等しいときに方向を決めない。C は決める
+  (C と C++ の同一アドレス Biflow)。
+- `loopback` のケースのデータグラム数の差は、D22 ではなくこれによる。
 
 ## リポジトリの状態 (ソース)
 

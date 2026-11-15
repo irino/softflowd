@@ -54,6 +54,8 @@ changes when a patch is applied.
 | D27 | `-g -M`: the CPU clock lines differ (part of D12) | 2026-11-15 | open | | |
 | D28 | Control socket replies and the log lines on signals differ (part of D12) | 2026-11-15 | open | | |
 | D29 | Start-up log lines can come out of order, and `Dropped privileges to nobody` is extra (found by `cargo test`) | 2026-11-15 | fixed | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (including 20 repetitions of `test_d6_logging_stderr_first_four_lines`) pass as an ordinary user; follow-up: the capture source is opened again before the daemonization and the drop of the privileges (live capture as root, exit status 1 for a missing interface); the capture thread waits for the start-up log lines; `test_d6_logging_stderr_first_four_lines` passed 100 of 100 runs |
+| D30 | The flows left in the table were not exported at shutdown (SIGINT, SIGTERM, `softflowctl shutdown`) | 2026-11-15 | fixed | Export the flows left in the table at shutdown again | 2026-11-15, compat item "live on lo, burst over -m 10" (60 of 60 records; 50 or less before) |
+| D31 | Both ends with the same address (as on `lo`): C makes one Biflow, Rust makes two flows | 2026-11-15 | open | | |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
 | R2 | No Rust job in CI | 2026-11-02 | fixed | 0004 Add a CI job that checks the format, clippy and the tests of the Rust version | 2026-11-02, the commands run locally on a clean checkout |
 | R3 | `cargo fmt --check` fails | 2026-11-02 | fixed | 0002 Format the Rust version with cargo fmt | 2026-11-02, local |
@@ -670,6 +672,54 @@ program runs as root or not.
   file: the order is a race.  `drop_privileges()` (`rsoftflowd.rs:82`) logs
   only as root.
 - The race does not depend on root, so the test can also fail in CI.
+
+### D30. Flows left in the table were not exported at shutdown (measured, a Rust bug)
+
+**Goal**
+
+At SIGINT, SIGTERM and `softflowctl shutdown`, every flow in the table is
+exported before the program exits, as in C.
+
+**Acceptance Criteria**
+
+1. The compat item "live on lo, burst over -m 10" exports 60 of 60 flows, once
+   each, with `-m 10` and with a larger `-m`.
+2. The log still has `Shutting down on user request` once.
+
+**Context**
+
+- Measured: with `-m 100` and 60 flows, 0 records were exported (50 with
+  `-m 10`): only the flows that a full table had pushed out left.
+- Cause: commit `75afd87` added a check at the top of the main loop that
+  clears the shutdown flag and breaks.  The code that exports all flows is at
+  the end of the loop and was never reached.  The check is removed; the end of
+  the loop handles the request.  The extra line `Signal received, shutting
+  down.` goes away with it (see D28).
+
+### D31. Both ends with the same address (measured, source not read yet)
+
+**Goal**
+
+Packets of both directions between the same address (for example `127.0.0.1`
+port 53 and `127.0.0.1` port 40000) are one Biflow, as in C (RFC 5103).
+
+**Acceptance Criteria**
+
+1. The compat pcap `loopback` gives the same datagrams as C for `-v 1`, `-v 5`,
+   `-v 9` and `-v 10`, also with `-b`, `-m 5` and `-t maxlife=1 -m 7`.
+2. The `-D` log of `loopback` is identical to C.
+3. A unit test with two packets (port 53 to 40000 and back, same address)
+   that gives one flow with both directions.
+
+**Context**
+
+- Measured (`loopback -v 9 -a -D -m 5`): C `EXPIRED: [127.0.0.1]:53 <>
+  [127.0.0.1]:40000 octets>:177 packets>:4 octets<:177 packets<:4`; Rust has
+  two flows with `octets<:0`.
+- The flow key of Rust does not decide the direction when the addresses are
+  equal; C does (the same-address Biflow of the C and C++ versions).
+- The datagram counts of the `loopback` cases differ because of this, not
+  because of D22.
 
 ## Repository state (source)
 
