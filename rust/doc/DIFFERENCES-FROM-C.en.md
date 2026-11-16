@@ -27,7 +27,7 @@ changes when a patch is applied.
 |----|---------|-------|--------|----------|----------|
 | D1 | NetFlow v9: extra elements differ | 2026-11-02 | fixed | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02, compat `--strict` C against Rust: NetFlow v9 MATCHED for the IPv4 and IPv6 pcaps (24 records each); `tests/netflow9_templates.rs` fails on the old code |
 | D2 | IPFIX flowEndReason values are wrong | 2026-11-02 | fixed | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02, compat `--strict` C against Rust: IPFIX MATCHED for the IPv4 and IPv6 pcaps (24 records each) |
-| D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | open | | |
+| D3 | Command line errors: 47 of 75 cases differ | 2026-11-02 | fixed | Exit with status 1 for a wrong command line, and accept the getopt_long grammar | 2026-11-15, `test_d3_wrong_command_line_exits_1` and `test_d3_help_exits_0` (fail on the old code); the 94 cases of the compat item have no `exit status` difference except the 11 of D34 |
 | D4 | No ntopng | 2026-11-02 | fixed | Add the export to ntopng (-v ntopng) as an optional Cargo feature | 2026-11-02, integration test passes (feature on); note that -v ntopng-json is not ported |
 | D5 | Program name and version not unified | 2026-11-02 | fixed | 0016 Remove alias binaries | 2026-11-02, cargo build generates only rsoftflowd and rsoftflowctl |
 | D6 | Logging | 2026-11-02 | fixed | Implement syslog and stderr logging matching C versions and messages | 2026-11-02, integration test captures stderr and compares first four lines with C wording |
@@ -56,6 +56,8 @@ changes when a patch is applied.
 | D29 | Start-up log lines can come out of order, and `Dropped privileges to nobody` is extra (found by `cargo test`) | 2026-11-15 | fixed | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (including 20 repetitions of `test_d6_logging_stderr_first_four_lines`) pass as an ordinary user; follow-up: the capture source is opened again before the daemonization and the drop of the privileges (live capture as root, exit status 1 for a missing interface); the capture thread waits for the start-up log lines; `test_d6_logging_stderr_first_four_lines` passed 100 of 100 runs |
 | D32 | The option data record of IPFIX ignores `-e` (the exporter address is written as zeros) | 2026-11-15 | fixed | | |
 | D33 | `-b` with `-H` (and `-T ether`): the MAC address of the reverse direction differs in v9, the sizes in IPFIX | 2026-11-15 | open | | |
+| D34 | Command line grammar: C (getopt_long) accepts an abbreviated long option, options after the filter, `-n` twice and sloppy numbers; the Rust version did not (part of D26) | 2026-11-15 | accepted | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (the sloppy numbers are not accepted on purpose) | 2026-11-15, `test_d34_getopt_long_grammar` (fails on the old code); 11 cases of sloppy numbers and invalid values differ in the exit status (accepted) |
+| D35 | A run that is accepted: C logs on standard error in the foreground without `-d`; the Rust version is silent, and the statistics differ (not analyzed) | 2026-11-15 | open | | |
 | D30 | The flows left in the table were not exported at shutdown (SIGINT, SIGTERM, `softflowctl shutdown`) | 2026-11-15 | fixed | Export the flows left in the table at shutdown again | 2026-11-15, compat item "live on lo, burst over -m 10" (60 of 60 records; 50 or less before) |
 | D31 | Both ends with the same address (as on `lo`): C makes one Biflow, Rust makes two flows | 2026-11-15 | fixed | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15, unit test `test_d31_same_address_biflow` (fails on old code) |
 | R1 | `rust/AGENTS.md` does not match the repository | 2026-11-02 | fixed | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02, read against the repository |
@@ -618,6 +620,8 @@ Choices: **A** keep clap and translate its errors: `Command::try_get_matches_fro
 
 *Gate:* when done, delete the entries `D26` and `D3`.
 
+**Decision of the maintainer (2026-11-15): a mixed plan.**  (1) D3 is fixed: the exit status is 1 (`parse_args_or_exit()` in `opts.rs`, for `rsoftflowd` and `rsoftflowctl`).  (2) The texts of the messages and `-h`/`--help` are accepted for now (the clap messages are kept), but **every case is registered by itself** in `tools/gate_expected.json` (65 entries of D26; no broad pattern), so that a new difference is an UNEXPECTED line.  (3) The grammar is tested before the texts are accepted: 20 cases were added to `PARITY_CLI_ERROR_CASES` (D34).  Later the texts can still be made like C (choice A above); each case that is fixed makes its entry stale, and the gate then asks for the entry to be deleted.
+
 ### D27. `-g -M` CPU clock lines (measured) - FIXED (2026-11-15)
 
 **Goal**
@@ -646,6 +650,7 @@ Choices: **A** keep clap and translate its errors: `Command::try_get_matches_fro
 *Tests:* an integration test in `rust/tests/integration_tests.rs`: run `rsoftflowd -r <pcap> -g -M -n 127.0.0.1:<port>`; stderr contains `cpu clocks (export): n/a with threaded export` and no `calls)`; without `-M` it contains `calls)`.  It fails on the old code.
 
 *Gate:* delete the entry `D27` of `tools/gate_expected.json`; the compat items "cpu clocks of -g -M" (and "live on lo, cpu clocks of -g -M") are MATCHED; "cpu clocks of -g" stays MATCHED.  Set the row of D27 to `fixed` in both documents.
+
 
 ### D28. Control socket replies and signals (measured on 2026-11-02, partly re-measured) - FIXED (2026-11-15)
 
@@ -805,6 +810,40 @@ Find and remove the differences of the Biflow with `-H` and `-T ether`.
 - v9 (`smoke -v 9 -a -b -T ether -H 02:00:00:00:00:01`): datagrams of the same size; bytes differ at one byte per record (offsets 505, 621, ...: the distance is the record length, 116): C `00`, Rust `02` in the last byte of the MAC address field of the reverse direction (template 1024, fields `sourceMacAddress` and the field 57).  It looks like the address given by `-H` is used for a direction where C writes zeros, or the reverse.
 - IPFIX (`-v 10 -a -b -T ether -H ...`): the sizes of the datagrams differ in both directions (C 1384, Rust 1428; C 1368, Rust 1412; C 1364, Rust 1416): different templates or records.  Part of it can be D21 (the ICMP templates), which is accepted; check the template sets first (`dec.py`).
 - Not yet read: how `-H` (`--direction-mac`) chooses the direction in C (`packet.c`, `flow.c`) and in Rust.  Claude should do this item.
+
+
+### D34. Command line grammar (measured; fixed except the sloppy numbers, which are accepted)
+
+**Goal**
+
+Every command line that C accepts is accepted by the Rust version with the same effect, except where the Rust version is stricter on purpose.
+
+**Acceptance Criteria**
+
+1. The 20 grammar cases of `PARITY_CLI_ERROR_CASES` give the same acceptance or rejection as C.
+2. The differences that stay are the sloppy numbers: `-v 09`, `-m 5x`, `-m " 5"` and the invalid values of `-I`, `-s`, `-B`, `-C`, `-R` (C reads them like `atoi`), registered by themselves as "accepted" (D34) in the gate.
+
++**Context**
+
+- Found by the cases: (a) a unique prefix of a long option (`--rea FILE`): C accepts, clap did not; fixed with `infer_long_args`.  (b) the filter before the options (`udp -r FILE -n ...`): C permutes the arguments, clap took everything after the first word as the filter; fixed by removing `trailing_var_arg`.  (c) `-n` twice: C uses the last one, clap refused; fixed with `overrides_with`.  (d) the sloppy numbers: not copied, as decided before (the same decision as for `-I abc`).
+- `-n` may also take a comma-separated list in C (`options.c`); not tested here.
+
+
+### D35. A run that is accepted: log and statistics on standard error (measured, not analyzed)
+
+**Goal**
+
+A run that reads a file in the foreground writes the same lines to standard error as C.
+
+**Acceptance Criteria**
+
+1. The 18 cases of D35 in the gate (accepted runs of the grammar and option cases) are identical to C.
+2. The entries `D35` of the gate are deleted.
+
+**Context**
+
+- Measured: `softflowd -r FILE -n 127.0.0.1:9` writes `softflowd v1.1.1 starting data collection`, `Exporting flows from ...`, `Shutting down after pcap EOF` and `Shutting down on user request` to standard error without `-d`; `rsoftflowd` writes nothing.  The first different line of the other cases is in the statistics block (`Accumulated statistics since ...` against `Number of active flows`).
+- Not read yet: the default log level of the Rust version (`env_logger` or the syslog setup in `rsoftflowd.rs`) and where C decides that the foreground logs to standard error (`log.c`).  Claude should do this item first, because it decides what D26 will look like.
 
 
 ## Quality gate and tests (2026-11-15)

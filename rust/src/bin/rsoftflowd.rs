@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-use clap::Parser;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM, SIGUSR1};
 use std::io::Write;
 use std::net::{IpAddr, ToSocketAddrs};
@@ -20,7 +19,8 @@ use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
 use rsoftflowd::netsock::setup_export_targets;
 use rsoftflowd::opts::{
-    RsoftflowdArgs, apply_timeouts, parse_boot_time_reinit, parse_interface_spec, parse_mac_address,
+    RsoftflowdArgs, apply_timeouts, parse_args_or_exit, parse_boot_time_reinit,
+    parse_interface_spec, parse_mac_address,
 };
 
 fn validate_hostport(s: &str) -> Result<(), String> {
@@ -559,7 +559,7 @@ fn run_main_loop(
 ///
 /// Original: softflowd.c (`main()`)
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = RsoftflowdArgs::parse();
+    let args: RsoftflowdArgs = parse_args_or_exit();
 
     validate_options(&args);
     let (track_level, boottime, if_index, mut tracker) = init_tracker(&args);

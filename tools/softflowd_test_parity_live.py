@@ -277,6 +277,17 @@ PARITY_CLI_ERROR_CASES = [
     ["-T", "port", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-T", "ICMP", "-r", "{pcap}"],
     ["-c", "none", "-n", "127.0.0.1:9", "-r", "{pcap}"], ["-c", "/nonexistent/dir/ctl", "-n", "127.0.0.1:9", "-r", "{pcap}"],
     ["-r", "{pcap}", "-c", "/nonexistent/dir/ctl", "-n", "127.0.0.1:9"],
+    # The grammar of getopt_long: what C accepts must be accepted (D34); what the C version takes in an odd way is listed too.
+    ["--read", "{pcap}", "-n", "127.0.0.1:9"], ["--read={pcap}", "-n", "127.0.0.1:9"],
+    ["-r{pcap}", "-n127.0.0.1:9"], ["--rea", "{pcap}", "-n", "127.0.0.1:9"],
+    ["udp", "-r", "{pcap}", "-n", "127.0.0.1:9"], ["-r", "{pcap}", "-n", "127.0.0.1:9", "udp", "port", "53"],
+    ["-r", "{pcap}", "-n", "127.0.0.1:9", "--", "udp"], ["-r", "{pcap}", "-n", "127.0.0.1:9", "--", "-udp"],
+    ["-r", "{pcap}", "-t", "udp=10", "-t", "tcp=20", "-n", "127.0.0.1:9"],
+    ["-r", "{pcap}", "-n", "127.0.0.1:9", "-n", "127.0.0.1:10"], ["-n", "-r", "{pcap}"], ["-r", "-n", "127.0.0.1:9"],
+    ["-dr", "{pcap}", "-n", "127.0.0.1:9"], ["--timeout=udp=10", "-r", "{pcap}", "-n", "127.0.0.1:9"],
+    ["-r", "{pcap}", "-n", "127.0.0.1:9", "-v9"], ["-r", "{pcap}", "-n", "127.0.0.1:9", "-v", "09"],
+    ["-r", "{pcap}", "-n", "127.0.0.1:9", "-m", "5x"], ["-r", "{pcap}", "-n", "127.0.0.1:9", "-m", "+5"],
+    ["-r", "{pcap}", "-n", "127.0.0.1:9", "-m", " 5"],
     # The capture and the control socket are set up before the process forks (no -d).
     ["-i", "nonexistent0", "-n", "127.0.0.1:9"], ["-d", "-i", "nonexistent0", "-n", "127.0.0.1:9"],
     ["-i", "lo", "-n", "127.0.0.1:9", "-c", "{ctl}", "this is not a filter"],
@@ -594,7 +605,7 @@ def parity_cli_errors(a_daemon: str, b_daemon: str, pcap: str) -> bool:
         print_green(f"    - command lines that are wrong ({len(PARITY_CLI_ERROR_CASES)} cases), message, usage and exit status: MATCHED")
         return True
     print_red(f"    - command lines that are wrong: {len(different)} of {len(PARITY_CLI_ERROR_CASES)} DIFFER")
-    for text, what, x, y in different[:8]:
+    for text, what, x, y in different:
         print_red(f"        {text}: {what} differs: A {x!r}, B {y!r}")
     return False
 

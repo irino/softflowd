@@ -1037,6 +1037,78 @@ fn test_d31_same_address_biflow() {
 fn test_d20_option_record_interface_name_is_file_name() {
     // ...
 }
+
+// -------------------------------------------------------------
+// Test D3: a command line that is wrong ends with status 1, as in C
+// -------------------------------------------------------------
+fn exit_status_of(bin: &str, args: &[&str]) -> i32 {
+    std::process::Command::new(bin)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to execute")
+        .status
+        .code()
+        .expect("killed by a signal")
+}
+
+#[test]
+fn test_d3_wrong_command_line_exits_1() {
+    let d = env!("CARGO_BIN_EXE_rsoftflowd");
+    let c = env!("CARGO_BIN_EXE_rsoftflowctl");
+    for args in [&["-z"][..], &["--bogus"], &["-i"], &["-r"], &["-t"]] {
+        assert_eq!(exit_status_of(d, args), 1, "rsoftflowd {args:?}");
+    }
+    assert_eq!(exit_status_of(c, &["--bogus"]), 1);
+    assert_eq!(exit_status_of(c, &[]), 1);
+}
+
+#[test]
+fn test_d3_help_exits_0() {
+    assert_eq!(exit_status_of(env!("CARGO_BIN_EXE_rsoftflowd"), &["-h"]), 0);
+    assert_eq!(
+        exit_status_of(env!("CARGO_BIN_EXE_rsoftflowd"), &["--help"]),
+        0
+    );
+}
+
+// -------------------------------------------------------------
+// Test D34: the command line grammar of getopt_long
+// -------------------------------------------------------------
+fn log_of(args: &[&str]) -> (i32, String) {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_rsoftflowd"))
+        .arg("-d")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to execute rsoftflowd");
+    (
+        out.status.code().unwrap(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn test_d34_getopt_long_grammar() {
+    let pcap = "/tmp/test_d34.pcap";
+    create_temp_pcap(pcap).unwrap();
+    // A unique prefix of a long option is accepted.
+    let (rc, log) = log_of(&["--rea", pcap, "-n", "127.0.0.1:9"]);
+    assert_eq!(rc, 0, "{log}");
+    // The filter may come before the options (the arguments are permuted).
+    let (rc, log) = log_of(&["udp", "-r", pcap, "-n", "127.0.0.1:9"]);
+    assert_eq!(rc, 0, "{log}");
+    assert!(log.contains("Exporting flows from"), "{log}");
+    // A filter of several words after the options.
+    let (rc, _) = log_of(&["-r", pcap, "-n", "127.0.0.1:9", "udp", "port", "53"]);
+    assert_eq!(rc, 0);
+    // -n given twice: the last one is used.
+    let (rc, log) = log_of(&["-r", pcap, "-n", "127.0.0.1:9", "-n", "127.0.0.1:10"]);
+    assert_eq!(rc, 0, "{log}");
+    assert!(log.contains("]:10"), "{log}");
+    let _ = std::fs::remove_file(pcap);
+}
+
 #[test]
 fn test_d27_gauge_clock_threaded() {
     // Generate a pcap file

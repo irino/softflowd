@@ -12,6 +12,7 @@ use crate::common::FlowTracker;
 #[derive(Parser, Debug)]
 #[command(
     name = "rsoftflowd",
+    infer_long_args = true,
     version = "0.1.0",
     about = "Traffic flow monitoring daemon rewritten in Rust",
     long_about = "rsoftflowd is a software implementation of a flow-based network traffic monitor.\n\
@@ -118,6 +119,7 @@ pub struct RsoftflowdArgs {
         short = 'n',
         long = "netflow-dest",
         value_name = "host:port",
+        overrides_with = "collector",
         help = "Send Cisco NetFlow(tm)-compatible packets to host:port"
     )]
     pub collector: Option<String>,
@@ -305,11 +307,7 @@ pub struct RsoftflowdArgs {
     pub gauge_clock: bool,
 
     /// BPF filter expression
-    #[arg(
-        value_name = "bpf_program",
-        trailing_var_arg = true,
-        help = "BPF filter expression"
-    )]
+    #[arg(value_name = "bpf_program", help = "BPF filter expression")]
     pub bpf_expression: Vec<String>,
 
     /// Adjusting time for reading pcap file (-a work with -r)
@@ -349,6 +347,22 @@ pub struct RsoftflowctlArgs {
         help = "The command to send to softflowd (e.g. statistics, dump-flows, shutdown, expire-all)"
     )]
     pub command: String,
+}
+
+/// Parse the command line like `Parser::parse()`, but exit with status 1 for a
+/// command line that is wrong, as the C version does (clap exits with 2).  Help
+/// and version are written to standard output and end with status 0.
+///
+/// Original: softflowd.c / softflowctl.c, usage() and exit (1)
+pub fn parse_args_or_exit<T: Parser>() -> T {
+    match T::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            let status = if e.use_stderr() { 1 } else { 0 };
+            let _ = e.print();
+            std::process::exit(status);
+        }
+    }
 }
 
 pub fn parse_interface_spec(s: &str) -> (u16, String) {
