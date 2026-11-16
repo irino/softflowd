@@ -513,7 +513,10 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   u_int tmplindex = ipfix_flow_to_template_index (flow);
   int i = 0, k = 0;
   freclen = templates[tmplindex].data_len;
-  if (len < freclen * frecnum)
+  /* Room is needed only for the records that are written: a flow that has
+   * octets in one direction only needs one record (not two), as in
+   * export_template.c. */
+  if (len < freclen * (bi_flag ? 1u : (u_int) ((flow->octets[0] != 0) + (flow->octets[1] != 0))))
     return (-1);
 
   for (i = 0; i < (int) frecnum; i++) {

@@ -177,6 +177,7 @@ struct IpfixDirectionalRecord {
   const MplsLabelStack *mpls_labels;  ///< The MPLS labels of the flow.
   L2Fields l2;                        ///< The VLAN IDs and the Ethernet addresses, from the sending end.
   bool first_in_flow;                 ///< true for the first record that is made from a flow; see pack_interleaved().
+  std::size_t records_in_flow;        ///< The number of records that are made from the flow (1 or 2): the room that its first record asks for.
 };
 
 /**
@@ -248,6 +249,10 @@ flatten (std::span<const ExportRecord> records,
     const auto &key = record.key;
     const auto &flow = record.flow;
     bool first_in_flow = true;
+    // The records that are written: one for each direction with octets.
+    const std::size_t records_in_flow =
+      static_cast<std::size_t> (flow.octets[0] != 0) +
+      static_cast<std::size_t> (flow.octets[1] != 0);
     for (int dir = 0; dir < 2; ++dir) {
       const auto d = static_cast<std::size_t> (dir);
       // Original: ipfix_flow_to_flowset() skips a direction without
@@ -272,6 +277,7 @@ flatten (std::span<const ExportRecord> records,
         &flow.mpls_labels,
         l2_fields (key, flow, d),
         std::exchange (first_in_flow, false),
+        records_in_flow,
       });
     }
   }
@@ -771,10 +777,10 @@ IpfixExporter::build_packets (
           last_is_icmp = is_icmp;
         }
 
-        // Original: ipfix_flow_to_flowset() needs room for both
-        // directions of a flow (one record for a biflow), even when
-        // only one of them is sent. The second record of a flow
-        // needs no check because that room is already reserved.
+        // Original: ipfix_flow_to_flowset() needs room for the records
+        // that the flow writes (one for a biflow, otherwise one for each
+        // direction with octets). The second record of a flow needs no
+        // check because that room is already reserved.
         const std::size_t reserve = reserve_of (r);
         if (reserve != 0 &&
             header_len + body.size() + rec_size * reserve >
@@ -844,7 +850,7 @@ IpfixExporter::build_packets (
       [] (const IpfixDirectionalRecord &r) { return r.src->family == AddressFamily::IPv6; },
       [] (const IpfixDirectionalRecord &r) { return is_icmp_protocol (r.protocol); },
       [&] (bool is_v6, bool is_icmp) { return sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
-      [] (const IpfixDirectionalRecord &r) -> std::size_t { return r.first_in_flow ? 2 : 0; },
+      [] (const IpfixDirectionalRecord &r) -> std::size_t { return r.first_in_flow ? r.records_in_flow : 0; },
       [&] (ByteWriter &w, const IpfixDirectionalRecord &r, bool is_v6, bool is_icmp) {
         if (!is_v6 && !is_icmp) {
           write_v4_record (w, r, time_format_, tail_, boot_time_, now,
