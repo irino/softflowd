@@ -54,16 +54,20 @@ pub fn conv_unix_to_ntp(tv: TimeVal) -> NtpTime {
     NtpTime { second, fraction }
 }
 
+/// flowDirection (IPFIX IE 61, RFC 7011): 0x00 ingress, 0x01 egress.
+pub const IPFIX_FLOWDIRECTION_INGRESS: u8 = 0x00;
+pub const IPFIX_FLOWDIRECTION_EGRESS: u8 = 0x01;
+
 pub fn ipfix_flow_direction(flow: &Flow, i: usize, param: &FlowTrackParameters) -> u8 {
     if param.direction_mac_set
         && param.track_level >= crate::common::TrackLevel::FullVlanEther
         && let Some(dir_mac) = param.direction_mac
     {
         if flow.key.ethermac[i] == dir_mac {
-            return 1; // EGRESS
+            return IPFIX_FLOWDIRECTION_EGRESS;
         }
         if flow.key.ethermac[i ^ 1] == dir_mac {
-            return 2; // INGRESS
+            return IPFIX_FLOWDIRECTION_INGRESS;
         }
     }
     i as u8
