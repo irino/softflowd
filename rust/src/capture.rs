@@ -88,6 +88,9 @@ pub fn setup_packet_capture(
             }
         }
         .snaplen(snaplen)
+        // The read times out every second, so that the libpcap counters are
+        // refreshed when no packet comes (immediate mode: no delay for packets).
+        .timeout(1000)
         .promisc(!args.no_promisc);
 
         if let Some(buf_size) = args.buffer_size {
@@ -185,6 +188,8 @@ pub fn setup_packet_capture(
             if start_rx.recv().is_err() {
                 return;
             }
+            let mut last_stats = std::time::Instant::now() - std::time::Duration::from_secs(2);
+            refresh_pcap_stats(&mut capture, &pcap_stats_clone, &mut last_stats);
             loop {
                 if graceful_shutdown.load(std::sync::atomic::Ordering::SeqCst) {
                     break;
@@ -200,11 +205,7 @@ pub fn setup_packet_capture(
                         };
                         let data = raw_packet.data.to_vec();
 
-                        if let Ok(st) = capture.stats() {
-                            let mut s = pcap_stats_clone.lock().unwrap();
-                            *s =
-                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
-                        }
+                        refresh_pcap_stats(&mut capture, &pcap_stats_clone, &mut last_stats);
 
                         let raw_event = RawPacketEvent {
                             linktype,
@@ -216,6 +217,8 @@ pub fn setup_packet_capture(
                         let _ = packet_tx_clone.send(PacketEvent::Raw(raw_event));
                     }
                     Err(_) => {
+                        // A timeout: keep the counters of the control socket current.
+                        refresh_pcap_stats(&mut capture, &pcap_stats_clone, &mut last_stats);
                         continue;
                     }
                 }
@@ -455,5 +458,25 @@ fn process_valid_parsed_packet(
 
         // Update expiry
         update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
+    }
+}
+
+/// received, dropped, dropped by the interface
+type SharedPcapStats = Arc<Mutex<Option<(u64, u64, u64)>>>;
+
+/// Copy the libpcap counters for the control socket and the final statistics, at
+/// most once a second (the call is a system call).
+fn refresh_pcap_stats(
+    capture: &mut pcap::Capture<pcap::Active>,
+    shared: &SharedPcapStats,
+    last: &mut std::time::Instant,
+) {
+    if last.elapsed() < std::time::Duration::from_secs(1) {
+        return;
+    }
+    *last = std::time::Instant::now();
+    if let Ok(st) = capture.stats() {
+        *shared.lock().unwrap() =
+            Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
     }
 }

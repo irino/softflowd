@@ -163,11 +163,13 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
     ));
 
     if tracker.flow_lookup != crate::common::FlowLookupMode::Tree {
-        let size_kb = (tracker.nbuckets as usize * 32) / 1024;
+        // C: flow_table_bytes = buckets * sizeof (pointer)
+        let size_bytes = tracker.nbuckets as usize * 8;
+        let size_kb = size_bytes / 1024;
         let size_str = if size_kb > 0 {
             format!("{} KiB", size_kb)
         } else {
-            format!("{} B", tracker.nbuckets * 32)
+            format!("{} B", size_bytes)
         };
         let (used, maxdepth) = tracker.table_usage();
         out.push_str(&format!(
@@ -251,24 +253,20 @@ pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u6
 
 pub fn render_timeouts(tracker: &FlowTracker) -> String {
     let p = &tracker.param;
-    format!(
-        "           TCP timeout: {}s\n\
-         TCP post-RST timeout: {}s\n\
-         TCP post-FIN timeout: {}s\n\
-                  UDP timeout: {}s\n\
-                 ICMP timeout: {}s\n\
-              General timeout: {}s\n\
-             Maximum lifetime: {}s\n\
-              Expiry interval: {}s\n",
-        p.tcp_timeout,
-        p.tcp_rst_timeout,
-        p.tcp_fin_timeout,
-        p.udp_timeout,
-        p.icmp_timeout,
-        p.general_timeout,
-        p.maximum_lifetime,
-        p.expiry_interval
-    )
+    // C (stats.c): the labels are right-aligned to 22 columns.
+    let rows = [
+        ("TCP timeout", p.tcp_timeout),
+        ("TCP post-RST timeout", p.tcp_rst_timeout),
+        ("TCP post-FIN timeout", p.tcp_fin_timeout),
+        ("UDP timeout", p.udp_timeout),
+        ("ICMP timeout", p.icmp_timeout),
+        ("General timeout", p.general_timeout),
+        ("Maximum lifetime", p.maximum_lifetime),
+        ("Expiry interval", p.expiry_interval),
+    ];
+    rows.iter()
+        .map(|(label, secs)| format!("{label:>22}: {secs}s\n"))
+        .collect()
 }
 
 pub fn render_help() -> &'static str {
@@ -285,22 +283,25 @@ pub fn render_dump_flows(tracker: &FlowTracker) -> String {
         Err(_) => 0,
     };
 
-    for flow in tracker.flows.values() {
+    // As C (stats.c, dump_flows()): in the order of the expiry events, not in the
+    // (random) order of a hash table.
+    for (exp, flow_key) in tracker.expiries.iter() {
+        let Some(flow) = tracker.flows.get(flow_key) else {
+            continue;
+        };
         out.push_str(&format!("ACTIVE {}\n", format_flow(flow)));
-        if let Some(exp) = flow.expiry_key {
-            let expires_in = exp.expires_at as i64 - now;
-            if expires_in < 0 {
-                out.push_str(&format!(
-                    "EXPIRY EVENT for flow {} now{}\n",
-                    flow.flow_seq,
-                    if exp.expires_at == 0 { " (FORCED)" } else { "" }
-                ));
-            } else {
-                out.push_str(&format!(
-                    "EXPIRY EVENT for flow {} in {} seconds\n",
-                    flow.flow_seq, expires_in
-                ));
-            }
+        let expires_in = exp.expires_at as i64 - now;
+        if expires_in < 0 {
+            out.push_str(&format!(
+                "EXPIRY EVENT for flow {} now{}\n",
+                flow.flow_seq,
+                if exp.expires_at == 0 { " (FORCED)" } else { "" }
+            ));
+        } else {
+            out.push_str(&format!(
+                "EXPIRY EVENT for flow {} in {} seconds\n",
+                flow.flow_seq, expires_in
+            ));
         }
         out.push('\n');
     }

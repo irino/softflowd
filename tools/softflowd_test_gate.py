@@ -124,7 +124,8 @@ def classify(text, entries):
                 break
         else:
             rows.append(("UNEXPECTED", "-", line))
-    stale = [entries[i] for i, n in hits.items() if n == 0]
+    # An entry marked "flaky" is about a result that changes from run to run (timing): it is never stale.
+    stale = [entries[i] for i, n in hits.items() if n == 0 and not entries[i].get("flaky")]
     return rows, stale
 
 

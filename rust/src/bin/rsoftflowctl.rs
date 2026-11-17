@@ -9,7 +9,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = match UnixStream::connect(&args.ctlsock) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("ctl connect(\"{}\") error: {}", args.ctlsock, e);
+            // strerror() text as C prints it, without the " (os error N)" of Rust.
+            let text = e.to_string();
+            let text = text.split(" (os error").next().unwrap_or(&text);
+            eprintln!("ctl connect(\"{}\") error: {}", args.ctlsock, text);
             std::process::exit(1);
         }
     };

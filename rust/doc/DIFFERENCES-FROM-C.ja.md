@@ -45,18 +45,19 @@
 | D20 | option レコードの interfaceName が、`-r` のとき Rust は空、C はファイル名 | 2026-11-15 | 解消 | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`、`-v 10 -a`) で option data レコードが PID を除いて C と同一。`interface_name_field()` の単体テスト、統合テスト `test_d20_option_record_interface_name_is_file_name` (旧コードで失敗) |
 | D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 許容 | 意図的に修正しない (本文を参照) | 2026-11-15、デコードしたテンプレートを比較 |
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 解消 | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15、`smoke`、`smoke6`、`vlan`、`slow`、`many` の全ての `-m` と `-t maxlife=1 -m 7` のケース (`-v 1`、`5`、`9`、`10`) で、データグラムと `-D` ログが C と同一 (D23 を除く)。live の "burst over -m 10" が MATCHED。`test_flow_eviction_exports` と `tests/expire_modes.rs`。バッチは 1 回 `-m` パケット (`-r` では揃うまで待つ)。`next_expire_is_now()` は `next_expire() == 0` に相当 |
-| D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33) |
+| D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33)。C++ 版 (`records_in_flow`) と旧 export の `compat/ipfix.c` にも同じ規則を入れた (C++ 版と静的ビルドを C ビルドとバイト単位で比較する CI のため) |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
 | D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 解消 | Align packet statistics and capture loop counters with C | 2026-11-15、non-IP および too short パケットのカウンタの単体テスト、統合テストが通過 |
 | D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 未解消 | | |
-| D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 未解消 | | |
-| D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 未解消 | | |
+| D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 解消 | Print n/a for the export clock with -M (gauge clock) | 2026-11-16、compat の "cpu clocks of -g -M" が MATCHED。ゲートの登録を削除 |
+| D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 解消 | Make the control socket replies, the signals and the final statistics like C | 2026-11-16、"control replies (21 commands, ending with shutdown / exit)"、shutdown と exit コマンドのログ、SIGINT、SIGTERM、SIGHUP、SIGUSR1 が MATCHED。最初の修正の追補: `timeouts` を 22 桁に右揃え、`statistics` の表サイズ (バケット数 x 8 バイト) と libpcap の行 (読み取りが 1 秒ごとにタイムアウト)、`dump-flows` を期限イベントの順にする (ハッシュ表の不定な順だった)、最終統計は C と同じく `-r` のときだけ、権限を落とすのはデーモンのときだけ (`-d` で root だと制御ソケットを消せなかった)、`ctl connect(...) error:` から " (os error N)" を除く。テスト `tests/control_text.rs` |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
-| D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 解消 | | |
+| D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 解消 | rsoftflowd: fix to include the exporter address in the IPFIX option data record | 2026-11-16、compat の `-e 192.0.2.1` が MATCHED。ゲートの登録を削除 |
 | D33 | `-b` と `-H` (と `-T ether`): v9 では逆方向の MAC アドレス、IPFIX ではサイズが違う | 2026-11-15 | 未解消 | | |
 | D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 許容 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (あいまいな数値は意図的に受理しない) | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値と不正な値の 11 ケースは終
 了ステータスが違う (許容) |
 | D35 | 受理される実行: C は前景で `-d` なしでも標準エラーにログを出すが、Rust は何も出さない。統計も違う (未分析) | 2026-11-15 | 未解消 | | |
+| D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 未解消 | | |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
@@ -821,6 +822,22 @@ C が受理するコマンドラインは、Rust が意図的に厳しくして�
 - 実測: `softflowd -r FILE -n 127.0.0.1:9` は、`-d` なしで標準エラーに `softflowd v1.1.1 starting data collection`、`Exporting flows from ...`、`Shutting down after pcap EOF`、`Shutting down on user request` を書く。`rsoftflowd` は何も書かない。他のケースで最初に違う行は統計のブロック (`Accumulated statistics since ...` と `Number of active flows`)。
 - まだ読んでいないもの: Rust の既定のログレベル (`rsoftflowd.rs` の `env_logger` か syslog の設定) と、C が前景のログを標準エラーに出すと決める所 (`log.c`)。D26 の姿を決めるので、この項目を先に Claude が行う。
 
+
+### D36. live キャプチャの idle expiry (実測、未分析)
+
+**目的 (Goal)**
+
+idle のフローを、C と同じ時刻 (compat の項目が許す秒の範囲) で export する。
+
+**受け入れ基準 (Acceptance Criteria)**
+
+1. compat の "live on lo, idle expiry (-t expint=3)" が、20 回中 20 回 MATCHED。
+2. ゲートの `D36` の登録 (flaky の印つき) を削除する。
+
+**背景 (Context)**
+
+- 実測 6 回: `A 3.0 秒、B 2.3 秒`、`A 4.0、B 3.2`、`A 3.0、B 2.2`。MATCHED になる回もある (`A 5.0、B 4.9`)。A は常に整数秒で、B は秒の一部だけ早い。
+- 原因ではなかったもの: メインループの定期スキャン (C は `next_expire() == 0` のときしかスキャンしないので、同じパッチで削除した)。読むべきもの: C の `next_expire()` と `check_expired()` (`expire.c`) が使う時計と、`rust/src/expire.rs` の `next_expire_is_now()` と `scan_expiries()` の比較、`-t expint` による期限のクラスタ化。この項目は Claude が行う。
 
 ## 品質ゲートとテスト (2026-11-15)
 

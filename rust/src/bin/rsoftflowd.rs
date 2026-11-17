@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rsoftflowd::capture::{PacketEvent, process_raw_packet, setup_packet_capture};
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
@@ -345,7 +345,6 @@ fn run_main_loop(
     if_index: u16,
     cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut last_expiry_scan = Instant::now();
     let mut stop_gather = false;
     let pid = std::process::id();
     let prefix = format!("softflowd[{}]: ", pid);
@@ -496,19 +495,6 @@ fn run_main_loop(
             expire_over_limit(&mut tracker, &targets, mode, if_index);
         }
 
-        // Periodic flow expiry checks
-        let scan_interval = Duration::from_secs(tracker.param.expiry_interval.max(1) as u64);
-        if last_expiry_scan.elapsed() >= scan_interval {
-            // As in C: with -r, flows do not expire by time, only the forced ones.
-            let mode = if pcap_file_mode {
-                ExpireMode::Forced
-            } else {
-                ExpireMode::Normal
-            };
-            scan_expiries(&mut tracker, &targets, mode, if_index);
-            last_expiry_scan = Instant::now();
-        }
-
         // Small sleep to yield CPU in live mode, unless we processed packets
         if packets_processed_this_loop == 0 {
             thread::sleep(Duration::from_millis(1));
@@ -520,10 +506,13 @@ fn run_main_loop(
         {
             log::warn!("Shutting down on user request");
             flush_all_flows(&mut tracker, &targets, if_index);
-            // Print stats to stdout before exit as C softflowd does
-            let st = *pcap_stats.lock().unwrap();
-            let final_stats = render_statistics(&tracker, st);
-            print!("{}", final_stats);
+            // As C: the statistics go to stdout only when a file is read (-r),
+            // not at the end of a live capture.
+            if pcap_file_mode {
+                let st = *pcap_stats.lock().unwrap();
+                let final_stats = render_statistics(&tracker, st);
+                print!("{}", final_stats);
+            }
             break;
         }
     }
@@ -627,7 +616,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     daemonize_and_init_log(&args);
     let pidfile_path = resolve_and_write_pidfile(&args);
-    drop_privileges();
+    // As C: only a daemon drops its privileges (-d, -D and -r stay in the foreground).
+    if !(args.dont_fork || args.debug || args.pcap_file.is_some()) {
+        drop_privileges();
+    }
     setup_export_targets(&args, &mut targets, is_ntopng);
     register_signals();
 

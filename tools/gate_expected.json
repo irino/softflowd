@@ -8,40 +8,10 @@
       "reason": "ICMP is never a Biflow in C; the reverse icmpTypeCode of the C template is not copied"
     },
     {
-      "id": "D32",
-      "status": "open",
-      "pattern": "-e 192\\.0\\.2\\.1: DIFFERENT",
-      "reason": "the option data record ignores -e (hard-coded zeros)"
-    },
-    {
       "id": "D33",
       "status": "open",
       "pattern": "-b -T ether -H \\S+: DIFFERENT",
       "reason": "-b with -H: reverse-direction MAC, and sizes with -v 10"
-    },
-    {
-      "id": "D27",
-      "status": "open",
-      "pattern": "cpu clocks of -g -M: DIFFERENT",
-      "reason": "C prints 'n/a with threaded export' with -M"
-    },
-    {
-      "id": "D28",
-      "status": "open",
-      "pattern": "control replies ending with (?:shutdown|exit): DIFFERENT",
-      "reason": "reply of timeouts differs"
-    },
-    {
-      "id": "D28",
-      "status": "open",
-      "pattern": "the log of the (?:shutdown|exit) command: DIFFERENT",
-      "reason": "log lines of the control commands"
-    },
-    {
-      "id": "D28",
-      "status": "open",
-      "pattern": "live on lo, SIG\\w+: DIFFERENT",
-      "reason": "extra log line at a signal"
     },
     {
       "id": "D26",
@@ -608,6 +578,13 @@
       "pattern": "^\\-R\\ \\-1\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: exit status differs"
     },
     {
+      "id": "D36",
+      "status": "open",
+      "flaky": true,
+      "pattern": "live on lo, idle expiry \\(-t expint=3\\): DIFFERENT",
+      "reason": "Rust exports idle flows 0.1 to 0.8 s earlier than C; sometimes within the tolerance (MATCHED)"
+    },
+    {
       "id": "SUM",
       "status": "open",
       "pattern": "exported datagrams: \\d+ of \\d+ runs DIFFER",
@@ -618,5 +595,6 @@
       "status": "open",
       "pattern": "command lines that are wrong: 94 of 94 DIFFER",
       "reason": "the sum of the cases above (each case has its own entry)"
-    }  ]
+    }
+  ]
 }
