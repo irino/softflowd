@@ -129,15 +129,25 @@ pub fn format_flow(flow: &Flow) -> String {
     )
 }
 
+/// The reply of the control socket: the header of control.c, then the statistics.
 pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u64)>) -> String {
+    let start_time_str = format_time(tracker.param.system_boot_time.tv_sec);
+    format!(
+        "Accumulated statistics since {} UTC:\n{}",
+        start_time_str,
+        render_statistics_body(tracker, pcap_stats)
+    )
+}
+
+/// The statistics without the header: what C writes at the end of a file (stats.c,
+/// statistics()).
+pub fn render_statistics_body(
+    tracker: &FlowTracker,
+    pcap_stats: Option<(u64, u64, u64)>,
+) -> String {
     let mut out = String::new();
     let p = &tracker.param;
 
-    let start_time_str = format_time(p.system_boot_time.tv_sec);
-    out.push_str(&format!(
-        "Accumulated statistics since {} UTC:\n",
-        start_time_str
-    ));
     out.push_str(&format!(
         "Number of active flows: {}\n",
         tracker.flows.len()

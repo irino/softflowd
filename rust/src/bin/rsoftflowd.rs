@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use rsoftflowd::capture::{PacketEvent, process_raw_packet, setup_packet_capture};
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
-    ControlCommand, render_dump_flows, render_help, render_statistics, render_timeouts,
-    start_control_server,
+    ControlCommand, render_dump_flows, render_help, render_statistics, render_statistics_body,
+    render_timeouts, start_control_server,
 };
 use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
@@ -265,7 +265,8 @@ fn daemonize_and_init_log(args: &RsoftflowdArgs) {
     } else {
         log::LevelFilter::Info
     };
-    if args.dont_fork || args.debug {
+    // As C: -d, -D and -r (a file) run in the foreground and log to standard error.
+    if args.dont_fork || args.debug || args.pcap_file.is_some() {
         struct StderrLogger;
         impl log::Log for StderrLogger {
             fn enabled(&self, metadata: &log::Metadata) -> bool {
@@ -522,7 +523,7 @@ fn run_main_loop(
             // not at the end of a live capture.
             if pcap_file_mode {
                 let st = *pcap_stats.lock().unwrap();
-                let final_stats = render_statistics(&tracker, st);
+                let final_stats = render_statistics_body(&tracker, st);
                 print!("{}", final_stats);
             }
             break;

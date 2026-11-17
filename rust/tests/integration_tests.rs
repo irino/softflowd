@@ -1231,3 +1231,28 @@ fn run_export_with_exporter_ip(exporter_ip: std::net::IpAddr) -> Vec<u8> {
     let (received_len, _) = recv_socket.recv_from(&mut buf).expect("Failed to receive");
     buf[..received_len].to_vec()
 }
+
+// -------------------------------------------------------------
+// Test D35: a run that reads a file logs to standard error, and the final
+// statistics have no header, as in C
+// -------------------------------------------------------------
+#[test]
+fn test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header() {
+    let pcap = "/tmp/test_d35.pcap";
+    create_temp_pcap(pcap).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_rsoftflowd"))
+        .args(["-r", pcap, "-n", "127.0.0.1:9"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to execute rsoftflowd");
+    let err = String::from_utf8_lossy(&out.stderr);
+    let std_out = String::from_utf8_lossy(&out.stdout);
+    assert!(err.contains("starting data collection"), "{err}");
+    assert!(err.contains("Shutting down after pcap EOF"), "{err}");
+    assert!(std_out.starts_with("Number of active flows:"), "{std_out}");
+    assert!(
+        !std_out.contains("Accumulated statistics since"),
+        "{std_out}"
+    );
+    let _ = std::fs::remove_file(pcap);
+}

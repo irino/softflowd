@@ -320,34 +320,16 @@
       "pattern": "^\\-R\\ abc\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: exit status differs"
     },
     {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}: standard output differs"
-    },
-    {
       "id": "D26",
       "status": "open",
       "reason": "text of the message or of the usage",
       "pattern": "^\\-n\\ 127\\.0\\.0\\.1:9: standard error differs"
     },
     {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-T\\ port\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: standard output differs"
-    },
-    {
       "id": "D26",
       "status": "open",
       "reason": "text of the message or of the usage",
       "pattern": "^\\-T\\ ICMP\\ \\-r\\ \\{pcap\\}: standard error differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-c\\ none\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: standard output differs"
     },
     {
       "id": "D34",
@@ -380,64 +362,10 @@
       "pattern": "^\\-i\\ lo\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-c\\ \\{ctl\\}\\ this\\ is\\ not\\ a\\ filter: standard error differs"
     },
     {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-\\-read\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-\\-read=\\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\{pcap\\}\\ \\-n127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-\\-rea\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^udp\\ \\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ udp\\ port\\ 53: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-\\-\\ udp: standard output differs"
-    },
-    {
       "id": "D26",
       "status": "open",
       "reason": "text of the message or of the usage",
       "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-\\-\\ \\-udp: standard error differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-t\\ udp=10\\ \\-t\\ tcp=20\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-n\\ 127\\.0\\.0\\.1:10: standard output differs"
     },
     {
       "id": "D26",
@@ -452,24 +380,6 @@
       "pattern": "^\\-r\\ \\-n\\ 127\\.0\\.0\\.1:9: standard error differs"
     },
     {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-dr\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-\\-timeout=udp=10\\ \\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9: standard output differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-v9: standard output differs"
-    },
-    {
       "id": "D34",
       "status": "accepted",
       "reason": "C accepts a value that the Rust version rejects on purpose (atoi-like parsing, a range that is stricter by decision)",
@@ -480,12 +390,6 @@
       "status": "accepted",
       "reason": "C accepts a value that the Rust version rejects on purpose (atoi-like parsing, a range that is stricter by decision)",
       "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-m\\ 5x: exit status differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-m\\ \\+5: standard output differs"
     },
     {
       "id": "D34",
@@ -524,12 +428,6 @@
       "pattern": "^\\-I\\ 99999999999999999999\\ \\-r\\ \\{pcap\\}: standard error differs"
     },
     {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-e\\ no\\.such\\.host\\.invalid\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: standard output differs"
-    },
-    {
       "id": "D26",
       "status": "open",
       "reason": "text of the message or of the usage",
@@ -546,12 +444,6 @@
       "status": "open",
       "reason": "text of the message or of the usage",
       "pattern": "^\\-n\\ 127\\.0\\.0\\.1:99999999999999999999\\ \\-r\\ \\{pcap\\}: standard error differs"
-    },
-    {
-      "id": "D35",
-      "status": "open",
-      "reason": "a run that is accepted: the log and the statistics on standard error differ (C logs in the foreground without -d)",
-      "pattern": "^\\-n\\ 127\\.0\\.0\\.1:65535\\ \\-r\\ \\{pcap\\}: standard output differs"
     },
     {
       "id": "D26",
@@ -572,6 +464,12 @@
       "pattern": "^\\-R\\ \\-1\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: exit status differs"
     },
     {
+      "id": "D26",
+      "status": "open",
+      "pattern": "^\\-e\\ no\\.such\\.host\\.invalid\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: standard error differs",
+      "reason": "C prints the getaddrinfo error for an unknown -e host and goes on; the Rust version goes on without a message"
+    },
+    {
       "id": "SUM",
       "status": "open",
       "pattern": "exported datagrams: \\d+ of \\d+ runs DIFFER",
@@ -580,7 +478,7 @@
     {
       "id": "D26",
       "status": "open",
-      "pattern": "command lines that are wrong: 94 of 94 DIFFER",
+      "pattern": "command lines that are wrong: 77 of 94 DIFFER",
       "reason": "the sum of the cases above (each case has its own entry)"
     }
   ]
