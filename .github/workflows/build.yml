@@ -110,6 +110,9 @@ jobs:
           echo "== bidirectional IPFIX (-b, version 10) =="
           ./softflowd -r ci_smoke.pcap -n 127.0.0.1:2055 -v 10 -b
 
+      - name: Check IPv6 IPFIX record layout
+        run: python3 tools/ipfix_regress.py ./softflowd
+
   # Replays sample pcaps through softflowd 1.1.1 (the stable reference) and
   # through this tree, and diffs the NetFlow v1/v5/v9 and IPFIX flows they
   # export, so that an unintended change in the exported flow data fails the
