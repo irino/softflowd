@@ -31,6 +31,7 @@ from softflowd_bench import bench_main
 from softflowd_collector import collect_main
 from softflowd_test_gate import gate_main
 from softflowd_test import compat_main
+from softflowd_test_fuzz import fuzz_main
 
 SUBCOMMANDS = {
     "compat": compat_main,
@@ -38,6 +39,7 @@ SUBCOMMANDS = {
     "bench": bench_main,
     "collect": collect_main,
     "gate": gate_main,
+    "fuzz": fuzz_main,
 }
 DEFAULT_SUBCOMMAND = "compat"
 
