@@ -51,6 +51,9 @@ $SUDO env "PATH=$PATH" python3 tools/softflowd_test.py \
     --ctl-a ./softflowctl --ctl-b ./cpp/build/softflowctl+ \
     --strict --psamp --pcap-dir pcaps --no-benchmark --no-gauge-clock --no-cache
 
+# The record layout of an IPv6 packet with the protocol 1 (an unusual flow).
+python3 tools/ipfix_regress.py ./cpp/build/softflowd+
+
 if [ "$NTOPNG" = on ]; then
     # The C version built above has the ntopng support (it needs libzmq); its
     # messages are compared with those of the C++ version built above.

@@ -261,6 +261,13 @@ jobs:
       - name: Tests
         run: cargo test
 
+      # The records of an IPv6 packet that carries the protocol 1 (an
+      # unusual flow) must have the layout of the ordinary IPv6 template.
+      - name: Check IPv6 IPFIX record layout
+        run: |
+          cargo build --release
+          python3 ../tools/ipfix_regress.py target/release/rsoftflowd
+
   freebsd:
     runs-on: ubuntu-latest
     steps:

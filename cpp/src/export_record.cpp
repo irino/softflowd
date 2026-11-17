@@ -143,16 +143,22 @@ write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
 // ---- Unidirectional (default, -b not given) record shape ----
 
 /**
- * @brief Tells whether a protocol number is that of ICMP or of ICMPv6.
+ * @brief Tells whether a flow has the ICMP template: the protocol 1 of an IPv4 flow, or the protocol 58 of an IPv6 flow.
+ *
+ * The protocol 1 in an IPv6 packet (or the 58 in an IPv4 one) is a flow of
+ * the ordinary template, with ports.
  *
  * @param protocol The IP protocol number.
- * @return true for 1 and 58.
+ * @param is_v6 true for an IPv6 flow.
+ * @return true when the ICMP (IPv4) or ICMPv6 (IPv6) template is used.
+ *
+ * @original ipfix_flow_to_template_index()
  */
 bool
-is_icmp_protocol (std::uint8_t protocol) {
+is_icmp_protocol (std::uint8_t protocol, bool is_v6) {
   constexpr std::uint8_t kProtoIcmp = 1;
   constexpr std::uint8_t kProtoIcmpV6 = 58;
-  return protocol == kProtoIcmp || protocol == kProtoIcmpV6;
+  return is_v6 ? protocol == kProtoIcmpV6 : protocol == kProtoIcmp;
 }
 
 /**
@@ -848,7 +854,9 @@ IpfixExporter::build_packets (
     pack_interleaved (
       all,
       [] (const IpfixDirectionalRecord &r) { return r.src->family == AddressFamily::IPv6; },
-      [] (const IpfixDirectionalRecord &r) { return is_icmp_protocol (r.protocol); },
+      [] (const IpfixDirectionalRecord &r) {
+        return is_icmp_protocol (r.protocol, r.src->family == AddressFamily::IPv6);
+      },
       [&] (bool is_v6, bool is_icmp) { return sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
       [] (const IpfixDirectionalRecord &r) -> std::size_t { return r.first_in_flow ? r.records_in_flow : 0; },
       [&] (ByteWriter &w, const IpfixDirectionalRecord &r, bool is_v6, bool is_icmp) {
@@ -884,7 +892,9 @@ IpfixExporter::build_packets (
     pack_interleaved (
       all,
       [] (const BiflowRecord &r) { return r.src->family == AddressFamily::IPv6; },
-      [] (const BiflowRecord &r) { return is_icmp_protocol (r.protocol); },
+      [] (const BiflowRecord &r) {
+        return is_icmp_protocol (r.protocol, r.src->family == AddressFamily::IPv6);
+      },
       [&] (bool is_v6, bool is_icmp) { return bi_sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
       [] (const BiflowRecord &) -> std::size_t { return 1; },
       [&] (ByteWriter &w, const BiflowRecord &r, bool is_v6, bool is_icmp) {
