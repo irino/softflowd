@@ -78,3 +78,42 @@ fn test_d24_all_mode_expires_every_flow() {
     assert_eq!(scan_expiries(&mut t, &no_target(), ExpireMode::All, 1), 4);
     assert!(t.flows.is_empty());
 }
+
+// -------------------------------------------------------------
+// D36: the time that C waits until the next expiry (the timeout of poll())
+// -------------------------------------------------------------
+use rsoftflowd::expire::next_expire;
+
+#[test]
+fn test_d36_next_expire_is_like_c() {
+    let mut t = FlowTracker::new(100);
+    t.param.adjust_time = true;
+    t.param.expiry_interval = 1; // no clustering
+    t.param.last_packet_time = TimeVal {
+        tv_sec: NOW,
+        tv_usec: 0,
+    };
+    // No flow: indefinite.
+    assert_eq!(next_expire(&t), None);
+    fn add(t: &mut FlowTracker, expires_at: u32, seq: u64) {
+        let mut flow = common::make_dummy_flow();
+        flow.key.port[0] = 2000 + seq as u16;
+        flow.flow_seq = seq;
+        let ek = ExpiryKey {
+            expires_at,
+            flow_seq: seq,
+        };
+        flow.expiry_key = Some(ek);
+        t.expiries.insert(ek, flow.key.clone());
+        t.flows.insert(flow.key.clone(), flow);
+    }
+    // 3 s from now: 999 + 3000 ms (C waits up to a second more than the time).
+    add(&mut t, (NOW + 3) as u32, 1);
+    assert_eq!(next_expire(&t), Some(999 + 3000));
+    // The very second is not yet due (C: expires_at < now).
+    add(&mut t, NOW as u32, 2);
+    assert_eq!(next_expire(&t), Some(999));
+    // Passed, and a forced flow: due now.
+    add(&mut t, (NOW - 1) as u32, 3);
+    assert_eq!(next_expire(&t), Some(0));
+}

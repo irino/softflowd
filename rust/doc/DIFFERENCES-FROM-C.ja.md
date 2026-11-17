@@ -57,7 +57,7 @@
 | D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 許容 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (あいまいな数値は意図的に受理しない) | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値と不正な値の 11 ケースは終
 了ステータスが違う (許容) |
 | D35 | 受理される実行: C は前景で `-d` なしでも標準エラーにログを出すが、Rust は何も出さない。統計も違う (未分析) | 2026-11-15 | 未解消 | | |
-| D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 未解消 | | |
+| D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 解消 | Wait like poll() of C before the idle flows are looked at (next_expire) | 2026-11-16、compat の "live on lo, idle expiry (-t expint=3)" が 8 回中 8 回 MATCHED で C と同じ時刻 (6 回中 4 回で 0.1〜0.8 秒早かった)。`test_d36_next_expire_is_like_c` |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |

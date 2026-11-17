@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rsoftflowd::capture::{PacketEvent, process_raw_packet, setup_packet_capture};
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
@@ -346,6 +346,7 @@ fn run_main_loop(
     cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stop_gather = false;
+    let mut expiry_wakeup: Option<Instant> = None;
     let pid = std::process::id();
     let prefix = format!("softflowd[{}]: ", pid);
 
@@ -486,13 +487,24 @@ fn run_main_loop(
 
         // Over -m after the batch, or a flow is due: scan, and force-expire the
         // oldest flows over -m, exporting them together, as C does.
-        if tracker.flows.len() > tracker.param.max_flows as usize || next_expire_is_now(&tracker) {
+        // As C: the expiry is looked at when poll() returns, that is, when a packet
+        // came or the timeout that next_expire() gave has passed.
+        let timed_out = expiry_wakeup.is_some_and(|w| Instant::now() >= w);
+        if tracker.flows.len() > tracker.param.max_flows as usize
+            || ((packets_processed_this_loop > 0 || timed_out) && next_expire_is_now(&tracker))
+        {
             let mode = if pcap_file_mode {
                 ExpireMode::Forced
             } else {
                 ExpireMode::Normal
             };
             expire_over_limit(&mut tracker, &targets, mode, if_index);
+        }
+
+        // The next timeout of poll(), computed again after every round (C).
+        if packets_processed_this_loop > 0 || timed_out || expiry_wakeup.is_none() {
+            expiry_wakeup =
+                next_expire(&tracker).map(|ms| Instant::now() + Duration::from_millis(ms));
         }
 
         // Small sleep to yield CPU in live mode, unless we processed packets

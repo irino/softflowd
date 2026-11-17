@@ -572,13 +572,6 @@
       "pattern": "^\\-R\\ \\-1\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-r\\ \\{pcap\\}: exit status differs"
     },
     {
-      "id": "D36",
-      "status": "open",
-      "flaky": true,
-      "pattern": "live on lo, idle expiry \\(-t expint=3\\): DIFFERENT",
-      "reason": "Rust exports idle flows 0.1 to 0.8 s earlier than C; sometimes within the tolerance (MATCHED)"
-    },
-    {
       "id": "SUM",
       "status": "open",
       "pattern": "exported datagrams: \\d+ of \\d+ runs DIFFER",

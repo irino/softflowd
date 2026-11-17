@@ -230,17 +230,18 @@ pub fn force_expire(tracker: &mut FlowTracker, num_to_expire: usize) {
     tracker.param.flows_force_expired += keys.len() as u64;
 }
 
-/// Whether the flow that expires first is due now (C: `next_expire() == 0`).
+/// The time in milliseconds that C waits (the timeout of `poll()`) until the
+/// flow that expires first is due, 0 when it is due now, `None` when there is no
+/// flow.  C looks at the expiry only when `poll()` returns (a packet, or this
+/// timeout), so an idle flow is exported up to a second after its second.
 ///
 /// Original: expire.c, next_expire()
-pub fn next_expire_is_now(tracker: &FlowTracker) -> bool {
-    let Some((key, _)) = tracker.expiries.iter().next() else {
-        return false; // indefinite
-    };
+pub fn next_expire(tracker: &FlowTracker) -> Option<u64> {
+    let (key, _) = tracker.expiries.iter().next()?;
     let mut expires_at = key.expires_at;
     // Do not cluster urgent expiries
     if expires_at == 0 {
-        return true;
+        return Some(0);
     }
     // Cluster expiries by expiry_interval
     let interval = tracker.param.expiry_interval as u32;
@@ -258,7 +259,15 @@ pub fn next_expire_is_now(tracker: &FlowTracker) -> bool {
             .map(|d| d.as_secs() as u32)
             .unwrap_or(0)
     };
-    expires_at < now_sec
+    if expires_at < now_sec {
+        return Some(0);
+    }
+    Some(999 + (expires_at - now_sec) as u64 * 1000)
+}
+
+/// Whether the flow that expires first is due now (C: `next_expire() == 0`).
+pub fn next_expire_is_now(tracker: &FlowTracker) -> bool {
+    next_expire(tracker) == Some(0)
 }
 
 /// Expire the flows over `-m`: scan, force-expire the oldest flows over the
