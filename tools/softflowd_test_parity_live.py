@@ -651,6 +651,103 @@ def parity_cli(a_daemon: str, b_daemon: str, pcap: str) -> bool:
     return ok
 
 
+def parity_start_order(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optional[str],
+                       pcap: str) -> bool:
+    """Privileges and start order (D29): (1) -i nonexistent0 exits 1 before daemonizing, (2) the first
+    four log lines of -d equal A's across 50 runs, and (3) as root, -i lo captures after daemonizing."""
+    ok = True
+
+    # 1. -i nonexistent0 exits 1 before it daemonizes (no -d)
+    bad_if_results = []
+    for n, daemon in enumerate((a_daemon, b_daemon)):
+        pidfile = os.path.join(helper.SUITE_TMP_DIR, f"badif_{n}.pid")
+        if os.path.exists(pidfile):
+            os.remove(pidfile)
+        r = subprocess.run([daemon, "-i", "nonexistent0", "-n", "127.0.0.1:9", "-p", pidfile],
+                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        bad_if_results.append((r.returncode, os.path.exists(pidfile)))
+    if bad_if_results == [(1, False), (1, False)]:
+        print_green("    - start order, -i nonexistent0 exits 1 before daemonizing: MATCHED")
+    else:
+        ok = False
+        print_red(f"    - start order, -i nonexistent0 exits 1 before daemonizing: FAILED "
+                  f"(A {bad_if_results[0]}, B {bad_if_results[1]})")
+
+    # 2. The first four log lines of -d equal A's, 50 times
+    a_run = subprocess.run([a_daemon, "-d", "-r", pcap, "-n", "127.0.0.1:9"],
+                           capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+    a_lines = _clean_log(a_run.stderr, a_daemon)[:4]
+    mismatch = None
+    for i in range(50):
+        b_run = subprocess.run([b_daemon, "-d", "-r", pcap, "-n", "127.0.0.1:9"],
+                               capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        b_lines = _clean_log(b_run.stderr, b_daemon)[:4]
+        if b_lines != a_lines or len(a_lines) < 4:
+            mismatch = (i + 1, a_lines, b_lines)
+            break
+    if mismatch is None:
+        print_green("    - start order, -d first 4 log lines (50 runs): MATCHED")
+    else:
+        ok = False
+        print_red(f"    - start order, -d first 4 log lines (50 runs): DIFFERENT at run {mismatch[0]} "
+                  f"(A {mismatch[1]}, B {mismatch[2]})")
+
+    # 3. As root, -i lo captures in daemon mode (no -d, so privileges are dropped)
+    if (not parity_can_capture_lo() or not os.path.isdir("/var/empty")
+            or not (ctl_a and ctl_b and os.path.exists(ctl_a) and os.path.exists(ctl_b))):
+        print_yellow("    - start order, as root -i lo captures (daemon): SKIPPED "
+                     "(needs root, /var/empty and softflowctl)")
+    else:
+        cap_results = []
+        for n, (daemon, ctl) in enumerate(((a_daemon, ctl_a), (b_daemon, ctl_b))):
+            sock, pidfile = (os.path.join(helper.SUITE_TMP_DIR, f"startcap_{n}.{ext}") for ext in ("ctl", "pid"))
+            for p in (sock, pidfile):
+                if os.path.exists(p):
+                    os.remove(p)
+            sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sink.bind(("127.0.0.1", 0))
+            sink.settimeout(5)
+            pid = None
+            try:
+                r = subprocess.run([daemon, "-i", "lo", "-v", "5", "-n", f"127.0.0.1:{sink.getsockname()[1]}",
+                                    "-c", sock, "-p", pidfile, "udp and dst port 41005"],
+                                   capture_output=True, text=True, timeout=10)
+                if r.returncode != 0:
+                    cap_results.append((r.returncode, 0))
+                    continue
+                for _ in range(100):
+                    if os.path.exists(pidfile) and os.path.exists(sock):
+                        break
+                    time.sleep(0.1)
+                time.sleep(1.0)
+                with open(pidfile) as f:
+                    pid = int(f.read())
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                    sender.sendto(b"x" * 40, ("127.0.0.1", 41005))
+                time.sleep(0.5)
+                subprocess.run([ctl, "-c", sock, "shutdown"], capture_output=True, timeout=10)
+                try:
+                    exported = len(sink.recv(65535))
+                except socket.timeout:
+                    exported = 0
+                cap_results.append((r.returncode, exported))
+            except (OSError, subprocess.SubprocessError, ValueError) as e:
+                cap_results.append((f"failed: {e}", 0))
+            finally:
+                if pid is not None and os.path.exists(f"/proc/{pid}"):
+                    os.kill(pid, signal.SIGKILL)
+                sink.close()
+        if all(rc == 0 and nbytes > 0 for rc, nbytes in cap_results):
+            print_green(f"    - start order, as root -i lo captures (daemon): MATCHED "
+                        f"(A {cap_results[0][1]} B, B {cap_results[1][1]} B)")
+        else:
+            ok = False
+            print_red(f"    - start order, as root -i lo captures (daemon): FAILED "
+                      f"(A {cap_results[0]}, B {cap_results[1]})")
+
+    return ok
+
+
 def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optional[str]) -> bool:
     """Compat step for a strict pair: what was checked by hand while softflowd+ followed softflowd."""
     print("  [Step 6] Verifying that B does what A does, byte for byte...")
@@ -661,6 +758,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     ok = parity_statistics(a_daemon, b_daemon, pcaps["smoke"]) and ok
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
+    ok = parity_start_order(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
     # -M must not change what softflowd+ exports.  The C builds do not keep this: with -M (a thread
     # for the export) the number of the datagrams and the uptime in their headers depend on the timing
     # (three runs of one C build with -M differ from each other), so there is nothing to compare.
