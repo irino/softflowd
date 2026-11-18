@@ -58,6 +58,9 @@
 了ステータスが違う (許容) |
 | D35 | 受理される実行: C は前景で `-d` なしでも標準エラーにログを出すが、Rust は何も出さない。統計も違う (未分析) | 2026-11-15 | 解消 | Log to standard error for -r, and print the final statistics without the header | 2026-11-16、compat のコマンドライン項目の受理される 17 件で、標準出力と標準エラーが C と同一。`test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header` |
 | D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 解消 | Wait like poll() of C before the idle flows are looked at (next_expire) | 2026-11-16、compat の "live on lo, idle expiry (-t expint=3)" が 8 回中 8 回 MATCHED で C と同じ時刻 (6 回中 4 回で 0.1〜0.8 秒早かった)。`test_d36_next_expire_is_like_c` |
+| D37 | fuzz スクリプト (G1) が見つけた: データリンクヘッダより長くないパケットを too short と数えていた、短い IPv6 パケットを `-6` なしで二重に数えていた、フローの ToS が最後のパケットのものだった (C は最初のパケット) (D25 の一部) | 2026-11-16 | 解消 | Match the classification of short packets and the ToS of a flow to C | 2026-11-16、`http.cap` と `v6-http.cap` の 320 回のパケット内容の変異と、先頭パケットの全長での切り詰めで、レコードとパケットのカウンタに差なし。`test_d37_*` |
+| D38 | プロトコル別統計のプロトコル名: C はシステムに問い合わせる (`getprotobynumber`、`/etc/protocols`: `xns-idp (22)`)。Rust は短い表を持ち `Unknown (22)` になる | 2026-11-16 | 未解消 | | |
+| D39 | 統計の平均 Duration が、一部のキャプチャで小数第 2 位で違う (C 0.04、Rust 0.05)。期限切れの順序は同じ。未分析 | 2026-11-16 | 未解消 | | |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |

@@ -300,6 +300,16 @@ pub fn process_raw_packet(
         Err(ParseError::TooShort) => {
             tracker.param.bad_packets += 1;
         }
+        Err(ParseError::TooShortV6) => {
+            // C decides by the family of the datalink header: without -6 an IPv6
+            // packet is not IP, however short it is.
+            if want_v6 {
+                tracker.param.bad_packets += 1;
+            } else {
+                tracker.param.non_ip_packets += 1;
+                tracker.param.total_packets -= 1;
+            }
+        }
     }
 }
 
@@ -453,11 +463,14 @@ fn process_valid_parsed_packet(
         flow.octets[ndx] = flow.octets[ndx].saturating_add(parsed.length);
         flow.packets[ndx] = flow.packets[ndx].saturating_add(1);
         flow.tcp_flags[ndx] |= parsed.tcp_flags;
-        flow.tos[ndx] = parsed.tos;
+        // As C (process_packet): the ToS is that of the packet that made the flow; it
+        // is not changed by the next packets.
         flow.flow_last = timeval_packet;
 
-        // Update expiry
-        update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
+        // Update expiry, unless the flow is to be expired at once (expires_at 0)
+        if flow.expiry_key.is_none_or(|k| k.expires_at != 0) {
+            update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
+        }
     }
 }
 

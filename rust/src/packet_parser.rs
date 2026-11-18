@@ -26,6 +26,9 @@ const IPPROTO_DSTOPTS: u8 = 60;
 pub enum ParseError {
     NonIp,
     TooShort,
+    /// An IPv6 packet that is too short: C does not look at it without -6 (it is
+    /// counted as not IP), as the family comes from the datalink header.
+    TooShortV6,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +77,7 @@ pub fn parse_packet(
     // 1. Parse Datalink Layer
     match linktype {
         DLT_EN10MB => {
-            if caplen < 14 {
+            if caplen <= 14 {
                 return Err(ParseError::NonIp);
             }
             dst_mac.copy_from_slice(&pkt[0..6]);
@@ -133,7 +136,7 @@ pub fn parse_packet(
             }
         }
         DLT_RAW => {
-            if caplen < 1 {
+            if caplen == 0 {
                 return Err(ParseError::NonIp);
             }
             let ip_ver = (pkt[0] & 0xF0) >> 4;
@@ -147,7 +150,7 @@ pub fn parse_packet(
             offset = 0;
         }
         DLT_NULL | DLT_LOOP => {
-            if caplen < 4 {
+            if caplen <= 4 {
                 return Err(ParseError::NonIp);
             }
             let family = if linktype == DLT_NULL {
@@ -169,7 +172,7 @@ pub fn parse_packet(
             offset = 4;
         }
         DLT_LINUX_SLL => {
-            if caplen < 16 {
+            if caplen <= 16 {
                 return Err(ParseError::NonIp);
             }
             let protocol = u16::from_be_bytes([pkt[14], pkt[15]]);
@@ -183,7 +186,7 @@ pub fn parse_packet(
             }
         }
         DLT_PPP => {
-            if caplen < 5 {
+            if caplen <= 5 {
                 return Err(ParseError::NonIp);
             }
             let protocol = u16::from_be_bytes([pkt[3], pkt[4]]);
@@ -197,7 +200,7 @@ pub fn parse_packet(
             }
         }
         DLT_PFLOG => {
-            if caplen < 48 {
+            if caplen <= 48 {
                 return Err(ParseError::NonIp);
             }
             let family = pkt[1];
@@ -218,7 +221,11 @@ pub fn parse_packet(
     }
 
     if caplen < offset {
-        return Err(ParseError::TooShort);
+        return Err(if af == 10 {
+            ParseError::TooShortV6
+        } else {
+            ParseError::TooShort
+        });
     }
 
     // 2. Parse IP Layer
@@ -274,11 +281,11 @@ pub fn parse_packet(
     } else if af == 10 {
         // IPv6
         if caplen < offset + 40 {
-            return Err(ParseError::TooShort);
+            return Err(ParseError::TooShortV6);
         }
         let version = (pkt[offset] & 0xF0) >> 4;
         if version != 6 {
-            return Err(ParseError::TooShort);
+            return Err(ParseError::TooShortV6);
         }
 
         let flow_field = u32::from_be_bytes([
@@ -447,5 +454,43 @@ mod tests {
             ts,
         );
         assert_eq!(res, Err(ParseError::TooShort));
+    }
+
+    fn parse_eth(pkt: &[u8]) -> Result<ParsedPacket, ParseError> {
+        let ts = TimeVal {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        parse_packet(
+            DLT_EN10MB,
+            pkt,
+            pkt.len() as u32,
+            pkt.len() as u32,
+            TrackLevel::Full,
+            0,
+            false,
+            ts,
+        )
+    }
+
+    /// C (datalink_check): a packet that is not longer than the datalink header is
+    /// not IP; with one byte more it is an IP packet that is too short.
+    #[test]
+    fn test_d37_ethernet_header_only_is_not_ip() {
+        let mut pkt = vec![0u8; 12];
+        pkt.extend_from_slice(&[0x08, 0x00]);
+        assert_eq!(parse_eth(&pkt), Err(ParseError::NonIp));
+        pkt.push(0x45);
+        assert_eq!(parse_eth(&pkt), Err(ParseError::TooShort));
+    }
+
+    /// A short IPv6 packet has its own error, so that it can be counted as not IP
+    /// when IPv6 is off (-6), as in C.
+    #[test]
+    fn test_d37_short_ipv6_is_reported_as_ipv6() {
+        let mut pkt = vec![0u8; 12];
+        pkt.extend_from_slice(&[0x86, 0xdd]);
+        pkt.extend_from_slice(&[0x60, 0, 0, 0]);
+        assert_eq!(parse_eth(&pkt), Err(ParseError::TooShortV6));
     }
 }
