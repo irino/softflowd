@@ -6,6 +6,7 @@ the offline checks of the exported datagrams.
 import os
 import re
 import select
+import signal
 import socket
 import struct
 import subprocess
@@ -355,8 +356,15 @@ def parity_live(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
                 out.append(struct.unpack(">HH", r[32:36]) + struct.unpack(">II", r[16:24]))
         return sorted(out)
 
-    for title, extra, flows in (("idle expiry (-t expint=3)", ["-t", "general=2", "-t", "udp=2", "-t", "expint=3"], 10),
-                                ("burst over -m 10", ["-m", "10", "-t", "udp=600"], 60)):
+    items = [
+        ("idle expiry (-t expint=3)", ["-t", "general=2", "-t", "udp=2", "-t", "expint=3"], 10, "expint")
+    ]
+    for m_args, m_label in [(["-m", "10"], "10"), (["-m", "100"], "100"), ([], "default")]:
+        for stop_type in ("SIGINT", "SIGTERM", "shutdown", "exit"):
+            extra = m_args + ["-t", "udp=600"]
+            items.append((f"-m {m_label}, stop with {stop_type}", extra, 60, stop_type))
+
+    for title, extra, flows, stop_type in items:
         socks, paths = [], [os.path.join(helper.SUITE_TMP_DIR, f"live_{n}.ctl") for n in "ab"]
         for _ in range(2):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -371,18 +379,38 @@ def parity_live(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
             s.bind(("127.0.0.1", 30000 + i))
             s.sendto(b"x" * (40 + i % 50), ("127.0.0.1", 41000))
             s.close()
-        if "expint=3" in extra:     # the idle flows are exported at the next multiple of 3 s
+        if stop_type == "expint":
             got = receive(socks, 8.0)
             stop(procs, [ctl_a, ctl_b], paths)
-        else:                       # a flow that is forced out is exported at once, the rest at shutdown
+        else:
             time.sleep(1.5)
-            stop(procs, [ctl_a, ctl_b], paths)
+            if stop_type == "SIGINT":
+                for p in procs:
+                    p.send_signal(signal.SIGINT)
+            elif stop_type == "SIGTERM":
+                for p in procs:
+                    p.send_signal(signal.SIGTERM)
+            elif stop_type == "shutdown":
+                for ctl, path in zip([ctl_a, ctl_b], paths):
+                    subprocess.run([ctl, "-c", path, "shutdown"], capture_output=True, timeout=10)
+            elif stop_type == "exit":
+                for ctl, path in zip([ctl_a, ctl_b], paths):
+                    subprocess.run([ctl, "-c", path, "exit"], capture_output=True, timeout=10)
+            for proc in procs:
+                try:
+                    proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
             got = receive(socks, 2.0)
-        if "expint=3" in extra:
+        if stop_type == "expint":
             times = [[round(t - sent, 1) for t, _ in g] for g in got]
             same = len(times[0]) == len(times[1]) > 0 and all(abs(x - y) <= 0.6
                                                                  for x, y in zip(times[0], times[1]))
             detail = f"A at {times[0]} s, B at {times[1]} s"
+        elif stop_type == "exit":
+            rec_a, rec_b = records(got[0]), records(got[1])
+            same = len(rec_a) == 0 and len(rec_b) == 0
+            detail = f"A {len(rec_a)} records, B {len(rec_b)} records (exit)"
         else:
             rec_a, rec_b = records(got[0]), records(got[1])
             same = rec_a == rec_b and len(rec_a) == len(set(rec_a)) == flows
