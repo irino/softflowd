@@ -2,6 +2,7 @@
 
 use nix::time::{ClockId, clock_gettime};
 use std::collections::{BTreeMap, HashMap};
+use std::hash::{BuildHasher, Hasher};
 use std::net::IpAddr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,7 +70,110 @@ impl TimeVal {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// A fast hasher for the flow table (multiply and rotate, as the FxHash of rustc).
+///
+/// The standard SipHash took 41 % of the instructions of a replay: a FlowKey has
+/// many small fields and is hashed for every packet.  A flow key is not secret,
+/// so the table is seeded at random (FlowBuildHasher) against hash flooding.
+#[derive(Clone, Copy, Debug)]
+pub struct FlowHasher {
+    hash: u64,
+}
+
+const FLOW_HASH_K: u64 = 0x517c_c1b7_2722_0a95;
+
+impl FlowHasher {
+    /// A hasher with a fixed seed: for the slot of the hash lookup modes, which
+    /// must be the same in every run.
+    pub fn with_seed(seed: u64) -> Self {
+        FlowHasher { hash: seed }
+    }
+
+    #[inline]
+    fn add(&mut self, word: u64) {
+        self.hash = (self.hash.rotate_left(5) ^ word).wrapping_mul(FLOW_HASH_K);
+    }
+}
+
+impl Hasher for FlowHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut b = bytes;
+        while b.len() >= 8 {
+            self.add(u64::from_le_bytes([
+                b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+            ]));
+            b = &b[8..];
+        }
+        if b.len() >= 4 {
+            self.add(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64);
+            b = &b[4..];
+        }
+        if b.len() >= 2 {
+            self.add(u16::from_le_bytes([b[0], b[1]]) as u64);
+            b = &b[2..];
+        }
+        if let Some(&x) = b.first() {
+            self.add(x as u64);
+        }
+    }
+
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.add(i as u64);
+    }
+
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.add(i as u64);
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.add(i as u64);
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add(i);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        // The low bits select the bucket of the table: mix them.
+        self.hash.rotate_left(26)
+    }
+}
+
+/// The hasher builder of the flow tables: FlowHasher with a seed that is chosen
+/// at random when the table is made.
+#[derive(Clone, Debug)]
+pub struct FlowBuildHasher {
+    seed: u64,
+}
+
+impl Default for FlowBuildHasher {
+    fn default() -> Self {
+        FlowBuildHasher {
+            seed: std::collections::hash_map::RandomState::new().hash_one(0u64),
+        }
+    }
+}
+
+impl BuildHasher for FlowBuildHasher {
+    type Hasher = FlowHasher;
+
+    fn build_hasher(&self) -> FlowHasher {
+        FlowHasher::with_seed(self.seed)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FlowKey {
     pub af: u16, // libc::AF_INET (2) or libc::AF_INET6 (10)
     pub protocol: u8,
@@ -79,6 +183,33 @@ pub struct FlowKey {
     pub ethermac: [[u8; 6]; 2], // Canonical matching addr
     pub mpls_label_depth: u32,
     pub mpls_labels: [u32; 10],
+}
+
+/// The hash is the same for equal keys, as `Eq` needs, and it hashes the labels
+/// that are used only (`mpls_label_depth` of the 10): the key is hashed for every
+/// packet.
+impl std::hash::Hash for FlowKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u16(self.af);
+        state.write_u8(self.protocol);
+        for a in &self.addr {
+            match a {
+                IpAddr::V4(v4) => state.write_u32(u32::from(*v4)),
+                IpAddr::V6(v6) => state.write_u128(u128::from(*v6)),
+            }
+        }
+        state.write_u16(self.port[0]);
+        state.write_u16(self.port[1]);
+        state.write_u16(self.vlanid[0]);
+        state.write_u16(self.vlanid[1]);
+        state.write(&self.ethermac[0]);
+        state.write(&self.ethermac[1]);
+        state.write_u32(self.mpls_label_depth);
+        let depth = (self.mpls_label_depth as usize).min(self.mpls_labels.len());
+        for label in &self.mpls_labels[..depth] {
+            state.write_u32(*label);
+        }
+    }
 }
 
 impl FlowKey {
@@ -146,8 +277,8 @@ impl FlowKey {
     }
 
     pub fn hash_index(&self, nbuckets: u32) -> u32 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::Hash;
+        let mut hasher = FlowHasher::with_seed(0);
         self.hash(&mut hasher);
         (hasher.finish() as u32) & (nbuckets.saturating_sub(1))
     }
@@ -408,11 +539,11 @@ impl FlowLookupMode {
 }
 
 pub struct FlowTracker {
-    pub flows: HashMap<FlowKey, Flow>,
+    pub flows: HashMap<FlowKey, Flow, FlowBuildHasher>,
     pub expiries: BTreeMap<ExpiryKey, FlowKey>,
     pub param: FlowTrackParameters,
     pub flow_lookup: FlowLookupMode,
-    pub flow_slots: HashMap<u32, FlowKey>,
+    pub flow_slots: HashMap<u32, FlowKey, FlowBuildHasher>,
     pub nbuckets: u32,
 }
 
@@ -428,11 +559,11 @@ impl FlowTracker {
             nbuckets <<= 1;
         }
         FlowTracker {
-            flows: HashMap::new(),
+            flows: HashMap::default(),
             expiries: BTreeMap::new(),
             param,
             flow_lookup: FlowLookupMode::HashTree,
-            flow_slots: HashMap::new(),
+            flow_slots: HashMap::default(),
             nbuckets,
         }
     }

@@ -15,10 +15,6 @@ pub fn update_flow_expiry(
     param: &crate::common::FlowTrackParameters,
     flow: &mut Flow,
 ) {
-    if let Some(old_expiry) = flow.expiry_key {
-        expiries.remove(&old_expiry);
-    }
-
     let mut expires_at = flow.flow_last.tv_sec as u32 + param.general_timeout as u32;
     let mut reason = ExpiryReason::General;
     // A flow that matches no branch below ends by the general timeout.
@@ -72,9 +68,17 @@ pub fn update_flow_expiry(
         expires_at,
         flow_seq: flow.flow_seq,
     };
-    flow.expiry_key = Some(new_expiry);
     flow.expiry_reason = reason;
 
+    // As C (flow_update_expiry): when the key has not changed (the same second),
+    // the entry of the tree stays where it is.
+    if flow.expiry_key == Some(new_expiry) {
+        return;
+    }
+    if let Some(old_expiry) = flow.expiry_key {
+        expiries.remove(&old_expiry);
+    }
+    flow.expiry_key = Some(new_expiry);
     expiries.insert(new_expiry, flow.key.clone());
 }
 
