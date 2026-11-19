@@ -401,7 +401,7 @@ def _hide_program_name(text: str, daemon: str) -> str:
     build variant (softflowd-static), the name softflowd that the program prints for itself."""
     base = os.path.basename(daemon)
     text = text.replace(daemon, "PROG").replace(base, "PROG")
-    if base.startswith("softflowd-"):
+    if base.startswith("softflowd"):
         text = text.replace("softflowd", "PROG")
     return text
 
