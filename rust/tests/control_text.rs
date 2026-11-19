@@ -1,7 +1,7 @@
 //! Texts of the control socket replies that must be the same as in C (D28).
 
 use rsoftflowd::common::FlowTracker;
-use rsoftflowd::control::render_timeouts;
+use rsoftflowd::control::{render_statistics, render_timeouts};
 
 #[test]
 fn test_d28_timeouts_text_is_right_aligned_like_c() {
@@ -28,4 +28,26 @@ fn test_d28_ctl_connect_error_is_like_c() {
         err.trim_end(),
         "ctl connect(\"/nonexistent/ctl.sock\") error: No such file or directory"
     );
+}
+
+#[test]
+fn test_d38_protocol_name_comes_from_etc_protocols() {
+    // Without /etc/protocols the names of the common protocols are used.
+    let Ok(db) = std::fs::read_to_string("/etc/protocols") else {
+        return;
+    };
+    // The first entry of the protocol 22, as getprotobynumber() returns it.
+    let Some(name) = db.lines().find_map(|line| {
+        let mut f = line.split('#').next()?.split_whitespace();
+        let (name, number) = (f.next()?, f.next()?);
+        (number == "22").then(|| name.to_string())
+    }) else {
+        return;
+    };
+    let mut t = FlowTracker::new(100);
+    // The per-protocol statistics are written when a flow has expired.
+    t.param.flows_expired = 1;
+    t.param.packets_pp[22] = 1;
+    let s = render_statistics(&t, None);
+    assert!(s.contains(&format!("{name} (22):")), "{s}");
 }

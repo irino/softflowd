@@ -129,6 +129,51 @@ pub fn format_flow(flow: &Flow) -> String {
     )
 }
 
+/// Reads the protocols database: the name of the first entry of each number.
+///
+/// The format of a line is "name number [alias ...]", and "#" starts a
+/// comment, as in `/etc/protocols`.
+fn parse_protocols(text: &str) -> std::collections::HashMap<u8, String> {
+    let mut names = std::collections::HashMap::new();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let mut fields = line.split_whitespace();
+        if let (Some(name), Some(number)) = (fields.next(), fields.next())
+            && let Ok(number) = number.parse::<u8>()
+        {
+            // getprotobynumber() returns the first entry of a number.
+            names.entry(number).or_insert_with(|| name.to_string());
+        }
+    }
+    names
+}
+
+/// The name of an IP protocol for the per-protocol statistics.
+///
+/// Like C (`getprotobynumber()`), the name comes from `/etc/protocols`.
+/// Where the file has no entry, for example in a container without it, the
+/// names of the common protocols are used, and otherwise "Unknown".
+fn protocol_name(protocol: u8) -> String {
+    static DATABASE: std::sync::OnceLock<std::collections::HashMap<u8, String>> =
+        std::sync::OnceLock::new();
+    let database = DATABASE.get_or_init(|| {
+        std::fs::read_to_string("/etc/protocols")
+            .map(|text| parse_protocols(&text))
+            .unwrap_or_default()
+    });
+    if let Some(name) = database.get(&protocol) {
+        return name.clone();
+    }
+    match protocol {
+        1 => "icmp",
+        6 => "tcp",
+        17 => "udp",
+        58 => "ipv6-icmp",
+        _ => "Unknown",
+    }
+    .to_string()
+}
+
 /// The reply of the control socket: the header of control.c, then the statistics.
 pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u64)>) -> String {
     let start_time_str = format_time(tracker.param.system_boot_time.tv_sec);
@@ -238,14 +283,7 @@ pub fn render_statistics_body(
         out.push_str("Per-protocol statistics:     Octets      Packets   Avg Life    Max Life\n");
         for i in 0..256 {
             if p.packets_pp[i] > 0 {
-                let proto_name = match i {
-                    1 => "icmp",
-                    6 => "tcp",
-                    17 => "udp",
-                    58 => "ipv6-icmp",
-                    _ => "Unknown",
-                };
-                let proto_str = format!("{} ({})", proto_name, i);
+                let proto_str = format!("{} ({})", protocol_name(i as u8), i);
                 out.push_str(&format!(
                     "  {:>17}: {:14} {:12}   {:>8.2}s {:>10.2}s\n",
                     proto_str,
@@ -316,4 +354,28 @@ pub fn render_dump_flows(tracker: &FlowTracker) -> String {
         out.push('\n');
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocols_database_first_entry_wins_and_comments_are_ignored() {
+        let text = "# a comment\nip\t0\tIP\t# internet protocol\nicmp 1 ICMP\n\
+                    xns-idp 22 XNS-IDP\nxns-idp-again 22\nbad line\nbig 300 BIG\n";
+        let names = parse_protocols(text);
+        assert_eq!(names.get(&0).map(String::as_str), Some("ip"));
+        assert_eq!(names.get(&1).map(String::as_str), Some("icmp"));
+        assert_eq!(names.get(&22).map(String::as_str), Some("xns-idp"));
+        assert_eq!(names.len(), 3, "{names:?}");
+    }
+
+    #[test]
+    fn common_protocols_have_a_name_without_the_database() {
+        // Holds with and without /etc/protocols.
+        assert_eq!(protocol_name(6), "tcp");
+        assert_eq!(protocol_name(17), "udp");
+        assert_eq!(protocol_name(1), "icmp");
+    }
 }
