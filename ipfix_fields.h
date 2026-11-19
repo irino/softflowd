@@ -185,23 +185,13 @@ static const IPFIX_FIELD_TABLE_TYPE field_bicommon[] = {
   DEF_FIELD_ENC (IPFIX_packetDeltaCount, 4, enc_packetDeltaCount),
   DEF_FIELD_ENC (IPFIX_ipClassOfService, 1, enc_ipClassOfService)};
 
-/** Reverse-direction field of the Biflow templates of TCP: the TCP flags. */
+/**
+ * Reverse-direction field of the Biflow templates of the protocols that have
+ * ports: the TCP flags.  ICMP has no Biflow template: the type and code of
+ * the reply differ from those of the request.
+ */
 static const IPFIX_FIELD_TABLE_TYPE field_bitransport[] = {
   DEF_FIELD_ENC (IPFIX_tcpControlBits, 1, enc_tcpControlBits)};
-
-/**
- * Reverse-direction field of the Biflow template of ICMPv4: the ICMP
- * type and code.
- */
-static const IPFIX_FIELD_TABLE_TYPE field_biicmp4[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv4, 2, enc_icmpTypeCode)};
-
-/**
- * Reverse-direction field of the Biflow template of ICMPv6: the ICMP
- * type and code.
- */
-static const IPFIX_FIELD_TABLE_TYPE field_biicmp6[] = {
-  DEF_FIELD_ENC (IPFIX_icmpTypeCodeIPv6, 2, enc_icmpTypeCode)};
 
 /** Scope field of the options template of IPFIX: the metering process. */
 static const IPFIX_FIELD_TABLE_TYPE field_scope[] = {
@@ -321,13 +311,6 @@ struct IPFIX_SOFTFLOWD_OPTION_TEMPLATE {
  */
 #define IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS \
   (sizeof (field_bitransport) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-/**
- * Number of the reverse-direction fields of the Biflow templates of
- * ICMP: field_biicmp4[], and as many in field_biicmp6[].
- */
-#define IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS \
-  (sizeof (field_biicmp4) / sizeof (IPFIX_FIELD_TABLE_TYPE))
-
 /**
  * Largest number of the fields of a flow template: the address, time,
  * common, transport, VLAN and MAC address fields.

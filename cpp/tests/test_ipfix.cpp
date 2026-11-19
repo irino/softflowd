@@ -356,6 +356,39 @@ void test_biflow_combines_both_directions_into_one_record() {
     assert(v4_set_length == 4 + 60);
 }
 
+void test_biflow_exports_icmp_flow_per_direction() {
+    IpfixExporter exporter(/*observation_domain_id=*/0, /*mpls_label_count=*/0,
+                            IpfixTimeFormat::Milliseconds, /*biflow=*/true);
+
+    const auto a = make_v4(10, 0, 0, 1);
+    const auto b = make_v4(10, 0, 0, 2);
+    // ICMP: the type and code are in the port of the receiving end; the
+    // request (echo, 8/0) and the reply (echo reply, 0/0) differ, so ICMP
+    // cannot be a biflow.
+    const auto key = FlowKey::make_canonical(a, b, 0, 0x0800, 1, 0, {0, 0});
+
+    Flow flow;
+    flow.flow_start = Clock::now();
+    flow.flow_last = flow.flow_start + 1s;
+    flow.octets = {84, 84};
+    flow.packets = {1, 1};
+    ExportRecord record{key, flow};
+
+    auto packets = exporter.build_packets(
+        std::span<const ExportRecord>(&record, 1), flow.flow_last,
+        std::chrono::system_clock::time_point(1700000000s));
+    assert(packets.size() == 1);
+    const auto& pkt = packets[0];
+
+    // One record for each direction, as without -b.
+    assert(exporter.sequence() == 2);
+
+    // addr(8) + time(16) + common(18) + icmp(5) = 47 bytes for each record,
+    // no Reverse Information Elements; 4 + 2 * 47 = 98, padded to 100.
+    const std::size_t record_start = find_set(pkt, kIpfixTemplateIdIcmpV4);
+    assert(read_u16(pkt, record_start - 2) == 100);
+}
+
 void test_time_format_seconds_uses_four_byte_fields() {
     IpfixExporter exporter(/*observation_domain_id=*/0, /*mpls_label_count=*/0,
                             IpfixTimeFormat::Seconds);
@@ -473,6 +506,7 @@ int main() {
     test_absolute_timestamp_round_trip();
     test_sequence_counts_data_records_not_templates();
     test_biflow_combines_both_directions_into_one_record();
+    test_biflow_exports_icmp_flow_per_direction();
     test_time_format_seconds_uses_four_byte_fields();
     test_time_format_microseconds_round_trips_via_ntp64();
     test_mpls_labels_are_included_when_configured();

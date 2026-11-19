@@ -345,14 +345,15 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     write_template (kIpfixTemplateIdIcmpV6, v6_icmp_fields);
   } else {
     // Field order must exactly match write_biflow_v4_record()/
-    // write_biflow_v4_icmp_record()/write_biflow_v6_record()/
-    // write_biflow_v6_icmp_record(): the SAME forward layout as the
-    // non-biflow branch above (address, time, common, transport-or-
-    // icmp), then MPLS, then the Reverse Information Elements (RFC
-    // 5103): reverse octetDeltaCount/packetDeltaCount/
-    // ipClassOfService [field_bicommon], then EITHER reverse
-    // tcpControlBits [field_bitransport] OR reverse icmpTypeCode
-    // [field_biicmp4/6].
+    // write_biflow_v6_record(): the SAME forward layout as the
+    // non-biflow branch above (address, time, common, transport), then
+    // MPLS, then the Reverse Information Elements (RFC 5103): reverse
+    // octetDeltaCount/packetDeltaCount/ipClassOfService
+    // [field_bicommon] and reverse tcpControlBits [field_bitransport].
+    // The ICMP templates have no reverse elements: ICMP is not a biflow
+    // (the type and code of a reply differ from those of the request),
+    // so they are the ICMP templates of the non-biflow branch, and their
+    // records are written by write_v4_icmp_record()/write_v6_icmp_record().
     std::vector<IpfixFieldSpec> v4_fields = {
       {8, 4},
       {12, 4},  // sourceIPv4Address, destinationIPv4Address
@@ -414,17 +415,12 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     const IpfixFieldSpec reverse_packets{2, 4, kIpfixReversePen};
     const IpfixFieldSpec reverse_tos{5, 1, kIpfixReversePen};
     const IpfixFieldSpec reverse_tcp_flags{6, 1, kIpfixReversePen};
-    const IpfixFieldSpec reverse_icmp4{32, 2, kIpfixReversePen};
-    const IpfixFieldSpec reverse_icmp6{139, 2, kIpfixReversePen};
-    for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
+    for (auto *fields : {&v4_fields, &v6_fields}) {
       fields->push_back (reverse_octets);
       fields->push_back (reverse_packets);
       fields->push_back (reverse_tos);
+      fields->push_back (reverse_tcp_flags);
     }
-    v4_fields.push_back (reverse_tcp_flags);
-    v6_fields.push_back (reverse_tcp_flags);
-    v4_icmp_fields.push_back (reverse_icmp4);
-    v6_icmp_fields.push_back (reverse_icmp6);
 
     write_template (kIpfixTemplateIdV4, v4_fields);
     write_template (kIpfixTemplateIdIcmpV4, v4_icmp_fields);

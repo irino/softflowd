@@ -337,10 +337,13 @@ ExportPipeline::export_now (const std::vector<softflowd_cpp::ExportRecord> &reco
   // `octets[1] > 0` in compat/netflow5.c, mirrored by this project's own
   // flatten() helpers in export_record.cpp). So "records sent" is *not* the same as the number
   // of input flows -- count directions with packets independently.
-  // Original: with -b, bidir_func () makes one record of each flow.
+  // Original: with -b, bidir_func () makes one record of each flow, except
+  // of an ICMP flow.
   std::uint64_t record_count = 0;
   for (const auto &r : records) {
-    record_count += biflow_ && format_ == ExportFormat::Ipfix
+    // An ICMP flow is not a biflow: it has one record for each direction.
+    record_count += biflow_ && format_ == ExportFormat::Ipfix &&
+                        !flow_is_icmp (r.key)
                       ? 1u
                       : (r.flow.packets[0] > 0 ? 1u : 0u) +
                           (r.flow.packets[1] > 0 ? 1u : 0u);

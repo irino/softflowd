@@ -264,7 +264,7 @@ flags and turns on additional debugging output.
 .It Fl B Ar size_bytes , Fl \-pcap-buffer-size Ar size_bytes
 Libpcap buffer size in bytes
 .It Fl b , Fl \-bidirectional
-Bidirectional mode in IPFIX (-b work with -v 10)
+Bidirectional mode in IPFIX (-b work with -v 10). An ICMP or ICMPv6 flow is not exported as a biflow, because the type and code of a reply differ from those of the request: it is exported as one record for each direction, as without -b
 .It Fl a , Fl \-adjust-time
 Adjusting time for reading pcap file (-a work with -r)
 .It Fl l , Fl \-load-balance

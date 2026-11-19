@@ -43,7 +43,7 @@
 | D18 | 無視されたパケットの統計: Rust が non-IP および too short パケットを数えていなかった (D12 の一部) | 2026-11-10 | 解消 | parse_packet() およびキャプチャループで non-IP と too short パケットをカウントするよう修正 | 2026-11-10、parse_packet() の単体テストおよびカウンタのテストが通過 |
 | D19 | NetFlow v9 の option template: scope type が Rust は 1 (System)、C は 2 (Interface) | 2026-11-15 | 解消 | Use the Interface scope type in the NetFlow v9 option template | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`) で option template flowset が C と同一。`test_netflow_v9_option_template_has_interface_name` が scope type 2 を期待するようになり、旧コードで失敗する |
 | D20 | option レコードの interfaceName が、`-r` のとき Rust は空、C はファイル名 | 2026-11-15 | 解消 | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15、`http.cap` と `v6-http.cap` (`-v 9 -a`、`-v 10 -a`) で option data レコードが PID を除いて C と同一。`interface_name_field()` の単体テスト、統合テスト `test_d20_option_record_interface_name_is_file_name` (旧コードで失敗) |
-| D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 許容 | 意図的に修正しない (本文を参照) | 2026-11-15、デコードしたテンプレートを比較 |
+| D21 | biflow (`-b`) の ICMP テンプレート: C は逆方向の icmpTypeCode を持ち、Rust は持たない | 2026-11-15 | 解消 | ICMP は biflow にしない: C、C++、Rust は ICMP のフローを片方向の ICMP テンプレートと、方向ごとに 1 レコードで出力する (逆方向のフィールドなし)。C と C++ は 1.1.1 と違いが出る | 2026-11-19、C、C++、Rust: `http.cap` と `v6-http.cap` の `-v 10 -b` (`-T full`、`-A micro` も) のテンプレートセットとデコードしたレコードが同じ。ICMP は `-b` の有無でも同じ。ゲートの項目は削除。1.1.1 との差は `tools/softflowd_test.py` で許容する |
 | D22 | 過負荷の追い出し (`-m`): C は dispatch の後にまとめて追い出し、Rust は 1 フローずつ追い出して 1 フロー 1 データグラムで送る (D12 の一部) | 2026-11-15 | 解消 | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15、`smoke`、`smoke6`、`vlan`、`slow`、`many` の全ての `-m` と `-t maxlife=1 -m 7` のケース (`-v 1`、`5`、`9`、`10`) で、データグラムと `-D` ログが C と同一 (D23 を除く)。live の "burst over -m 10" が MATCHED。`test_flow_eviction_exports` と `tests/expire_modes.rs`。バッチは 1 回 `-m` パケット (`-r` では揃うまで待つ)。`next_expire_is_now()` は `next_expire() == 0` に相当 |
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33)。C++ 版 (`records_in_flow`) と旧 export の `compat/ipfix.c` にも同じ規則を入れた (C++ 版と静的ビルドを C ビルドとバイト単位で比較する CI のため) |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
@@ -307,7 +307,7 @@ D12 を見てください。
 **受け入れ基準 (Acceptance Criteria)**
 
 1. 差分があった 134 件の原因が、D19、D20、D22〜D28 のどれかに属している
-   (D21 は下記のとおり許容)。D12 の本文にだけ残る原因がない。
+   (D21 は下記のとおり解消)。D12 の本文にだけ残る原因がない。
 2. 上の「コマンド」の `--strict` 実行に、文書に「許容」と書かれていない
    `DIFFERENT` がない。許容する差分は、`tools/softflowd_test*.py` の明示的で
    文書化された規則で比較から外す (例: option レコードのプロセス ID)。比較全体を
@@ -329,7 +329,7 @@ D15、D16、D18 が「D12 の一部」として解消されています。今回
 |------------|------|
 | 最初の v9 データグラム: option template の scope type (byte 303) | D19 |
 | 最初の v9 と IPFIX のデータグラム: option data の interfaceName | D20 |
-| `-b`: ICMP のテンプレートのサイズが違う | D21 (許容) |
+| `-b`: ICMP のテンプレートのサイズが違う | D21 (解消) |
 | `-m N`: C 120、Rust 596 データグラム (`many`)。ヘッダの時刻も違う | D22 |
 | v9 と IPFIX: C と Rust がデータグラムを閉じるレコードが違う | D23 |
 | `Starting expiry scan: mode` と `EXPIRED` の行 | D24 |
@@ -416,18 +416,16 @@ NetFlow v9 と IPFIX の両方で。(`--enable-ifname` は同じ値をデータ�
   制御する)。
 - 関連: D6 (メッセージも同じ名前を使う)、D11。
 
-### D21. biflow の ICMP テンプレート (実測、許容・修正しない)
+### D21. biflow の ICMP テンプレート (実測、C、C++、Rust で解消)
 
 **目的 (Goal)**
 
-なし。これは残す差分である。
-
-**受け入れ基準 (Acceptance Criteria)**
-
-1. 文書に、差分を許容することとその理由 (この本文) が書かれている。
-2. `--strict` の比較が、ICMP の biflow テンプレートのサイズ差を Rust の失敗として
-   報告しない。ハーネスが今は無視できないなら、無視規則は Rust ではなく
-   ハーネスに D12 の基準 2 の下で足す。
+`-b` でも ICMP のフローは biflow にしない。応答 (echo reply) の type と code は
+要求 (echo) と違うので、意味を持つ逆方向の icmpTypeCode はない。ICMP と ICMPv6 の
+テンプレートに逆方向のフィールドはなく、ICMP のフローは `-b` なしと同じく、octets の
+ある方向ごとに 1 レコードで出力する。biflow にするのは、ポートを持つプロトコル
+(TCP、UDP、SCTP、DCCP) のフローだけである。C、C++、Rust は同じ動作で、C と C++ は
+1.1.1 と違いが出る。ICMP 以外でポートを持たないプロトコル (GRE、ESP) は変えない。
 
 **背景 (Context)**
 
@@ -860,7 +858,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 
 | 分類 | 意味 | ゲート |
 |---|---|---|
-| accepted (許容) | 意図的に残す差 (D21) | 通る |
+| accepted (許容) | 意図的に残す差 (D34) | 通る |
 | open (未解消) | ここで追跡している既知の差 (D3、D26、D27、D28、D32、D33) | 通る |
 | UNEXPECTED | それ以外の差や失敗 | **失敗** |
 | STALE | どの行にも当たらない登録 (差が消えた) | **失敗**: 直したパッチが登録を削除する |

@@ -45,7 +45,7 @@ changes when a patch is applied.
 | D18 | Ignored packets statistics: Rust did not count non-IP and too short packets (part of D12) | 2026-11-10 | fixed | Count non-IP and too short packets in parse_packet() and capture loop | 2026-11-10, unit tests for parse_packet() and counter test pass |
 | D19 | NetFlow v9 option template: scope type is 1 (System) in Rust, 2 (Interface) in C | 2026-11-15 | fixed | Use the Interface scope type in the NetFlow v9 option template | 2026-11-15, option template flowset identical to C for http.cap and v6-http.cap (`-v 9 -a`); `test_netflow_v9_option_template_has_interface_name` now expects scope type 2 and fails on the old code |
 | D20 | interfaceName of the option records is empty with `-r` in Rust; C writes the file name | 2026-11-15 | fixed | Write the capture file name to the interfaceName of the option records with -r | 2026-11-15, option data record identical to C for http.cap and v6-http.cap (`-v 9 -a`, `-v 10 -a`) except the PID; unit tests of `interface_name_field()`, integration test `test_d20_option_record_interface_name_is_file_name` (fails on the old code) |
-| D21 | Biflow (`-b`) template of ICMP: C has a reverse icmpTypeCode, Rust has not | 2026-11-15 | accepted | not fixed on purpose (see the text) | 2026-11-15, decoded templates compared |
+| D21 | Biflow (`-b`) template of ICMP: C has a reverse icmpTypeCode, Rust has not | 2026-11-15 | fixed | ICMP is not a biflow: C, C++ and Rust export an ICMP flow with the unidirectional ICMP template and one record for each direction (no reverse fields); the C and C++ versions differ from 1.1.1 in this | 2026-11-19, C, C++ and Rust: the template sets and the decoded records of `-v 10 -b` (also `-T full`, `-A micro`) of `http.cap` and `v6-http.cap` are the same, and for ICMP they are the same with and without `-b`; the entry of the gate is deleted; the difference from 1.1.1 is allowed in `tools/softflowd_test.py` |
 | D22 | Overflow eviction (`-m`): C evicts in batches after a dispatch, Rust evicts one flow at a time and sends one datagram per flow (part of D12) | 2026-11-15 | fixed | Expire the flows over -m in a batch after the packets, as C does | 2026-11-15, the datagrams and the `-D` log of all `-m` and `-t maxlife=1 -m 7` cases of `smoke`, `smoke6`, `vlan`, `slow` and `many` are identical to C (`-v 1`, `5`, `9`, `10`), apart from D23; the live item "burst over -m 10" MATCHED; `test_flow_eviction_exports` and `tests/expire_modes.rs`. Batch: `-m` packets per round (with `-r` the round waits for them); `next_expire_is_now()` as `next_expire() == 0` |
 | D23 | Datagram packing: C closes a datagram earlier than Rust (part of D12) | 2026-11-15 | fixed | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15, with this change of the C version the datagrams of v9 and IPFIX of `http.cap` and `v6-http.cap` are byte for byte the same as Rust (except the PID); compat: 168 runs differ 134 -> 24 (the rest is D21, D32, D33); the same rule is in the C++ version (`records_in_flow`) and in the legacy export `compat/ipfix.c` (the byte for byte comparison of the C++ and the static builds with the C build; CI) |
 | D24 | Expiry scan: modes, `<` against `<=`, missing "Forcing expiry" log (part of D12) | 2026-11-15 | fixed | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15, `ExpireMode` (0, -1, 1), `-r` scans only forced flows, `expires_at < now`; the `-d` log of `smoke` and `smoke -m 100` is identical to C; `tests/expire_modes.rs`. Also matched to C in the same scan: the reason of the `Queuing flow` line is the number and comes before the flush mark, the maximum lifetime is counted with `>=`, `sent N netflow packets` is logged before the `EXPIRED` lines, and `flows_dropped` grows when the send fails. The `-d` logs of the `-m` cases still differ: D22 |
@@ -316,7 +316,7 @@ children are closed.
 **Acceptance Criteria**
 
 1. Every cause of the 134 differing runs belongs to one of D19, D20, D22 to
-   D28 (D21 is accepted, see below); none is left only in the text of D12.
+   D28 (D21 is fixed, see below); none is left only in the text of D12.
 2. The `--strict` run of the "Command" above has no `DIFFERENT` that is not
    listed in the document as accepted.  A difference that is accepted is
    removed from the comparison by an explicit, documented rule of
@@ -340,7 +340,7 @@ What was seen on 2026-11-15, and where it goes:
 |------|------|
 | First v9 datagram: option template scope type (byte 303) | D19 |
 | First v9 and IPFIX datagram: interfaceName of the option data | D20 |
-| `-b`: ICMP templates differ in size | D21 (accepted) |
+| `-b`: ICMP templates differ in size | D21 (fixed) |
 | `-m N`: C 120 datagrams, Rust 596 (`many`); header time differs | D22 |
 | v9 and IPFIX: C and Rust close the datagram at different records | D23 |
 | `Starting expiry scan: mode` and `EXPIRED` lines | D24 |
@@ -430,11 +430,18 @@ records.)
   right; `--enable-ifname` only controls the data records).
 - Related: D6 (messages use the same source name), D11.
 
-### D21. Biflow template of ICMP (measured; accepted, not fixed)
+### D21. Biflow template of ICMP (measured; fixed in C, C++ and Rust)
 
 **Goal**
 
-None.  This is a difference that is kept.
+With `-b`, an ICMP flow is not a biflow: the type and code of a reply (echo
+reply) differ from those of the request (echo), so there is no reverse
+icmpTypeCode that means anything.  The ICMP and ICMPv6 templates have no
+reverse fields, and an ICMP flow is exported as one record for each direction
+that has octets, like without `-b`.  Only the flows of the protocols that have
+ports (TCP, UDP, SCTP, DCCP) are biflows.  The C version, the C++ version and
+the Rust version do the same; the C and C++ versions differ from 1.1.1 in this.
+The protocols without ports other than ICMP (GRE, ESP) are not changed.
 
 **Acceptance Criteria**
 
@@ -812,7 +819,7 @@ Find and remove the differences of the Biflow with `-H` and `-T ether`.
 **Context**
 
 - v9 (`smoke -v 9 -a -b -T ether -H 02:00:00:00:00:01`): datagrams of the same size; bytes differ at one byte per record (offsets 505, 621, ...: the distance is the record length, 116): C `00`, Rust `02` in the last byte of the MAC address field of the reverse direction (template 1024, fields `sourceMacAddress` and the field 57).  It looks like the address given by `-H` is used for a direction where C writes zeros, or the reverse.
-- IPFIX (`-v 10 -a -b -T ether -H ...`): the sizes of the datagrams differ in both directions (C 1384, Rust 1428; C 1368, Rust 1412; C 1364, Rust 1416): different templates or records.  Part of it can be D21 (the ICMP templates), which is accepted; check the template sets first (`dec.py`).
+- IPFIX (`-v 10 -a -b -T ether -H ...`): the sizes of the datagrams differ in both directions (C 1384, Rust 1428; C 1368, Rust 1412; C 1364, Rust 1416): different templates or records.  Part of it can be D21 (the ICMP templates), which is fixed; check the template sets first (`dec.py`).
 - Not yet read: how `-H` (`--direction-mac`) chooses the direction in C (`packet.c`, `flow.c`) and in Rust.  Claude should do this item.
 
 
@@ -884,7 +891,7 @@ It runs `softflowd_test.py --strict`, then `cargo fmt --check`, `cargo clippy -D
 
 | Class | Meaning | Gate |
 |---|---|---|
-| accepted | a difference that is kept on purpose (D21) | passes |
+| accepted | a difference that is kept on purpose (D34) | passes |
 | open | a known difference that is tracked here (D3, D26, D27, D28, D32, D33) | passes |
 | UNEXPECTED | any other difference or failure | **fails** |
 | STALE | an entry that no line matched: the difference is gone | **fails**: the patch that fixed it must delete the entry |

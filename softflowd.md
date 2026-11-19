@@ -171,7 +171,7 @@ Libpcap buffer size in bytes
 
 **-b**, **\--bidirectional**
 
-Bidirectional mode in IPFIX (-b work with -v 10)
+Bidirectional mode in IPFIX (-b work with -v 10). An ICMP or ICMPv6 flow is not exported as a biflow, because the type and code of a reply differ from those of the request: it is exported as one record for each direction, as without -b
 
 **-a**, **\--adjust-time**
 

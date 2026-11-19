@@ -193,6 +193,21 @@ private:
 };
 
 /**
+ * @brief Tells whether a flow is exported with the ICMP template.
+ *
+ * With -b such a flow is exported as one record for each direction, not as a
+ * biflow: the type and code of a reply (echo reply) differ from those of the
+ * request (echo).
+ *
+ * @param key The key of the flow.
+ * @return true for the protocol 1 of an IPv4 flow and the protocol 58 of an IPv6 flow.
+ *
+ * @original ipfix_flow_to_template_index()
+ */
+bool
+flow_is_icmp (const FlowKey &key);
+
+/**
  * @brief Builds the messages of IPFIX and of NetFlow v9.
  *
  * The two protocols share the templates, the data records and the packet

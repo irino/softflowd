@@ -730,8 +730,11 @@ fn build_templates(
             });
         }
 
+        // ICMP has no Biflow template: the type and code of a reply (echo
+        // reply) differ from those of the request (echo), so it is exported
+        // as one record for each direction.
         let mut bi_fields = Vec::new();
-        if bi_flag {
+        if bi_flag && !icmp {
             bi_fields.push(FieldSpecEncoder {
                 ie: 1 | 0x8000,
                 length: 4,
@@ -747,13 +750,11 @@ fn build_templates(
                 length: 1,
                 encoder: enc_ipClassOfService,
             });
-            if !icmp {
-                bi_fields.push(FieldSpecEncoder {
-                    ie: 6 | 0x8000,
-                    length: 1,
-                    encoder: enc_tcpControlBits,
-                });
-            }
+            bi_fields.push(FieldSpecEncoder {
+                ie: 6 | 0x8000,
+                length: 1,
+                encoder: enc_tcpControlBits,
+            });
         }
 
         let mut data_len = fields.iter().map(|f| f.length).sum::<usize>()
@@ -1029,19 +1030,21 @@ pub fn send_ipfix_flows(sp: &mut SendParameter, bi_flag: bool, version: u16) -> 
 
             let tmplindex = ipfix_flow_to_template_index(flow);
             let tmpl = &tmpls[tmplindex];
-            let frecnum = if bi_flag { 1 } else { 2 };
+            // A flow of ICMP is never a Biflow, see build_templates().
+            let flow_bi = bi_flag && icmp_flag == 0;
+            let frecnum = if flow_bi { 1 } else { 2 };
             let mut flow_written = 0;
             let mut flow_bytes = Vec::new();
 
             for dir in 0..frecnum {
-                if !bi_flag && flow.octets[dir] == 0 {
+                if !flow_bi && flow.octets[dir] == 0 {
                     continue;
                 }
                 let ctx = ExportCtx { sp, flow, i: dir };
                 let old_len = flow_bytes.len();
                 flow_bytes.resize(old_len + tmpl.data_len, 0);
                 let mut off = emit_group(&tmpl.fields, &mut flow_bytes, old_len, &ctx);
-                if bi_flag && dir == 0 {
+                if flow_bi && dir == 0 {
                     let bictx = ExportCtx { sp, flow, i: 1 };
                     off = emit_group(&tmpl.bi_fields, &mut flow_bytes, off, &bictx);
                 }

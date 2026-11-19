@@ -322,24 +322,16 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
     length += ipfix_init_template_fields (tmpl, &index, field_ether,
                                           EXPORT_NFIELDS_ENC (field_ether),
                                           IPFIX_BIFLAG_OFF);
-  if (bi_flag && version == 10) {
+  /* ICMP has no Biflow template: the type and code of a reply (echo reply)
+   * differ from those of the request (echo), so it is exported as one
+   * record per direction. */
+  if (bi_flag && version == 10 && !icmp_flag) {
     length += ipfix_init_template_fields (tmpl, &bi_index, field_bicommon,
                                           EXPORT_NFIELDS_ENC (field_bicommon),
                                           IPFIX_BIFLAG_ON);
-    if (icmp_flag) {
-      if (v6_flag)
-        length += ipfix_init_template_fields (
-          tmpl, &bi_index, field_biicmp6,
-          EXPORT_NFIELDS_ENC (field_biicmp6), IPFIX_BIFLAG_ON);
-      else
-        length += ipfix_init_template_fields (
-          tmpl, &bi_index, field_biicmp4,
-          EXPORT_NFIELDS_ENC (field_biicmp4), IPFIX_BIFLAG_ON);
-    } else {
-      length += ipfix_init_template_fields (
-        tmpl, &bi_index, field_bitransport,
-        EXPORT_NFIELDS_ENC (field_bitransport), IPFIX_BIFLAG_ON);
-    }
+    length += ipfix_init_template_fields (
+      tmpl, &bi_index, field_bitransport,
+      EXPORT_NFIELDS_ENC (field_bitransport), IPFIX_BIFLAG_ON);
   }
   tmpl->t.bi_count = bi_index;
   tmpl->t.h.r.count = htons (index + bi_index + param->max_num_label);
@@ -451,23 +443,26 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   u_int tmplindex = ipfix_flow_to_template_index (flow);
   struct EXPORT_TEMPLATE *tmpl = &templates[tmplindex];
   u_int offset = 0, nflows = 0, k;
-  u_int frecnum = bi_flag ? 1 : 2;
+  /* A flow of ICMP is never a Biflow, see ipfix_init_template_unity(). */
+  u_int8_t flow_bi =
+    bi_flag && tmplindex != TMPLICMPV4 && tmplindex != TMPLICMPV6;
+  u_int frecnum = flow_bi ? 1 : 2;
   struct EXPORT_CTX ctx = {.sp = sp, .flow = flow, .i = 0};
 
   (void) version; /* only used to size frecnum via bi_flag */
   /* Room is needed only for the records that are written: a flow that has
    * octets in one direction only needs one record (not two). */
-  u_int need = bi_flag ? 1 : (flow->octets[0] != 0) + (flow->octets[1] != 0);
+  u_int need = flow_bi ? 1 : (flow->octets[0] != 0) + (flow->octets[1] != 0);
   if (len < tmpl->t.data_len * need)
     return (-1);
 
   for (ctx.i = 0; ctx.i < frecnum; ctx.i++) {
-    if (bi_flag == 0 && flow->octets[ctx.i] == 0)
+    if (flow_bi == 0 && flow->octets[ctx.i] == 0)
       continue;
     nflows++;
     offset =
       export_emit_group_enc (tmpl->hr, tmpl->hr_count, packet, offset, &ctx);
-    if (bi_flag && ctx.i == 0) {
+    if (flow_bi && ctx.i == 0) {
       struct EXPORT_CTX bictx = ctx;
       bictx.i = 1; /* reverse direction */
       offset = export_emit_group_enc (tmpl->hbi, tmpl->t.bi_count, packet, offset,

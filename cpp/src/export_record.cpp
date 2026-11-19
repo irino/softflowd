@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <variant>
 
 namespace softflowd_cpp {
 
@@ -463,19 +464,39 @@ struct BiflowRecord {
 };
 
 /**
- * @brief Turns flows into a list of biflow records: one record for each flow that has packets in either direction.
+ * @brief A record of the -b mode: a biflow record, or for an ICMP flow a record of the unidirectional template.
+ */
+using BiflowOrDirectional = std::variant<IpfixDirectionalRecord, BiflowRecord>;
+
+/**
+ * @brief Turns flows into the records of the -b mode: one biflow record for each flow that has packets in either direction, except that an ICMP flow is exported as one record for each direction.
+ *
+ * ICMP cannot be a biflow: the type and code of a reply (echo reply) differ
+ * from those of the request (echo), so a record that holds both directions
+ * has no single icmpTypeCode.  Only a protocol that has ports is a biflow.
  *
  * @param records The flows, in the order of their expiry.
  * @param out The list to append to.
  * @param direction_mac The direction MAC address of -H, if there is one.
+ *
+ * @original ipfix_flow_to_flowset(): a flow of the ICMP templates is not a
+ * biflow.
  */
 void
 flatten_biflow (std::span<const ExportRecord> records,
-                std::vector<BiflowRecord> &out,
+                std::vector<BiflowOrDirectional> &out,
                 const std::optional<std::array<std::uint8_t, 6>> &direction_mac) {
   for (const auto &record : records) {
     const auto &key = record.key;
     const auto &flow = record.flow;
+    if (is_icmp_protocol (key.protocol(),
+                          key.addr()[0].family == AddressFamily::IPv6)) {
+      std::vector<IpfixDirectionalRecord> directional;
+      flatten (std::span<const ExportRecord> (&record, 1), directional,
+               direction_mac);
+      out.insert (out.end(), directional.begin(), directional.end());
+      continue;
+    }
     if (flow.packets[0] == 0 && flow.packets[1] == 0) {
       continue;  // no traffic in either direction; nothing to report
     }
@@ -504,42 +525,35 @@ flatten_biflow (std::span<const ExportRecord> records,
 }
 
 /**
- * @brief Writes the reverse fields that end a biflow record: the octets, the packets and the ToS of the reverse direction, and then the reverse icmpTypeCode for ICMP or else the reverse TCP flags.
+ * @brief Writes the reverse fields that end a biflow record: the octets, the packets, the ToS and the TCP flags of the reverse direction.
  *
  * The octet and packet counts are limited to 32 bits.
  *
+ * ICMP has no biflow record: the type and code of a reply (echo reply)
+ * differ from those of the request (echo), so an ICMP flow is exported as
+ * one record for each direction, see flatten_biflow().
+ *
  * @param writer The buffer to append to.
  * @param r The record.
- * @param is_icmp true for an ICMP or ICMPv6 flow.
  *
  * @original ipfix_flow_to_flowset()'s bi_flag branch writes ONE record per
  * flow (frecnum=1, always i=0 -- "forward" is always FlowKey's canonical
  * addr()[0]/port()[0]) with the SAME field layout/order as the
- * unidirectional case (address, time, common(18), transport-or-icmp) --
- * see write_v4_record()/write_v4_icmp_record() -- followed by a
- * Reverse-Information-Element tail: reverse octetDeltaCount(4),
- * packetDeltaCount(4), ipClassOfService(1) [field_bicommon], then EITHER
- * reverse tcpControlBits(1) [field_bitransport] OR reverse icmpTypeCode(2)
- * [field_biicmp4/6] depending on protocol -- never both. flowDirection is
- * always 0 here (ipfix_flow_direction()'s fallback for i=0, the only
- * index this loop ever uses).
- *
- * The reverse part is encoded for the reverse direction (i=1), so the
- * reverse icmpTypeCode is `flow-\>port[i ^ 1]` == port[0] in the original,
- * not the port[1] of the forward icmpTypeCode.
+ * unidirectional case (address, time, common(18), transport) -- see
+ * write_v4_record() -- followed by a Reverse-Information-Element tail:
+ * reverse octetDeltaCount(4), packetDeltaCount(4), ipClassOfService(1)
+ * [field_bicommon], then reverse tcpControlBits(1) [field_bitransport].
+ * flowDirection is always 0 here (ipfix_flow_direction()'s fallback for
+ * i=0, the only index this loop ever uses).
  */
 void
-write_biflow_common_tail (ByteWriter &writer, const BiflowRecord &r, bool is_icmp) {
+write_biflow_common_tail (ByteWriter &writer, const BiflowRecord &r) {
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.rev_octets, 0xFFFFFFFFu)));  // reverse octetDeltaCount
   writer.put_u32 (static_cast<std::uint32_t> (
     std::min<std::uint64_t> (r.rev_packets, 0xFFFFFFFFu)));  // reverse packetDeltaCount
   writer.put_u8 (r.rev_tos);                                 // reverse ipClassOfService
-  if (is_icmp) {
-    writer.put_u16 (r.src_port);  // reverse icmpTypeCode == flow->port[0] == src_port
-  } else {
-    writer.put_u8 (r.rev_tcp_flags);  // reverse tcpControlBits
-  }
+  writer.put_u8 (r.rev_tcp_flags);                           // reverse tcpControlBits
 }
 
 /**
@@ -576,43 +590,7 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
   writer.put_u8 (4);  // ipVersion
   writer.put_u8 (r.tos);
   write_tail (writer, r, tail);
-  write_biflow_common_tail (writer, r, /*is_icmp=*/false);
-}
-
-/**
- * @brief Writes a biflow record of an ICMP flow: the forward fields in the order of write_v4_icmp_record(), the tail and the reverse fields.
- *
- * @param writer The buffer to append to.
- * @param r The record.
- * @param time_format The format of the start and end times (-A).
- * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
- * @param boot_time The time when the exporter started, which SysUpTime counts from.
- * @param now The current time on Clock.
- * @param wall_now The wall-clock time that corresponds to @p now.
- */
-void
-write_biflow_v4_icmp_record (ByteWriter &writer, const BiflowRecord &r,
-                             IpfixTimeFormat time_format,
-                             const TailFormat &tail, TimePoint boot_time,
-                             TimePoint now,
-                             std::chrono::system_clock::time_point wall_now) {
-  writer.put_ipv4 (*r.src);
-  writer.put_ipv4 (*r.dst);
-  write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  writer.put_u32 (static_cast<std::uint32_t> (
-    std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
-  writer.put_u32 (static_cast<std::uint32_t> (
-    std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (tail.if_index);  // ingressInterface
-  writer.put_u32 (tail.if_index);  // egressInterface
-  writer.put_u8 (r.direction);     // flowDirection
-  writer.put_u8 (r.flow_end_reason);
-  writer.put_u16 (r.dst_port);  // forward icmpTypeCode == flow->port[i^1] == port[1] == dst_port
-  writer.put_u8 (r.protocol);
-  writer.put_u8 (4);
-  writer.put_u8 (r.tos);
-  write_tail (writer, r, tail);
-  write_biflow_common_tail (writer, r, /*is_icmp=*/true);
+  write_biflow_common_tail (writer, r);
 }
 
 /**
@@ -649,46 +627,16 @@ write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
   writer.put_u8 (6);
   writer.put_u8 (r.tos);
   write_tail (writer, r, tail);
-  write_biflow_common_tail (writer, r, /*is_icmp=*/false);
-}
-
-/**
- * @brief Writes a biflow record of an ICMPv6 flow: the forward fields in the order of write_v6_icmp_record(), the tail and the reverse fields.
- *
- * @param writer The buffer to append to.
- * @param r The record.
- * @param time_format The format of the start and end times (-A).
- * @param tail The VLAN, Ethernet and MPLS fields that follow the transport fields.
- * @param boot_time The time when the exporter started, which SysUpTime counts from.
- * @param now The current time on Clock.
- * @param wall_now The wall-clock time that corresponds to @p now.
- */
-void
-write_biflow_v6_icmp_record (ByteWriter &writer, const BiflowRecord &r,
-                             IpfixTimeFormat time_format,
-                             const TailFormat &tail, TimePoint boot_time,
-                             TimePoint now,
-                             std::chrono::system_clock::time_point wall_now) {
-  writer.put_ipv6 (*r.src);
-  writer.put_ipv6 (*r.dst);
-  write_time_values (writer, time_format, boot_time, now, wall_now, r.first, r.last);
-  writer.put_u32 (static_cast<std::uint32_t> (
-    std::min<std::uint64_t> (r.fwd_octets, 0xFFFFFFFFu)));
-  writer.put_u32 (static_cast<std::uint32_t> (
-    std::min<std::uint64_t> (r.fwd_packets, 0xFFFFFFFFu)));
-  writer.put_u32 (tail.if_index);  // ingressInterface
-  writer.put_u32 (tail.if_index);  // egressInterface
-  writer.put_u8 (r.direction);     // flowDirection
-  writer.put_u8 (r.flow_end_reason);
-  writer.put_u16 (r.dst_port);
-  writer.put_u8 (r.protocol);
-  writer.put_u8 (6);
-  writer.put_u8 (r.tos);
-  write_tail (writer, r, tail);
-  write_biflow_common_tail (writer, r, /*is_icmp=*/true);
+  write_biflow_common_tail (writer, r);
 }
 
 }  // namespace
+
+bool
+flow_is_icmp (const FlowKey &key) {
+  return is_icmp_protocol (key.protocol(),
+                           key.addr()[0].family == AddressFamily::IPv6);
+}
 
 std::vector<std::vector<std::uint8_t>>
 IpfixExporter::build_packets (
@@ -875,41 +823,55 @@ IpfixExporter::build_packets (
         }
       });
   } else {
-    std::vector<BiflowRecord> all;
+    std::vector<BiflowOrDirectional> all;
     flatten_biflow (records, all, direction_mac_);
 
-    // Original: field_bicommon (9 bytes: reverse octets/packets/tos)
-    // plus either field_bitransport (1 byte: reverse tcpControlBits)
-    // or field_biicmp4/6 (2 bytes: reverse icmpTypeCode) tacked onto
-    // the ordinary per-family/ICMP-ness record size -- see
-    // write_biflow_common_tail().
-    const std::size_t bi_sizes[2][2] = {
+    // Original: field_bicommon (9 bytes: reverse octets/packets/tos) plus
+    // field_bitransport (1 byte: reverse tcpControlBits) tacked onto the
+    // ordinary per-family record size -- see write_biflow_common_tail().
+    // An ICMP flow is not a biflow: its records are those of the
+    // unidirectional template.
+    const std::size_t sizes[2][2] = {
+      // [is_v6][is_icmp]
       {record_size (false, false, time_format_, mpls_label_count_, track_level_) + 9 + 1,
-       record_size (false, true, time_format_, mpls_label_count_, track_level_) + 9 + 2},
+       record_size (false, true, time_format_, mpls_label_count_, track_level_)},
       {record_size (true, false, time_format_, mpls_label_count_, track_level_) + 9 + 1,
-       record_size (true, true, time_format_, mpls_label_count_, track_level_) + 9 + 2},
+       record_size (true, true, time_format_, mpls_label_count_, track_level_)},
     };
     pack_interleaved (
       all,
-      [] (const BiflowRecord &r) { return r.src->family == AddressFamily::IPv6; },
-      [] (const BiflowRecord &r) {
-        return is_icmp_protocol (r.protocol, r.src->family == AddressFamily::IPv6);
+      [] (const BiflowOrDirectional &r) {
+        return std::visit ([] (const auto &x) { return x.src->family == AddressFamily::IPv6; }, r);
       },
-      [&] (bool is_v6, bool is_icmp) { return bi_sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
-      [] (const BiflowRecord &) -> std::size_t { return 1; },
-      [&] (ByteWriter &w, const BiflowRecord &r, bool is_v6, bool is_icmp) {
-        if (!is_v6 && !is_icmp) {
-          write_biflow_v4_record (w, r, time_format_, tail_, boot_time_,
-                                  now, wall_now);
-        } else if (!is_v6 && is_icmp) {
-          write_biflow_v4_icmp_record (w, r, time_format_, tail_,
-                                       boot_time_, now, wall_now);
-        } else if (is_v6 && !is_icmp) {
-          write_biflow_v6_record (w, r, time_format_, tail_, boot_time_,
-                                  now, wall_now);
+      [] (const BiflowOrDirectional &r) {
+        return std::holds_alternative<IpfixDirectionalRecord> (r);
+      },
+      [&] (bool is_v6, bool is_icmp) { return sizes[is_v6 ? 1 : 0][is_icmp ? 1 : 0]; },
+      [] (const BiflowOrDirectional &r) -> std::size_t {
+        if (const auto *d = std::get_if<IpfixDirectionalRecord> (&r)) {
+          return d->first_in_flow ? d->records_in_flow : 0;
+        }
+        return 1;
+      },
+      [&] (ByteWriter &w, const BiflowOrDirectional &r, bool is_v6, bool is_icmp) {
+        if (is_icmp) {
+          const auto &d = std::get<IpfixDirectionalRecord> (r);
+          if (!is_v6) {
+            write_v4_icmp_record (w, d, time_format_, tail_, boot_time_, now,
+                                  wall_now);
+          } else {
+            write_v6_icmp_record (w, d, time_format_, tail_, boot_time_, now,
+                                  wall_now);
+          }
         } else {
-          write_biflow_v6_icmp_record (w, r, time_format_, tail_,
-                                       boot_time_, now, wall_now);
+          const auto &b = std::get<BiflowRecord> (r);
+          if (!is_v6) {
+            write_biflow_v4_record (w, b, time_format_, tail_, boot_time_,
+                                    now, wall_now);
+          } else {
+            write_biflow_v6_record (w, b, time_format_, tail_, boot_time_,
+                                    now, wall_now);
+          }
         }
       });
   }

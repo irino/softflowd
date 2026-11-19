@@ -244,7 +244,10 @@ bytes</p>
 <b>--bidirectional</b></p>
 
 <p style="margin-left:19%;">Bidirectional mode in IPFIX (-b
-work with -v 10)</p>
+work with -v 10). An ICMP or ICMPv6 flow is not exported as a
+biflow, because the type and code of a reply differ from those of
+the request: it is exported as one record for each direction, as
+without -b</p>
 
 <p style="margin-top: 1em"><b>-a</b>,
 <b>--adjust-time</b></p>

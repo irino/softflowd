@@ -71,10 +71,6 @@ struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT {
   u_int8_t tcpControlBits;
 } __packed;
 
-struct IPFIX_SOFTFLOWD_DATA_BIICMP {
-  u_int16_t icmpTypeCode;
-} __packed;
-
 union IPFIX_SOFTFLOWD_DATA_TIME {
   struct {
     u_int32_t start;
@@ -250,22 +246,14 @@ ipfix_init_template_unity (struct FLOWTRACKPARAMETERS *param,
     length += ipfix_init_fields (template->r, &index, field_ether,
                                  IPFIX_SOFTFLOWD_TEMPLATE_ETHERRECORDS);
   }
-  if (bi_flag) {
+  /* ICMP has no Biflow template: the type and code of a reply (echo reply)
+   * differ from those of the request (echo), so it is exported as one
+   * record for each direction. */
+  if (bi_flag && !icmp_flag) {
     length += ipfix_init_bifields (template, &bi_index, field_bicommon,
                                    IPFIX_SOFTFLOWD_TEMPLATE_BICOMMONRECORDS);
-    if (icmp_flag) {
-      if (v6_flag) {
-        length += ipfix_init_bifields (template, &bi_index, field_biicmp6,
-                                       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
-      } else {
-        length += ipfix_init_bifields (template, &bi_index, field_biicmp4,
-                                       IPFIX_SOFTFLOWD_TEMPLATE_BIICMPRECORDS);
-      }
-    } else {
-      length +=
-        ipfix_init_bifields (template, &bi_index, field_bitransport,
-                             IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS);
-    }
+    length += ipfix_init_bifields (template, &bi_index, field_bitransport,
+                                   IPFIX_SOFTFLOWD_TEMPLATE_BITRANSPORTRECORDS);
   }
   template->bi_count = bi_index;
   template->h.r.count = htons (index + bi_index + param->max_num_label);  // mpls
@@ -504,24 +492,25 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
   struct IPFIX_SOFTFLOWD_DATA_ETHER *de[2] = {NULL, NULL};
   struct IPFIX_SOFTFLOWD_DATA_BICOMMON *dbc = NULL;
   struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *dbtr = NULL;
-  struct IPFIX_SOFTFLOWD_DATA_BIICMP *dbi = NULL;
 #ifdef ENABLE_IFNAME
   struct OPTION *option = &param->option;
 #endif /* ENABLE_IFNAME */
   u_int freclen = 0, nflows = 0, offset = 0;
-  u_int frecnum = bi_flag ? 1 : 2;
   u_int tmplindex = ipfix_flow_to_template_index (flow);
   int icmp_template = tmplindex == TMPLICMPV4 || tmplindex == TMPLICMPV6;
+  /* A flow of ICMP is never a Biflow, see ipfix_init_template_unity(). */
+  int flow_bi = bi_flag && !icmp_template;
+  u_int frecnum = flow_bi ? 1 : 2;
   int i = 0, k = 0;
   freclen = templates[tmplindex].data_len;
   /* Room is needed only for the records that are written: a flow that has
    * octets in one direction only needs one record (not two), as in
    * export_template.c. */
-  if (len < freclen * (bi_flag ? 1u : (u_int) ((flow->octets[0] != 0) + (flow->octets[1] != 0))))
+  if (len < freclen * (flow_bi ? 1u : (u_int) ((flow->octets[0] != 0) + (flow->octets[1] != 0))))
     return (-1);
 
   for (i = 0; i < (int) frecnum; i++) {
-    if (bi_flag == 0 && flow->octets[i] == 0)
+    if (flow_bi == 0 && flow->octets[i] == 0)
       continue;
     nflows++;
     if (flow->af == AF_INET) {
@@ -580,23 +569,15 @@ ipfix_flow_to_flowset (const struct FLOW *flow, u_char *packet,
       memcpy (&de[i]->destinationMacAddress, &flow->ethermac[i ^ 1], 6);
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_ETHER);
     }
-    if (bi_flag && i == 0) {
+    if (flow_bi && i == 0) {
       dbc = (struct IPFIX_SOFTFLOWD_DATA_BICOMMON *) &packet[offset];
       dbc->octetDeltaCount = htonl (flow->octets[1]);
       dbc->packetDeltaCount = htonl (flow->packets[1]);
       dbc->ipClassOfService = flow->tos[1];
       offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BICOMMON);
-      if (!icmp_template) {
-        dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *) &packet[offset];
-        dbtr->tcpControlBits = flow->tcp_flags[1];
-        offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
-      } else {
-        dbi = (struct IPFIX_SOFTFLOWD_DATA_BIICMP *) &packet[offset];
-        /* RFC 5103: the reverse field holds the type and code of the reverse
-         * direction, as the record i == 1 would. */
-        dbi->icmpTypeCode = flow->port[0];
-        offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BIICMP);
-      }
+      dbtr = (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT *) &packet[offset];
+      dbtr->tcpControlBits = flow->tcp_flags[1];
+      offset += sizeof (struct IPFIX_SOFTFLOWD_DATA_BITRANSPORT);
     }
     for (k = 0; k < param->max_num_label; k++) {
       memcpy (&packet[offset], &flow->mplsLabels[k],
