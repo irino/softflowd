@@ -13,6 +13,8 @@ pub const DLT_PFLOG: i32 = 117;
 
 const IPPROTO_TCP: u8 = 6;
 const IPPROTO_UDP: u8 = 17;
+const IPPROTO_DCCP: u8 = 33;
+const IPPROTO_SCTP: u8 = 132;
 const IPPROTO_ICMP: u8 = 1;
 const IPPROTO_ICMPV6: u8 = 58;
 
@@ -362,8 +364,15 @@ pub fn parse_packet(
                     tcp_flags = pkt[next_header_offset + 13];
                 }
             }
-            IPPROTO_UDP => {
-                let min_len = if full_l4hdr_check { 8 } else { 4 };
+            // C: the ports of UDP, DCCP and SCTP are where the ports of UDP are.  The
+            // whole header is 8 octets for UDP and 12 for DCCP (struct dccp_hdr); SCTP
+            // has no header structure in C, so its ports are all that is required.
+            IPPROTO_UDP | IPPROTO_DCCP | IPPROTO_SCTP => {
+                let min_len = match protocol {
+                    IPPROTO_UDP if full_l4hdr_check => 8,
+                    IPPROTO_DCCP if full_l4hdr_check => 12,
+                    _ => 4,
+                };
                 if remain >= min_len {
                     src_port =
                         u16::from_be_bytes([pkt[next_header_offset], pkt[next_header_offset + 1]]);

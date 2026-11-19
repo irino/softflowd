@@ -1256,3 +1256,63 @@ fn test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header() {
     );
     let _ = std::fs::remove_file(pcap);
 }
+
+// -------------------------------------------------------------
+// The ports of DCCP and SCTP are read like those of UDP (C: transport_to_flowrec())
+// -------------------------------------------------------------
+fn ipv4_raw_packet(protocol: u8, l4: &[u8]) -> Vec<u8> {
+    let mut pkt = vec![0u8; 12];
+    pkt.extend_from_slice(&[0x08, 0x00]); // Ethernet: IPv4
+    let total = 20 + l4.len();
+    pkt.extend_from_slice(&[
+        0x45,
+        0x00,
+        (total >> 8) as u8,
+        total as u8,
+        0,
+        0,
+        0,
+        0,
+        64,
+        protocol,
+    ]);
+    pkt.extend_from_slice(&[0, 0]); // checksum
+    pkt.extend_from_slice(&[10, 0, 0, 1, 10, 0, 0, 2]);
+    pkt.extend_from_slice(l4);
+    pkt
+}
+
+fn ports_of(protocol: u8, l4: &[u8], full_l4hdr_check: bool) -> (u16, u16) {
+    let pkt = ipv4_raw_packet(protocol, l4);
+    let parsed = parse_packet(
+        1, // DLT_EN10MB
+        &pkt,
+        pkt.len() as u32,
+        pkt.len() as u32,
+        TrackLevel::Full,
+        0,
+        full_l4hdr_check,
+        TimeVal {
+            tv_sec: 1600000000,
+            tv_usec: 0,
+        },
+    )
+    .expect("Failed to parse packet");
+    (parsed.src_port, parsed.dst_port)
+}
+
+#[test]
+fn test_dccp_and_sctp_ports_are_read_like_udp() {
+    let ports = [0x10, 0x00, 0x20, 0x00]; // 4096, 8192
+
+    // SCTP: the ports are all that C requires, also with the whole-header check.
+    assert_eq!(ports_of(132, &ports, false), (4096, 8192));
+    assert_eq!(ports_of(132, &ports, true), (4096, 8192));
+
+    // DCCP: 4 octets, or the 12 octets of struct dccp_hdr with the whole-header check.
+    assert_eq!(ports_of(33, &ports, false), (4096, 8192));
+    assert_eq!(ports_of(33, &ports, true), (0, 0));
+    let mut dccp = ports.to_vec();
+    dccp.extend_from_slice(&[0u8; 8]);
+    assert_eq!(ports_of(33, &dccp, true), (4096, 8192));
+}
