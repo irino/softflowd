@@ -40,7 +40,10 @@ def exported_flows(datagrams, biflow):
         values = [int.from_bytes(fields.get((ie, 0), b""), "big")
                   for ie in (4, 2, 1, 7, 11, 139)]
         if biflow:
-            values.extend(int.from_bytes(fields[ie, 29305], "big") for ie in (2, 1))
+            values.extend(
+                int.from_bytes(fields[ie, 29305], "big") if (ie, 29305) in fields else None
+                for ie in (2, 1)
+            )
         flows.append((src, dst, *values))
     return sorted(flows)
 
@@ -56,7 +59,7 @@ def main():
         ("2001:db8::3", "2001:db8:1::3", 58, 1, 48, 0, 0, 32768),
     ]
     uniflow = sorted(expected + [("2001:db8:1::2", "2001:db8::2", 17, 1, 56, 161, 12345, 0)])
-    biflow = [expected[0] + (0, 0), expected[1] + (1, 56), expected[2] + (0, 0)]
+    biflow = [expected[0] + (0, 0), expected[1] + (1, 56), expected[2] + (None, None)]
     # Expire protocol 1 first so its record shares a Set with the following UDP records.
     options = ["-T", "ether", "-t", "general=10", "-t", "udp=30", "-t", "icmp=60"]
     passed = True
