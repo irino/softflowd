@@ -70,10 +70,11 @@ update_statistics (struct FLOWTRACK *ft, struct FLOW *flow) {
   ft->param.flows_expired++;
   ft->param.flows_pp[flow->protocol % 256]++;
 
-  tmp = (double) flow->flow_last.tv_sec +
-        ((double) flow->flow_last.tv_usec / 1000000.0);
-  tmp -= (double) flow->flow_start.tv_sec +
-         ((double) flow->flow_start.tv_usec / 1000000.0);
+  /* Subtract the seconds and the microseconds first: a double that holds
+   * sec + usec / 1e6 at epoch magnitude loses about 1e-7 s. */
+  tmp = (double) (flow->flow_last.tv_sec - flow->flow_start.tv_sec) +
+        ((double) (flow->flow_last.tv_usec - flow->flow_start.tv_usec) /
+         1000000.0);
   if (tmp < 0.0)
     tmp = 0.0;
 
