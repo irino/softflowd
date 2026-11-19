@@ -347,6 +347,8 @@ fn run_main_loop(
     cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stop_gather = false;
+    // As C: 1 after an error that ended the run, otherwise 0.
+    let mut exit_status = 0;
     let mut expiry_wakeup: Option<Instant> = None;
     let pid = std::process::id();
     let prefix = format!("softflowd[{}]: ", pid);
@@ -437,6 +439,7 @@ fn run_main_loop(
         // Process incoming packet events
         let mut packets_processed_this_loop = 0;
         let mut channel_disconnected = false;
+        let mut read_error: Option<String> = None;
         // As pcap_dispatch(max_flows) of C: a batch is at most `-m` packets.  With
         // -r the batch is complete unless the file ends, so that it does not
         // depend on the speed of the capture thread.
@@ -457,19 +460,13 @@ fn run_main_loop(
                 packet_rx.try_recv()
             };
             match next {
-                Ok(event) => {
+                Ok(PacketEvent::ReadError(message)) => {
+                    read_error = Some(message);
+                    break;
+                }
+                Ok(PacketEvent::Raw(raw_event)) => {
                     if !stop_gather {
-                        match event {
-                            PacketEvent::Raw(raw_event) => {
-                                process_raw_packet(
-                                    &mut tracker,
-                                    raw_event,
-                                    want_v6,
-                                    &targets,
-                                    if_index,
-                                );
-                            }
-                        }
+                        process_raw_packet(&mut tracker, raw_event, want_v6, &targets, if_index);
                     }
                     packets_processed_this_loop += 1;
                     if packets_processed_this_loop >= batch_limit {
@@ -491,8 +488,10 @@ fn run_main_loop(
         // As C: the expiry is looked at when poll() returns, that is, when a packet
         // came or the timeout that next_expire() gave has passed.
         let timed_out = expiry_wakeup.is_some_and(|w| Instant::now() >= w);
-        if tracker.flows.len() > tracker.param.max_flows as usize
-            || ((packets_processed_this_loop > 0 || timed_out) && next_expire_is_now(&tracker))
+        // After a read error C leaves the loop at once: no expiry follows.
+        if read_error.is_none()
+            && (tracker.flows.len() > tracker.param.max_flows as usize
+                || ((packets_processed_this_loop > 0 || timed_out) && next_expire_is_now(&tracker)))
         {
             let mode = if pcap_file_mode {
                 ExpireMode::Forced
@@ -514,11 +513,19 @@ fn run_main_loop(
         }
 
         // In offline PCAP file mode, if the packet channel is empty and thread has finished, we exit!
-        if (pcap_file_mode && channel_disconnected)
+        if read_error.is_some()
+            || (pcap_file_mode && channel_disconnected)
             || GRACEFUL_SHUTDOWN.load(std::sync::atomic::Ordering::SeqCst)
         {
-            log::warn!("Shutting down on user request");
-            flush_all_flows(&mut tracker, &targets, if_index);
+            if let Some(ref message) = read_error {
+                // As C: the flows that are still in the table are not exported.
+                log::error!("Exiting on pcap_dispatch: {}", message);
+                log::error!("Exiting immediately on internal error");
+                exit_status = 1;
+            } else {
+                log::warn!("Shutting down on user request");
+                flush_all_flows(&mut tracker, &targets, if_index);
+            }
             // As C: the statistics go to stdout only when a file is read (-r),
             // not at the end of a live capture.
             if pcap_file_mode {
@@ -552,6 +559,12 @@ fn run_main_loop(
                 tracker.param.export_clocks, tracker.param.export_calls
             );
         }
+    }
+
+    if exit_status != 0 {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        std::process::exit(exit_status);
     }
 
     Ok(())

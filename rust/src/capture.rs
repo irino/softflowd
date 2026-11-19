@@ -25,6 +25,9 @@ pub struct RawPacketEvent {
 #[derive(Debug)]
 pub enum PacketEvent {
     Raw(RawPacketEvent),
+    /// Reading the file failed, for example because of a damaged record header.
+    /// C: pcap_dispatch() returns -1.
+    ReadError(String),
 }
 
 /// Opens the packet capture source (live interface or PCAP file), applies BPF filters,
@@ -172,7 +175,7 @@ pub fn setup_packet_capture(
                         break;
                     }
                     Err(e) => {
-                        log::error!("PCAP capture error: {}", e);
+                        let _ = packet_tx_clone.send(PacketEvent::ReadError(e.to_string()));
                         break;
                     }
                 }
