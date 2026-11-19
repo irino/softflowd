@@ -6,7 +6,7 @@ use crate::expire::update_flow_expiry;
 use crate::exporter::psamp::send_psamp;
 use crate::exporter::{NetflowTarget, SendParameter, send_flows};
 use crate::opts::RsoftflowdArgs;
-use crate::packet_parser::{ParseError, ParsedPacket, parse_packet};
+use crate::packet_parser::{ParseError, ParsedPacket, datalink_supported, parse_packet};
 use crate::stats::accumulate_stats;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
@@ -28,6 +28,15 @@ pub enum PacketEvent {
     /// Reading the file failed, for example because of a damaged record header.
     /// C: pcap_dispatch() returns -1.
     ReadError(String),
+}
+
+/// As C (capture.c, setup_packet_capture()): a data link type that is not read is
+/// reported before the filter is applied, and the program exits with 1.
+fn check_datalink(linktype: i32) {
+    if !datalink_supported(linktype) {
+        eprintln!("Unsupported datalink type {}", linktype);
+        std::process::exit(1);
+    }
 }
 
 /// Opens the packet capture source (live interface or PCAP file), applies BPF filters,
@@ -63,6 +72,7 @@ pub fn setup_packet_capture(
     if let Some(ref file_path) = args.pcap_file {
         match pcap::Capture::from_file(file_path) {
             Ok(mut capture) => {
+                check_datalink(capture.get_datalink().0);
                 if let Some(ref filter) = bpf_expression {
                     log::info!("Applying BPF filter: \"{}\"", filter);
                     if let Err(e) = capture.filter(filter, true) {
@@ -109,6 +119,7 @@ pub fn setup_packet_capture(
                 std::process::exit(1);
             }
         };
+        check_datalink(capture.get_datalink().0);
 
         if let Some(ref filter) = bpf_expression {
             log::info!("Applying BPF filter: \"{}\"", filter);

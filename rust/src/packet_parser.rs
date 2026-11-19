@@ -11,6 +11,16 @@ pub const DLT_NULL: i32 = 0;
 pub const DLT_LOOP: i32 = 108;
 pub const DLT_PFLOG: i32 = 117;
 
+/// Whether the data link type is one that softflowd reads.
+///
+/// Original: packet.c, datalink_check() with no packet: the table `lt`.
+pub fn datalink_supported(linktype: i32) -> bool {
+    matches!(
+        linktype,
+        DLT_EN10MB | DLT_PPP | DLT_LINUX_SLL | DLT_RAW | DLT_NULL | DLT_LOOP | DLT_PFLOG
+    )
+}
+
 const IPPROTO_TCP: u8 = 6;
 const IPPROTO_UDP: u8 = 17;
 const IPPROTO_DCCP: u8 = 33;
