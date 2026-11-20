@@ -416,19 +416,8 @@ pub fn process_parsed_packet(
     let timeval_packet = parsed.timestamp;
     tracker.param.last_packet_time = timeval_packet;
 
-    // PSAMP mode: export immediately
-    if tracker.param.is_psamp {
-        send_psamp(
-            &parsed.raw_packet,
-            parsed.raw_packet.len() as u32,
-            parsed.timestamp,
-            targets,
-            tracker.param.total_packets,
-            &tracker.param,
-        );
-        return;
-    }
-
+    // PSAMP mode is handled by process_packet(), before the packet is parsed: the
+    // parsed packet does not hold the raw packet, which is not copied for each packet.
     process_valid_parsed_packet(tracker, parsed, targets, ifidx);
 }
 

@@ -878,7 +878,6 @@ mod tests {
                         tv_sec: 1600000000,
                         tv_usec: 0,
                     },
-                    raw_packet: vec![0; 40],
                 };
                 process_parsed_packet(&mut tracker, parsed, true, &targets, 1);
             }

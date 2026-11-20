@@ -62,7 +62,6 @@ pub struct ParsedPacket {
     pub ip6_flowlabel: u32,
     pub length: u32,
     pub timestamp: TimeVal,
-    pub raw_packet: Vec<u8>,
 }
 
 // The arguments mirror the C version, which passes the same values.
@@ -433,7 +432,6 @@ pub fn parse_packet(
         ip6_flowlabel,
         length: orig_len.saturating_sub(offset) as u32,
         timestamp,
-        raw_packet: pkt.to_vec(),
     })
 }
 
