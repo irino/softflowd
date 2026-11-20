@@ -30,6 +30,16 @@ pub enum PacketEvent {
     ReadError(String),
 }
 
+/// A pcap file that the main thread reads itself, packet by packet, without a
+/// capture thread, a channel and a copy of each packet.
+///
+/// Only a regular file is read this way: reading a FIFO or a terminal blocks, and the
+/// main thread must go on with the timers and the control socket (C waits with poll()).
+pub struct FileSource {
+    pub capture: pcap::Capture<pcap::Offline>,
+    pub linktype: i32,
+}
+
 /// As C (capture.c, setup_packet_capture()): a data link type that is not read is
 /// reported before the filter is applied, and the program exits with 1.
 fn check_datalink(linktype: i32) {
@@ -58,8 +68,12 @@ pub fn setup_packet_capture(
     pcap_stats: Arc<Mutex<Option<(u64, u64, u64)>>>,
     graceful_shutdown: &'static AtomicBool,
     start_rx: Receiver<()>,
-) -> bool {
+) -> (bool, Option<FileSource>) {
     let pcap_file_mode = args.pcap_file.is_some();
+    let regular_file = args
+        .pcap_file
+        .as_deref()
+        .is_some_and(|path| std::fs::metadata(path).is_ok_and(|m| m.is_file()));
     let bpf_expression = if !args.bpf_expression.is_empty() {
         Some(args.bpf_expression.join(" "))
     } else {
@@ -134,6 +148,16 @@ pub fn setup_packet_capture(
         std::process::exit(1);
     }
 
+    // A regular file is read by the main thread, see FileSource.
+    let file_source = if regular_file {
+        pcap_file_capture.take().map(|capture| FileSource {
+            linktype: capture.get_datalink().0,
+            capture,
+        })
+    } else {
+        None
+    };
+
     if let Some(mut capture) = pcap_file_capture {
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
@@ -161,12 +185,8 @@ pub fn setup_packet_capture(
                         };
                         let data = raw_packet.data.to_vec();
 
-                        if let Ok(st) = capture.stats() {
-                            let mut s = pcap_stats_clone.lock().unwrap();
-                            *s =
-                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
-                        }
-
+                        // The statistics of a file are read once, at its end: libpcap has
+                        // none for a file, so a call for each packet only builds an error.
                         let raw_event = RawPacketEvent {
                             linktype,
                             data,
@@ -238,17 +258,44 @@ pub fn setup_packet_capture(
                 }
             }
         });
-    } else {
+    } else if file_source.is_none() {
         log::error!("Must specify either a live interface (-i) or offline pcap file (-r)");
         std::process::exit(1);
     }
 
-    pcap_file_mode
+    (pcap_file_mode, file_source)
 }
 
 pub fn process_raw_packet(
     tracker: &mut FlowTracker,
     raw: RawPacketEvent,
+    want_v6: bool,
+    targets: &NetflowTarget,
+    ifidx: u16,
+) {
+    let packet = RawPacket {
+        linktype: raw.linktype,
+        data: &raw.data,
+        caplen: raw.caplen,
+        orig_len: raw.orig_len,
+        timestamp: raw.timestamp,
+    };
+    process_packet(tracker, &packet, want_v6, targets, ifidx);
+}
+
+/// A packet that the caller owns, read from the capture without a copy.
+pub struct RawPacket<'a> {
+    pub linktype: i32,
+    pub data: &'a [u8],
+    pub caplen: u32,
+    pub orig_len: u32,
+    pub timestamp: TimeVal,
+}
+
+/// Counts and tracks one packet: the work of C's `process_packet()` callback.
+pub fn process_packet(
+    tracker: &mut FlowTracker,
+    raw: &RawPacket<'_>,
     want_v6: bool,
     targets: &NetflowTarget,
     ifidx: u16,
@@ -279,7 +326,7 @@ pub fn process_raw_packet(
 
     if tracker.param.is_psamp {
         send_psamp(
-            &raw.data,
+            raw.data,
             raw.caplen,
             raw.timestamp,
             targets,
@@ -291,7 +338,7 @@ pub fn process_raw_packet(
 
     match parse_packet(
         raw.linktype,
-        &raw.data,
+        raw.data,
         raw.caplen,
         raw.orig_len,
         tracker.param.track_level,

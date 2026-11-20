@@ -9,8 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rsoftflowd::capture::{PacketEvent, process_raw_packet, setup_packet_capture};
-use rsoftflowd::common::{FlowLookupMode, FlowTracker, TrackLevel, cpu_clock};
+use rsoftflowd::capture::{
+    FileSource, PacketEvent, RawPacket, process_packet, process_raw_packet, setup_packet_capture,
+};
+use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_statistics_body,
     render_timeouts, start_control_server,
@@ -345,6 +347,7 @@ fn run_main_loop(
     boottime: libc::clock_t,
     if_index: u16,
     cmd_rx: std::sync::mpsc::Receiver<ControlCommand>,
+    mut file_source: Option<FileSource>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stop_gather = false;
     // As C: 1 after an error that ended the run, otherwise 0.
@@ -445,6 +448,47 @@ fn run_main_loop(
         // depend on the speed of the capture thread.
         let batch_limit = tracker.param.max_flows as usize;
         loop {
+            // A regular pcap file is read here, packet by packet, without the capture thread.
+            if let Some(source) = file_source.as_mut() {
+                match source.capture.next_packet() {
+                    Ok(packet) => {
+                        if !stop_gather {
+                            #[allow(clippy::unnecessary_cast)]
+                            let timestamp = TimeVal {
+                                tv_sec: packet.header.ts.tv_sec as i64,
+                                tv_usec: packet.header.ts.tv_usec as i32,
+                            };
+                            let raw = RawPacket {
+                                linktype: source.linktype,
+                                data: packet.data,
+                                caplen: packet.header.caplen,
+                                orig_len: packet.header.len,
+                                timestamp,
+                            };
+                            process_packet(&mut tracker, &raw, want_v6, &targets, if_index);
+                        }
+                        packets_processed_this_loop += 1;
+                        if packets_processed_this_loop >= batch_limit {
+                            break;
+                        }
+                    }
+                    Err(pcap::Error::NoMorePackets) => {
+                        // The statistics of a file are read once, at its end.
+                        if let Ok(st) = source.capture.stats() {
+                            *pcap_stats.lock().unwrap() =
+                                Some((st.received as u64, st.dropped as u64, st.if_dropped as u64));
+                        }
+                        log::info!("Shutting down after pcap EOF");
+                        channel_disconnected = true;
+                        break;
+                    }
+                    Err(e) => {
+                        read_error = Some(e.to_string());
+                        break;
+                    }
+                }
+                continue;
+            }
             let next = if pcap_file_mode {
                 packet_rx
                     .recv_timeout(Duration::from_millis(50))
@@ -628,7 +672,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // are dropped, as the C version does.  The capture thread starts reading
     // after the start-up log lines below.
     let (capture_start_tx, capture_start_rx) = channel::<()>();
-    let pcap_file_mode = setup_packet_capture(
+    let (pcap_file_mode, file_source) = setup_packet_capture(
         &args,
         capture_dev.as_deref(),
         track_level,
@@ -680,6 +724,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         boottime,
         if_index,
         cmd_rx,
+        file_source,
     )
 }
 
