@@ -487,50 +487,53 @@ fn process_valid_parsed_packet(
         tracker.flow_slots.insert(slot, key.clone());
     }
 
-    // Get or create flow
-    if !tracker.flows.contains_key(&key) {
-        // As in C, the table may go over -m for the length of a batch of
-        // packets; expire_over_limit() brings it back after the batch.
-        let mut flow = Flow {
-            flow_seq: tracker.param.next_flow_seq,
-            flow_start: timeval_packet,
-            flow_last: timeval_packet,
-            octets: [0, 0],
-            packets: [0, 0],
-            tcp_flags: [0, 0],
-            tos: [0, 0],
-            ip6_flowlabel: [0, 0],
-            src_mac: parsed.src_mac,
-            dst_mac: parsed.dst_mac,
-            flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
-            key: key.clone(),
-            expiry_key: None,
-            expiry_reason: ExpiryReason::General,
-        };
+    // Get or create the flow.  One lookup serves a packet of a known flow: the key is
+    // hashed and compared once, not by contains_key() and again by get_mut().
+    match tracker.flows.get_mut(&key) {
+        Some(flow) => {
+            flow.octets[ndx] = flow.octets[ndx].saturating_add(parsed.length);
+            flow.packets[ndx] = flow.packets[ndx].saturating_add(1);
+            flow.tcp_flags[ndx] |= parsed.tcp_flags;
+            // As C (process_packet): the ToS is that of the packet that made the flow; it
+            // is not changed by the next packets.
+            flow.flow_last = timeval_packet;
 
-        tracker.param.next_flow_seq += 1;
+            // Update expiry, unless the flow is to be expired at once (expires_at 0)
+            if flow.expiry_key.is_none_or(|k| k.expires_at != 0) {
+                update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
+            }
+        }
+        None => {
+            // As in C, the table may go over -m for the length of a batch of
+            // packets; expire_over_limit() brings it back after the batch.
+            let mut flow = Flow {
+                flow_seq: tracker.param.next_flow_seq,
+                flow_start: timeval_packet,
+                flow_last: timeval_packet,
+                octets: [0, 0],
+                packets: [0, 0],
+                tcp_flags: [0, 0],
+                tos: [0, 0],
+                ip6_flowlabel: [0, 0],
+                src_mac: parsed.src_mac,
+                dst_mac: parsed.dst_mac,
+                flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
+                key: key.clone(),
+                expiry_key: None,
+                expiry_reason: ExpiryReason::General,
+            };
 
-        flow.octets[ndx] = parsed.length;
-        flow.packets[ndx] = 1;
-        flow.tcp_flags[ndx] = parsed.tcp_flags;
-        flow.tos[ndx] = parsed.tos;
-        flow.ip6_flowlabel[ndx] = parsed.ip6_flowlabel;
+            tracker.param.next_flow_seq += 1;
 
-        // Set expiry
-        update_flow_expiry(&mut tracker.expiries, &tracker.param, &mut flow);
-        tracker.flows.insert(key, flow);
-    } else {
-        let flow = tracker.flows.get_mut(&key).unwrap();
-        flow.octets[ndx] = flow.octets[ndx].saturating_add(parsed.length);
-        flow.packets[ndx] = flow.packets[ndx].saturating_add(1);
-        flow.tcp_flags[ndx] |= parsed.tcp_flags;
-        // As C (process_packet): the ToS is that of the packet that made the flow; it
-        // is not changed by the next packets.
-        flow.flow_last = timeval_packet;
+            flow.octets[ndx] = parsed.length;
+            flow.packets[ndx] = 1;
+            flow.tcp_flags[ndx] = parsed.tcp_flags;
+            flow.tos[ndx] = parsed.tos;
+            flow.ip6_flowlabel[ndx] = parsed.ip6_flowlabel;
 
-        // Update expiry, unless the flow is to be expired at once (expires_at 0)
-        if flow.expiry_key.is_none_or(|k| k.expires_at != 0) {
-            update_flow_expiry(&mut tracker.expiries, &tracker.param, flow);
+            // Set expiry
+            update_flow_expiry(&mut tracker.expiries, &tracker.param, &mut flow);
+            tracker.flows.insert(key, flow);
         }
     }
 }
