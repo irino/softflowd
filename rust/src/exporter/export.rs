@@ -963,6 +963,9 @@ pub fn send_ipfix_flows(sp: &mut SendParameter, bi_flag: bool, version: u16) -> 
     let mut num_packets = 0;
     let mut j = 0;
     static SEQUENCE: AtomicU32 = AtomicU32::new(1);
+    // The records of a flow are built here and copied into the packet; the buffer is
+    // used again for the next flow, not allocated for each flow.
+    let mut flow_bytes: Vec<u8> = Vec::with_capacity(256);
 
     while j < num_flows {
         let mut packet = Vec::with_capacity(IPFIX_SOFTFLOWD_MAX_PACKET_SIZE);
@@ -1034,7 +1037,7 @@ pub fn send_ipfix_flows(sp: &mut SendParameter, bi_flag: bool, version: u16) -> 
             let flow_bi = bi_flag && icmp_flag == 0;
             let frecnum = if flow_bi { 1 } else { 2 };
             let mut flow_written = 0;
-            let mut flow_bytes = Vec::new();
+            flow_bytes.clear();
 
             for dir in 0..frecnum {
                 if !flow_bi && flow.octets[dir] == 0 {

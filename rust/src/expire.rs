@@ -127,26 +127,30 @@ pub fn scan_expiries(
         }
     };
 
-    let mut expired_keys = Vec::new();
-    for (&exp_key, flow_key) in &tracker.expiries {
-        if force_all
+    // The tree is sorted by the expiry time, so the flows that have expired are the first
+    // entries of the tree, and the rest is not expired.
+    let is_expired = |exp_key: &ExpiryKey| {
+        force_all
             || exp_key.expires_at == 0
             || (mode != ExpireMode::Forced && exp_key.expires_at < now_sec)
-        {
-            expired_keys.push((exp_key, flow_key.clone()));
-        } else {
-            // The tree is sorted by the expiry time, so the rest is not expired.
-            break;
-        }
-    }
+    };
+    let expired_count = tracker
+        .expiries
+        .keys()
+        .take_while(|exp_key| is_expired(exp_key))
+        .count();
 
-    let mut expired_flows = Vec::new();
-    for (exp_key, flow_key) in &expired_keys {
-        if let Some(mut flow) = tracker.flows.remove(flow_key) {
-            tracker.expiries.remove(exp_key);
+    // Take each entry out of the tree as it is used: the key of the flow is not copied
+    // and the entry is not searched for again.
+    let mut expired_flows = Vec::with_capacity(expired_count);
+    for _ in 0..expired_count {
+        let Some((_, flow_key)) = tracker.expiries.pop_first() else {
+            break;
+        };
+        if let Some(mut flow) = tracker.flows.remove(&flow_key) {
             if tracker.flow_lookup == FlowLookupMode::Hash {
                 let slot = flow.key.hash_index(tracker.nbuckets);
-                if tracker.flow_slots.get(&slot) == Some(flow_key) {
+                if tracker.flow_slots.get(&slot) == Some(&flow_key) {
                     tracker.flow_slots.remove(&slot);
                 }
             }
