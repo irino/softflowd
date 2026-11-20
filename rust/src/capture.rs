@@ -120,10 +120,9 @@ pub fn setup_packet_capture(
         .timeout(1000)
         .promisc(!args.no_promisc);
 
+        // As C: the buffer size of libpcap (2 MiB) unless -B is given.
         if let Some(buf_size) = args.buffer_size {
             builder = builder.buffer_size(buf_size as i32);
-        } else {
-            builder = builder.buffer_size(1024 * 1024);
         }
         builder = builder.immediate_mode(true);
         let mut capture = match builder.open() {
