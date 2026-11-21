@@ -23,7 +23,7 @@ fn tracker_with_flows() -> FlowTracker {
         .enumerate()
     {
         let mut flow = common::make_dummy_flow();
-        flow.key.port[0] = 1000 + seq as u16;
+        std::sync::Arc::make_mut(&mut flow.key).port[0] = 1000 + seq as u16;
         flow.flow_seq = seq as u64;
         let ek = ExpiryKey {
             expires_at,
@@ -31,7 +31,7 @@ fn tracker_with_flows() -> FlowTracker {
         };
         flow.expiry_key = Some(ek);
         tracker.expiries.insert(ek, flow.key.clone());
-        tracker.flows.insert(flow.key.clone(), flow);
+        tracker.flows.insert((*flow.key).clone(), flow);
     }
     tracker
 }
@@ -97,7 +97,7 @@ fn test_d36_next_expire_is_like_c() {
     assert_eq!(next_expire(&t), None);
     fn add(t: &mut FlowTracker, expires_at: u32, seq: u64) {
         let mut flow = common::make_dummy_flow();
-        flow.key.port[0] = 2000 + seq as u16;
+        std::sync::Arc::make_mut(&mut flow.key).port[0] = 2000 + seq as u16;
         flow.flow_seq = seq;
         let ek = ExpiryKey {
             expires_at,
@@ -105,7 +105,7 @@ fn test_d36_next_expire_is_like_c() {
         };
         flow.expiry_key = Some(ek);
         t.expiries.insert(ek, flow.key.clone());
-        t.flows.insert(flow.key.clone(), flow);
+        t.flows.insert((*flow.key).clone(), flow);
     }
     // 3 s from now: 999 + 3000 ms (C waits up to a second more than the time).
     add(&mut t, (NOW + 3) as u32, 1);

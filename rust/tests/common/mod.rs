@@ -38,7 +38,7 @@ pub fn make_dummy_flow() -> Flow {
         src_mac: [0; 6],
         dst_mac: [0; 6],
         flow_end_reason: FLOW_END_REASON_END_OF_FLOW,
-        key,
+        key: std::sync::Arc::new(key),
         expiry_key: None,
         expiry_reason: ExpiryReason::General,
     }

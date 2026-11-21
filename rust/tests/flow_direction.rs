@@ -29,18 +29,18 @@ fn test_d33_direction_mac_gives_egress_or_ingress() {
     let t = tracker();
     let mut flow = common::make_dummy_flow();
     // The source MAC of endpoint 0 is the direction MAC: egress.
-    flow.key.ethermac = [MAC, [9; 6]];
+    std::sync::Arc::make_mut(&mut flow.key).ethermac = [MAC, [9; 6]];
     assert_eq!(
         ipfix_flow_direction(&flow, 0, &t.param),
         IPFIX_FLOWDIRECTION_EGRESS
     );
     // The other MAC of endpoint 0 is the direction MAC: ingress (it was 2).
-    flow.key.ethermac = [[9; 6], MAC];
+    std::sync::Arc::make_mut(&mut flow.key).ethermac = [[9; 6], MAC];
     assert_eq!(
         ipfix_flow_direction(&flow, 0, &t.param),
         IPFIX_FLOWDIRECTION_INGRESS
     );
     // Neither: the endpoint index.
-    flow.key.ethermac = [[9; 6], [8; 6]];
+    std::sync::Arc::make_mut(&mut flow.key).ethermac = [[9; 6], [8; 6]];
     assert_eq!(ipfix_flow_direction(&flow, 1, &t.param), 1);
 }

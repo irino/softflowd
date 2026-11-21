@@ -782,7 +782,7 @@ mod tests {
             src_mac: [0; 6],
             dst_mac: [0; 6],
             flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
-            key: key.clone(),
+            key: std::sync::Arc::new(key.clone()),
             expiry_key: None,
             expiry_reason: ExpiryReason::General,
         };
@@ -810,7 +810,7 @@ mod tests {
             src_mac: [0; 6],
             dst_mac: [0; 6],
             flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
-            key,
+            key: std::sync::Arc::new(key),
             expiry_key: None,
             expiry_reason: ExpiryReason::General,
         };

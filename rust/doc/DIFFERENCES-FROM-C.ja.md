@@ -876,7 +876,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 2. **シャットダウンとシグナル** (D30 のようなバグを見つける): `lo` の live で `-m 10`、`-m 100`、既定の 3 通り。60 フローを送り、SIGINT、SIGTERM、`softflowctl shutdown`、`exit` で止める。export されるレコードが C と同じであること (`exit` では C は何も export しない)。SIGUSR1 (プロセスが生きていること) と SIGHUP も足す。
 3. **権限と起動の順序** (D29 の回帰を見つける): root で `-i lo` がキャプチャできる。`-i nonexistent0` は daemon 化する前に終了ステータス 1 で終わる。`-d` の最初の 4 行のログが C の順序で、50 回繰り返しても崩れない (競合)。
 4. **golden データグラム**: パッチの前に compat の全 pcap・全オプションのデータグラムを保存し、後で比べる。形式に関係しないパッチは 1 バイトも変えてはならない (`--save-golden DIR` と `--check-golden DIR`)。
-5. **速度のガード**: 30 万パケットの pcap で `softflowd_test_suite.py bench` を実行し、Rust が C の 5 倍を超えたら失敗 (今は約 1.4 倍: `gen_ci_smoke_pcap.py -n 50000` で 0.091 秒 対 0.065 秒)。D25 のように別スレッドへ処理を移す変更が測定される。
+5. **速度のガード**: 30 万パケットの pcap で `softflowd_test_suite.py bench` を実行し、Rust が C の 5 倍を超えたら失敗 (今は約 1.1 倍: `gen_ci_smoke_pcap.py -n 50000` の 21 回の交互実行の CPU 時間で 0.075 秒 対 0.064 秒。以前は 2.6 倍)。D25 のように別スレッドへ処理を移す変更が測定される。
 6. **`-e`、`-H`、`-b` のオプション行列**: 全 pcap で `-b`、`-H`、`-T`、`-e` (v4 と v6)、`-s`、`-A` のすべての組合せを実行する。D32 と D33 は行列にこれらのオプションがあったから見つかった。
 7. **CLI の表**: `CLI-PARITY-CASES.md` の 75 ケースを、1 行目だけでなく標準エラーの全体で比べる (D26 の後)。
 8. **文書のチェック** (ゲートで実施済み): すべての登録に、open または accepted の行がある。

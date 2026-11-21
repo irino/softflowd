@@ -755,7 +755,7 @@ fn test_exporter_netflow_v5_sequence_numbers() {
     let mut flows = Vec::new();
     for i in 0..86 {
         let mut flow = make_dummy_flow();
-        flow.key.port[0] = 10000 + i as u16;
+        std::sync::Arc::make_mut(&mut flow.key).port[0] = 10000 + i as u16;
         flow.octets = [1000, 0]; // 1 record per flow
         flows.push(flow);
     }
@@ -1016,7 +1016,7 @@ fn test_d31_same_address_biflow() {
         src_mac: [0; 6],
         dst_mac: [0; 6],
         flow_end_reason: 1,
-        key: key1.clone(),
+        key: std::sync::Arc::new(key1.clone()),
         expiry_key: None,
         expiry_reason: rsoftflowd::common::ExpiryReason::General,
     });

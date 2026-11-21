@@ -11,7 +11,7 @@ use crate::stats::accumulate_stats;
 ///
 /// Original: expire.c, flow_update_expiry()
 pub fn update_flow_expiry(
-    expiries: &mut std::collections::BTreeMap<ExpiryKey, FlowKey>,
+    expiries: &mut std::collections::BTreeMap<ExpiryKey, std::sync::Arc<FlowKey>>,
     param: &crate::common::FlowTrackParameters,
     flow: &mut Flow,
 ) {
@@ -75,11 +75,23 @@ pub fn update_flow_expiry(
     if flow.expiry_key == Some(new_expiry) {
         return;
     }
+    move_expiry(expiries, flow, new_expiry);
+}
+
+/// Puts the flow at its new place in the tree of the expiries.  A separate function,
+/// not inlined: the tree code is large, and the packets of a flow whose key has not
+/// changed (most of them) do not need its stack frame and registers.
+#[inline(never)]
+fn move_expiry(
+    expiries: &mut std::collections::BTreeMap<ExpiryKey, std::sync::Arc<FlowKey>>,
+    flow: &mut Flow,
+    new_expiry: ExpiryKey,
+) {
     if let Some(old_expiry) = flow.expiry_key {
         expiries.remove(&old_expiry);
     }
     flow.expiry_key = Some(new_expiry);
-    expiries.insert(new_expiry, flow.key.clone());
+    expiries.insert(new_expiry, std::sync::Arc::clone(&flow.key));
 }
 
 /// Which flows `scan_expiries()` expires.
@@ -210,7 +222,7 @@ pub fn scan_expiries(
 /// Original: expire.c, force_expire()
 pub fn force_expire(tracker: &mut FlowTracker, num_to_expire: usize) {
     log::debug!("Forcing expiry of {} flows", num_to_expire);
-    let keys: Vec<(ExpiryKey, FlowKey)> = tracker
+    let keys: Vec<(ExpiryKey, std::sync::Arc<FlowKey>)> = tracker
         .expiries
         .iter()
         .take(num_to_expire)
@@ -229,7 +241,7 @@ pub fn force_expire(tracker: &mut FlowTracker, num_to_expire: usize) {
             expires_at: 0,
             flow_seq: old_key.flow_seq,
         };
-        if let Some(flow) = tracker.flows.get_mut(flow_key) {
+        if let Some(flow) = tracker.flows.get_mut(&**flow_key) {
             flow.expiry_key = Some(new_key);
             flow.expiry_reason = ExpiryReason::Overflows;
         }

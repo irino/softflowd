@@ -506,7 +506,7 @@ fn process_valid_parsed_packet(
                 src_mac: parsed.src_mac,
                 dst_mac: parsed.dst_mac,
                 flow_end_reason: FLOW_END_REASON_IDLE_TIMEOUT,
-                key: key.clone(),
+                key: std::sync::Arc::new(key.clone()),
                 expiry_key: None,
                 expiry_reason: ExpiryReason::General,
             };

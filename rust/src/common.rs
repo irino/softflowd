@@ -331,7 +331,8 @@ pub struct Flow {
     pub src_mac: [u8; 6],
     pub dst_mac: [u8; 6],
     pub flow_end_reason: u8,
-    pub key: FlowKey,
+    /// Shared with the tree of the expiries, so that a move in the tree does not copy the key.
+    pub key: std::sync::Arc<FlowKey>,
     pub expiry_key: Option<ExpiryKey>,
     pub expiry_reason: ExpiryReason,
 }
@@ -540,7 +541,7 @@ impl FlowLookupMode {
 
 pub struct FlowTracker {
     pub flows: HashMap<FlowKey, Flow, FlowBuildHasher>,
-    pub expiries: BTreeMap<ExpiryKey, FlowKey>,
+    pub expiries: BTreeMap<ExpiryKey, std::sync::Arc<FlowKey>>,
     pub param: FlowTrackParameters,
     pub flow_lookup: FlowLookupMode,
     pub flow_slots: HashMap<u32, FlowKey, FlowBuildHasher>,

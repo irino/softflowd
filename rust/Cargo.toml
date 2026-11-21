@@ -34,3 +34,8 @@ clap = { version = "4.5", features = ["derive"] }
 clap_mangen = "0.2"
 nix = { version = "0.29.0", features = ["time"] }
 libc = "0.2.155"
+
+[profile.release]
+# Whole-program optimization: the packet path is spread over several modules and crates.
+lto = "fat"
+codegen-units = 1
