@@ -190,22 +190,37 @@ pub struct FlowKey {
 /// packet.
 impl std::hash::Hash for FlowKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u16(self.af);
-        state.write_u8(self.protocol);
-        for a in &self.addr {
-            match a {
-                IpAddr::V4(v4) => state.write_u32(u32::from(*v4)),
-                IpAddr::V6(v6) => state.write_u128(u128::from(*v6)),
+        let depth = (self.mpls_label_depth as usize).min(self.mpls_labels.len());
+        // The fields are packed into a few words: every word is a step of the hash.
+        state.write_u64(
+            u64::from(self.af)
+                | (u64::from(self.protocol) << 16)
+                | (u64::from(self.mpls_label_depth) << 24),
+        );
+        match (&self.addr[0], &self.addr[1]) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => {
+                state.write_u64((u64::from(u32::from(*a)) << 32) | u64::from(u32::from(*b)));
+            }
+            (a, b) => {
+                for addr in [a, b] {
+                    match addr {
+                        IpAddr::V4(v4) => state.write_u32(u32::from(*v4)),
+                        IpAddr::V6(v6) => state.write_u128(u128::from(*v6)),
+                    }
+                }
             }
         }
-        state.write_u16(self.port[0]);
-        state.write_u16(self.port[1]);
-        state.write_u16(self.vlanid[0]);
-        state.write_u16(self.vlanid[1]);
-        state.write(&self.ethermac[0]);
-        state.write(&self.ethermac[1]);
-        state.write_u32(self.mpls_label_depth);
-        let depth = (self.mpls_label_depth as usize).min(self.mpls_labels.len());
+        state.write_u64(
+            u64::from(self.port[0])
+                | (u64::from(self.port[1]) << 16)
+                | (u64::from(self.vlanid[0]) << 32)
+                | (u64::from(self.vlanid[1]) << 48),
+        );
+        let [m0, m1] = &self.ethermac;
+        state.write_u64(u64::from_le_bytes([
+            m0[0], m0[1], m0[2], m0[3], m0[4], m0[5], m1[0], m1[1],
+        ]));
+        state.write_u32(u32::from_le_bytes([m1[2], m1[3], m1[4], m1[5]]));
         for label in &self.mpls_labels[..depth] {
             state.write_u32(*label);
         }
@@ -560,7 +575,13 @@ impl FlowTracker {
             nbuckets <<= 1;
         }
         FlowTracker {
-            flows: HashMap::default(),
+            // The table is made for -m flows (at most 32768 at once): growing it moves and
+            // hashes every flow again, once for each doubling, while the first flows arrive.
+            // The memory of the entries is used when a flow comes, not when the table is made.
+            flows: HashMap::with_capacity_and_hasher(
+                max_flows.min(1 << 15) as usize,
+                FlowBuildHasher::default(),
+            ),
             expiries: BTreeMap::new(),
             param,
             flow_lookup: FlowLookupMode::HashTree,

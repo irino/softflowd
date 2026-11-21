@@ -351,7 +351,7 @@ pub fn process_packet(
                 tracker.param.total_packets -= 1;
                 return;
             }
-            process_valid_parsed_packet(tracker, parsed, targets, ifidx);
+            process_valid_parsed_packet(tracker, &parsed, targets, ifidx);
         }
         Err(ParseError::NonIp) => {
             tracker.param.non_ip_packets += 1;
@@ -417,12 +417,12 @@ pub fn process_parsed_packet(
 
     // PSAMP mode is handled by process_packet(), before the packet is parsed: the
     // parsed packet does not hold the raw packet, which is not copied for each packet.
-    process_valid_parsed_packet(tracker, parsed, targets, ifidx);
+    process_valid_parsed_packet(tracker, &parsed, targets, ifidx);
 }
 
 fn process_valid_parsed_packet(
     tracker: &mut FlowTracker,
-    parsed: ParsedPacket,
+    parsed: &ParsedPacket,
     targets: &NetflowTarget,
     ifidx: u16,
 ) {
