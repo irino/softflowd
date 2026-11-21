@@ -409,7 +409,8 @@ def parity_live(a_daemon: str, b_daemon: str, ctl_a: str, ctl_b: str) -> bool:
             detail = f"A at {times[0]} s, B at {times[1]} s"
         elif stop_type == "exit":
             rec_a, rec_b = records(got[0]), records(got[1])
-            expected = max(0, flows - int(m_label)) if m_args else 0
+            m_val = int(extra[extra.index("-m") + 1]) if "-m" in extra else None
+            expected = max(0, flows - m_val) if m_val is not None else 0
             same = len(rec_a) == expected and len(rec_b) == expected
             detail = f"A {len(rec_a)} records, B {len(rec_b)} records (exit)"
         else:
