@@ -181,21 +181,33 @@ pub struct FlowKey {
     pub port: [u16; 2],         // Canonical matching addr
     pub vlanid: [u16; 2],       // Canonical matching addr
     pub ethermac: [[u8; 6]; 2], // Canonical matching addr
-    pub mpls_label_depth: u32,
+    /// The number of labels used: at most 10.
+    pub mpls_label_depth: u8,
     pub mpls_labels: [u32; 10],
 }
 
 /// The hash is the same for equal keys, as `Eq` needs, and it hashes the labels
 /// that are used only (`mpls_label_depth` of the 10): the key is hashed for every
 /// packet.
+/// The VLAN id (16 bits) and a MAC address (48 bits) in one 64 bit word.
+#[inline(always)]
+fn vlan_and_mac(vlan: u16, mac: &[u8; 6]) -> u64 {
+    let low = u32::from_le_bytes([mac[0], mac[1], mac[2], mac[3]]);
+    let high = u16::from_le_bytes([mac[4], mac[5]]);
+    u64::from(low) | (u64::from(high) << 32) | (u64::from(vlan) << 48)
+}
+
 impl std::hash::Hash for FlowKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let depth = (self.mpls_label_depth as usize).min(self.mpls_labels.len());
-        // The fields are packed into a few words: every word is a step of the hash.
+        let depth = usize::from(self.mpls_label_depth).min(self.mpls_labels.len());
+        // The fields are packed into 64 bit words: every word is a step of the hash.
+        // The family, the protocol, the depth of the labels and the two ports.
         state.write_u64(
             u64::from(self.af)
-                | (u64::from(self.protocol) << 16)
-                | (u64::from(self.mpls_label_depth) << 24),
+                | (u64::from(self.mpls_label_depth) << 16)
+                | (u64::from(self.protocol) << 24)
+                | (u64::from(self.port[0]) << 32)
+                | (u64::from(self.port[1]) << 48),
         );
         match (&self.addr[0], &self.addr[1]) {
             (IpAddr::V4(a), IpAddr::V4(b)) => {
@@ -210,17 +222,9 @@ impl std::hash::Hash for FlowKey {
                 }
             }
         }
-        state.write_u64(
-            u64::from(self.port[0])
-                | (u64::from(self.port[1]) << 16)
-                | (u64::from(self.vlanid[0]) << 32)
-                | (u64::from(self.vlanid[1]) << 48),
-        );
-        let [m0, m1] = &self.ethermac;
-        state.write_u64(u64::from_le_bytes([
-            m0[0], m0[1], m0[2], m0[3], m0[4], m0[5], m1[0], m1[1],
-        ]));
-        state.write_u32(u32::from_le_bytes([m1[2], m1[3], m1[4], m1[5]]));
+        // Each direction: the VLAN id (16 bits) and the MAC address (48 bits).
+        state.write_u64(vlan_and_mac(self.vlanid[0], &self.ethermac[0]));
+        state.write_u64(vlan_and_mac(self.vlanid[1], &self.ethermac[1]));
         for label in &self.mpls_labels[..depth] {
             state.write_u32(*label);
         }
@@ -285,7 +289,7 @@ impl FlowKey {
         }
 
         let depth = mpls_labels.len().min(10);
-        key.mpls_label_depth = depth as u32;
+        key.mpls_label_depth = depth as u8;
         key.mpls_labels[..depth].copy_from_slice(&mpls_labels[..depth]);
 
         (key, ndx)
@@ -575,13 +579,7 @@ impl FlowTracker {
             nbuckets <<= 1;
         }
         FlowTracker {
-            // The table is made for -m flows (at most 32768 at once): growing it moves and
-            // hashes every flow again, once for each doubling, while the first flows arrive.
-            // The memory of the entries is used when a flow comes, not when the table is made.
-            flows: HashMap::with_capacity_and_hasher(
-                max_flows.min(1 << 15) as usize,
-                FlowBuildHasher::default(),
-            ),
+            flows: HashMap::default(),
             expiries: BTreeMap::new(),
             param,
             flow_lookup: FlowLookupMode::HashTree,
