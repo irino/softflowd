@@ -6,7 +6,7 @@ use crate::expire::update_flow_expiry;
 use crate::exporter::psamp::send_psamp;
 use crate::exporter::{NetflowTarget, SendParameter, send_flows};
 use crate::opts::RsoftflowdArgs;
-use crate::packet_parser::{ParseError, ParsedPacket, datalink_supported, parse_packet};
+use crate::packet_parser::{ParseError, ParsedPacket, datalink_supported, parse_packet_into};
 use crate::stats::accumulate_stats;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
@@ -267,6 +267,7 @@ pub fn setup_packet_capture(
 
 pub fn process_raw_packet(
     tracker: &mut FlowTracker,
+    scratch: &mut ParsedPacket,
     raw: RawPacketEvent,
     want_v6: bool,
     targets: &NetflowTarget,
@@ -279,7 +280,7 @@ pub fn process_raw_packet(
         orig_len: raw.orig_len,
         timestamp: raw.timestamp,
     };
-    process_packet(tracker, &packet, want_v6, targets, ifidx);
+    process_packet(tracker, scratch, &packet, want_v6, targets, ifidx);
 }
 
 /// A packet that the caller owns, read from the capture without a copy.
@@ -294,6 +295,7 @@ pub struct RawPacket<'a> {
 /// Counts and tracks one packet: the work of C's `process_packet()` callback.
 pub fn process_packet(
     tracker: &mut FlowTracker,
+    scratch: &mut ParsedPacket,
     raw: &RawPacket<'_>,
     want_v6: bool,
     targets: &NetflowTarget,
@@ -335,7 +337,7 @@ pub fn process_packet(
         return;
     }
 
-    match parse_packet(
+    match parse_packet_into(
         raw.linktype,
         raw.data,
         raw.caplen,
@@ -344,14 +346,15 @@ pub fn process_packet(
         tracker.param.max_num_label,
         tracker.param.full_l4hdr_check,
         raw.timestamp,
+        scratch,
     ) {
-        Ok(parsed) => {
-            if !want_v6 && parsed.af == 10 {
+        Ok(()) => {
+            if !want_v6 && scratch.af == 10 {
                 tracker.param.non_ip_packets += 1;
                 tracker.param.total_packets -= 1;
                 return;
             }
-            process_valid_parsed_packet(tracker, &parsed, targets, ifidx);
+            process_valid_parsed_packet(tracker, scratch, targets, ifidx);
         }
         Err(ParseError::NonIp) => {
             tracker.param.non_ip_packets += 1;

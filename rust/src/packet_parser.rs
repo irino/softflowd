@@ -64,6 +64,34 @@ pub struct ParsedPacket {
     pub timestamp: TimeVal,
 }
 
+impl Default for ParsedPacket {
+    fn default() -> Self {
+        ParsedPacket {
+            af: 0,
+            protocol: 0,
+            src_ip: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            dst_ip: IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+            src_port: 0,
+            dst_port: 0,
+            vlan_id: 0,
+            src_mac: [0; 6],
+            dst_mac: [0; 6],
+            mpls_labels: Vec::new(),
+            tcp_flags: 0,
+            tos: 0,
+            is_frag: false,
+            is_first: false,
+            ip6_flowlabel: 0,
+            length: 0,
+            timestamp: TimeVal {
+                tv_sec: 0,
+                tv_usec: 0,
+            },
+        }
+    }
+}
+
+/// `parse_packet_into()` with a new `ParsedPacket`.
 // The arguments mirror the C version, which passes the same values.
 #[allow(clippy::too_many_arguments)]
 pub fn parse_packet(
@@ -76,11 +104,45 @@ pub fn parse_packet(
     full_l4hdr_check: bool,
     timestamp: TimeVal,
 ) -> Result<ParsedPacket, ParseError> {
+    let mut parsed = ParsedPacket::default();
+    parse_packet_into(
+        linktype,
+        pkt,
+        caplen,
+        orig_len,
+        track_level,
+        max_mpls_label,
+        full_l4hdr_check,
+        timestamp,
+        &mut parsed,
+    )?;
+    Ok(parsed)
+}
+
+/// Parses a packet into a `ParsedPacket` that the caller owns.  The same structure is used
+/// for every packet: it is not made, moved and dropped for each of them, and the vector of
+/// the labels keeps its memory.  C does the same: the fields are written into the flow
+/// structure that the caller passes.
+///
+/// On `Ok` every field of `out` is set; on `Err` the contents of `out` are not valid.
+// The arguments mirror the C version, which passes the same values.
+#[allow(clippy::too_many_arguments)]
+pub fn parse_packet_into(
+    linktype: i32,
+    pkt: &[u8],
+    caplen: u32,
+    orig_len: u32,
+    track_level: TrackLevel,
+    max_mpls_label: u8,
+    full_l4hdr_check: bool,
+    timestamp: TimeVal,
+    out: &mut ParsedPacket,
+) -> Result<(), ParseError> {
     let caplen = caplen as usize;
     let orig_len = orig_len as usize;
     let mut offset: usize;
     let mut vlan_id = 0;
-    let mut mpls_labels = Vec::new();
+    out.mpls_labels.clear();
     let mut src_mac = [0; 6];
     let mut dst_mac = [0; 6];
     let af: u16;
@@ -119,10 +181,11 @@ pub fn parse_packet(
                         pkt[offset + 2],
                         pkt[offset + 3],
                     ]);
-                    mpls_labels.push(shim);
+                    out.mpls_labels.push(shim);
                     offset += 4;
                     // Check Bottom of Stack bit (bit 8 from right, shifted by 8)
-                    if (shim & 0x00000100) != 0 || mpls_labels.len() >= max_mpls_label as usize {
+                    if (shim & 0x00000100) != 0 || out.mpls_labels.len() >= max_mpls_label as usize
+                    {
                         break;
                     }
                 }
@@ -414,25 +477,23 @@ pub fn parse_packet(
         }
     }
 
-    Ok(ParsedPacket {
-        af,
-        protocol,
-        src_ip,
-        dst_ip,
-        src_port,
-        dst_port,
-        vlan_id,
-        src_mac,
-        dst_mac,
-        mpls_labels,
-        tcp_flags,
-        tos,
-        is_frag,
-        is_first,
-        ip6_flowlabel,
-        length: orig_len.saturating_sub(offset) as u32,
-        timestamp,
-    })
+    out.af = af;
+    out.protocol = protocol;
+    out.src_ip = src_ip;
+    out.dst_ip = dst_ip;
+    out.src_port = src_port;
+    out.dst_port = dst_port;
+    out.vlan_id = vlan_id;
+    out.src_mac = src_mac;
+    out.dst_mac = dst_mac;
+    out.tcp_flags = tcp_flags;
+    out.tos = tos;
+    out.is_frag = is_frag;
+    out.is_first = is_first;
+    out.ip6_flowlabel = ip6_flowlabel;
+    out.length = orig_len.saturating_sub(offset) as u32;
+    out.timestamp = timestamp;
+    Ok(())
 }
 
 #[cfg(test)]

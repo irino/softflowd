@@ -24,6 +24,7 @@ use rsoftflowd::opts::{
     RsoftflowdArgs, apply_timeouts, parse_args_or_exit, parse_boot_time_reinit,
     parse_interface_spec, parse_mac_address,
 };
+use rsoftflowd::packet_parser::ParsedPacket;
 
 fn validate_hostport(s: &str) -> Result<(), String> {
     if s.is_empty() {
@@ -350,6 +351,8 @@ fn run_main_loop(
     mut file_source: Option<FileSource>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stop_gather = false;
+    // The parsed packet that every packet is written into, as C passes one flow structure.
+    let mut scratch = ParsedPacket::default();
     // As C: 1 after an error that ended the run, otherwise 0.
     let mut exit_status = 0;
     let mut expiry_wakeup: Option<Instant> = None;
@@ -465,7 +468,14 @@ fn run_main_loop(
                                 orig_len: packet.header.len,
                                 timestamp,
                             };
-                            process_packet(&mut tracker, &raw, want_v6, &targets, if_index);
+                            process_packet(
+                                &mut tracker,
+                                &mut scratch,
+                                &raw,
+                                want_v6,
+                                &targets,
+                                if_index,
+                            );
                         }
                         packets_processed_this_loop += 1;
                         if packets_processed_this_loop >= batch_limit {
@@ -510,7 +520,14 @@ fn run_main_loop(
                 }
                 Ok(PacketEvent::Raw(raw_event)) => {
                     if !stop_gather {
-                        process_raw_packet(&mut tracker, raw_event, want_v6, &targets, if_index);
+                        process_raw_packet(
+                            &mut tracker,
+                            &mut scratch,
+                            raw_event,
+                            want_v6,
+                            &targets,
+                            if_index,
+                        );
                     }
                     packets_processed_this_loop += 1;
                     if packets_processed_this_loop >= batch_limit {

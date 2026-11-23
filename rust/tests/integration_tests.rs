@@ -696,7 +696,15 @@ fn test_process_raw_packet_non_ip_and_too_short() {
             tv_usec: 0,
         },
     };
-    rsoftflowd::capture::process_raw_packet(&mut tracker, non_ip_raw, true, &targets, 1);
+    let mut scratch = rsoftflowd::packet_parser::ParsedPacket::default();
+    rsoftflowd::capture::process_raw_packet(
+        &mut tracker,
+        &mut scratch,
+        non_ip_raw,
+        true,
+        &targets,
+        1,
+    );
     assert_eq!(tracker.param.non_ip_packets, 1);
     assert_eq!(tracker.param.total_packets, 0);
 
@@ -714,7 +722,14 @@ fn test_process_raw_packet_non_ip_and_too_short() {
             tv_usec: 0,
         },
     };
-    rsoftflowd::capture::process_raw_packet(&mut tracker, too_short_raw, true, &targets, 1);
+    rsoftflowd::capture::process_raw_packet(
+        &mut tracker,
+        &mut scratch,
+        too_short_raw,
+        true,
+        &targets,
+        1,
+    );
     assert_eq!(tracker.param.bad_packets, 1);
     assert_eq!(tracker.param.total_packets, 1);
 }
