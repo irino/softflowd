@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::sync::Mutex;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
@@ -19,6 +20,10 @@ use rsoftflowd::common::{
 use rsoftflowd::control::{ControlCommand, start_control_server};
 use rsoftflowd::exporter::{Destination, ExportSocket, NetflowTarget, SendParameter, send_flows};
 use rsoftflowd::packet_parser::parse_packet;
+
+// The PSAMP exporter keeps its sequence number and template counter in statics of the process.
+// The tests that call it take this lock, so that their packets do not mix.
+static PSAMP_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // -------------------------------------------------------------
 // Test 1: rsoftflowd and rsoftflowctl connection
@@ -407,6 +412,7 @@ fn test_packet_parser_dlt_pflog() {
 
 #[test]
 fn test_psamp_exporter() {
+    let _guard = PSAMP_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let recv_socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP receiver socket");
     let recv_addr = recv_socket
         .local_addr()
@@ -450,6 +456,8 @@ fn test_psamp_exporter() {
 
 #[test]
 fn test_psamp_sequence_numbers_first_20() {
+    let _guard = PSAMP_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    rsoftflowd::exporter::psamp::reset_psamp_state();
     let pcap_path = "/tmp/test_psamp_120.pcap";
     let _ = std::fs::remove_file(pcap_path);
 
@@ -582,8 +590,10 @@ fn test_psamp_sequence_numbers_first_20() {
         seq_numbers.len()
     );
 
+    // As C in a new process: the template and the first record carry 0, and the template is
+    // sent again before the 17th record, with the same sequence number as that record.
     let expected = vec![
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17, 18, 19,
+        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17,
     ];
     assert_eq!(&seq_numbers[0..20], &expected[..]);
 }

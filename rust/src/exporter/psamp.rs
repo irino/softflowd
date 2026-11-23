@@ -18,6 +18,14 @@ pub const PSAMP_DATALINKFRAME_SIZE: usize =
 static PSAMP_SEQUENCE_NUMBER: AtomicU32 = AtomicU32::new(0);
 static PSAMP_PKTS_UNTIL_TEMPLATE: AtomicI32 = AtomicI32::new(-1);
 
+/// Puts the sequence number and the template counter back to the values of a new process.
+/// The tests use it, so that they do not depend on what the other tests exported before.
+#[doc(hidden)]
+pub fn reset_psamp_state() {
+    PSAMP_SEQUENCE_NUMBER.store(0, Ordering::Relaxed);
+    PSAMP_PKTS_UNTIL_TEMPLATE.store(-1, Ordering::Relaxed);
+}
+
 pub fn psamp_resend_template() {
     let current = PSAMP_PKTS_UNTIL_TEMPLATE.load(Ordering::Relaxed);
     if current > 0 {
