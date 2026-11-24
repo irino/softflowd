@@ -40,6 +40,14 @@ pub struct FileSource {
     pub linktype: i32,
 }
 
+/// The text of an error of libpcap, as `pcap_geterr()` gives it: the crate writes "libpcap error:" before it.
+fn pcap_message(e: &pcap::Error) -> String {
+    match e {
+        pcap::Error::PcapError(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
 /// As C (capture.c, setup_packet_capture()): a data link type that is not read is
 /// reported before the filter is applied, and the program exits with 1.
 fn check_datalink(linktype: i32) {
@@ -90,14 +98,14 @@ pub fn setup_packet_capture(
                 if let Some(ref filter) = bpf_expression {
                     log::info!("Applying BPF filter: \"{}\"", filter);
                     if let Err(e) = capture.filter(filter, true) {
-                        eprintln!("PCAP capture error: {}\n", e);
+                        eprintln!("pcap_compile(\"{}\"): {}", filter, pcap_message(&e));
                         std::process::exit(1);
                     }
                 }
                 pcap_file_capture = Some(capture);
             }
             Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
+                eprintln!("pcap_open_offline({}): {}", file_path, pcap_message(&e));
                 std::process::exit(1);
             }
         }
@@ -110,7 +118,7 @@ pub fn setup_packet_capture(
         let mut builder = match pcap::Capture::from_device(dev_name) {
             Ok(b) => b,
             Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
+                eprintln!("pcap_create: {}", pcap_message(&e));
                 std::process::exit(1);
             }
         }
@@ -128,7 +136,7 @@ pub fn setup_packet_capture(
         let mut capture = match builder.open() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("PCAP capture error: {}\n", e);
+                eprintln!("pcap_activate: {}", pcap_message(&e));
                 std::process::exit(1);
             }
         };
@@ -137,7 +145,7 @@ pub fn setup_packet_capture(
         if let Some(ref filter) = bpf_expression {
             log::info!("Applying BPF filter: \"{}\"", filter);
             if let Err(e) = capture.filter(filter, true) {
-                eprintln!("PCAP capture error: {}\n", e);
+                eprintln!("pcap_compile(\"{}\"): {}", filter, pcap_message(&e));
                 std::process::exit(1);
             }
         }

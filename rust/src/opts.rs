@@ -433,27 +433,32 @@ const BOOTTIME_MAX_HOUR: u64 = 1193;
 const BOOTTIME_MAX_MIN: u64 = 71582;
 const BOOTTIME_MAX_SEC: u64 = 4294944;
 
-pub fn parse_boot_time_reinit(s: &str) -> Option<u64> {
+pub fn parse_boot_time_reinit(s: &str) -> Result<u64, &'static str> {
+    const NO_DIGITS: &str = "No digits were found in boot_time_reinit";
+    const OUT_OF_RANGE: &str = "strtol: Numerical result out of range";
+    // C reads the number and does not look at what follows it; this version does.
+    const BAD_UNIT: &str = "Invalid unit in boot_time_reinit (d, h, m or s)";
     if s.is_empty() {
-        return None;
+        return Err(NO_DIGITS);
     }
     let digits_len = s.bytes().take_while(u8::is_ascii_digit).count();
     if digits_len == 0 {
-        return None;
+        return Err(NO_DIGITS);
     }
     let num_str = &s[..digits_len];
-    let mut val: u64 = num_str.parse().ok()?;
+    // C: strtol(), a number that does not fit a long is out of range.
+    let mut val = num_str.parse::<i64>().map_err(|_| OUT_OF_RANGE)? as u64;
     let rest = &s[digits_len..];
     let unit = if rest.is_empty() {
         's'
     } else if rest.len() == 1 {
-        let c = rest.chars().next()?.to_ascii_lowercase();
+        let c = rest.chars().next().unwrap_or(' ').to_ascii_lowercase();
         match c {
             'd' | 'h' | 'm' | 's' => c,
-            _ => return None,
+            _ => return Err(BAD_UNIT),
         }
     } else {
-        return None;
+        return Err(BAD_UNIT);
     };
 
     match unit {
@@ -461,19 +466,19 @@ pub fn parse_boot_time_reinit(s: &str) -> Option<u64> {
             if val > BOOTTIME_MAX_DAY {
                 val = BOOTTIME_MAX_DAY;
             }
-            val = val.checked_mul(24 * 60 * 60)?;
+            val = val.checked_mul(24 * 60 * 60).ok_or(OUT_OF_RANGE)?;
         }
         'h' => {
             if val > BOOTTIME_MAX_HOUR {
                 val = BOOTTIME_MAX_HOUR;
             }
-            val = val.checked_mul(60 * 60)?;
+            val = val.checked_mul(60 * 60).ok_or(OUT_OF_RANGE)?;
         }
         'm' => {
             if val > BOOTTIME_MAX_MIN {
                 val = BOOTTIME_MAX_MIN;
             }
-            val = val.checked_mul(60)?;
+            val = val.checked_mul(60).ok_or(OUT_OF_RANGE)?;
         }
         _ => {
             if val > BOOTTIME_MAX_SEC {
@@ -481,7 +486,7 @@ pub fn parse_boot_time_reinit(s: &str) -> Option<u64> {
             }
         }
     }
-    Some(val)
+    Ok(val)
 }
 
 /// Apply the `-t name=time` options.
@@ -581,12 +586,19 @@ mod tests {
 
     #[test]
     fn test_parse_boot_time_reinit() {
-        assert_eq!(parse_boot_time_reinit("10"), Some(10));
-        assert_eq!(parse_boot_time_reinit("2h"), Some(7200));
-        assert_eq!(parse_boot_time_reinit("50d"), Some(4233600));
-        assert_eq!(parse_boot_time_reinit("abc"), None);
-        assert_eq!(parse_boot_time_reinit("1x2"), None);
-        assert_eq!(parse_boot_time_reinit("99999999999999999999"), None);
+        assert_eq!(parse_boot_time_reinit("10"), Ok(10));
+        assert_eq!(parse_boot_time_reinit("2h"), Ok(7200));
+        assert_eq!(parse_boot_time_reinit("50d"), Ok(4233600));
+        // The messages are those of C (D26): no digits, a number that does not fit a long.
+        assert_eq!(
+            parse_boot_time_reinit("abc"),
+            Err("No digits were found in boot_time_reinit")
+        );
+        assert!(parse_boot_time_reinit("1x2").is_err());
+        assert_eq!(
+            parse_boot_time_reinit("99999999999999999999"),
+            Err("strtol: Numerical result out of range")
+        );
     }
 
     #[test]

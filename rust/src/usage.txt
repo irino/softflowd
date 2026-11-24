@@ -1,0 +1,67 @@
+Usage: {prog} [options] [bpf_program]
+This is {prog} version {version}. Valid commandline options:
+  -i, --interface [idx:]interface
+                          Specify interface to listen on
+  -r, --read pcap_file    Specify packet capture file to read
+  -t, --timeout timeout=time
+                          Specify named timeout
+  -m, --max-flows max_flows
+                          Specify maximum number of flows to track (1 or more, default 8192)
+  -n, --netflow-dest host:port
+                          Send Cisco NetFlow(tm)-compatible packets to host:port
+  -p, --pidfile pidfile   Record pid in specified file
+                          (default: /var/run/softflowd.pid)
+  -c, --control-socket socketfile
+                          Location of control socket
+                          (default: /var/run/softflowd.ctl)
+  -v, --netflow-version 1|5|9|10|psamp
+                          NetFlow export packet version
+                          10 means IPFIX and psamp means PSAMP (packet sampling)
+  -L, --hoplimit hoplimit Set TTL/hoplimit for export datagrams
+  -T, --track full|port|proto|ip|
+                          Set flow tracking level (default: full)
+                          vlan                 ("vlan" tracking means "full" tracking with vlanid)
+                          ether                ("ether" tracking means "vlan" tracking with ether header)
+  -H, --direction-mac MAC Specify MAC Address to determine direction (requires -T ether)
+  -6, --track-ipv6        Track IPv6 flows, regardless of whether selected 
+                          NetFlow export protocol supports it
+  -d, --foreground        Don't daemonise (run in foreground)
+  -D, --debug             Debug mode: foreground + verbosity + track v6 flows
+  -P, --export-protocol udp|tcp|sctp
+                          Specify transport layer protocol for exporting packets
+  -A, --absolute-time sec|milli|micro|nano
+                          Specify absolute time format form exporting records
+  -s, --sampling-rate rate
+                          Specify periodical sampling rate (denominator)
+  -B, --pcap-buffer-size bytes
+                          Libpcap buffer size in bytes
+  -b, --bidirectional     Bidirectional mode in IPFIX (-b work with -v 10)
+  -a, --adjust-time       Adjusting time for reading pcap file (-a work with -r)
+  -C, --snaplen capture_length
+                          Specify length for packet capture (snaplen)
+  -l, --load-balance      Load balancing mode for multiple destinations
+  -R, --psamp-port receive_port
+                          Specify port number for PSAMP receive mode
+  -M, --multithread       Enable multithread
+  -N, --no-promisc        Disable promiscuous mode
+  -S, --send-interface send_interface_name
+                          Specify send interface name
+  -x, --mpls-labels labels
+                          Specify number of MPLS labels (1 to 10)
+  -I, --reinit-interval seconds
+                          Specify seconds for reinitialize boot time
+  -g, --gauge-cpu-clock   Gauge cpu clock (total and export) for benchmark
+  -e, --exporter-ip address
+                          Specify Exporter IP (IPv4 or IPv6) address
+  -f, --full-transport-header-check
+                          Require the whole TCP/UDP/ICMP header instead of
+                          only the fields used (ports, TCP flags, ICMP type/code)
+  -F, --flow-lookup mode  Flow table lookup: tree, hash-tree (default) or hash
+                          (hash: a colliding flow expires the resident one)
+  -h, --help              Display this help
+
+Valid timeout names and default values:
+  tcp     (default   3600)  tcp.rst (default    120)  tcp.fin (default    300)
+  udp     (default    300)  icmp    (default    300)  general (default   3600)
+  maxlife (default 604800)  expint  (default     60)
+

@@ -15,6 +15,8 @@ they import each other by module name.
 | `softflowd_test_gate.py` | Quality gate for a pair of builds (the Rust version against C): runs `softflowd_test.py --strict` (and cargo fmt, clippy, test with `--rust-dir`), sorts every reported difference with `gate_expected.json` (accepted, open, unexpected, stale) and checks the entries against `rust/doc/DIFFERENCES-FROM-C.en.md`; the last line is `GATE: PASS` or `GATE: FAIL`. Depends on `softflowd_test.py` (it runs it). | `softflowd_test_suite.py gate` |
 | `gate_expected.json` | The differences that the gate accepts or tracks, with their ids in the differences document. | |
 | `softflowd_test_fuzz.py` | Garbage packet corpus: mutated copies of `http.cap` and `v6-http.cap` (packets cut to every length, bit flips in the packets, damaged file and record headers) are read with `-r` by C (A) and Rust (B); the exported flow records, the statistics and the exit status must agree and B must not crash. Quick by default (under a minute), `--full` for the whole corpus. | `softflowd_test_suite.py fuzz` |
+| `gen_usage_rs.py` | Makes `rust/src/usage.txt`, the usage text of the C version, from the output of `softflowd -h` (the program name and the version become `{prog}` and `{version}`). Run it again when the options of C change; the text is that of the default configuration. | |
+| `gen_cli_parity_cases.py` | Makes `rust/doc/CLI-PARITY-CASES.md`: the wrong command lines of `PARITY_CLI_ERROR_CASES` run with C and with Rust, with the exit status and the first line of each, and whether the whole output is the same. | |
 
 Each script takes the same options as the subcommand it corresponds to
 (`softflowd_test.py -h`, `softflowd_test_suite.py compat -h` and so on).

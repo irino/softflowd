@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use rsoftflowd::capture::{
     FileSource, PacketEvent, RawPacket, process_packet, process_raw_packet, setup_packet_capture,
 };
+use rsoftflowd::cli_errors::parse_daemon_args_or_exit;
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
     ControlCommand, render_dump_flows, render_help, render_statistics, render_statistics_body,
@@ -21,38 +22,42 @@ use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
 use rsoftflowd::netsock::setup_export_targets;
 use rsoftflowd::opts::{
-    RsoftflowdArgs, apply_timeouts, parse_args_or_exit, parse_boot_time_reinit,
-    parse_interface_spec, parse_mac_address,
+    RsoftflowdArgs, apply_timeouts, parse_boot_time_reinit, parse_interface_spec, parse_mac_address,
 };
 use rsoftflowd::packet_parser::ParsedPacket;
+use rsoftflowd::usage::die_usage;
 
-fn validate_hostport(s: &str) -> Result<(), String> {
-    if s.is_empty() {
-        return Err("Invalid -n argument.".to_string());
-    }
+/// Why an argument of -n is refused.  Original: options.c, `parse_hostport()`.
+enum HostPortError {
+    /// "Invalid -n argument." with the usage.
+    Invalid,
+    /// The name or the port does not resolve: the message only, without the usage.
+    NoAddresses(String),
+}
+
+fn validate_hostport(s: &str) -> Result<(), HostPortError> {
+    // C: there must be a ':', something after it, and something in the argument before it.
     let (host, port) = match s.rfind(':') {
-        Some(idx) => (&s[..idx], &s[idx + 1..]),
-        None => return Err("Invalid -n argument.".to_string()),
+        Some(idx) if idx + 1 < s.len() && !s.is_empty() => (&s[..idx], &s[idx + 1..]),
+        _ => return Err(HostPortError::Invalid),
     };
-    if host.is_empty() || port.is_empty() {
-        return Err("Invalid -n argument.".to_string());
-    }
-    if let Ok(portnum) = port.parse::<u64>()
-        && portnum > 65535
+    // C: a numeric port that is too big for 16 bits (or for the number) is refused.
+    if port.starts_with(|c: char| c.is_ascii_digit())
+        && port.bytes().all(|b| b.is_ascii_digit())
+        && !matches!(port.parse::<u64>(), Ok(n) if n <= 65535)
     {
-        return Err("Invalid -n argument.".to_string());
+        return Err(HostPortError::Invalid);
     }
-    match s.to_socket_addrs() {
-        Ok(mut addrs) => {
-            if addrs.next().is_none() {
-                return Err(format!("No addresses found for {}", s));
-            }
-        }
-        Err(e) => {
-            return Err(format!("No addresses found for {}: {}", s, e));
-        }
+    let resolved = s
+        .to_socket_addrs()
+        .is_ok_and(|mut addrs| addrs.next().is_some());
+    if resolved {
+        Ok(())
+    } else {
+        Err(HostPortError::NoAddresses(format!(
+            "No addresses found for [{host}]:{port}"
+        )))
     }
-    Ok(())
 }
 
 static GRACEFUL_SHUTDOWN: std::sync::LazyLock<Arc<AtomicBool>> =
@@ -90,43 +95,42 @@ fn drop_privileges() {
 }
 
 fn validate_options(args: &RsoftflowdArgs) {
-    if args.interface.is_none() && args.pcap_file.is_none() {
-        eprintln!("Must specify a packet source (-i or -r).\n");
-        std::process::exit(1);
-    }
     if args.max_flows < 1 {
-        eprintln!("Invalid maximum flows\n");
-        std::process::exit(1);
+        die_usage("Invalid maximum flows\n\n");
     }
     if let Some(hl) = args.hoplimit
         && !(0..=255).contains(&hl)
     {
-        eprintln!("Invalid hop limit\n");
-        std::process::exit(1);
+        die_usage("Invalid hop limit\n\n");
     }
     if let Some(labels) = args.max_num_label
         && !(1..=10).contains(&labels)
     {
-        eprintln!("Invalid number of MPLS label (1 to 10)\n");
-        std::process::exit(1);
+        die_usage("Invalid number of MPLS label (1 to 10)\n\n");
     }
 
     if let Some(ref col_str) = args.collector {
         if col_str.is_empty() {
-            eprintln!("Invalid -n argument.\n");
-            std::process::exit(1);
+            die_usage("Invalid -n argument.\n");
         }
         for addr_str in col_str.split(',') {
             let addr_str = addr_str.trim();
             if addr_str.is_empty() {
-                eprintln!("Invalid -n argument.\n");
-                std::process::exit(1);
+                die_usage("Invalid -n argument.\n");
             }
-            if let Err(msg) = validate_hostport(addr_str) {
-                eprintln!("{}\n", msg);
-                std::process::exit(1);
+            match validate_hostport(addr_str) {
+                Ok(()) => {}
+                Err(HostPortError::Invalid) => die_usage("Invalid -n argument.\n"),
+                Err(HostPortError::NoAddresses(msg)) => {
+                    eprintln!("{msg}");
+                    std::process::exit(1);
+                }
             }
         }
+    }
+    // C looks for the source after the options, so the errors of the options come first.
+    if args.interface.is_none() && args.pcap_file.is_none() {
+        die_usage("-i, -r or -R option not specified.\n");
     }
 }
 
@@ -139,8 +143,7 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     let (user_ifidx, capture_dev) = if let Some(ref if_spec) = args.interface {
         let (idx, name) = parse_interface_spec(if_spec);
         if name.is_empty() {
-            eprintln!("Wrong interface is specified.\n");
-            std::process::exit(1);
+            die_usage("Wrong interface is specified.\n\n");
         }
         (idx, Some(name))
     } else {
@@ -174,21 +177,33 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     } else if let Some(ref file) = args.pcap_file {
         tracker.param.interface_name = file.clone();
     }
-    if let Some(ref exp_ip_str) = args.exporter_ip
-        && let Ok(ip) = exp_ip_str.parse::<IpAddr>()
-    {
-        tracker.param.exporter_ip = Some(ip);
+    if let Some(ref exp_ip_str) = args.exporter_ip {
+        // C: getaddrinfo(); a name is resolved, and an error is written and the program goes on.
+        let resolved = exp_ip_str.parse::<IpAddr>().ok().or_else(|| {
+            (exp_ip_str.as_str(), 0u16)
+                .to_socket_addrs()
+                .ok()
+                .and_then(|mut addrs| addrs.next())
+                .map(|addr| addr.ip())
+        });
+        match resolved {
+            Some(ip) => tracker.param.exporter_ip = Some(ip),
+            None => eprintln!("getaddrinfo: Name or service not known"),
+        }
     }
     if let Err(msg) = apply_timeouts(&mut tracker, &args.timeouts) {
-        eprintln!("{}\n", msg);
-        std::process::exit(1);
+        // C: the message of the "general" timeout is written without the usage.
+        if msg.contains("must be greater than zero") {
+            eprintln!("{msg}");
+            std::process::exit(1);
+        }
+        die_usage(&format!("{msg}\n"));
     }
 
     if let Some(mode) = FlowLookupMode::from_name(&args.flow_lookup) {
         tracker.set_flow_lookup(mode);
     } else {
-        log::error!("Invalid flow lookup mode: {}", args.flow_lookup);
-        std::process::exit(1);
+        die_usage("Invalid flow lookup mode\n\n");
     }
 
     if let Some(ref mac_str) = args.direction_mac {
@@ -196,7 +211,7 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
             tracker.param.direction_mac = Some(mac);
             tracker.param.direction_mac_set = true;
         } else {
-            log::error!("Invalid MAC address format: {}", mac_str);
+            eprintln!("Invalid MAC address {mac_str}");
             std::process::exit(1);
         }
     }
@@ -215,11 +230,8 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
     }
     if let Some(ref boot_reinit) = args.boot_time_reinit {
         match parse_boot_time_reinit(boot_reinit) {
-            Some(v) => tracker.param.boot_time_reinit = v,
-            None => {
-                eprintln!("No digits were found in boot_time_reinit\n");
-                std::process::exit(1);
-            }
+            Ok(v) => tracker.param.boot_time_reinit = v,
+            Err(msg) => die_usage(&format!("{msg}\n")),
         }
     }
 
@@ -635,7 +647,7 @@ fn run_main_loop(
 ///
 /// Original: softflowd.c (`main()`)
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: RsoftflowdArgs = parse_args_or_exit();
+    let args: RsoftflowdArgs = parse_daemon_args_or_exit();
 
     validate_options(&args);
     let (track_level, boottime, if_index, mut tracker) = init_tracker(&args);
@@ -665,7 +677,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         match start_control_server(path.clone(), cmd_tx) {
             Ok(listener) => control_listener = Some(listener),
             Err(e) => {
-                eprintln!("Failed to start control server: {}\n", e);
+                // C: unix_listener(): the text of errno, without "(os error N)".
+                let text = e.to_string();
+                let text = text.split(" (os error").next().unwrap_or(&text);
+                if text.contains("shorter than SUN_LEN") {
+                    eprintln!("control socket path too long");
+                } else {
+                    eprintln!("unix domain bind(\"{path}\") error: {text}");
+                }
                 std::process::exit(1);
             }
         }
