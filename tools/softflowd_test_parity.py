@@ -40,17 +40,34 @@ PARITY_PAIRS = {
     ("softflowd", "softflowd+"),
 }
 
+import itertools
+
+def _gen_matrix_args():
+    b_opts = [[], ["-b"]]
+    h_opts = [[], ["-H", "02:00:00:00:00:01"]]
+    t_opts = [["-T", "ether"], ["-T", "vlan"], ["-T", "full"]]
+    e_opts = [[], ["-e", "192.0.2.1"], ["-e", "2001:db8::1"]]
+    s_opts = [[], ["-s", "10"]]
+    a_opts = [[], ["-A", "micro"]]
+    x_opts = [[], ["-x", "2"]]
+    matrix = []
+    for b, h, t, e, s, a, x in itertools.product(b_opts, h_opts, t_opts, e_opts, s_opts, a_opts, x_opts):
+        args = []
+        for opt in (b, h, t, e, s, a, x):
+            args.extend(opt)
+        if args not in matrix:
+            matrix.append(args)
+    return matrix
+
+MATRIX_ARGS = _gen_matrix_args()
+
 # Options added to `-a -r PCAP -n 127.0.0.1:PORT -v VERSION`.
 PARITY_ARGS = {
     "1": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"], ["-s", "10"]],
     "5": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"], ["-s", "10"], ["-T", "ether"],
           ["-x", "2"]],
-    "9": [[], ["-m", "5"], ["-T", "ether"], ["-b"], ["-x", "2", "-A", "micro"],
-          ["-t", "maxlife=1", "-m", "7"], ["-s", "10"], ["-e", "192.0.2.1"],
-          ["-b", "-T", "ether", "-H", "02:00:00:00:00:01"]],
-    "10": [[], ["-m", "5"], ["-T", "ether"], ["-b"], ["-x", "2", "-A", "micro"],
-           ["-t", "maxlife=1", "-m", "7"], ["-s", "10"], ["-e", "192.0.2.1"],
-           ["-b", "-T", "ether", "-H", "02:00:00:00:00:01"]],
+    "9": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS[::16],
+    "10": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS[::16],
 }
 PARITY_DEBUG_ARGS = [[], ["-m", "5"], ["-m", "7", "-t", "maxlife=1"], ["-m", "100"],
                      ["-m", "3", "-t", "maxlife=2"]]
