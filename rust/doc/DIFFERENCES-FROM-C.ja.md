@@ -54,7 +54,7 @@
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
 | D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 解消 | rsoftflowd: fix to include the exporter address in the IPFIX option data record | 2026-11-16、compat の `-e 192.0.2.1` が MATCHED。ゲートの登録を削除 |
 | D33 | `-b` と `-H` (と `-T ether`): v9 では逆方向の MAC アドレス、IPFIX ではサイズが違う | 2026-11-15 | 解消 | Use the RFC 7011 values of flowDirection (0 ingress, 1 egress) | 2026-11-16、v9 の `-b -T ether -H` が全 pcap で MATCHED。`tests/flow_direction.rs`。原因: Rust が ingress に 2 を書いていた。`-v 10 -b` で残るのは ICMP の biflow template のサイズ (D21、許容) |
-| D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 許容 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (あいまいな数値は意図的に受理しない) | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値と不正な値の 11 ケースは終
+| D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 許容 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (あいまいな数値は意図的に受理しない) | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値と不正な値の 10 ケースは終
 了ステータスが違う (許容) |
 | D35 | 受理される実行: C は前景で `-d` なしでも標準エラーにログを出すが、Rust は何も出さない。統計も違う (未分析) | 2026-11-15 | 解消 | Log to standard error for -r, and print the final statistics without the header | 2026-11-16、compat のコマンドライン項目の受理される 17 件で、標準出力と標準エラーが C と同一。`test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header` |
 | D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 解消 | Wait like poll() of C before the idle flows are looked at (next_expire) | 2026-11-16、compat の "live on lo, idle expiry (-t expint=3)" が 8 回中 8 回 MATCHED で C と同じ時刻 (6 回中 4 回で 0.1〜0.8 秒早かった)。`test_d36_next_expire_is_like_c` |
@@ -339,7 +339,7 @@ D15、D16、D18 が「D12 の一部」として解消されています。今回
 | v9 と IPFIX: C と Rust がデータグラムを閉じるレコードが違う | D23 |
 | `Starting expiry scan: mode` と `EXPIRED` の行 | D24 |
 | `Packets processed` / `Ignored packets` (2 件) | D25 |
-| コマンドラインの文言 (75 件中 75 件) | D26 |
+| コマンドラインの文言 (75 件中 75 件) | D26 (解消) |
 | `-g -M` | D27 |
 | `exit` / `shutdown` の応答、`lo` の SIGINT の行 | D28 |
 
@@ -576,38 +576,65 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
   `5 (0 non-IP, 5 too short)`。
 - 修正: 何を「無視 (ignored)」とするかの規則、サンプリングの順序、および PSAMP パケットのカウントが C と一致するようになった。
 
-### D26. コマンドラインの文言 (実測)
+### D26. コマンドラインの文言 (実測) - 解消 (2026-11-24)
 
 **目的 (Goal)**
 
-コマンドラインのエラーと `-h`/`--help` の文言を C と同じにするか、差を
-「許容」と書く。
+コマンドラインのエラーと `-h`/`--help` の文言、および終了ステータスを C と
+同じにするか、差を「許容」と書く。
 
 **受け入れ基準 (Acceptance Criteria)**
 
-1. `PARITY_CLI_ERROR_CASES` の 75 件が標準エラーで同一。残る差は理由を付けて
-   ここに「許容」と書く。
-2. `-h` と `--help` が C と同じストリームに書く。
-3. 終了ステータスは D3 の対象で、ここでは変えない。
+1. `PARITY_CLI_ERROR_CASES` の 94 件が標準出力、標準エラー、終了ステータスで
+   同一。残る差は理由を付けて「許容」か「未解消」と書く。結果: 83 件が同じ。
+   違う 11 件は、D34 のあいまいな数値と不正な数値の 10 件 (許容) と、D44 の
+   `-R` 受信モード (未解消)。
+2. `-h` と `--help` は C の usage を標準エラーに書き、0 で終わる。
+3. 不正なコマンドラインの終了ステータスは 1 (D3)。
 
 **背景 (Context)**
 
-- 実測: 75 件中 75 件で文言が違う。例: 引数なしは C が `-i, -r or -R option not
-  specified.`、Rust が `Must specify a packet source (-i or -r).`。`-h` は C が
-  標準出力に何も書かず、Rust は clap のヘルプを書く。
-- clap は独自のメッセージと終了ステータス 2 を出す。C に合わせるには Rust の
-  オプション解析をラップする必要があるかもしれない。D3 と同じくメンテナの判断。
-  互換性の基準は getopt 形式の短いオプション。
+- 修正前の実測: 75 件中 75 件で文言が違った。例: 引数なしは C が `-i, -r or -R
+  option not specified.`、Rust が `Must specify a packet source (-i or -r).`。
+  `-h` は C が usage を標準エラーに書き、Rust は clap のヘルプを標準出力に
+  書いていた。
+- clap は独自のメッセージと終了ステータス 2 を出す。互換性の基準は getopt
+  形式の短いオプション。
 
-**変更の設計 (2026-11-15)。** *メンテナが下の A、B、C を選び、その選択をここに書くまで着手しない。* 最初の段階は小さなモデルではなく Claude が行う。
+**決定と変更**
 
-75 ケースについて、C と Rust の 1 行目と終了ステータスを正確に並べた表が `rust/doc/CLI-PARITY-CASES.md` (`tools/gen_cli_parity_cases.py` の生成物。D26 の修正後は 94 件中 83 件が同じ)。違い: (1) clap が拒否するコマンドラインで Rust の終了ステータスは 2 (C は 1。D3)、(2) 文言 (`./softflowd: invalid option -- 'z'`、`option requires an argument -- 'i'`、`Packet source already specified.`、`-i, -r or -R option not specified.`)、(3) `-h` と `--help` は clap のヘルプを標準出力に出す。C は `Usage: ...` を標準エラーに出し、終了ステータス 0。
+2026-11-15 の計画の選択肢 A (clap を残してエラーを翻訳する)。B (自前の
+getopt_long 風の解析器) は大きな変更で、C (文言を許容する) は混合案の途中の
+状態だった。先に D3 を直し (終了ステータス 1)、文法を D34 でテストし、文言は
+2026-11-24 に C と同じにした:
 
-選択肢: **A** clap を残してエラーを翻訳する。`Command::try_get_matches_from`、`ErrorKind::UnknownArgument`、`MissingValue`、`ArgumentConflict`、`InvalidValue` を C の文言に対応づけて終了ステータス 1 で終わる関数を作る。`-h`/`--help` は C の usage (`options.c` の `usage()` のコピーに Rust の追加分) を標準エラーに出して 0 で終わる。**B** getopt_long 風の小さな解析器を書く。正確だが大きな変更 (メンテナは小さな diff を好む)。**C** 差を許容する (ゲートで D26/D3 を許容にする)。Claude は **A** を推奨する。`-h` だけなら C も許容できる。
+- `rust/src/usage.txt` は C の `softflowd -h` の標準エラー (既定のビルド: `-M`
+  と `-S` あり、ntopng なし)。プログラム名とバージョンだけがプレースホルダ。
+  `tools/gen_usage_rs.py` が**生成**する: C のオプションを変えたら再実行する。
+  `rust/src/usage.rs` に `usage_text()`、`print_usage()`、`die_usage(message)`
+  (メッセージ、usage、終了 1)。
+- `rust/src/cli_errors.rs` (`parse_daemon_args_or_exit()`) が clap のエラーを
+  C の文言に変換する。別のモジュールにしたのは、`build.rs` が `opts.rs` を
+  単独で取り込むため、`opts.rs` から `crate::...` を参照できないから。値を取る
+  オプションは、次の語が `-` で始まっても値にする (getopt と同じ。位置引数の
+  BPF フィルタは除く)。`-r` はその前の `-c` を打ち消す。clap のその他の
+  エラーは終了ステータス 1 (clap の既定は 2)。
+- `rsoftflowd.rs` は C と同じ順で検査し、同じ位置で `die_usage` を使う。
+  パケットソース未指定の検査は他のオプションの検査より後。`-n`: 空のホストは
+  名前解決まで進み (`No addresses found for [host]:port`)、ポートが 65535 超か
+  桁あふれなら `Invalid -n argument.`。`-t`: 汎用タイムアウトが 0 のメッセージ
+  だけ usage なし。`-e`: 名前を解決し、失敗は `getaddrinfo: Name or service
+  not known` を出して続行する。
+- libpcap とコントロールソケットのメッセージは C と同じ: `pcap_open_offline(FILE):
+  ...`、`pcap_compile("FILTER"): ...`、`pcap_activate: ...`、`pcap_create: ...`、
+  `unix domain bind("PATH") error: ...`、`control socket path too long`。
 
-*ゲート:* 完了したら `D26` と `D3` の登録を削除する。
-
-**メンテナの決定 (2026-11-15): 混合案。** (1) D3 は直す: 終了ステータスは 1 (`opts.rs` の `parse_args_or_exit()`、`rsoftflowd` と `rsoftflowctl`)。(2) メッセージの文言と `-h`/`--help` は当面許容する (clap のメッセージのまま) が、**すべてのケースを `tools/gate_expected.json` に 1 件ずつ登録する** (D26 は 65 件。広い正規表現は使わない)。新しい差は UNEXPECTED の行になる。(3) 文言を許容する前に文法をテストする: `PARITY_CLI_ERROR_CASES` に 20 ケースを足した (D34)。後で文言を C に合わせる (上の選択肢 A) こともできる。直したケースの登録は STALE になり、ゲートが登録の削除を求める。
+*テスト:* `tests/cli_errors.rs` は旧コードで失敗する。*表:* 各ケースの C と
+Rust の 1 行目と終了ステータスは `rust/doc/CLI-PARITY-CASES.md`
+(`tools/gen_cli_parity_cases.py` の生成物。表の差はここの行: D34 か D44)。
+*ゲート:* ケースごとの 66 件の登録は削除した。合計の登録 `SUM` (`command lines
+that are wrong: 11 of 94 DIFFER`) と D34、D44 の登録が残る。D44 を直したら
+`SUM` も変える (10 of 94 になる)。
 
 ### D27. `-g -M` の CPU clock の行 (実測) - 解消 (2026-11-15)
 
@@ -864,7 +891,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 | 分類 | 意味 | ゲート |
 |---|---|---|
 | accepted (許容) | 意図的に残す差 (D34) | 通る |
-| open (未解消) | ここで追跡している既知の差 (D3、D26、D27、D28、D32、D33) | 通る |
+| open (未解消) | ここで追跡している既知の差 (D12、D44) | 通る |
 | UNEXPECTED | それ以外の差や失敗 | **失敗** |
 | STALE | どの行にも当たらない登録 (差が消えた) | **失敗**: 直したパッチが登録を削除する |
 | DOCS | この文書の行がない、または `解消` の登録 | **失敗** |
@@ -879,7 +906,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 4. **golden データグラム**: パッチの前に compat の全 pcap・全オプションのデータグラムを保存し、後で比べる。形式に関係しないパッチは 1 バイトも変えてはならない (`--save-golden DIR` と `--check-golden DIR`)。
 5. **速度のガード**: 30 万パケットの pcap で `softflowd_test_suite.py bench` を実行し、Rust が C の 5 倍を超えたら失敗 (今は約 1.05〜1.07 倍: `gen_ci_smoke_pcap.py -n 50000` の 31 回の交互実行の CPU 時間で 0.088 秒 対 0.082 秒。以前は 2.6 倍)。D25 のように別スレッドへ処理を移す変更が測定される。
 6. **`-e`、`-H`、`-b` のオプション行列**: 全 pcap で `-b`、`-H`、`-T`、`-e` (v4 と v6)、`-s`、`-A` のすべての組合せを実行する。D32 と D33 は行列にこれらのオプションがあったから見つかった。
-7. **CLI の表**: `CLI-PARITY-CASES.md` の 75 ケースを、1 行目だけでなく標準エラーの全体で比べる (D26 の後)。
+7. **CLI の表**: `CLI-PARITY-CASES.md` の 94 ケースは、D26 以降、標準出力、標準エラー、終了ステータスの全体で比べている (済み)。
 8. **文書のチェック** (ゲートで実施済み): すべての登録に、open または accepted の行がある。
 
 ## リポジトリの状態 (ソース)

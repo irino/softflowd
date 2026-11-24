@@ -56,7 +56,7 @@ changes when a patch is applied.
 | D29 | Start-up log lines can come out of order, and `Dropped privileges to nobody` is extra (found by `cargo test`) | 2026-11-15 | fixed | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15, `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` (including 20 repetitions of `test_d6_logging_stderr_first_four_lines`) pass as an ordinary user; follow-up: the capture source is opened again before the daemonization and the drop of the privileges (live capture as root, exit status 1 for a missing interface); the capture thread waits for the start-up log lines; `test_d6_logging_stderr_first_four_lines` passed 100 of 100 runs |
 | D32 | The option data record of IPFIX ignores `-e` (the exporter address is written as zeros) | 2026-11-15 | fixed | rsoftflowd: fix to include the exporter address in the IPFIX option data record | 2026-11-16, compat items `-e 192.0.2.1` MATCHED; the gate entry is deleted |
 | D33 | `-b` with `-H` (and `-T ether`): the MAC address of the reverse direction differs in v9, the sizes in IPFIX | 2026-11-15 | fixed | Use the RFC 7011 values of flowDirection (0 ingress, 1 egress) | 2026-11-16, v9 `-b -T ether -H` MATCHED for all pcaps; `tests/flow_direction.rs`. Cause: Rust wrote 2 for ingress. What stays with `-v 10 -b` is the size of the ICMP biflow templates (D21, accepted) |
-| D34 | Command line grammar: C (getopt_long) accepts an abbreviated long option, options after the filter, `-n` twice and sloppy numbers; the Rust version did not (part of D26) | 2026-11-15 | accepted | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (the sloppy numbers are not accepted on purpose) | 2026-11-15, `test_d34_getopt_long_grammar` (fails on the old code); 11 cases of sloppy numbers and invalid values differ in the exit status (accepted) |
+| D34 | Command line grammar: C (getopt_long) accepts an abbreviated long option, options after the filter, `-n` twice and sloppy numbers; the Rust version did not (part of D26) | 2026-11-15 | accepted | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (the sloppy numbers are not accepted on purpose) | 2026-11-15, `test_d34_getopt_long_grammar` (fails on the old code); 10 cases of sloppy numbers and invalid values differ in the exit status (accepted) |
 | D35 | A run that is accepted: C logs on standard error in the foreground without `-d`; the Rust version is silent, and the statistics differ (not analyzed) | 2026-11-15 | fixed | Log to standard error for -r, and print the final statistics without the header | 2026-11-16, the 17 accepted runs of the compat command line item are identical to C on standard output and standard error; `test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header` |
 | D36 | Idle expiry on a live capture: Rust exports 0.1 to 0.8 s earlier than C (not analyzed; the compat item is sometimes MATCHED) | 2026-11-16 | fixed | Wait like poll() of C before the idle flows are looked at (next_expire) | 2026-11-16, the compat item "live on lo, idle expiry (-t expint=3)" MATCHED in 8 runs out of 8 with the same time as C (it was 0.1 to 0.8 s early in 4 of 6); `test_d36_next_expire_is_like_c` |
 | D37 | Found by the fuzz script (G1): a packet that is not longer than the datalink header was counted as too short, a short IPv6 packet was counted twice without `-6`, and the ToS of a flow was that of its last packet (C: of its first) (part of D25) | 2026-11-16 | fixed | Match the classification of short packets and the ToS of a flow to C | 2026-11-16, 320 packet-byte mutations and the cut of every length of the first packets of `http.cap` and `v6-http.cap`: no difference in the records and in the packet counters; `test_d37_*` |
@@ -350,7 +350,7 @@ What was seen on 2026-11-15, and where it goes:
 | v9 and IPFIX: C and Rust close the datagram at different records | D23 |
 | `Starting expiry scan: mode` and `EXPIRED` lines | D24 |
 | `Packets processed` / `Ignored packets` (2 tests) | D25 |
-| Command line texts (75 of 75) | D26 |
+| Command line texts (75 of 75) | D26 (fixed) |
 | `-g -M` | D27 |
 | `exit` / `shutdown` replies, SIGINT line on `lo` | D28 |
 
@@ -605,38 +605,71 @@ the final statistics are the same as C for non-IP and for too short packets.
   `5 (0 non-IP, 5 too short)`.
 - Fixed: the rule of what is "ignored", sampling order, and PSAMP packet counting now match C.
 
-### D26. Command line texts (measured)
+### D26. Command line texts (measured) - FIXED (2026-11-24)
 
 **Goal**
 
-The texts of command line errors and of `-h`/`--help` are the same as C, or
-the difference is written down as accepted.
+The texts of command line errors and of `-h`/`--help`, and the exit status, are
+the same as C, or the difference is written down as accepted.
 
 **Acceptance Criteria**
 
-1. The 75 cases of `PARITY_CLI_ERROR_CASES` compare equal in stderr, or each
-   remaining difference is listed here as accepted with its reason.
-2. `-h` and `--help` write to the same stream as C.
-3. The exit status is the subject of D3 and is not changed here.
+1. The 94 cases of `PARITY_CLI_ERROR_CASES` compare equal in standard output,
+   standard error and exit status, or each remaining difference is listed as
+   accepted or open with its reason.  Result: 83 are the same; the 11 that
+   differ are the 10 sloppy or invalid numbers of D34 (accepted) and the
+   `-R` receive mode of D44 (open).
+2. `-h` and `--help` write the usage of C to standard error and exit with 0.
+3. The exit status of a wrong command line is 1 (D3).
 
 **Context**
 
-- Measured: 75 of 75 differ in the text.  Examples: no arguments: C `-i, -r
-  or -R option not specified.`, Rust `Must specify a packet source (-i or
-  -r).`; `-h`: C writes nothing to standard output, Rust writes the clap help.
-- clap writes its own messages and exit status 2; matching C may need the
-  option parsing of Rust to be wrapped.  A decision for the maintainer, as in
-  D3.  The compatibility baseline is the getopt-style short options.
+- Measured before the fix: 75 of 75 cases differed in the text.  Examples: no
+  arguments: C `-i, -r or -R option not specified.`, Rust `Must specify a
+  packet source (-i or -r).`; `-h`: C writes the usage to standard error, Rust
+  wrote the clap help to standard output.
+- clap writes its own messages and exit status 2.  The compatibility baseline
+  is the getopt-style short options.
 
-**Design of the change (2026-11-15).**  *Do not start before the maintainer has chosen A, B or C below and the choice is written here.*  Claude, not a small model, should do the first step.
+**Decision and change**
 
-The table of the 75 cases, with the exact first line and exit status of C and of Rust, is `rust/doc/CLI-PARITY-CASES.md` (generated by `tools/gen_cli_parity_cases.py`; 83 of 94 are the same since the fix of D26).  What is different: (1) the exit status is 2 in Rust for a command line that clap rejects (C: 1; D3); (2) the text (`./softflowd: invalid option -- 'z'`, `option requires an argument -- 'i'`, `Packet source already specified.`, `-i, -r or -R option not specified.`); (3) `-h` and `--help` print the clap help to standard output; C prints `Usage: ...` to standard error, exit status 0.
+Choice A of the plan of 2026-11-15 (keep clap and translate its errors; B, a
+getopt_long-style parser of our own, was a large change, and C, accepting the
+texts, was the interim state of the mixed plan).  D3 had been fixed first (exit
+status 1); the grammar was tested as D34; the texts were made like C on
+2026-11-24:
 
-Choices: **A** keep clap and translate its errors: `Command::try_get_matches_from`, a function that maps `ErrorKind::UnknownArgument`, `MissingValue`, `ArgumentConflict`, `InvalidValue` to the C text and exits with 1; `-h`/`--help` write the usage of C (copy of `usage()` of `options.c`, plus the Rust additions) to standard error and exit 0.  **B** write a small getopt_long-style parser: exact, but a large change (the maintainer prefers small diffs).  **C** accept the difference (the gate keeps D26/D3 as accepted).  Claude recommends **A**; C is acceptable for `-h`.
+- `rust/src/usage.txt` is the standard error of `softflowd -h` of C (default
+  build: `-M` and `-S` present, no ntopng); only the program name and the
+  version are placeholders.  It is **generated** by `tools/gen_usage_rs.py`:
+  run it again when an option of C changes.  `rust/src/usage.rs` has
+  `usage_text()`, `print_usage()` and `die_usage(message)` (message, usage,
+  exit 1).
+- `rust/src/cli_errors.rs` (`parse_daemon_args_or_exit()`) turns the clap
+  errors into the texts of C.  It is a module of its own because `build.rs`
+  includes `opts.rs` alone, so `opts.rs` cannot refer to `crate::...`.  An
+  option that takes a value takes the next word also when it begins with `-`
+  (as getopt does; the positional BPF filter is not affected); `-r` cancels an
+  earlier `-c`; any other clap error exits with 1 (the default of clap is 2).
+- `rsoftflowd.rs` checks in the same order as C and uses `die_usage` at the
+  same places; the check that no packet source is given comes after the checks
+  of the other options.  `-n`: an empty host goes on to the name lookup
+  (`No addresses found for [host]:port`), a port above 65535 or an overflow is
+  `Invalid -n argument.`.  `-t`: only the message of a general timeout of 0 has
+  no usage.  `-e`: the name is resolved, and a failure prints `getaddrinfo:
+  Name or service not known` and goes on.
+- The messages of libpcap and of the control socket are those of C:
+  `pcap_open_offline(FILE): ...`, `pcap_compile("FILTER"): ...`,
+  `pcap_activate: ...`, `pcap_create: ...`, `unix domain bind("PATH") error:
+  ...`, `control socket path too long`.
 
-*Gate:* when done, delete the entries `D26` and `D3`.
-
-**Decision of the maintainer (2026-11-15): a mixed plan.**  (1) D3 is fixed: the exit status is 1 (`parse_args_or_exit()` in `opts.rs`, for `rsoftflowd` and `rsoftflowctl`).  (2) The texts of the messages and `-h`/`--help` are accepted for now (the clap messages are kept), but **every case is registered by itself** in `tools/gate_expected.json` (65 entries of D26; no broad pattern), so that a new difference is an UNEXPECTED line.  (3) The grammar is tested before the texts are accepted: 20 cases were added to `PARITY_CLI_ERROR_CASES` (D34).  Later the texts can still be made like C (choice A above); each case that is fixed makes its entry stale, and the gate then asks for the entry to be deleted.
+*Test:* `tests/cli_errors.rs` fails with the old code.  *Table:* the exact
+first line and exit status of C and of Rust for each case are in
+`rust/doc/CLI-PARITY-CASES.md` (made by `tools/gen_cli_parity_cases.py`; a
+difference in the table is a row here: D34 or D44).  *Gate:* the 66 entries of
+single cases are deleted; the one entry `SUM` (`command lines that are wrong:
+11 of 94 DIFFER`) and the entries of D34 and D44 are left, and `SUM` must be
+changed when D44 is fixed (it then reads 10 of 94).
 
 ### D27. `-g -M` CPU clock lines (measured) - FIXED (2026-11-15)
 
@@ -897,7 +930,7 @@ It runs `softflowd_test.py --strict`, then `cargo fmt --check`, `cargo clippy -D
 | Class | Meaning | Gate |
 |---|---|---|
 | accepted | a difference that is kept on purpose (D34) | passes |
-| open | a known difference that is tracked here (D3, D26, D27, D28, D32, D33) | passes |
+| open | a known difference that is tracked here (D12, D44) | passes |
 | UNEXPECTED | any other difference or failure | **fails** |
 | STALE | an entry that no line matched: the difference is gone | **fails**: the patch that fixed it must delete the entry |
 | DOCS | an entry whose row here is missing or is `fixed` | **fails** |
@@ -912,7 +945,7 @@ So a patch that fixes an item must: delete its entry from `gate_expected.json`, 
 4. **Golden datagrams**: before a patch, save the datagrams of all pcaps and options of the compat matrix; after it, compare.  A patch that is not about the format must not change one byte.  (`--save-golden DIR` and `--check-golden DIR`.)
 5. **Speed guard**: `softflowd_test_suite.py bench` on a pcap of 300 000 packets; fail when Rust takes more than 5 times the time of C (it is about 1.05 to 1.07 times now, measured as the CPU time of 31 interleaved runs of `gen_ci_smoke_pcap.py -n 50000`: 0.088 s against 0.082 s; it was 2.6 times).  A change that moves work to another thread, as D25 did, is then measured.
 6. **`-e`, `-H`, `-b` option matrix**: run all pcaps with every combination of `-b`, `-H`, `-T`, `-e` (v4 and v6), `-s`, `-A`; D32 and D33 were found only because the matrix had these options.
-7. **CLI table**: run the 75 cases of `CLI-PARITY-CASES.md` with the full standard error, not only the first line (after D26).
+7. **CLI table**: the 94 cases of `CLI-PARITY-CASES.md` are compared with the whole of standard output, standard error and exit status since D26 (done).
 8. **Document check** (done in the gate): every entry has a row that is open or accepted.
 
 ## Repository state (source)
