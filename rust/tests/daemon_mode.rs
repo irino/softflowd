@@ -91,6 +91,31 @@ impl Drop for Daemon {
     }
 }
 
+/// One PSAMP data record with an Ethernet/IPv4/UDP frame (the record of C).
+fn psamp_udp_datagram() -> Vec<u8> {
+    let mut frame = vec![0x02, 0, 0, 0, 0, 0x02, 0x02, 0, 0, 0, 0, 0x01, 0x08, 0x00];
+    frame.extend_from_slice(&[
+        0x45, 0, 0, 32, 0, 1, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
+    ]);
+    frame.extend_from_slice(&[0x07, 0xd0, 0, 53, 0, 12, 0, 0, b'a', b'b', b'c', b'd']);
+    let mut datagram = vec![
+        0, 10, 0x05, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0c, 0x00,
+    ];
+    datagram.extend_from_slice(&[0x05, 0x84]);
+    datagram.extend_from_slice(&1u64.to_be_bytes());
+    datagram.extend_from_slice(&(1_700_000_000u32 + 0x83AA_7E80).to_be_bytes());
+    datagram.extend_from_slice(&[0, 0, 0, 0]);
+    datagram.extend_from_slice(&(frame.len() as u16).to_be_bytes());
+    datagram.extend_from_slice(&frame);
+    datagram.resize(1428, 0);
+    datagram
+}
+
+fn free_udp_port() -> u16 {
+    let probe = UdpSocket::bind("127.0.0.1:0").unwrap();
+    probe.local_addr().unwrap().port()
+}
+
 #[test]
 fn test_d47_control_socket_of_a_daemon_answers() {
     let collector = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -130,32 +155,14 @@ fn test_d47_daemon_reads_the_psamp_port_and_exports() {
     collector
         .set_read_timeout(Some(Duration::from_millis(1500)))
         .unwrap();
-    let port = {
-        let probe = UdpSocket::bind("127.0.0.1:0").unwrap();
-        probe.local_addr().unwrap().port()
-    };
+    let port = free_udp_port();
     let daemon = Daemon::start(
         "psamp",
         &["-R", &port.to_string()],
         collector.local_addr().unwrap().port(),
         &[],
     );
-    // One PSAMP data record with an Ethernet/IPv4/UDP frame (the record of C).
-    let mut frame = vec![0x02, 0, 0, 0, 0, 0x02, 0x02, 0, 0, 0, 0, 0x01, 0x08, 0x00];
-    frame.extend_from_slice(&[
-        0x45, 0, 0, 32, 0, 1, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
-    ]);
-    frame.extend_from_slice(&[0x07, 0xd0, 0, 53, 0, 12, 0, 0, b'a', b'b', b'c', b'd']);
-    let mut datagram = vec![
-        0, 10, 0x05, 0x94, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0c, 0x00,
-    ];
-    datagram.extend_from_slice(&[0x05, 0x84]);
-    datagram.extend_from_slice(&1u64.to_be_bytes());
-    datagram.extend_from_slice(&(1_700_000_000u32 + 0x83AA_7E80).to_be_bytes());
-    datagram.extend_from_slice(&[0, 0, 0, 0]);
-    datagram.extend_from_slice(&(frame.len() as u16).to_be_bytes());
-    datagram.extend_from_slice(&frame);
-    datagram.resize(1428, 0);
+    let datagram = psamp_udp_datagram();
     let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
     sender.send_to(&datagram, ("127.0.0.1", port)).unwrap();
     std::thread::sleep(Duration::from_millis(500));
@@ -204,4 +211,55 @@ fn test_d47_daemon_reads_an_interface_and_exports() {
     assert_eq!(u32::from_be_bytes([buf[40], buf[41], buf[42], buf[43]]), 5);
     daemon.control("shutdown");
     assert_eq!(received, 24 + 48);
+}
+
+/// The privileges of a daemon of root (D48), as C drops them: the user `nobody`, the group of
+/// `nobody` only, and `/var/empty` as the root directory.  Needs root and `/var/empty`.
+#[test]
+fn test_d48_daemon_of_root_drops_privileges_like_c() {
+    if unsafe { libc::geteuid() } != 0 || !Path::new("/var/empty").is_dir() {
+        eprintln!("skipped: needs root and /var/empty");
+        return;
+    }
+    let nobody = nix::unistd::User::from_name("nobody").unwrap().unwrap();
+    let collector = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = free_udp_port();
+    let daemon = Daemon::start(
+        "privs",
+        &["-R", &port.to_string()],
+        collector.local_addr().unwrap().port(),
+        &[],
+    );
+    let status = std::fs::read_to_string(format!("/proc/{}/status", daemon.pid)).unwrap();
+    let field = |name: &str| -> Vec<String> {
+        status
+            .lines()
+            .find(|l| l.starts_with(name))
+            .unwrap()
+            .split_whitespace()
+            .skip(1)
+            .map(str::to_string)
+            .collect()
+    };
+    let (uid, gid) = (nobody.uid.to_string(), nobody.gid.to_string());
+    assert_eq!(field("Uid:"), vec![uid; 4]);
+    assert_eq!(field("Gid:"), vec![gid.clone(); 4]);
+    // No other group (the old code kept none either, but as root it had group 0).
+    assert_eq!(field("Groups:"), vec![gid]);
+    assert_eq!(
+        std::fs::read_link(format!("/proc/{}/root", daemon.pid)).unwrap(),
+        Path::new("/var/empty")
+    );
+    // C writes "Unknown (17)" for every protocol in this root directory, because the name
+    // service cannot be loaded there; /etc/protocols is read before the chroot (D48), and
+    // the name is udp.
+    let sender = UdpSocket::bind("127.0.0.1:0").unwrap();
+    sender
+        .send_to(&psamp_udp_datagram(), ("127.0.0.1", port))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    daemon.control("expire-all");
+    let statistics = daemon.control("statistics");
+    assert!(statistics.contains("udp (17):"), "{statistics}");
+    daemon.control("shutdown");
 }

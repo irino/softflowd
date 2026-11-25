@@ -16,8 +16,8 @@ use rsoftflowd::capture::{
 use rsoftflowd::cli_errors::parse_daemon_args_or_exit;
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
-    ControlCommand, bind_control_socket, render_dump_flows, render_help, render_statistics,
-    render_statistics_body, render_timeouts, spawn_control_server,
+    ControlCommand, bind_control_socket, load_protocol_names, render_dump_flows, render_help,
+    render_statistics, render_statistics_body, render_timeouts, spawn_control_server,
 };
 use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
@@ -78,20 +78,60 @@ fn register_signals() {
     let _ = signal_hook::flag::register(SIGUSR1, Arc::clone(&USR1_RECEIVED));
 }
 
-/// Drop privileges from root to 'nobody'.
+/// The user that a daemon changes to, and the directory that it makes its root (the
+/// defaults of C: `PRIVDROP_USER` and `PRIVDROP_CHROOT_DIR` of softflowd.h).
+const PRIVDROP_USER: &str = "nobody";
+const PRIVDROP_CHROOT_DIR: &str = "/var/empty";
+
+/// Writes a failure of `drop_privileges()` and exits with 1, as C does.
+fn privdrop_fatal(message: String) -> ! {
+    log::error!("{message}");
+    std::process::exit(1);
+}
+
+/// Drops the privileges of root: the root directory is made `/var/empty`, the groups are the
+/// group of the user `nobody` only, and the user is `nobody`.  Any failure is fatal.  The
+/// files that the program needs after this (the source, the sockets, `/etc/protocols`, the
+/// addresses of the destinations) have to be open, or read, before.
 ///
-/// Original: daemon.c (`drop_privileges()`)
+/// As before D48, a program that is not root does not change anything (C tries and fails at
+/// the `chroot`).
+///
+/// Original: daemon_setup.c (`drop_privs()`)
 fn drop_privileges() {
-    #[cfg(unix)]
-    {
-        if nix::unistd::geteuid().is_root() {
-            if let Some(pw) = nix::unistd::User::from_name("nobody").ok().flatten() {
-                let _ = nix::unistd::setgid(pw.gid);
-                let _ = nix::unistd::setuid(pw.uid);
-            } else {
-                log::warn!("Could not find 'nobody' user to drop privileges");
-            }
-        }
+    use nix::unistd::{chdir, chroot, setgroups, setresgid, setresuid};
+
+    if !nix::unistd::geteuid().is_root() {
+        return;
+    }
+    let Some(pw) = nix::unistd::User::from_name(PRIVDROP_USER).ok().flatten() else {
+        privdrop_fatal(format!(
+            "Unable to find unprivileged user \"{PRIVDROP_USER}\""
+        ));
+    };
+    if let Err(e) = chdir(PRIVDROP_CHROOT_DIR) {
+        privdrop_fatal(format!(
+            "Unable to chdir to chroot directory \"{PRIVDROP_CHROOT_DIR}\": {}",
+            e.desc()
+        ));
+    }
+    if let Err(e) = chroot(PRIVDROP_CHROOT_DIR) {
+        privdrop_fatal(format!(
+            "Unable to chroot to directory \"{PRIVDROP_CHROOT_DIR}\": {}",
+            e.desc()
+        ));
+    }
+    if let Err(e) = chdir("/") {
+        privdrop_fatal(format!("Unable to chdir to chroot root: {}", e.desc()));
+    }
+    if let Err(e) = setgroups(&[pw.gid]) {
+        privdrop_fatal(format!("Couldn't setgroups ({}): {}", pw.gid, e.desc()));
+    }
+    if let Err(e) = setresgid(pw.gid, pw.gid, pw.gid) {
+        privdrop_fatal(format!("Couldn't set gid ({}): {}", pw.gid, e.desc()));
+    }
+    if let Err(e) = setresuid(pw.uid, pw.uid, pw.uid) {
+        privdrop_fatal(format!("Couldn't set uid ({}): {}", pw.uid, e.desc()));
     }
 }
 
@@ -745,11 +785,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     daemonize_and_init_log(&args);
     let pidfile_path = resolve_and_write_pidfile(&args);
+    // The destinations are resolved and their sockets are made before the privileges are
+    // dropped: the root directory of the daemon will be empty.
+    setup_export_targets(&args, &mut targets, is_ntopng);
     // As C: only a daemon drops its privileges (-d, -D and -r stay in the foreground).
     if !(args.dont_fork || args.debug || args.pcap_file.is_some()) {
+        load_protocol_names();
         drop_privileges();
     }
-    setup_export_targets(&args, &mut targets, is_ntopng);
     register_signals();
 
     log::info!(

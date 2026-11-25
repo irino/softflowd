@@ -192,6 +192,13 @@ fn protocol_name(protocol: u8) -> String {
     .to_string()
 }
 
+/// Reads `/etc/protocols` now.  A daemon calls this before it changes its root directory, as C
+/// calls `setprotoent(1)` before `drop_privs()`: after the `chroot` the file is not there, and
+/// the names would be those of the common protocols only.
+pub fn load_protocol_names() {
+    let _ = protocol_name(0);
+}
+
 /// The reply of the control socket: the header of control.c, then the statistics.
 pub fn render_statistics(tracker: &FlowTracker, pcap_stats: Option<(u64, u64, u64)>) -> String {
     let start_time_str = format_time(tracker.param.system_boot_time.tv_sec);
