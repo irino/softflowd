@@ -164,7 +164,7 @@ fn test_d44_psamp_datagrams_are_read_with_r() {
         .unwrap();
     std::thread::sleep(Duration::from_millis(500));
 
-    assert_eq!(receiver.shutdown(), Some(0));
+    assert_eq!(receiver.shutdown(), Some(1)); // as C, see D45
     assert_eq!(v5_records(&collector), vec![(1000, 2, 80), (1001, 1, 40)]);
 }
 
@@ -189,7 +189,7 @@ fn test_d44_frame_section_longer_than_the_datagram_is_cut() {
     sender.send_to(&short, to).unwrap();
     std::thread::sleep(Duration::from_millis(500));
 
-    assert_eq!(receiver.shutdown(), Some(0));
+    assert_eq!(receiver.shutdown(), Some(1)); // as C, see D45
     assert_eq!(v5_records(&collector), vec![(1000, 1, 2986)]);
 }
 

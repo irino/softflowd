@@ -389,6 +389,9 @@ fn run_main_loop(
                     let _ = resp.send(format!("{}Dumping flow data:\n{}", prefix, dump_str));
                 }
                 ControlCommand::Shutdown { resp } => {
+                    // As C: the loop is left with the return value of the control socket,
+                    // so the status is 1 (a signal gives 0).
+                    exit_status = 1;
                     GRACEFUL_SHUTDOWN.store(true, std::sync::atomic::Ordering::SeqCst);
                     let _ = resp.send(format!("{}Shutting down gracefully...\n", prefix));
                 }
@@ -412,7 +415,7 @@ fn run_main_loop(
                     if let Some(ref path) = pidfile_path {
                         let _ = std::fs::remove_file(path);
                     }
-                    std::process::exit(0);
+                    std::process::exit(1); // as C, see Shutdown
                 }
                 ControlCommand::DebugPlus { resp } => {
                     let _ = resp.send(format!("{}Debug level increased.\n", prefix));
