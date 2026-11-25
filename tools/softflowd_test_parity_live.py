@@ -400,7 +400,12 @@ def _hide_program_name(text: str, daemon: str) -> str:
     """Replace the name of the program by PROG: the path and the file name of the daemon, and, for a
     build variant (softflowd-static), the name softflowd that the program prints for itself."""
     base = os.path.basename(daemon)
-    text = text.replace(daemon, "PROG").replace(base, "PROG")
+    text = text.replace(daemon, "PROG")
+    # The directory of the suite is named softflowd_suite_*: hide it before the name, or the name
+    # is replaced in it for A (softflowd) and not for B (rsoftflowd).
+    if helper.SUITE_TMP_DIR:
+        text = text.replace(helper.SUITE_TMP_DIR, "TMP")
+    text = text.replace(base, "PROG")
     if base.startswith("softflowd"):
         text = text.replace("softflowd", "PROG")
     return text
