@@ -767,6 +767,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
     }
     let _ = capture_start_tx.send(());
+    // As C: the boot time (SysUptime) is the time of the start of the main loop.
+    tracker.param.system_boot_time = TimeVal::now();
     // The thread is started here, after the fork of the daemonization.
     if let Some((socket, packet_tx)) = psamp_input {
         spawn_psamp_receiver(socket, packet_tx, &GRACEFUL_SHUTDOWN);

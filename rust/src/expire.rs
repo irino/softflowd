@@ -212,6 +212,17 @@ pub fn scan_expiries(
         }
     }
 
+    // -I: as C, after the flows are sent, the boot time is set again when it is older than
+    // the given time.
+    if tracker.param.boot_time_reinit != 0 {
+        let now = crate::exporter::get_active_now(&tracker.param);
+        if now.tv_sec - tracker.param.system_boot_time.tv_sec
+            > tracker.param.boot_time_reinit as i64
+        {
+            tracker.param.system_boot_time = now;
+        }
+    }
+
     count
 }
 

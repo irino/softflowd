@@ -364,16 +364,13 @@ pub fn process_packet(
     targets: &NetflowTarget,
     ifidx: u16,
 ) {
-    if tracker.param.total_packets == 0 && tracker.param.non_sampled_packets == 0 {
+    // As C: the boot time is the time of the start, and only -a takes the time of the first
+    // packet instead.  (-I is looked at when the expiry is scanned.)
+    if tracker.param.adjust_time
+        && tracker.param.total_packets == 0
+        && tracker.param.non_sampled_packets == 0
+    {
         tracker.param.system_boot_time = raw.timestamp;
-    }
-
-    if tracker.param.boot_time_reinit > 0 {
-        let diff = raw.timestamp.tv_sec - tracker.param.system_boot_time.tv_sec;
-        if diff >= tracker.param.boot_time_reinit as i64 {
-            log::info!("Reinitializing system boot time due to -I option.");
-            tracker.param.system_boot_time = raw.timestamp;
-        }
     }
 
     // Sampling
@@ -454,17 +451,8 @@ pub fn process_parsed_packet(
         return;
     }
 
-    if tracker.param.total_packets == 0 {
+    if tracker.param.adjust_time && tracker.param.total_packets == 0 {
         tracker.param.system_boot_time = parsed.timestamp;
-    }
-
-    // -I オプション対応: ブートタイムの再初期化
-    if tracker.param.boot_time_reinit > 0 {
-        let diff = parsed.timestamp.tv_sec - tracker.param.system_boot_time.tv_sec;
-        if diff >= tracker.param.boot_time_reinit as i64 {
-            log::info!("Reinitializing system boot time due to -I option.");
-            tracker.param.system_boot_time = parsed.timestamp;
-        }
     }
 
     // Sampling

@@ -55,6 +55,19 @@ impl TimeVal {
         }
     }
 
+    /// The wall clock, as `gettimeofday()`.
+    pub fn now() -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        TimeVal {
+            tv_sec: now.as_secs() as i64,
+            tv_usec: now.subsec_micros() as i32,
+        }
+    }
+
+    /// `self - other` in milliseconds, as `timeval_sub_ms()` of C: the arithmetic is 32 bits
+    /// wide and wraps, so a time before `other` gives a large number, not 0.
     pub fn sub_ms(&self, other: &TimeVal) -> u32 {
         let mut sec = self.tv_sec - other.tv_sec;
         let mut usec = self.tv_usec - other.tv_usec;
@@ -62,11 +75,9 @@ impl TimeVal {
             usec += 1_000_000;
             sec -= 1;
         }
-        if sec < 0 {
-            0
-        } else {
-            (sec * 1000) as u32 + (usec / 1000) as u32
-        }
+        (sec as u32)
+            .wrapping_mul(1000)
+            .wrapping_add((usec / 1000) as u32)
     }
 }
 
