@@ -1,6 +1,6 @@
 use crate::exporter::{Destination, ExportSocket, NetflowTarget};
 use crate::opts::RsoftflowdArgs;
-use std::net::ToSocketAddrs;
+use std::net::{ToSocketAddrs, UdpSocket};
 
 /// Create the export targets and sockets.
 ///
@@ -110,6 +110,24 @@ pub fn setup_export_targets(args: &RsoftflowdArgs, targets: &mut NetflowTarget, 
                     }
                 }
             }
+        }
+    }
+}
+
+/// Creates the UDP socket that receives PSAMP (`-R`), bound to a port on all IPv4 addresses.
+///
+/// As C does, a failure is written and the program exits with 1.
+///
+/// Original: netsock.c (`recvsock()`)
+pub fn recvsock(port: u16) -> UdpSocket {
+    match UdpSocket::bind(("0.0.0.0", port)) {
+        Ok(socket) => socket,
+        Err(e) => {
+            // The text of errno, without "(os error N)".
+            let text = e.to_string();
+            let text = text.split(" (os error").next().unwrap_or(&text);
+            eprintln!("bind to UDP port {port} failed: {text}");
+            std::process::exit(1);
         }
     }
 }

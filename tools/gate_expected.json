@@ -50,12 +50,6 @@
       "pattern": "^\\-r\\ \\{pcap\\}\\ \\-n\\ 127\\.0\\.0\\.1:9\\ \\-m\\ \\ 5: exit status differs"
     },
     {
-      "id": "D44",
-      "status": "open",
-      "reason": "C opens the control socket and fails on its path because -R is a packet source (the PSAMP receive mode); the Rust version has no receive mode, -R is accepted and ignored, and it asks for -i or -r",
-      "pattern": "^\\-R\\ 0\\ \\-c\\ /nonexistent/dir/ctl: standard error differs"
-    },
-    {
       "id": "D34",
       "status": "accepted",
       "reason": "C accepts a value that the Rust version rejects on purpose (atoi-like parsing, a range that is stricter by decision)",
@@ -70,7 +64,7 @@
     {
       "id": "SUM",
       "status": "open",
-      "pattern": "command lines that are wrong: 11 of 94 DIFFER",
+      "pattern": "command lines that are wrong: 10 of 94 DIFFER",
       "reason": "the sum of the cases above (each case has its own entry)"
     }
   ]

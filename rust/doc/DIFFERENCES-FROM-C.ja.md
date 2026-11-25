@@ -48,7 +48,7 @@
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33)。C++ 版 (`records_in_flow`) と旧 export の `compat/ipfix.c` にも同じ規則を入れた (C++ 版と静的ビルドを C ビルドとバイト単位で比較する CI のため) |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
 | D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 解消 | Align packet statistics and capture loop counters with C | 2026-11-15、non-IP および too short パケットのカウンタの単体テスト、統合テストが通過 |
-| D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 解消 | clap がエラーを見つけ、文言、usage、終了ステータスは C と同じ: `usage.txt` (`tools/gen_usage_rs.py` が `softflowd -h` から作る)、`die_usage()`、`cli_errors.rs`。値を取るオプションは `-` で始まる次の語も値にする。`-r` はその前の `-c` を打ち消す。`-e` は名前を解決する。libpcap とコントロールソケットのメッセージは C と同じ | 2026-11-24、`PARITY_CLI_ERROR_CASES` の 94 件中 83 件が同じ (以前は 17 件)。違う 11 件は D34 のあいまいな数値 (許容) と D44。ケースごとのゲートの項目 66 件は削除。`tests/cli_errors.rs` は旧コードで失敗する |
+| D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 解消 | clap がエラーを見つけ、文言、usage、終了ステータスは C と同じ: `usage.txt` (`tools/gen_usage_rs.py` が `softflowd -h` から作る)、`die_usage()`、`cli_errors.rs`。値を取るオプションは `-` で始まる次の語も値にする。`-r` はその前の `-c` を打ち消す。`-e` は名前を解決する。libpcap とコントロールソケットのメッセージは C と同じ | 2026-11-24、`PARITY_CLI_ERROR_CASES` の 94 件中 83 件が同じ (以前は 17 件)。違う 11 件は D34 のあいまいな数値 (許容) と D44 (その後解消: 84 件が同じ、違うのは 10 件)。ケースごとのゲートの項目 66 件は削除。`tests/cli_errors.rs` は旧コードで失敗する |
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 解消 | Print n/a for the export clock with -M (gauge clock) | 2026-11-16、compat の "cpu clocks of -g -M" が MATCHED。ゲートの登録を削除 |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 解消 | Make the control socket replies, the signals and the final statistics like C | 2026-11-16、"control replies (21 commands, ending with shutdown / exit)"、shutdown と exit コマンドのログ、SIGINT、SIGTERM、SIGHUP、SIGUSR1 が MATCHED。最初の修正の追補: `timeouts` を 22 桁に右揃え、`statistics` の表サイズ (バケット数 x 8 バイト) と libpcap の行 (読み取りが 1 秒ごとにタイムアウト)、`dump-flows` を期限イベントの順にする (ハッシュ表の不定な順だった)、最終統計は C と同じく `-r` のときだけ、権限を落とすのはデーモンのときだけ (`-d` で root だと制御ソケットを消せなかった)、`ctl connect(...) error:` から " (os error N)" を除く。テスト `tests/control_text.rs` |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
@@ -65,7 +65,7 @@
 | D41 | SCTP (132) と DCCP (33) のポート: C は UDP のポートと同じ位置から読む。Rust は 0 のままだった (同じプロトコルでポートが違う複数のフローが 1 つのキーになっていた) | 2026-11-19 | 解消 | UDP、DCCP、SCTP のポートを同じ方法で読む。`full_l4hdr_check` が求めるヘッダ全体は、UDP は 8 オクテット、DCCP は 12 (`struct dccp_hdr`)、SCTP はポートだけで、C と同じ | 2026-11-19、fuzz の full 実行の `http_flip_141` (プロトコル 33 の 1 フロー) で見つけた: `-v 5`、`-v 9`、`-v 10` でフローレコードが C と同じ。`test_dccp_and_sctp_ports_are_read_like_udp` は旧コードで失敗する |
 | D42 | softflowd が読まないデータリンク種別の pcap ファイル (またはデバイス): C は "Unsupported datalink type N" を出して、開始前に終了ステータス 1 で終わる。Rust は起動し、すべてのパケットを非 IP として無視し、0 で終わっていた | 2026-11-19 | 解消 | C と同じく、フィルタを適用する前にデータリンク種別を調べる (`datalink_check()` の表: Ethernet、PPP、Linux SLL、raw IP、null、loop、pflog) | 2026-11-19、fuzz の full 実行の `http_damaged_75` (ファイルヘッダのリンク種別が 3) で見つけた: メッセージと終了ステータスが C と同じ。`test_d42_unsupported_datalink_exits_with_status_1` は旧コードで失敗する |
 | D43 | `-B` なしのライブキャプチャのバッファサイズ: C は libpcap の既定 (2 MiB) のままにし、Rust は 1 MiB にしていた。パケットレートが高いと、C が落とさないパケットを Rust が 6〜8 % 落とした | 2026-11-19 | 解消 | `-B` があるときだけバッファサイズを設定する | 2026-11-19、`lo` に 1 000 の送信元ポートから UDP を 1 000 000 パケット、1 CPU (生成プログラムとキャプチャが競合): C は 100 % 処理、Rust は変更前 92〜94 %、変更後 99.6〜99.8 %。旧 Rust に `-B 1048576` / `-B 2097152` を付けても同じ効果 (93〜95 % / 99.3〜99.6 %) |
-| D44 | PSAMP の受信モード (`-R port`): C では `-R` は PSAMP のデータグラムを受信するパケットソースだが、Rust は `-R` を受け付けて無視し、`-i` か `-r` を求める | 2026-11-24 | 未解消 | | D26 のケース (`-R 0 -c /nonexistent/dir/ctl`) で見つけた |
+| D44 | PSAMP の受信モード (`-R port`): C では `-R` は PSAMP のデータグラムを受信するパケットソースだが、Rust は `-R` を受け付けて無視し、`-i` か `-r` を求める | 2026-11-24 | 解消 | rsoftflowd: Receive the PSAMP datagrams of -R like C does | 2026-11-24、D26 のケース (`-R 0 -c /nonexistent/dir/ctl`) で見つけた。`recvsock()` がオプションの検査中にポートを bind し (失敗: `bind to UDP port N failed: ...`、終了 1)、デーモン化の後にスレッドがデータグラムを読んで、各パケットをキャプチャした Ethernet パケットとして渡す (C の `recv_psamp()`: softflowd のデータレコードだけ、時刻は `conv_ntp_to_unix()` と同じ、フレーム部はデータグラムの終わりで切る、短い・IPFIX でないデータグラムは `recv_psamp error`)。`-R` は C と同じく `-i` も `-r` もないときだけパケットソース。テスト: `tests/psamp_receive.rs`。`tools/psamp_regress.py` (受信側の検査) と compat の step 5 の受信ケースは C と同じフローを出す。残る差: `rsoftflowd -v psamp` のデータグラムは時刻が 1 us 早く読まれる (NTP の小数部が C の +1 us ではないため。D7)。`softflowctl stop` の間、データグラムは読んで捨てる (C はソケットに残す) |
 | D30 | シャットダウン (SIGINT、SIGTERM、`softflowctl shutdown`) 時に、テーブルに残ったフローが export されなかった | 2026-11-15 | 解消 | Export the flows left in the table at shutdown again | 2026-11-15、compat の "live on lo, burst over -m 10" で 60 件中 60 件 (修正前は 50 件以下) |
 | D31 | 両端が同じアドレス (`lo` など): C は 1 つの Biflow にし、Rust は 2 つのフローにする | 2026-11-15 | 解消 | Handle same-address Biflow in FlowKey::canonical() using port comparison | 2026-11-15、統合テスト `test_d31_same_address_biflow` (旧コードで失敗) |
 | R1 | `rust/AGENTS.md` がリポジトリの実態と合わない | 2026-11-02 | 解消 | 0006 Update AGENTS.md and the README of the Rust version to the current policy | 2026-11-02、リポジトリと照合 |
@@ -586,9 +586,9 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
 **受け入れ基準 (Acceptance Criteria)**
 
 1. `PARITY_CLI_ERROR_CASES` の 94 件が標準出力、標準エラー、終了ステータスで
-   同一。残る差は理由を付けて「許容」か「未解消」と書く。結果: 83 件が同じ。
-   違う 11 件は、D34 のあいまいな数値と不正な数値の 10 件 (許容) と、D44 の
-   `-R` 受信モード (未解消)。
+   同一。残る差は理由を付けて「許容」か「未解消」と書く。結果: 84 件が同じ。
+   違う 10 件は、D34 のあいまいな数値と不正な数値 (許容)。(D44 の前は、11 件目が
+   `-R 0 -c ...` で、83 件が同じだった。)
 2. `-h` と `--help` は C の usage を標準エラーに書き、0 で終わる。
 3. 不正なコマンドラインの終了ステータスは 1 (D3)。
 
@@ -631,10 +631,10 @@ getopt_long 風の解析器) は大きな変更で、C (文言を許容する) �
 
 *テスト:* `tests/cli_errors.rs` は旧コードで失敗する。*表:* 各ケースの C と
 Rust の 1 行目と終了ステータスは `rust/doc/CLI-PARITY-CASES.md`
-(`tools/gen_cli_parity_cases.py` の生成物。表の差はここの行: D34 か D44)。
+(`tools/gen_cli_parity_cases.py` の生成物。表の差はここの行: D34)。
 *ゲート:* ケースごとの 66 件の登録は削除した。合計の登録 `SUM` (`command lines
-that are wrong: 11 of 94 DIFFER`) と D34、D44 の登録が残る。D44 を直したら
-`SUM` も変える (10 of 94 になる)。
+that are wrong: 10 of 94 DIFFER`) と D34 の登録が残る (D44 の登録は D44 を直したときに
+削除し、`SUM` は 11 から 10 にした)。
 
 ### D27. `-g -M` の CPU clock の行 (実測) - 解消 (2026-11-15)
 
@@ -891,7 +891,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 | 分類 | 意味 | ゲート |
 |---|---|---|
 | accepted (許容) | 意図的に残す差 (D34) | 通る |
-| open (未解消) | ここで追跡している既知の差 (D12、D44) | 通る |
+| open (未解消) | ここで追跡している既知の差 (D12) | 通る |
 | UNEXPECTED | それ以外の差や失敗 | **失敗** |
 | STALE | どの行にも当たらない登録 (差が消えた) | **失敗**: 直したパッチが登録を削除する |
 | DOCS | この文書の行がない、または `解消` の登録 | **失敗** |

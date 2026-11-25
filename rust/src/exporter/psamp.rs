@@ -169,3 +169,139 @@ pub fn send_psamp(
 
     1
 }
+
+/// What `parse_psamp_datagram()` made of a datagram (C: the return value of `recv_psamp()`).
+#[derive(Debug, PartialEq)]
+pub enum PsampDatagram {
+    /// A PSAMP data record of softflowd: the packet is `datagram[offset..offset + caplen]`.
+    Packet {
+        timestamp: TimeVal,
+        caplen: u32,
+        orig_len: u32,
+        offset: usize,
+    },
+    /// An IPFIX message that is not a PSAMP data record of softflowd, for example its
+    /// template.  C: 0.
+    Other,
+    /// Too short, or not IPFIX.  C: -1.
+    Invalid,
+}
+
+/// IPFIX message header, set header, selectionSequenceId, observationTimeMicroseconds and
+/// sectionExportedOctets: what comes before the frame section.
+const PSAMP_RECORD_HEADER_SIZE: usize = 16 + 4 + PSAMP_FIXED_FIELDS_SIZE;
+
+/// Reads one datagram that was received with `-R`.  Only the data records that softflowd
+/// itself exports are used; the selectionSequenceId is not.
+///
+/// Original: psamp.c (`recv_psamp()`)
+pub fn parse_psamp_datagram(buf: &[u8]) -> PsampDatagram {
+    if buf.len() < PSAMP_RECORD_HEADER_SIZE {
+        log::debug!(
+            "recv_psamp: recvsize: {} is shorter than needed size",
+            buf.len()
+        );
+        return PsampDatagram::Invalid;
+    }
+    let be16 = |at: usize| u16::from_be_bytes([buf[at], buf[at + 1]]);
+    let be32 = |at: usize| u32::from_be_bytes([buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]);
+    if be16(0) != 10 {
+        return PsampDatagram::Invalid;
+    }
+    if be16(16) != PSAMP_SOFTFLOWD_TEMPLATE_ID {
+        return PsampDatagram::Other;
+    }
+    // The NTP time as C reads it back (conv_ntp_to_unix()): the seconds are 32 bits
+    // wide, and the fraction is cut, not rounded.
+    let timestamp = TimeVal {
+        tv_sec: be32(28).wrapping_sub(0x83AA_7E80) as i64,
+        tv_usec: (be32(32) as f64 * 1.0e6 / 4_294_967_296.0) as i32,
+    };
+    let orig_len = be16(36) as u32;
+    // The frame section cannot be longer than what was received.
+    let caplen = orig_len.min((buf.len() - PSAMP_RECORD_HEADER_SIZE) as u32);
+    PsampDatagram::Packet {
+        timestamp,
+        caplen,
+        orig_len,
+        offset: PSAMP_RECORD_HEADER_SIZE,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A PSAMP message as C writes it: the NTP fraction of C is (usec + 1) * 2^32 / 10^6.
+    fn message(seconds: u32, fraction: u32, octets: u16, frame: &[u8]) -> Vec<u8> {
+        let mut m = vec![0, 10, 5, 148, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        m.extend_from_slice(&PSAMP_SOFTFLOWD_TEMPLATE_ID.to_be_bytes());
+        m.extend_from_slice(&[5, 132]);
+        m.extend_from_slice(&7u64.to_be_bytes());
+        m.extend_from_slice(&(seconds.wrapping_add(0x83AA_7E80)).to_be_bytes());
+        m.extend_from_slice(&fraction.to_be_bytes());
+        m.extend_from_slice(&octets.to_be_bytes());
+        m.extend_from_slice(frame);
+        m
+    }
+
+    #[test]
+    fn a_data_record_gives_the_packet_and_its_time() {
+        // C sends 250000 us as (250000 + 1) * 2^32 / 10^6 and reads it back as 250000.
+        let fraction = ((250_001f64) * 4_294_967_296.0 * 1.0e-6) as u32;
+        let datagram = message(1_700_000_000, fraction, 60, &[0xab; 100]);
+        assert_eq!(
+            parse_psamp_datagram(&datagram),
+            PsampDatagram::Packet {
+                timestamp: TimeVal {
+                    tv_sec: 1_700_000_000,
+                    tv_usec: 250_000
+                },
+                caplen: 60,
+                orig_len: 60,
+                offset: 38,
+            }
+        );
+    }
+
+    #[test]
+    fn the_frame_section_is_cut_at_the_end_of_the_datagram() {
+        let datagram = message(1_700_000_000, 0, 3000, &[0xab; 100]);
+        match parse_psamp_datagram(&datagram) {
+            PsampDatagram::Packet {
+                caplen, orig_len, ..
+            } => assert_eq!((caplen, orig_len), (100, 3000)),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn what_is_not_a_data_record_of_softflowd_is_not_used() {
+        // Shorter than the fixed part: C returns -1.
+        assert_eq!(
+            parse_psamp_datagram(&message(0, 0, 0, &[])[..37]),
+            PsampDatagram::Invalid
+        );
+        // Not IPFIX: -1.
+        let mut datagram = message(0, 0, 0, &[]);
+        datagram[1] = 9;
+        assert_eq!(parse_psamp_datagram(&datagram), PsampDatagram::Invalid);
+        // Another set (the template, 2): 0.
+        let mut datagram = message(0, 0, 0, &[]);
+        datagram[16..18].copy_from_slice(&2u16.to_be_bytes());
+        assert_eq!(parse_psamp_datagram(&datagram), PsampDatagram::Other);
+    }
+
+    #[test]
+    fn the_seconds_are_32_bits_wide_as_in_c() {
+        // Before 1970 the NTP seconds are less than 0x83AA7E80: C computes in unsigned int.
+        let mut datagram = message(0, 0, 0, &[]);
+        datagram[28..32].copy_from_slice(&1u32.to_be_bytes());
+        match parse_psamp_datagram(&datagram) {
+            PsampDatagram::Packet { timestamp, .. } => {
+                assert_eq!(timestamp.tv_sec, 1u32.wrapping_sub(0x83AA_7E80) as i64)
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}

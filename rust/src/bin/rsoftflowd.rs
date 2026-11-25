@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM, SIGUSR1};
 use std::io::Write;
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::{IpAddr, ToSocketAddrs, UdpSocket};
 use std::os::unix::net::UnixListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use rsoftflowd::capture::{
     FileSource, PacketEvent, RawPacket, process_packet, process_raw_packet, setup_packet_capture,
+    spawn_psamp_receiver,
 };
 use rsoftflowd::cli_errors::parse_daemon_args_or_exit;
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel, cpu_clock};
@@ -20,7 +21,7 @@ use rsoftflowd::control::{
 };
 use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
-use rsoftflowd::netsock::setup_export_targets;
+use rsoftflowd::netsock::{recvsock, setup_export_targets};
 use rsoftflowd::opts::{
     RsoftflowdArgs, apply_timeouts, parse_boot_time_reinit, parse_interface_spec, parse_mac_address,
 };
@@ -94,7 +95,8 @@ fn drop_privileges() {
     }
 }
 
-fn validate_options(args: &RsoftflowdArgs) {
+/// Checks the options.  Returns the socket of `-R`, which C makes while it reads the options.
+fn validate_options(args: &RsoftflowdArgs) -> Option<UdpSocket> {
     if args.max_flows < 1 {
         die_usage("Invalid maximum flows\n\n");
     }
@@ -128,10 +130,12 @@ fn validate_options(args: &RsoftflowdArgs) {
             }
         }
     }
+    let rsock = args.recv_port.map(recvsock);
     // C looks for the source after the options, so the errors of the options come first.
-    if args.interface.is_none() && args.pcap_file.is_none() {
+    if args.interface.is_none() && args.pcap_file.is_none() && rsock.is_none() {
         die_usage("-i, -r or -R option not specified.\n");
     }
+    rsock
 }
 
 fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowTracker) {
@@ -649,7 +653,7 @@ fn run_main_loop(
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: RsoftflowdArgs = parse_daemon_args_or_exit();
 
-    validate_options(&args);
+    let rsock = validate_options(&args);
     let (track_level, boottime, if_index, mut tracker) = init_tracker(&args);
 
     let is_ntopng = args.netflow_version.to_lowercase() == "ntopng";
@@ -708,17 +712,31 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // are dropped, as the C version does.  The capture thread starts reading
     // after the start-up log lines below.
     let (capture_start_tx, capture_start_rx) = channel::<()>();
-    let (pcap_file_mode, file_source) = setup_packet_capture(
-        &args,
-        capture_dev.as_deref(),
-        track_level,
-        tracker.param.max_num_label,
-        args.full_transport_header_check,
-        packet_tx,
-        pcap_stats.clone(),
-        &GRACEFUL_SHUTDOWN,
-        capture_start_rx,
-    );
+    // As C: -R is the source only when neither -i nor -r is given.  Otherwise its socket
+    // stays bound (in `rsock`) and is not read.
+    let mut psamp_input = None;
+    let (pcap_file_mode, file_source) = if let Some(socket) = rsock
+        .as_ref()
+        .filter(|_| args.interface.is_none() && args.pcap_file.is_none())
+    {
+        let socket = socket
+            .try_clone()
+            .expect("Failed to duplicate the PSAMP receive socket");
+        psamp_input = Some((socket, packet_tx));
+        (false, None)
+    } else {
+        setup_packet_capture(
+            &args,
+            capture_dev.as_deref(),
+            track_level,
+            tracker.param.max_num_label,
+            args.full_transport_header_check,
+            packet_tx,
+            pcap_stats.clone(),
+            &GRACEFUL_SHUTDOWN,
+            capture_start_rx,
+        )
+    };
 
     daemonize_and_init_log(&args);
     let pidfile_path = resolve_and_write_pidfile(&args);
@@ -746,6 +764,10 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
     }
     let _ = capture_start_tx.send(());
+    // The thread is started here, after the fork of the daemonization.
+    if let Some((socket, packet_tx)) = psamp_input {
+        spawn_psamp_receiver(socket, packet_tx, &GRACEFUL_SHUTDOWN);
+    }
 
     run_main_loop(
         tracker,

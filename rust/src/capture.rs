@@ -3,11 +3,13 @@ use crate::common::{
     FlowLookupMode, FlowTracker, TimeVal, TrackLevel,
 };
 use crate::expire::update_flow_expiry;
-use crate::exporter::psamp::send_psamp;
+use crate::exporter::export_common::IPFIX_SOFTFLOWD_MAX_PACKET_SIZE;
+use crate::exporter::psamp::{PsampDatagram, parse_psamp_datagram, send_psamp};
 use crate::exporter::{NetflowTarget, SendParameter, send_flows};
 use crate::opts::RsoftflowdArgs;
 use crate::packet_parser::{ParseError, ParsedPacket, datalink_supported, parse_packet_into};
 use crate::stats::accumulate_stats;
+use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -271,6 +273,59 @@ pub fn setup_packet_capture(
     }
 
     (pcap_file_mode, file_source)
+}
+
+/// Starts the thread that reads the PSAMP datagrams of `-R` and passes each packet on as a
+/// captured Ethernet packet.  The thread is started after the daemonization, because a
+/// thread does not survive a fork.
+///
+/// Original: psamp.c (`recv_psamp()`), called from the main loop of softflowd.c
+pub fn spawn_psamp_receiver(
+    socket: UdpSocket,
+    packet_tx: Sender<PacketEvent>,
+    graceful_shutdown: &'static AtomicBool,
+) {
+    // The read times out, so that a shutdown request is seen when no datagram comes.
+    let _ = socket.set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    thread::spawn(move || {
+        // As C: a datagram longer than a softflowd message is cut.
+        let mut buf = [0u8; IPFIX_SOFTFLOWD_MAX_PACKET_SIZE];
+        while !graceful_shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+            match socket.recv(&mut buf) {
+                Ok(received) => match parse_psamp_datagram(&buf[..received]) {
+                    PsampDatagram::Packet {
+                        timestamp,
+                        caplen,
+                        orig_len,
+                        offset,
+                    } => {
+                        let raw_event = RawPacketEvent {
+                            linktype: 1, // LINKTYPE_ETHERNET
+                            data: buf[offset..offset + caplen as usize].to_vec(),
+                            caplen,
+                            orig_len,
+                            timestamp,
+                        };
+                        let _ = packet_tx.send(PacketEvent::Raw(raw_event));
+                    }
+                    PsampDatagram::Other => {}
+                    PsampDatagram::Invalid => log::error!("recv_psamp error"),
+                },
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::TimedOut
+                            | std::io::ErrorKind::Interrupted
+                    ) => {}
+                Err(e) => {
+                    eprintln!("recv: {e}");
+                    log::error!("recv_psamp error");
+                    thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+    });
 }
 
 pub fn process_raw_packet(
