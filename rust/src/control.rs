@@ -19,13 +19,31 @@ pub enum ControlCommand {
     Help { resp: Sender<String> },
 }
 
+/// Makes the control socket.  A daemon does this before its fork, so that a failure is
+/// written to the standard error, as C does.
+///
+/// Original: netsock.c (`unix_listener()`)
+pub fn bind_control_socket(path: &str) -> std::io::Result<UnixListener> {
+    let _ = std::fs::remove_file(path);
+    UnixListener::bind(path)
+}
+
+/// Binds the control socket and starts the thread that serves it.
 pub fn start_control_server(
     path: String,
     cmd_tx: Sender<ControlCommand>,
 ) -> std::io::Result<UnixListener> {
-    let _ = std::fs::remove_file(&path);
-    let listener = UnixListener::bind(&path)?;
+    let listener = bind_control_socket(&path)?;
+    spawn_control_server(&listener, cmd_tx)?;
+    Ok(listener)
+}
 
+/// Starts the thread that serves the control socket.  A daemon does this after its fork,
+/// because a thread does not survive a fork.
+pub fn spawn_control_server(
+    listener: &UnixListener,
+    cmd_tx: Sender<ControlCommand>,
+) -> std::io::Result<()> {
     let listener_for_thread = listener.try_clone()?;
     thread::spawn(move || {
         for stream in listener_for_thread.incoming() {
@@ -77,7 +95,7 @@ pub fn start_control_server(
         }
     });
 
-    Ok(listener)
+    Ok(())
 }
 
 fn format_time(t: i64) -> String {

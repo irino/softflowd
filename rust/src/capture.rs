@@ -11,7 +11,7 @@ use crate::packet_parser::{ParseError, ParsedPacket, datalink_supported, parse_p
 use crate::stats::accumulate_stats;
 use std::net::UdpSocket;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -59,12 +59,14 @@ fn check_datalink(linktype: i32) {
     }
 }
 
-/// Opens the packet capture source (live interface or PCAP file), applies BPF filters,
-/// and starts the capture thread.  The thread waits for a message on
-/// `start_rx` before it reads the first packet, so that the caller can open the
-/// source with the privileges it has, then daemonize, drop the privileges and
-/// write its start-up log lines before any packet, or the end of a file, is
-/// seen.
+/// Starts a thread of the program (see `setup_packet_capture()`).
+pub type CaptureStart = Box<dyn FnOnce() + Send>;
+
+/// Opens the packet capture source (live interface or PCAP file) and applies BPF
+/// filters.  The thread that reads it is not started: the caller calls the returned
+/// `CaptureStart` when it has daemonized (a thread does not survive a fork), dropped
+/// the privileges and written its start-up log lines, so that no packet, and not the
+/// end of a file, is seen before them.
 ///
 /// Original: capture.c (`setup_packet_capture()`)
 #[allow(clippy::too_many_arguments)]
@@ -77,8 +79,7 @@ pub fn setup_packet_capture(
     packet_tx: Sender<PacketEvent>,
     pcap_stats: Arc<Mutex<Option<(u64, u64, u64)>>>,
     graceful_shutdown: &'static AtomicBool,
-    start_rx: Receiver<()>,
-) -> (bool, Option<FileSource>) {
+) -> (bool, Option<FileSource>, CaptureStart) {
     let pcap_file_mode = args.pcap_file.is_some();
     let regular_file = args
         .pcap_file
@@ -167,16 +168,14 @@ pub fn setup_packet_capture(
         None
     };
 
+    let mut start: CaptureStart = Box::new(|| {});
     if let Some(mut capture) = pcap_file_capture {
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
         let pcap_stats_clone = pcap_stats.clone();
         let graceful_shutdown_clone = graceful_shutdown;
 
-        thread::spawn(move || {
-            if start_rx.recv().is_err() {
-                return;
-            }
+        let capture_thread = move || {
             log::debug!("Packet capture thread started.");
             loop {
                 if graceful_shutdown_clone.load(std::sync::atomic::Ordering::SeqCst) {
@@ -221,16 +220,16 @@ pub fn setup_packet_capture(
                 }
             }
             log::debug!("Packet capture thread exited.");
+        };
+        start = Box::new(move || {
+            thread::spawn(capture_thread);
         });
     } else if let Some(mut capture) = pcap_device_capture {
         let linktype = capture.get_datalink().0;
         let packet_tx_clone = packet_tx.clone();
         let pcap_stats_clone = pcap_stats.clone();
 
-        thread::spawn(move || {
-            if start_rx.recv().is_err() {
-                return;
-            }
+        let capture_thread = move || {
             let mut last_stats = std::time::Instant::now() - std::time::Duration::from_secs(2);
             refresh_pcap_stats(&mut capture, &pcap_stats_clone, &mut last_stats);
             loop {
@@ -266,13 +265,16 @@ pub fn setup_packet_capture(
                     }
                 }
             }
+        };
+        start = Box::new(move || {
+            thread::spawn(capture_thread);
         });
     } else if file_source.is_none() {
         log::error!("Must specify either a live interface (-i) or offline pcap file (-r)");
         std::process::exit(1);
     }
 
-    (pcap_file_mode, file_source)
+    (pcap_file_mode, file_source, start)
 }
 
 /// Starts the thread that reads the PSAMP datagrams of `-R` and passes each packet on as a

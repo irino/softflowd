@@ -10,14 +10,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rsoftflowd::capture::{
-    FileSource, PacketEvent, RawPacket, process_packet, process_raw_packet, setup_packet_capture,
-    spawn_psamp_receiver,
+    CaptureStart, FileSource, PacketEvent, RawPacket, process_packet, process_raw_packet,
+    setup_packet_capture, spawn_psamp_receiver,
 };
 use rsoftflowd::cli_errors::parse_daemon_args_or_exit;
 use rsoftflowd::common::{FlowLookupMode, FlowTracker, TimeVal, TrackLevel, cpu_clock};
 use rsoftflowd::control::{
-    ControlCommand, render_dump_flows, render_help, render_statistics, render_statistics_body,
-    render_timeouts, start_control_server,
+    ControlCommand, bind_control_socket, render_dump_flows, render_help, render_statistics,
+    render_statistics_body, render_timeouts, spawn_control_server,
 };
 use rsoftflowd::expire::*;
 use rsoftflowd::exporter::NetflowTarget;
@@ -681,7 +681,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctl_path = resolve_ctl_path(&args);
     let mut control_listener = None;
     if let Some(ref path) = ctl_path {
-        match start_control_server(path.clone(), cmd_tx) {
+        match bind_control_socket(path) {
             Ok(listener) => control_listener = Some(listener),
             Err(e) => {
                 // C: unix_listener(): the text of errno, without "(os error N)".
@@ -712,34 +712,36 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // The source is opened before the daemonization and before the privileges
-    // are dropped, as the C version does.  The capture thread starts reading
-    // after the start-up log lines below.
-    let (capture_start_tx, capture_start_rx) = channel::<()>();
+    // are dropped, as the C version does.  The thread that reads it is started
+    // after the daemonization and the start-up log lines below (a thread does not
+    // survive a fork).
     // As C: -R is the source only when neither -i nor -r is given.  Otherwise its socket
     // stays bound (in `rsock`) and is not read.
-    let mut psamp_input = None;
-    let (pcap_file_mode, file_source) = if let Some(socket) = rsock
-        .as_ref()
-        .filter(|_| args.interface.is_none() && args.pcap_file.is_none())
-    {
-        let socket = socket
-            .try_clone()
-            .expect("Failed to duplicate the PSAMP receive socket");
-        psamp_input = Some((socket, packet_tx));
-        (false, None)
-    } else {
-        setup_packet_capture(
-            &args,
-            capture_dev.as_deref(),
-            track_level,
-            tracker.param.max_num_label,
-            args.full_transport_header_check,
-            packet_tx,
-            pcap_stats.clone(),
-            &GRACEFUL_SHUTDOWN,
-            capture_start_rx,
-        )
-    };
+    let (pcap_file_mode, file_source, start_capture): (bool, Option<FileSource>, CaptureStart) =
+        if let Some(socket) = rsock
+            .as_ref()
+            .filter(|_| args.interface.is_none() && args.pcap_file.is_none())
+        {
+            let socket = socket
+                .try_clone()
+                .expect("Failed to duplicate the PSAMP receive socket");
+            (
+                false,
+                None,
+                Box::new(move || spawn_psamp_receiver(socket, packet_tx, &GRACEFUL_SHUTDOWN)),
+            )
+        } else {
+            setup_packet_capture(
+                &args,
+                capture_dev.as_deref(),
+                track_level,
+                tracker.param.max_num_label,
+                args.full_transport_header_check,
+                packet_tx,
+                pcap_stats.clone(),
+                &GRACEFUL_SHUTDOWN,
+            )
+        };
 
     daemonize_and_init_log(&args);
     let pidfile_path = resolve_and_write_pidfile(&args);
@@ -766,12 +768,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         log::info!("Exporting flows from {} to [{}]:{}", cap_src, host, serv);
     }
-    let _ = capture_start_tx.send(());
     // As C: the boot time (SysUptime) is the time of the start of the main loop.
     tracker.param.system_boot_time = TimeVal::now();
-    // The thread is started here, after the fork of the daemonization.
-    if let Some((socket, packet_tx)) = psamp_input {
-        spawn_psamp_receiver(socket, packet_tx, &GRACEFUL_SHUTDOWN);
+    // The threads are started here, after the fork of the daemonization.
+    start_capture();
+    if let Some(ref listener) = control_listener
+        && let Err(e) = spawn_control_server(listener, cmd_tx)
+    {
+        eprintln!("Failed to start the control socket thread: {e}");
+        std::process::exit(1);
     }
 
     run_main_loop(
