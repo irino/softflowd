@@ -153,6 +153,10 @@ add_executable(test_daemon tests/test_daemon.cpp)
 target_link_libraries(test_daemon PRIVATE softflow_core)
 add_test(NAME daemon COMMAND test_daemon)
 
+add_executable(test_options tests/test_options.cpp)
+target_link_libraries(test_options PRIVATE softflow_core)
+add_test(NAME options COMMAND test_options)
+
 add_executable(test_softflowctl tests/test_softflowctl.cpp)
 target_link_libraries(test_softflowctl PRIVATE softflowctl_lib Threads::Threads)
 add_test(NAME softflowctl COMMAND test_softflowctl)

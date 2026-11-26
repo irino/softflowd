@@ -26,6 +26,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -161,6 +162,26 @@ set_timeout (DaemonConfig &config, const char *to_spec);
 
 std::optional<softflowd_cpp::TrackLevel>
 parse_track_level (const char *s);
+
+/**
+ * @brief Reads the whole of an argument as a decimal number between min and max.
+ *
+ * An optional '+' (and a '-' only if allow_minus), then digits, and nothing
+ * else: no space, no suffix, not empty.  Leading zeros are digits.
+ *
+ * @param str The argument.
+ * @param allow_minus Whether a '-' may begin the number.
+ * @param min The smallest number that is accepted.
+ * @param max The largest number that is accepted.
+ * @param out Receives the number, only when the result is true.
+ * @return true if the argument is such a number.
+ *
+ * @original parse_int_arg () of options.c, which replaces atoi (): "5x" was
+ * 5 and "abc" was 0.
+ */
+bool
+parse_int_arg (std::string_view str, bool allow_minus, long long min, long long max,
+               long long &out);
 
 std::optional<ExportFormat>
 parse_netflow_version (const char *s);

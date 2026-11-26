@@ -19,12 +19,14 @@
 #endif
 
 #include <cerrno>
+#include <charconv>
 #include <climits>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <string_view>
 
 #include <getopt.h>
 #include <netdb.h>
@@ -297,6 +299,29 @@ parse_track_level (const char *s) {
   return std::nullopt;
 }
 
+bool
+parse_int_arg (std::string_view str, bool allow_minus, long long min, long long max,
+               long long &out) {
+  const char *first = str.data();
+  const char *const last = first + str.size();
+  const char *digits = first;
+
+  if (digits != last && (*digits == '+' || (allow_minus && *digits == '-'))) {
+    ++digits;
+  }
+  if (digits == last || *digits < '0' || *digits > '9') {
+    return false;
+  }
+  long long value = 0;
+  // std::from_chars () does not take a '+'.
+  const auto [end, ec] = std::from_chars (*first == '+' ? first + 1 : first, last, value, 10);
+  if (ec != std::errc () || end != last || value < min || value > max) {
+    return false;
+  }
+  out = value;
+  return true;
+}
+
 /**
  * @brief Reads the argument of -v.
  *
@@ -305,8 +330,9 @@ parse_track_level (const char *s) {
  * @param s A version number, "psamp" or "ntopng".
  * @return The format, or nothing for an unknown one.
  *
- * @original -v netflow_version. As in the original, a number is read by
- * atoi (), so that "5x" is version 5. Returns nothing for an unknown version.
+ * @original -v netflow_version. A number is a plain number, as in the C
+ * version: no sign and no leading zero, so "5x", "09" and "+5" are unknown.
+ * Returns nothing for an unknown version.
  */
 std::optional<ExportFormat>
 parse_netflow_version (const char *s) {
@@ -316,7 +342,12 @@ parse_netflow_version (const char *s) {
   if (std::strcmp (s, "ntopng") == 0)
     return ExportFormat::Ntopng;
 #endif
-  switch (std::atoi (s)) {
+  long long number = 0;
+  if (s[0] == '+' || (s[0] == '0' && s[1] != '\0') ||
+      !parse_int_arg (s, false, 0, INT_MAX, number)) {
+    return std::nullopt;
+  }
+  switch (number) {
     case 1:
       return ExportFormat::Netflow1;
     case 5:
@@ -785,10 +816,9 @@ parse_command_line (int argc, char **argv) {
           config.replay_control = !config.ctl_sock.empty();
           break;
         case 'm': {
-          // Range check on an int, as in the C version: 0, negative
-          // values and non-numeric arguments are rejected.
-          const int max_flows = std::atoi (optarg);
-          if (max_flows < 1) {
+          // As in the C version: a whole decimal number, 1 to UINT_MAX.
+          long long max_flows = 0;
+          if (!parse_int_arg (optarg, false, 1, UINT_MAX, max_flows)) {
             die_usage ("Invalid maximum flows\n\n");
           }
           config.max_flows = static_cast<std::size_t> (max_flows);
@@ -812,12 +842,12 @@ parse_command_line (int argc, char **argv) {
           print_usage();
           std::exit (0);
         case 'L': {
-          // Original: atoi (), then a range check.
-          const int hoplimit = std::atoi (optarg);
-          if (hoplimit < 0 || hoplimit > 255) {
+          // As in the C version: a whole decimal number, 0 to 255.
+          long long hoplimit = 0;
+          if (!parse_int_arg (optarg, true, 0, 255, hoplimit)) {
             die_usage ("Invalid hop limit\n\n");
           }
-          config.ttl = hoplimit;
+          config.ttl = static_cast<int> (hoplimit);
           break;
         }
         case 'T': {
@@ -855,24 +885,30 @@ parse_command_line (int argc, char **argv) {
           break;
         }
         case 's': {
-          // Original: atoi (); a rate below 2 is no sampling.
-          const int rate = std::atoi (optarg);
+          // As in the C version: a whole decimal number, 0 to UINT32_MAX; a rate
+          // below 2 is no sampling.
+          long long rate = 0;
+          if (!parse_int_arg (optarg, false, 0, std::numeric_limits<std::uint32_t>::max(), rate)) {
+            die_usage ("Invalid sampling rate\n\n");
+          }
           config.sampling_rate = rate < 2 ? 0 : static_cast<std::uint32_t> (rate);
           break;
         }
-        case 'C':
-          // Original: atoi ().
-          config.snaplen = std::atoi (optarg);
+        case 'C': {
+          // As in the C version: a whole decimal number, 0 to INT_MAX.
+          long long length = 0;
+          if (!parse_int_arg (optarg, false, 0, INT_MAX, length)) {
+            die_usage ("Invalid capture length\n\n");
+          }
+          config.snaplen = static_cast<int> (length);
           break;
+        }
         case 'R': {
-          // Original: atoi (); a port that does not fit 16 bits is reported with
-          // the usage, and the default port (IPFIX_PORT of ipfix.h) is used.
-          int port = std::atoi (optarg);
-          if (port < 0 || port > 65535) {
-            std::fprintf (stderr, "Invalid -R port, using the default %d.\n",
-                          kDefaultIpfixPort);
-            print_usage();
-            port = kDefaultIpfixPort;
+          // As in the C version: a whole decimal number, 0 to 65535; there is no
+          // default port to go on with any more.
+          long long port = 0;
+          if (!parse_int_arg (optarg, false, 0, 65535, port)) {
+            die_usage ("Invalid -R port\n\n");
           }
           config.psamp_receive_port = static_cast<std::uint16_t> (port);
           break;
@@ -897,17 +933,20 @@ parse_command_line (int argc, char **argv) {
           break;
         }
         case 'x': {
-          const int num_label = std::atoi (optarg);
-          if (num_label < 1 || num_label > 10) {
+          long long num_label = 0;
+          if (!parse_int_arg (optarg, false, 1, 10, num_label)) {
             die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
           }
-          config.mpls_labels = num_label;
+          config.mpls_labels = static_cast<int> (num_label);
           break;
         }
         case 'B': {
-          // Original: atoi (); only a positive size is a size.
-          const int size = std::atoi (optarg);
-          config.buffer_bytes = size > 0 ? static_cast<std::size_t> (size) : 0;
+          // As in the C version: a whole decimal number, 0 to INT_MAX.
+          long long size = 0;
+          if (!parse_int_arg (optarg, false, 0, INT_MAX, size)) {
+            die_usage ("Invalid pcap buffer size\n\n");
+          }
+          config.buffer_bytes = static_cast<std::size_t> (size);
           break;
         }
         case 'b':
@@ -927,6 +966,9 @@ parse_command_line (int argc, char **argv) {
           constexpr long kBoottimeMaxMin = 71582;
           constexpr long kBoottimeMaxSec = 4294944;
 
+          if (*optarg < '0' || *optarg > '9') {  // no sign, no space
+            die_usage ("No digits were found in boot_time_reinit\n");
+          }
           char *timeunit = nullptr;
           errno = 0;
           long sec = std::strtol (optarg, &timeunit, 10);
@@ -936,8 +978,10 @@ parse_command_line (int argc, char **argv) {
             print_usage();
             std::exit (1);
           }
-          if (timeunit == optarg) {
-            die_usage ("No digits were found in boot_time_reinit\n");
+          // Nothing, or one letter, follows the number.
+          if (*timeunit != '\0' &&
+              (std::strchr ("dDhHmMsS", *timeunit) == nullptr || timeunit[1] != '\0')) {
+            die_usage ("Invalid unit in boot_time_reinit (d, h, m or s)\n");
           }
           if (*timeunit == 'd' || *timeunit == 'D') {
             if (sec > kBoottimeMaxDay)
