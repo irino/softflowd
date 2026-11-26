@@ -348,6 +348,48 @@ parse_hostports (char *s, struct DESTINATION *dest,
   return i;
 }
 /**
+ * Reads the whole of an argument as a decimal number between min and max: an optional '+'
+ * (and a '-' only if allow_minus), then digits, and nothing else; no space, no suffix.
+ * Leading zeros are digits.  atoi () read "5x" as 5 and "abc" as 0.
+ * @return 0 and the number in *out, or -1 for anything else
+ */
+static int
+parse_int_arg (const char *str, int allow_minus, long long min, long long max,
+               long long *out) {
+  const char *p = str;
+  char *end;
+  long long value;
+
+  if (*p == '+' || (allow_minus && *p == '-')) {
+    p++;
+  }
+  if (*p < '0' || *p > '9') {
+    return -1;
+  }
+  errno = 0;
+  value = strtoll (str, &end, 10);
+  if (errno != 0 || *end != '\0' || value < min || value > max) {
+    return -1;
+  }
+  *out = value;
+  return 0;
+}
+
+/**
+ * The version of -v: a plain number (no sign, no leading zero), 0 for anything else.
+ * A name is looked at before this.
+ */
+static int
+parse_version_arg (const char *str) {
+  long long value;
+
+  if (*str == '+' || (str[0] == '0' && str[1] != '\0')) {
+    return 0;
+  }
+  return parse_int_arg (str, 0, 0, INT_MAX, &value) == 0 ? (int) value : 0;
+}
+
+/**
  * @brief Parse a MAC address string into a 6-octet array.
  *
  * @param str Address as aa:bb:cc:dd:ee:ff or aa-bb-cc-dd-ee-ff.
@@ -470,18 +512,26 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
       case 'b':
         flowtrack->param.bidirection = 1;
         break;
-      case 'B':
-        cfg->pcap_override_buffer_size = atoi (optarg);
-        break;
+      case 'B': {
+        long long size;
+        if (parse_int_arg (optarg, 0, 0, INT_MAX, &size) != 0) {
+          die_usage ("Invalid pcap buffer size\n\n");
+        }
+        cfg->pcap_override_buffer_size = (int) size;
+      } break;
       case 'c':
         if (strcmp (optarg, "none") == 0)
           cfg->ctlsock_path = NULL;
         else
           cfg->ctlsock_path = optarg;
         break;
-      case 'C': /* Capture Length */
-        snaplen = atoi (optarg);
-        break;
+      case 'C': { /* Capture Length */
+        long long length;
+        if (parse_int_arg (optarg, 0, 0, INT_MAX, &length) != 0) {
+          die_usage ("Invalid capture length\n\n");
+        }
+        snaplen = (int) length;
+      } break;
       case 'd':
         cfg->dontfork_flag = 1;
         break;
@@ -562,6 +612,9 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
                  sizeof (flowtrack->param.option.interfaceName));
         break;
       case 'I':
+        if (*optarg < '0' || *optarg > '9') { /* no sign, no space */
+          die_usage ("No digits were found in boot_time_reinit\n");
+        }
         errno = 0; /* strtol() sets errno on error only */
         cfg->boot_time_reinit_sec = strtol (optarg, &timeunit, 10);
         if ((errno == ERANGE && (cfg->boot_time_reinit_sec == LONG_MAX ||
@@ -571,8 +624,10 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
           usage();
           exit (EXIT_FAILURE);
         }
-        if (timeunit == optarg) {
-          die_usage ("No digits were found in boot_time_reinit\n");
+        /* Nothing, or one letter, follows the number. */
+        if (*timeunit != '\0' &&
+            (strchr ("dDhHmMsS", *timeunit) == NULL || timeunit[1] != '\0')) {
+          die_usage ("Invalid unit in boot_time_reinit (d, h, m or s)\n");
         }
         if (*timeunit == 'd' || *timeunit == 'D') { /* days */
           if (cfg->boot_time_reinit_sec > BOOTTIME_MAX_DAY) {
@@ -602,19 +657,20 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
       case 'l':  // load balancing
         target->is_loadbalance = 1;
         break;
-      case 'L':
-        cfg->hoplimit = atoi (optarg);
-        if (cfg->hoplimit < 0 || cfg->hoplimit > 255) {
+      case 'L': {
+        long long hoplimit;
+        if (parse_int_arg (optarg, 1, 0, 255, &hoplimit) != 0) {
           die_usage ("Invalid hop limit\n\n");
         }
-        break;
+        cfg->hoplimit = (int) hoplimit;
+      } break;
       case 'm': {
-        /* Range check on an int: max_flows is unsigned and would wrap. */
-        int max_flows = atoi (optarg);
-        if (max_flows < 1) {
+        long long max_flows;
+        /* max_flows is an unsigned int. */
+        if (parse_int_arg (optarg, 0, 1, UINT_MAX, &max_flows) != 0) {
           die_usage ("Invalid maximum flows\n\n");
         }
-        flowtrack->param.max_flows = max_flows;
+        flowtrack->param.max_flows = (unsigned int) max_flows;
       } break;
       case 'M':
 #ifdef ENABLE_PTHREAD
@@ -655,25 +711,23 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
         strlcpy (flowtrack->param.option.interfaceName, cfg->capfile,
                  sizeof (flowtrack->param.option.interfaceName));
         break;
-      case 'R':
-        recvport = atoi (optarg);
-        if (recvport < 0 || recvport > 65535) {
-          /* Say so with the usage, and go on with the default port */
-          fprintf (stderr, "Invalid -R port, using the default %d.\n",
-                   IPFIX_PORT);
-          usage();
-          recvport = IPFIX_PORT;
+      case 'R': {
+        long long port;
+        if (parse_int_arg (optarg, 0, 0, 65535, &port) != 0) {
+          die_usage ("Invalid -R port\n\n");
         }
+        recvport = (int) port;
         cfg->rsock = recvsock ((uint16_t) recvport);
         if (cfg->rsock < 0)
           exit (1);
-        break;
-      case 's':
-        flowtrack->param.option.sample = atoi (optarg);
-        if (flowtrack->param.option.sample < 2) {
-          flowtrack->param.option.sample = 0;
+      } break;
+      case 's': {
+        long long sample;
+        if (parse_int_arg (optarg, 0, 0, UINT32_MAX, &sample) != 0) {
+          die_usage ("Invalid sampling rate\n\n");
         }
-        break;
+        flowtrack->param.option.sample = sample < 2 ? 0 : (uint32_t) sample;
+      } break;
 #ifdef LINUX
       case 'S':
         cfg->send_ifname = optarg;
@@ -719,7 +773,7 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
         }
 #endif /* ENABLE_NTOPNG_JSON */
 #endif /* ENABLE_NTOPNG */
-        version = version ? version : atoi (optarg);
+        version = version ? version : parse_version_arg (optarg);
         target->dialect = lookup_netflow_sender (version);
         if (target->dialect == NULL) {
           fprintf (stderr, "Invalid NetFlow version\n");
@@ -727,12 +781,11 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
         }
         break;
       case 'x': {
-        /* Range check on an int: max_num_label is u_int8_t and would wrap. */
-        int num_label = atoi (optarg);
-        if (num_label < 1 || num_label > 10) {
+        long long num_label;
+        if (parse_int_arg (optarg, 0, 1, 10, &num_label) != 0) {
           die_usage ("Invalid number of MPLS label (1 to 10)\n\n");
         }
-        flowtrack->param.max_num_label = num_label;
+        flowtrack->param.max_num_label = (u_int8_t) num_label;
       } break;
       default:
         die_usage ("Invalid commandline option.\n");
