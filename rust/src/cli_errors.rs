@@ -98,10 +98,17 @@ fn die_clap_error(command: &clap::Command, e: &clap::Error, argv: &[std::ffi::Os
         }
         ErrorKind::InvalidValue | ErrorKind::ValueValidation | ErrorKind::WrongNumberOfValues => {
             let Some(long) = long else { exit_with(e) };
-            let value_missing = !matches!(
-                e.get(ContextKind::InvalidValue),
-                Some(ContextValue::String(v)) if !v.is_empty()
-            );
+            // An empty value ("-m ''", "--max-flows=") is a value, and C refuses it with the
+            // text of the option; a value is missing only when the option is the last word.
+            let empty_value_given = argv
+                .iter()
+                .skip(1)
+                .any(|w| w.is_empty() || w.to_string_lossy().ends_with('='));
+            let value_missing = !empty_value_given
+                && !matches!(
+                    e.get(ContextKind::InvalidValue),
+                    Some(ContextValue::String(v)) if !v.is_empty()
+                );
             if value_missing {
                 // getopt(): the option is the last word.
                 let arg = command
@@ -124,6 +131,11 @@ fn die_clap_error(command: &clap::Command, e: &clap::Error, argv: &[std::ffi::Os
                 "absolute-time" => die_usage("Unknown time format\n"),
                 "max-flows" => die_usage("Invalid maximum flows\n\n"),
                 "hoplimit" => die_usage("Invalid hop limit\n\n"),
+                "sampling-rate" => die_usage("Invalid sampling rate\n\n"),
+                "snaplen" => die_usage("Invalid capture length\n\n"),
+                "pcap-buffer-size" => die_usage("Invalid pcap buffer size\n\n"),
+                "psamp-port" => die_usage("Invalid -R port\n\n"),
+                "mpls-labels" => die_usage("Invalid number of MPLS label (1 to 10)\n\n"),
                 "netflow-version" => {
                     eprintln!("Invalid NetFlow version");
                     std::process::exit(1);
@@ -135,10 +147,9 @@ fn die_clap_error(command: &clap::Command, e: &clap::Error, argv: &[std::ffi::Os
     }
 }
 
-/// Writes the error as clap does and exits with 1 (clap exits with 2).
-///
-/// C accepts some of the values that clap refuses (a number with letters after it, for
-/// example): they are a difference of this version that is kept, see D34.
+/// Writes the error as clap does and exits with 1 (clap exits with 2).  An error of a value
+/// that C knows has its own text above; this is what is left (D34: a number is read as a
+/// whole decimal number by both programs).
 fn exit_with(e: &clap::Error) -> ! {
     let _ = e.print();
     std::process::exit(1);

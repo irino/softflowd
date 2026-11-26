@@ -4,6 +4,16 @@ use clap::Parser;
 
 use crate::common::FlowTracker;
 
+/// The value of `-B`: a decimal number of bytes, and not more than C can hold in an int (C reads
+/// it with `parse_int_arg()` between 0 and INT_MAX).
+fn parse_pcap_buffer_size(value: &str) -> Result<usize, String> {
+    let size: usize = value.parse().map_err(|e| format!("{e}"))?;
+    if size > i32::MAX as usize {
+        return Err(format!("{size} is more than {}", i32::MAX));
+    }
+    Ok(size)
+}
+
 /// Traffic flow monitoring daemon rewritten in Rust.
 ///
 /// softflowd is a flow-based network traffic monitor. It listens on a network
@@ -170,6 +180,8 @@ pub struct RsoftflowdArgs {
         short = 'C',
         long = "snaplen",
         value_name = "capture_length",
+        // C keeps it in an int.
+        value_parser = clap::value_parser!(u32).range(..=i32::MAX as i64),
         help = "Specify length for packet capture (snaplen)"
     )]
     pub capture_length: Option<u32>,
@@ -251,6 +263,7 @@ pub struct RsoftflowdArgs {
         short = 'B',
         long = "pcap-buffer-size",
         value_name = "bytes",
+        value_parser = parse_pcap_buffer_size,
         help = "Libpcap buffer size in bytes"
     )]
     pub buffer_size: Option<usize>,

@@ -75,7 +75,7 @@ def main() -> int:
                 "`PROG` is the program name; `{pcap}` is a capture file. \"same\" compares the whole of "
                 "standard output, standard error and the exit status, not the first line only. "
                 "A row that is not the same is a known difference with a row in "
-                "`rust/doc/DIFFERENCES-FROM-C.en.md` (D34 accepted); the gate "
+                "`rust/doc/DIFFERENCES-FROM-C.en.md`; the gate "
                 "(`tools/gate_expected.json`) fails for any other difference. "
                 "Run it again after a change to the command line of either binary: "
                 "`cd tools && python3 gen_cli_parity_cases.py --a ../softflowd "

@@ -25,7 +25,7 @@
 |----|------|------|------|------------|------|
 | D1 | NetFlow v9: 追加要素が違う | 2026-11-02 | 解消 | 0011 Use the same templates for NetFlow v9 as for IPFIX | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも NetFlow v9 が MATCHED (各 24 レコード)。`tests/netflow9_templates.rs` は旧コードで失敗する |
 | D2 | IPFIX の flowEndReason の値が誤り | 2026-11-02 | 解消 | 0007 Fix the flowEndReason values of the Rust version | 2026-11-02、compat `--strict` の C と Rust の比較で、IPv4・IPv6 の pcap とも IPFIX が MATCHED (各 24 レコード) |
-| D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 解消 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar | 2026-11-15、`test_d3_wrong_command_line_exits_1` と `test_d3_help_exits_0` (旧コードで失敗)。compat の 94 ケースで、D34 の 11 件を除き `exit status` の差がない |
+| D3 | コマンドラインのエラー: 75 件中 47 件が違う | 2026-11-02 | 解消 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar | 2026-11-15、`test_d3_wrong_command_line_exits_1` と `test_d3_help_exits_0` (旧コードで失敗)。compat の 94 ケースで、D34 の 11 件 (その後解消) を除き `exit status` の差がない |
 | D4 | ntopng がない | 2026-11-02 | 解消 | ntopng へのエクスポート (-v ntopng) をオプションの Cargo 機能として追加 | 2026-11-02、統合テストが成功 (機能有効時); -v ntopng-json は未移植 |
 | D5 | プログラム名とバージョンが揃っていない | 2026-11-02 | 解消 | 0016 別名バイナリを削除 | 2026-11-02、cargo build で rsoftflowd と rsoftflowctl のみ生成されることを確認 |
 | D6 | ログ | 2026-11-02 | 解消 | C版に合わせた syslog および標準エラー出力のログ出力とメッセージの実装 | 2026-11-02、標準エラー出力をキャプチャして最初の 4 行を C の文言と比較する統合テスト |
@@ -48,13 +48,13 @@
 | D23 | データグラムの詰め方: C の方が早くデータグラムを閉じる (D12 の一部) | 2026-11-15 | 解消 | C: Pack the datagram by the records that are written, not for two per flow | 2026-11-15、C 側のこの変更で、`http.cap` と `v6-http.cap` の v9 と IPFIX のデータグラムが Rust と (PID を除き) バイト単位で一致。compat: 差のある実行が 134 件から 24 件 (残りは D21、D32、D33)。C++ 版 (`records_in_flow`) と旧 export の `compat/ipfix.c` にも同じ規則を入れた (C++ 版と静的ビルドを C ビルドとバイト単位で比較する CI のため) |
 | D24 | expiry scan: モード、`<` と `<=`、"Forcing expiry" ログがない (D12 の一部) | 2026-11-15 | 解消 | Match the modes, the boundary and the log lines of the expiry scan to C | 2026-11-15、`ExpireMode` (0、-1、1)、`-r` は強制分のみをスキャン、`expires_at < now`。`smoke` と `smoke -m 100` の `-d` ログが C と同一。`tests/expire_modes.rs`。同じスキャンで C に合わせたもの: `Queuing flow` 行の reason は数値で flush の印を付ける前に出す、最大寿命は `>=` で数える、`sent N netflow packets` を `EXPIRED` 行の前に出す、送信失敗で `flows_dropped` を増やす。`-m` のケースの `-d` ログはまだ違う: D22 |
 | D25 | パケット統計: non-IP と too short で `Packets processed` と `Ignored packets` が違う (D12 の一部) | 2026-11-15 | 解消 | Align packet statistics and capture loop counters with C | 2026-11-15、non-IP および too short パケットのカウンタの単体テスト、統合テストが通過 |
-| D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 解消 | clap がエラーを見つけ、文言、usage、終了ステータスは C と同じ: `usage.txt` (`tools/gen_usage_rs.py` が `softflowd -h` から作る)、`die_usage()`、`cli_errors.rs`。値を取るオプションは `-` で始まる次の語も値にする。`-r` はその前の `-c` を打ち消す。`-e` は名前を解決する。libpcap とコントロールソケットのメッセージは C と同じ | 2026-11-24、`PARITY_CLI_ERROR_CASES` の 94 件中 83 件が同じ (以前は 17 件)。違う 11 件は D34 のあいまいな数値 (許容) と D44 (その後解消: 84 件が同じ、違うのは 10 件)。ケースごとのゲートの項目 66 件は削除。`tests/cli_errors.rs` は旧コードで失敗する |
+| D26 | コマンドライン: エラーと `-h`/`--help` の文言が違う (D12 の一部。終了ステータスは D3) | 2026-11-15 | 解消 | clap がエラーを見つけ、文言、usage、終了ステータスは C と同じ: `usage.txt` (`tools/gen_usage_rs.py` が `softflowd -h` から作る)、`die_usage()`、`cli_errors.rs`。値を取るオプションは `-` で始まる次の語も値にする。`-r` はその前の `-c` を打ち消す。`-e` は名前を解決する。libpcap とコントロールソケットのメッセージは C と同じ | 2026-11-24、`PARITY_CLI_ERROR_CASES` の 94 件中 83 件が同じ (以前は 17 件)。違う 11 件は D34 のあいまいな数値 (許容) と D44 (その後解消: D44 と D34 を直した後は 123 件すべてが同じ)。ケースごとのゲートの項目 66 件は削除。`tests/cli_errors.rs` は旧コードで失敗する |
 | D27 | `-g -M`: CPU clock の行が違う (D12 の一部) | 2026-11-15 | 解消 | Print n/a for the export clock with -M (gauge clock) | 2026-11-16、compat の "cpu clocks of -g -M" が MATCHED。ゲートの登録を削除 |
 | D28 | control socket の応答とシグナル時のログが違う (D12 の一部) | 2026-11-15 | 解消 | Make the control socket replies, the signals and the final statistics like C | 2026-11-16、"control replies (21 commands, ending with shutdown / exit)"、shutdown と exit コマンドのログ、SIGINT、SIGTERM、SIGHUP、SIGUSR1 が MATCHED。最初の修正の追補: `timeouts` を 22 桁に右揃え、`statistics` の表サイズ (バケット数 x 8 バイト) と libpcap の行 (読み取りが 1 秒ごとにタイムアウト)、`dump-flows` を期限イベントの順にする (ハッシュ表の不定な順だった)、最終統計は C と同じく `-r` のときだけ、権限を落とすのはデーモンのときだけ (`-d` で root だと制御ソケットを消せなかった)、`ctl connect(...) error:` から " (os error N)" を除く。テスト `tests/control_text.rs` |
 | D29 | 起動ログの順序が入れ替わることがある。`Dropped privileges to nobody` が余分 (`cargo test` で発見) | 2026-11-15 | 解消 | Log start-up messages before starting capture and drop extra privilege log | 2026-11-15、一般ユーザーで `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` (`test_d6_logging_stderr_first_four_lines` の 20 回連続実行を含む) が通過。追加修正: キャプチャ元を daemon 化と権限放棄の前に開く順序へ戻した (root での live capture、存在しない interface での終了ステータス 1)。キャプチャスレッドは起動ログの後に開始する。`test_d6_logging_stderr_first_four_lines` は 100 回中 100 回成功 |
 | D32 | IPFIX の option data レコードが `-e` を無視する (exporter アドレスがゼロ) | 2026-11-15 | 解消 | rsoftflowd: fix to include the exporter address in the IPFIX option data record | 2026-11-16、compat の `-e 192.0.2.1` が MATCHED。ゲートの登録を削除 |
 | D33 | `-b` と `-H` (と `-T ether`): v9 では逆方向の MAC アドレス、IPFIX ではサイズが違う | 2026-11-15 | 解消 | Use the RFC 7011 values of flowDirection (0 ingress, 1 egress) | 2026-11-16、v9 の `-b -T ether -H` が全 pcap で MATCHED。`tests/flow_direction.rs`。原因: Rust が ingress に 2 を書いていた。`-v 10 -b` で残るのは ICMP の biflow template のサイズ (D21、許容) |
-| D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 許容 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar (あいまいな数値は意図的に受理しない) | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値と不正な値の 10 ケースは終
+| D34 | コマンドラインの文法: C (getopt_long) は長いオプションの省略形、フィルタの後のオプション、2 回の `-n`、あいまいな数値を受理するが、Rust は受理しなかった (D26 の一部) | 2026-11-15 | 解消 | Exit with status 1 for a wrong command line, and accept the getopt_long grammar | 2026-11-15、`test_d34_getopt_long_grammar` (旧コードで失敗)。あいまいな数値は 2026-11-26 まで許容していた。その後、C 版が数値を「10 進数の全体」として読むようにし (rsoftflowd がすでにそうしていた。C のパッチ "Read the numbers of the options as whole decimal numbers")、rsoftflowd は `-s`、`-B`、`-C`、`-R`、`-x` の文言を C に合わせ、`-B` と `-C` の上限を int にし、空の値 (`-m ''` は値なのに、値が欠けていると判定していた) を直した。`tests/cli_numbers.rs` (旧コードで失敗する)。`PARITY_CLI_ERROR_CASES` の 123 件がすべて同じ。ゲートの 11 件の登録は削除した。残り: C++ 版はまだ `atoi` で読む。`-n '' ... -n host:port` (C は最初の空の指定をすぐ拒否し、Rust は最後を使う) |
 了ステータスが違う (許容) |
 | D35 | 受理される実行: C は前景で `-d` なしでも標準エラーにログを出すが、Rust は何も出さない。統計も違う (未分析) | 2026-11-15 | 解消 | Log to standard error for -r, and print the final statistics without the header | 2026-11-16、compat のコマンドライン項目の受理される 17 件で、標準出力と標準エラーが C と同一。`test_d35_file_run_logs_to_stderr_and_prints_statistics_without_header` |
 | D36 | live キャプチャの idle expiry: Rust は C より 0.1〜0.8 秒早く export する (未分析。compat の項目が MATCHED になることもある) | 2026-11-16 | 解消 | Wait like poll() of C before the idle flows are looked at (next_expire) | 2026-11-16、compat の "live on lo, idle expiry (-t expint=3)" が 8 回中 8 回 MATCHED で C と同じ時刻 (6 回中 4 回で 0.1〜0.8 秒早かった)。`test_d36_next_expire_is_like_c` |
@@ -591,7 +591,7 @@ C の `check_expired` と Rust の `scan_expiries` が同じフローを選び�
 
 1. `PARITY_CLI_ERROR_CASES` の 94 件が標準出力、標準エラー、終了ステータスで
    同一。残る差は理由を付けて「許容」か「未解消」と書く。結果: 84 件が同じ。
-   違う 10 件は、D34 のあいまいな数値と不正な数値 (許容)。(D44 の前は、11 件目が
+   違う 10 件は、D34 のあいまいな数値と不正な数値だった (許容。2026-11-26 に解消し、その後は 123 件すべてが同じ)。(D44 の前は、11 件目が
    `-R 0 -c ...` で、83 件が同じだった。)
 2. `-h` と `--help` は C の usage を標準エラーに書き、0 で終わる。
 3. 不正なコマンドラインの終了ステータスは 1 (D3)。
@@ -635,10 +635,8 @@ getopt_long 風の解析器) は大きな変更で、C (文言を許容する) �
 
 *テスト:* `tests/cli_errors.rs` は旧コードで失敗する。*表:* 各ケースの C と
 Rust の 1 行目と終了ステータスは `rust/doc/CLI-PARITY-CASES.md`
-(`tools/gen_cli_parity_cases.py` の生成物。表の差はここの行: D34)。
-*ゲート:* ケースごとの 66 件の登録は削除した。合計の登録 `SUM` (`command lines
-that are wrong: 10 of 94 DIFFER`) と D34 の登録が残る (D44 の登録は D44 を直したときに
-削除し、`SUM` は 11 から 10 にした)。
+(`tools/gen_cli_parity_cases.py` の生成物。表の差はここの行)。
+*ゲート:* ケースごとの 66 件の登録は削除した。合計の登録 `SUM` と D34 の登録は D34 を直すまで残し (D44 の登録は D44 を直したときに削除し、`SUM` は 11 から 10 にした)、今は削除した: ゲートの登録は 0 件。
 
 ### D27. `-g -M` の CPU clock の行 (実測) - 解消 (2026-11-15)
 
@@ -825,7 +823,7 @@ export してから終了する。
 - まだ読んでいないもの: C (`packet.c`、`flow.c`) と Rust で `-H` (`--direction-mac`) が方向をどう決めるか。この項目は Claude が行う。
 
 
-### D34. コマンドラインの文法 (実測。あいまいな数値を除き解消、数値は許容)
+### D34. コマンドラインの文法と数値 (実測。解消。数値は 2026-11-26)
 
 **目的 (Goal)**
 
@@ -834,12 +832,12 @@ C が受理するコマンドラインは、Rust が意図的に厳しくして�
 **受け入れ基準 (Acceptance Criteria)**
 
 1. `PARITY_CLI_ERROR_CASES` の文法ケース 20 件で、受理と拒否が C と同じ。
-2. 残る差は、あいまいな数値 (`-v 09`、`-m 5x`、`-m " 5"`、`-I`、`-s`、`-B`、`-C`、`-R` の不正な値。C は `atoi` のように読む) で、ゲートに「許容」(D34) として 1 件ずつ登録する。
+2. 数値: `-B`、`-C`、`-I`、`-L`、`-m`、`-R`、`-s`、`-v`、`-x` の引数を、どちらも「10 進数の全体」(省略できる `+`、数字、それだけ。`-L` は `-0` も) として読み、それ以外は同じ文言と終了ステータスで拒否する。`-I` は数字の後に `d h m s` の 1 文字、`-v` は素の数字だけ。2026-11-26 の前は、C が `5x` を 5、`abc` を 0 と読み (`atoi`)、その差を許容していた。
 
 **背景 (Context)**
 
 - ケースで見つかったもの: (a) 長いオプションの一意な接頭辞 (`--rea FILE`): C は受理し、clap は受理しなかった。`infer_long_args` で解消。(b) オプションの前のフィルタ (`udp -r FILE -n ...`): C は引数を並べ替え
-、clap は最初の単語以降をすべてフィルタとした。`trailing_var_arg` を外して解消。(c) `-n` の 2 回指定: C は最後を使い、clap は拒否した。`overrides_with` で解消。(d) あいまいな数値: 以前の決定 (`-I abc` と同じ) のとおりコピーしない。
+、clap は最初の単語以降をすべてフィルタとした。`trailing_var_arg` を外して解消。(c) `-n` の 2 回指定: C は最後を使い、clap は拒否した。`overrides_with` で解消。(d) あいまいな数値: 最初はコピーしない (`-I abc` と同じ決定)。2026-11-26 に、maintainer が C (と C++) を厳しくすると決め、Rust は文言、`-B` と `-C` の上限、空の値を除いて、そのままにした。
 - C の `-n` はコンマ区切りのリストも取る (`options.c`)。ここではテストしていない。
 
 
@@ -894,7 +892,7 @@ tools/softflowd_test_suite.py gate --rust-dir rust -- \
 
 | 分類 | 意味 | ゲート |
 |---|---|---|
-| accepted (許容) | 意図的に残す差 (D34) | 通る |
+| accepted (許容) | 意図的に残す差 | 通る |
 | open (未解消) | ここで追跡している既知の差 (D12) | 通る |
 | UNEXPECTED | それ以外の差や失敗 | **失敗** |
 | STALE | どの行にも当たらない登録 (差が消えた) | **失敗**: 直したパッチが登録を削除する |
