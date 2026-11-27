@@ -194,7 +194,13 @@ fn init_tracker(args: &RsoftflowdArgs) -> (TrackLevel, libc::clock_t, u16, FlowT
         (0, None)
     };
 
-    let if_index = if user_ifidx != 0 {
+    // As C (user_ifindex_flag): an index given with "idx:interface" is used as it is, also when
+    // it is 0 or not a valid index; the index of the interface is looked up only without it.
+    let user_ifidx_given = args
+        .interface
+        .as_deref()
+        .is_some_and(|spec| spec.contains(':'));
+    let if_index = if user_ifidx_given {
         user_ifidx
     } else if let Some(ref dev) = capture_dev {
         nix::net::if_::if_nametoindex(dev.as_str()).unwrap_or(1) as u16
