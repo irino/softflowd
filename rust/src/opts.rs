@@ -661,4 +661,153 @@ mod tests {
         // The names are case sensitive, as in the C version.
         assert!(timeouts(&["TCP=5"]).is_err());
     }
+
+    // The tests below were written from what ./softflowd (C) does with the same input.
+    // The cases where the Rust version differs from C are not here; they are reported.
+
+    #[test]
+    fn parse_interface_spec_follows_c() {
+        // C: `./softflowd -D -i SPEC -n 127.0.0.1:9` prints "Using NAME (idx: N)".
+        for (spec, idx, name) in [
+            ("3:lo", 3, "lo"),         // Using lo (idx: 3)
+            ("lo", 0, "lo"),           // Using lo (idx: 0)
+            (":lo", 0, "lo"),          // Using lo (idx: 0)
+            ("abc:lo", 0, "lo"),       // Using lo (idx: 0), atoi("abc") is 0
+            ("65535:lo", 65535, "lo"), // Using lo (idx: 65535)
+            ("65536:lo", 0, "lo"),     // Using lo (idx: 0), 65536 does not fit 16 bits
+            ("+3:lo", 3, "lo"),        // Using lo (idx: 3)
+            ("0:lo", 0, "lo"),         // Using lo (idx: 0)
+            ("007:lo", 7, "lo"),       // Using lo (idx: 7)
+            ("1:2:lo", 1, "2:lo"),     // Using 2:lo (idx: 1), only the first colon splits
+        ] {
+            assert_eq!(
+                parse_interface_spec(spec),
+                (idx, name.to_string()),
+                "{spec:?}"
+            );
+        }
+        // C: "Wrong interface is specified." for "3:" and for ""; here the name is empty and
+        // the caller in rsoftflowd.rs makes that error.
+        assert_eq!(parse_interface_spec("3:").1, "");
+        assert_eq!(parse_interface_spec("").1, "");
+    }
+
+    #[test]
+    fn parse_mac_address_follows_c() {
+        // C: `./softflowd -r FILE -H MAC` ("Invalid MAC address MAC", status 1, or it runs),
+        // and the bytes that parse_mac_address() of options.c returns.
+        let mac = |s: &str| parse_mac_address(s);
+        assert_eq!(mac("02:00:00:00:00:01"), Some([0x02, 0, 0, 0, 0, 0x01]));
+        assert_eq!(mac("02-00-00-00-00-01"), Some([0x02, 0, 0, 0, 0, 0x01]));
+        assert_eq!(
+            mac("AA:BB:CC:DD:EE:FF"),
+            Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff])
+        );
+        assert_eq!(
+            mac("aa:bb:cc:dd:ee:ff"),
+            Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff])
+        );
+        // One digit is enough.
+        assert_eq!(mac("1:2:3:4:5:6"), Some([1, 2, 3, 4, 5, 6]));
+        assert_eq!(mac("1-2-3-4-5-6"), Some([1, 2, 3, 4, 5, 6]));
+        assert_eq!(mac("02:00:00:00:00:0"), Some([2, 0, 0, 0, 0, 0]));
+        assert_eq!(mac("+2:00:00:00:00:01"), Some([2, 0, 0, 0, 0, 1]));
+        // Rejected by C ("Invalid MAC address", status 1).
+        for bad in [
+            "aa:bb:cc:dd:ee",
+            "0x2:00:00:00:00:01",
+            "-2:00:00:00:00:01",
+            "02:00:00:00:00:",
+            ":00:00:00:00:01",
+            "g2:00:00:00:00:01",
+            "02.00.00.00.00.01",
+            "020000000001",
+        ] {
+            assert_eq!(mac(bad), None, "{bad:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn parse_duration_follows_convtime_more() {
+        // C: convtime() of convtime.c, with the range of set_timeout() (0 to INT_MAX);
+        // `./softflowd -r FILE -t udp=VALUE` accepts and rejects the same values.
+        for (s, secs) in [
+            ("0", 0),
+            ("00", 0),
+            ("007", 7),
+            ("5M", 300),
+            ("5S", 5),
+            ("5H", 18000),
+            ("5D", 432000),
+            ("5w", 3024000),
+            ("1h30", 3630), // a number without a unit at the end is seconds
+            ("1h1h", 7200), // a unit can repeat
+            ("1m2", 62),
+            ("5m5s5", 310),
+        ] {
+            assert_eq!(parse_duration(s), Some(secs), "{s:?}");
+        }
+        for bad in [
+            "5 ", "5m ", "1.5h", "1,5", "0x10", "1d-1", "1e3", "5mm", "5ms", "s",
+        ] {
+            assert_eq!(parse_duration(bad), None, "{bad:?} was accepted");
+        }
+    }
+
+    #[test]
+    fn apply_timeouts_messages_and_values_follow_c() {
+        // C: set_timeout() of options.c; the message is the first line that
+        // `./softflowd -r FILE -t SPEC` prints before it exits with status 1.
+        let err = |specs: &[&str]| timeouts(specs).unwrap_err();
+        assert_eq!(err(&["tcp"]), "Invalid -t option \"tcp\".");
+        assert_eq!(err(&["tcp="]), "Invalid -t option \"tcp=\".");
+        assert_eq!(err(&["=5"]), "Invalid -t name.");
+        assert_eq!(err(&["tcp.rst2=1"]), "Invalid -t name.");
+        assert_eq!(err(&["bogus=1"]), "Invalid -t name.");
+        assert_eq!(err(&["TCP=5"]), "Invalid -t name.");
+        // The value is checked before the name.
+        assert_eq!(err(&["bogus=abc"]), "Invalid -t timeout.");
+        assert_eq!(err(&["tcp=5=6"]), "Invalid -t timeout.");
+        assert_eq!(err(&["udp=-1"]), "Invalid -t timeout.");
+        assert_eq!(err(&["udp=abc"]), "Invalid -t timeout.");
+        let general = "\"general\" flow timeout must be greater than zero";
+        assert_eq!(err(&["general=0"]), general);
+        // It is checked after every option, so a later one cannot repair it.
+        assert_eq!(err(&["general=0", "general=5"]), general);
+        assert_eq!(err(&["udp=5", "general=0"]), general);
+        // Zero is fine for the others, and every name has its own field.
+        assert_eq!(timeouts(&["udp=0", "general=1d"]), Ok(()));
+
+        // C: `softflowctl timeouts` of `softflowd -d -i lo -t tcp=11 -t tcp.rst=12 ...`
+        // prints 11s, 12s, 13s, 14s, 15s, 60s (general=1m), 7200s (maxlife=2h), 18s.
+        let mut tracker = FlowTracker::new(8192);
+        let specs: Vec<String> = [
+            "tcp=11",
+            "tcp.rst=12",
+            "tcp.fin=13",
+            "udp=14",
+            "icmp=15",
+            "general=1m",
+            "maxlife=2h",
+            "expint=18",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        apply_timeouts(&mut tracker, &specs).unwrap();
+        let p = &tracker.param;
+        assert_eq!(
+            [
+                p.tcp_timeout,
+                p.tcp_rst_timeout,
+                p.tcp_fin_timeout,
+                p.udp_timeout,
+                p.icmp_timeout,
+                p.general_timeout,
+                p.maximum_lifetime,
+                p.expiry_interval
+            ],
+            [11, 12, 13, 14, 15, 60, 7200, 18]
+        );
+    }
 }
