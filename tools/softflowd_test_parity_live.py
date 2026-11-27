@@ -769,6 +769,106 @@ def parity_start_order(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b
     return ok
 
 
+PARITY_MAC_ADDRESSES = [
+    "02:00:00:00:00:01", "AA:BB:CC:DD:EE:FF", "aa:Bb:cC:dD:eE:Ff", "1:2:3:4:5:6", "02:00:00:00:00:0",
+    "02-00-00-00-00-01", "1-2-3-4-5-6", "aa:bb-cc:dd-ee:ff", "aa:bb:cc:dd:ee", "aa:bb:cc:dd:ee:ff:00",
+    "aa:bb:cc:dd:ee:ff:gg", "aa:bb:cc:dd:ee:ff-", "aa:bb:cc:dd:ee:ff:", "aa:bb:cc:dd:ee:ff ",
+    " 2:00:00:00:00:01", "002:00:00:00:00:01", "0x2:00:00:00:00:01", "+2:00:00:00:00:01",
+    "-2:00:00:00:00:01", "02:00:00:00:00:", ":00:00:00:00:01", "::::::", "g2:00:00:00:00:01",
+    "02.00.00.00.00.01", "020000000001",
+]
+
+# The times of -t: convtime() reads a number as strtol() does (white space and a sign are fine).
+PARITY_TIMEOUT_VALUES = [
+    "90", "5m", "1h30m", "1W", "5s5", "0", "007", "2147483647", "2147483648", "24855d", "24856d",
+    "-1", "+5", " 5", "5 ", "5m ", "5x", "m", "s", "1h30", "1.5h", "0x10", "1h1h", "5M", "5w",
+    "99999999999999999999", "1m2", "5m5s5", "1d-1", "1s+1", "1h 30m", "1e3", "5mm", "-0", "+",
+    "- 5", "+-5", "-5m", "5m-0", "\t5",
+]
+
+PARITY_INTERFACE_SPECS = ["lo", ":lo", "0:lo", "5:lo", "abc:lo", "70000:lo", "-1:lo", "+3:lo"]
+
+
+def _parity_exit(daemon: str, pcap: str, extra: List[str]) -> Tuple[int, str]:
+    """The exit status of daemon -r pcap and, for an error, the first line of its message."""
+    r = subprocess.run([daemon, "-r", pcap, "-n", "127.0.0.1:9"] + extra, capture_output=True,
+                       text=True, timeout=30, stdin=subprocess.DEVNULL)
+    lines = r.stderr.splitlines()
+    return r.returncode, (lines[0] if r.returncode != 0 and lines else "")
+
+
+def _parity_interface_indexes(daemon: str, spec: str) -> List[Tuple[int, int]]:
+    """Run daemon on lo with -i spec, send one UDP packet, stop it and return the (input,
+    output) interface of the exported flows."""
+    import softflowd_collector
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sink.bind(("127.0.0.1", 0))
+    sink.settimeout(1.0)
+    ctl = os.path.join(helper.SUITE_TMP_DIR, "ifindex.ctl")
+    proc = subprocess.Popen([daemon, "-d", "-i", spec, "-v", "10", "-n", f"127.0.0.1:{sink.getsockname()[1]}",
+                             "-c", ctl, "udp and dst port 41007"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    flows: List[Tuple[int, int]] = []
+    try:
+        time.sleep(1.2)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+            sender.sendto(b"x" * 40, ("127.0.0.1", 41007))
+        time.sleep(0.8)
+        proc.send_signal(signal.SIGINT)
+        decoder = softflowd_collector.Decoder()
+        try:
+            while True:
+                for flow in decoder.feed(sink.recv(65535), "x"):
+                    flows.append((flow["in"], flow["out"]))
+        except socket.timeout:
+            pass
+        proc.wait(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        sink.close()
+    return flows
+
+
+def parity_strict_options(a_daemon: str, b_daemon: str, pcap: str) -> bool:
+    """The values of -H, -t and -i: the same answer for what is accepted and what is refused, and
+    the interface index that is exported (an index of -i idx:interface is used as it is)."""
+    ok = True
+    for name, args_of, values in (
+            ("-H", lambda v: ["-H", v], PARITY_MAC_ADDRESSES),
+            ("-t udp=", lambda v: ["-t", "udp=" + v], PARITY_TIMEOUT_VALUES)):
+        different = []
+        for value in values:
+            a = _parity_exit(a_daemon, pcap, args_of(value))
+            b = _parity_exit(b_daemon, pcap, args_of(value))
+            if a != b:
+                different.append(f"{value!r}: A {a}, B {b}")
+        if different:
+            ok = False
+            print_red(f"    - {name} values: {len(different)} of {len(values)} DIFFERENT")
+            for line in different:
+                print_red(f"        {line}")
+        else:
+            print_green(f"    - {name} values ({len(values)}): MATCHED")
+    if os.geteuid() != 0:
+        print_yellow("    - -i idx:interface, exported interface index: SKIPPED (needs root)")
+        return ok
+    different = []
+    for spec in PARITY_INTERFACE_SPECS:
+        a = _parity_interface_indexes(a_daemon, spec)
+        b = _parity_interface_indexes(b_daemon, spec)
+        if a != b or not a:
+            different.append(f"{spec!r}: A {a}, B {b}")
+    if different:
+        ok = False
+        print_red(f"    - -i idx:interface, exported interface index: {len(different)} DIFFERENT")
+        for line in different:
+            print_red(f"        {line}")
+    else:
+        print_green(f"    - -i idx:interface, exported interface index ({len(PARITY_INTERFACE_SPECS)}): MATCHED")
+    return ok
+
+
 def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optional[str]) -> bool:
     """Compat step for a strict pair: what was checked by hand while softflowd+ followed softflowd."""
     print("  [Step 6] Verifying that B does what A does, byte for byte...")
@@ -780,6 +880,7 @@ def test_parity(a_daemon: str, b_daemon: str, ctl_a: Optional[str], ctl_b: Optio
     ok = parity_export_bytes(a_daemon, b_daemon, pcaps) and ok
     ok = parity_debug_log(a_daemon, b_daemon, pcaps) and ok
     ok = parity_start_order(a_daemon, b_daemon, ctl_a, ctl_b, pcaps["smoke"]) and ok
+    ok = parity_strict_options(a_daemon, b_daemon, pcaps["smoke"]) and ok
     # -M must not change what softflowd+ exports.  The C builds do not keep this: with -M (a thread
     # for the export) the number of the datagrams and the uptime in their headers depend on the timing
     # (three runs of one C build with -M differ from each other), so there is nothing to compare.
