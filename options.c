@@ -38,6 +38,7 @@
 #include "log.h"
 #include "netsock.h"
 #include "sender.h"
+#include <ctype.h>
 #include <getopt.h>
 #include <stdarg.h> /* va_start and va_end for die_usage() */
 
@@ -392,26 +393,46 @@ parse_version_arg (const char *str) {
 /**
  * @brief Parse a MAC address string into a 6-octet array.
  *
- * @param str Address as aa:bb:cc:dd:ee:ff or aa-bb-cc-dd-ee-ff.
- * @param mac Receives the address.
+ * The form is exactly aa:bb:cc:dd:ee:ff: six groups of one or two hexadecimal
+ * digits, separated by colons, and nothing before, between or after them
+ * (no sign, no white space, no other separator, no seventh group).
+ *
+ * @param str Address as aa:bb:cc:dd:ee:ff.
+ * @param mac Receives the address; it is not changed on an error.
  * @return 0 on success, -1 on error.
  */
 int
 parse_mac_address (const char *str, u_int8_t mac[6]) {
-  unsigned int b[6];
+  u_int8_t b[6];
+  const char *p = str;
   int i;
 
-  if (sscanf (str, "%2x:%2x:%2x:%2x:%2x:%2x", &b[0], &b[1], &b[2], &b[3], &b[4],
-              &b[5]) != 6 &&
-      sscanf (str, "%2x-%2x-%2x-%2x-%2x-%2x", &b[0], &b[1], &b[2], &b[3], &b[4],
-              &b[5]) != 6)
-    return (-1);
-
   for (i = 0; i < 6; i++) {
-    if (b[i] > 0xff)
+    unsigned int value = 0;
+    int digits = 0;
+
+    while (digits < 3 && isxdigit ((unsigned char) *p)) {
+      value = value * 16 + (isdigit ((unsigned char) *p)
+                              ? (unsigned int) (*p - '0')
+                              : (unsigned int) (tolower ((unsigned char) *p) - 'a' + 10));
+      p++;
+      digits++;
+    }
+    if (digits < 1 || digits > 2) {
       return (-1);
-    mac[i] = (u_int8_t) b[i];
+    }
+    b[i] = (u_int8_t) value;
+    if (i < 5) {
+      if (*p != ':') {
+        return (-1);
+      }
+      p++;
+    }
   }
+  if (*p != '\0') {
+    return (-1);
+  }
+  memcpy (mac, b, sizeof (b));
   return (0);
 }
 

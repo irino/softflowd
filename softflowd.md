@@ -222,7 +222,8 @@ place on the system at the cost of some detail being lost.
 
 Specify a MAC address to use for determining the IPFIX/NetFlow v9
 *flowDirection* field. *mac_address* is given in the form
-"aa:bb:cc:dd:ee:ff". For each flow record, if the source ethernet
+"aa:bb:cc:dd:ee:ff": six groups of one or two hexadecimal digits
+separated by colons. For each flow record, if the source ethernet
 address matches *mac_address* the record is reported as "egress", and if
 the destination ethernet address matches *mac_address* the record is
 reported as "ingress". If neither address matches (for example, transit

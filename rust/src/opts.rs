@@ -426,17 +426,24 @@ pub fn parse_duration(s: &str) -> Option<i32> {
     i32::try_from(total).ok()
 }
 
+/// Parse a MAC address: exactly `aa:bb:cc:dd:ee:ff`, six groups of one or two
+/// hexadecimal digits separated by colons.
+///
+/// Original: `parse_mac_address()` in `options.c`.  Nothing else is accepted: no
+/// other separator, no sign, no white space, no group of three digits and no
+/// seventh group.
 pub fn parse_mac_address(mac_str: &str) -> Option<[u8; 6]> {
-    let parts: Vec<&str> = mac_str.split([':', '-']).collect();
-    if parts.len() != 6 {
-        return None;
-    }
     let mut mac = [0u8; 6];
-    for i in 0..6 {
-        match u8::from_str_radix(parts[i], 16) {
-            Ok(val) => mac[i] = val,
-            Err(_) => return None,
+    let mut parts = mac_str.split(':');
+    for byte in mac.iter_mut() {
+        let part = parts.next()?;
+        if part.is_empty() || part.len() > 2 || !part.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
         }
+        *byte = u8::from_str_radix(part, 16).ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
     }
     Some(mac)
 }
@@ -693,35 +700,46 @@ mod tests {
     }
 
     #[test]
-    fn parse_mac_address_follows_c() {
-        // C: `./softflowd -r FILE -H MAC` ("Invalid MAC address MAC", status 1, or it runs),
-        // and the bytes that parse_mac_address() of options.c returns.
+    fn parse_mac_address_is_strict_like_c() {
+        // C: `./softflowd -r FILE -H MAC` runs, or prints "Invalid MAC address MAC" and exits
+        // with status 1; both versions accept only six groups of one or two hex digits with ":".
         let mac = |s: &str| parse_mac_address(s);
         assert_eq!(mac("02:00:00:00:00:01"), Some([0x02, 0, 0, 0, 0, 0x01]));
-        assert_eq!(mac("02-00-00-00-00-01"), Some([0x02, 0, 0, 0, 0, 0x01]));
         assert_eq!(
             mac("AA:BB:CC:DD:EE:FF"),
             Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff])
         );
         assert_eq!(
-            mac("aa:bb:cc:dd:ee:ff"),
+            mac("aa:Bb:cC:dD:eE:Ff"),
             Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff])
         );
+        assert_eq!(mac("00:00:00:00:00:00"), Some([0; 6]));
+        assert_eq!(mac("ff:ff:ff:ff:ff:ff"), Some([0xff; 6]));
         // One digit is enough.
         assert_eq!(mac("1:2:3:4:5:6"), Some([1, 2, 3, 4, 5, 6]));
-        assert_eq!(mac("1-2-3-4-5-6"), Some([1, 2, 3, 4, 5, 6]));
         assert_eq!(mac("02:00:00:00:00:0"), Some([2, 0, 0, 0, 0, 0]));
-        assert_eq!(mac("+2:00:00:00:00:01"), Some([2, 0, 0, 0, 0, 1]));
-        // Rejected by C ("Invalid MAC address", status 1).
         for bad in [
-            "aa:bb:cc:dd:ee",
+            "02-00-00-00-00-01", // only ":" separates
+            "1-2-3-4-5-6",
+            "aa:bb-cc:dd-ee:ff",
+            "aa:bb:cc:dd:ee",       // five groups
+            "aa:bb:cc:dd:ee:ff:00", // a seventh group
+            "aa:bb:cc:dd:ee:ff:gg",
+            "aa:bb:cc:dd:ee:ff-",
+            "aa:bb:cc:dd:ee:ff:",
+            "aa:bb:cc:dd:ee:ff ", // white space
+            " 2:00:00:00:00:01",
+            "002:00:00:00:00:01", // three digits
             "0x2:00:00:00:00:01",
+            "+2:00:00:00:00:01", // a sign
             "-2:00:00:00:00:01",
             "02:00:00:00:00:",
             ":00:00:00:00:01",
+            "::::::",
             "g2:00:00:00:00:01",
             "02.00.00.00.00.01",
             "020000000001",
+            "",
         ] {
             assert_eq!(mac(bad), None, "{bad:?} was accepted");
         }
