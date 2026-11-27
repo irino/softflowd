@@ -673,7 +673,7 @@ mod tests {
     // The cases where the Rust version differs from C are not here; they are reported.
 
     #[test]
-    fn parse_interface_spec_follows_c() {
+    fn parse_interface_spec_is_strict_like_c() {
         // C: `./softflowd -D -i SPEC -n 127.0.0.1:9` prints "Using NAME (idx: N)".
         for (spec, idx, name) in [
             ("3:lo", 3, "lo"),         // Using lo (idx: 3)
@@ -686,6 +686,14 @@ mod tests {
             ("0:lo", 0, "lo"),         // Using lo (idx: 0)
             ("007:lo", 7, "lo"),       // Using lo (idx: 7)
             ("1:2:lo", 1, "2:lo"),     // Using 2:lo (idx: 1), only the first colon splits
+            // Not a decimal number of 0 to 65535 (an optional '+' is the only sign): no index.
+            ("70000:lo", 0, "lo"),                   // Using lo (idx: 0)
+            ("99999999999:lo", 0, "lo"),             // Using lo (idx: 0)
+            ("-1:lo", 0, "lo"),                      // Using lo (idx: 0)
+            ("3x:lo", 0, "lo"),                      // Using lo (idx: 0)
+            (" 3:lo", 0, "lo"),                      // Using lo (idx: 0)
+            ("+:lo", 0, "lo"),                       // Using lo (idx: 0)
+            ("00000000000000000000007:lo", 7, "lo"), // Using lo (idx: 7)
         ] {
             assert_eq!(
                 parse_interface_spec(spec),

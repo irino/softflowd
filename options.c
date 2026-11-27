@@ -391,6 +391,39 @@ parse_version_arg (const char *str) {
 }
 
 /**
+ * @brief Parse the interface index of "-i idx:interface".
+ *
+ * The index is a decimal number of 0 to 65535, with an optional leading '+';
+ * nothing before, inside or after it (no white space, no '-', no other text).
+ * Anything else, and the empty string, is taken as no index.
+ *
+ * @param str The text before the colon.
+ * @return The index, or 0 when str is not an index.
+ */
+static u_int16_t
+parse_ifindex (const char *str) {
+  unsigned long value = 0;
+  const char *p = str;
+
+  if (*p == '+') {
+    p++;
+  }
+  if (*p == '\0') {
+    return (0);
+  }
+  for (; *p != '\0'; p++) {
+    if (!isdigit ((unsigned char) *p)) {
+      return (0);
+    }
+    value = value * 10 + (unsigned long) (*p - '0');
+    if (value > 65535) {
+      return (0);
+    }
+  }
+  return ((u_int16_t) value);
+}
+
+/**
  * @brief Parse a MAC address string into a 6-octet array.
  *
  * The form is exactly aa:bb:cc:dd:ee:ff: six groups of one or two hexadecimal
@@ -618,9 +651,7 @@ parse_command_line (int argc, char **argv, struct DAEMON_CONFIG *cfg,
         cfg->dev = strtok (optarg, ":");
 #endif /* defined(HAVE_STRSEP) */
         if (optarg != NULL) {
-          if (strlen (cfg->dev) > 0) {
-            if_index = (u_int16_t) atoi (cfg->dev);
-          }
+          if_index = parse_ifindex (cfg->dev);
           cfg->dev = optarg;
           cfg->user_ifindex_flag = 1;
         }
