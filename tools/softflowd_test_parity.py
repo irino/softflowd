@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 import softflowd_test_helper as helper
@@ -66,8 +67,8 @@ PARITY_ARGS = {
     "1": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"], ["-s", "10"]],
     "5": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"], ["-s", "10"], ["-T", "ether"],
           ["-x", "2"]],
-    "9": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS[::16],
-    "10": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS[::16],
+    "9": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS,
+    "10": [[], ["-m", "5"], ["-t", "maxlife=1", "-m", "7"]] + MATRIX_ARGS,
 }
 PARITY_DEBUG_ARGS = [[], ["-m", "5"], ["-m", "7", "-t", "maxlife=1"], ["-m", "100"],
                      ["-m", "3", "-t", "maxlife=2"]]
@@ -174,23 +175,36 @@ def parity_datagrams_differ(a: List[bytes], b: List[bytes], version: str) -> Opt
     return None
 
 
+PARITY_WORKERS = 8
+
+
 def parity_export_bytes(a_daemon: str, b_daemon: str, pcaps: Dict[str, str]) -> bool:
+    """Compare the datagrams of A and B for every (pcap, version, option set).
+
+    Most of the time of a run is the quiet time that parity_export() waits for late datagrams,
+    so the runs go in parallel; each has its own UDP socket. The results are printed in order.
+    """
+    def run(job: Tuple[str, str, str, List[str]]) -> Optional[str]:
+        _, pcap, version, extra = job
+        try:
+            return parity_datagrams_differ(parity_export(a_daemon, pcap, version, extra),
+                                           parity_export(b_daemon, pcap, version, extra), version)
+        except (OSError, subprocess.SubprocessError) as e:
+            return str(e)
+
+    jobs = [(name, pcap, version, extra)
+            for name, pcap in pcaps.items()
+            for version, arg_sets in PARITY_ARGS.items()
+            for extra in arg_sets]
     ok = True
-    runs = failures = 0
-    for name, pcap in pcaps.items():
-        for version, arg_sets in PARITY_ARGS.items():
-            for extra in arg_sets:
-                runs += 1
-                try:
-                    why = parity_datagrams_differ(parity_export(a_daemon, pcap, version, extra),
-                                                  parity_export(b_daemon, pcap, version, extra),
-                                                  version)
-                except (OSError, subprocess.SubprocessError) as e:
-                    why = str(e)
-                if why:
-                    failures += 1
-                    ok = False
-                    print_red(f"    - {name} -v {version} -a {' '.join(extra)}: DIFFERENT: {why}")
+    failures = 0
+    runs = len(jobs)
+    with ThreadPoolExecutor(max_workers=PARITY_WORKERS) as pool:
+        for job, why in zip(jobs, pool.map(run, jobs)):
+            if why:
+                failures += 1
+                ok = False
+                print_red(f"    - {job[0]} -v {job[2]} -a {' '.join(job[3])}: DIFFERENT: {why}")
     if ok:
         print_green(f"    - exported datagrams, byte for byte ({runs} runs): MATCHED")
     else:
