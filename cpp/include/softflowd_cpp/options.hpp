@@ -201,6 +201,10 @@ should_track_ipv6 (const DaemonConfig &config);
 bool
 parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac);
 
+/// The index of "-i idx:interface": a decimal number of 0 to 65535, else 0.
+std::uint16_t
+parse_ifindex (const char *str);
+
 void
 print_usage ();
 

@@ -18,6 +18,7 @@
 #define SOFTFLOWDPP_VERSION "0.0.0"
 #endif
 
+#include <cctype>
 #include <cerrno>
 #include <charconv>
 #include <climits>
@@ -498,27 +499,82 @@ should_track_ipv6 (const DaemonConfig &config) {
 }
 
 /**
- * @brief Reads an Ethernet address of the form xx:xx:xx:xx:xx:xx or xx-xx-xx-xx-xx-xx.
+ * @brief Reads an Ethernet address of the form xx:xx:xx:xx:xx:xx.
+ *
+ * Six groups of one or two hexadecimal digits separated by colons, and nothing
+ * before, between or after them: no sign, no white space, no other separator,
+ * no group of three digits, no seventh group.
  *
  * @param str The text.
  * @param mac The address; it is set only when the text is read.
  * @return true when six values were read.
  *
- * @original parse_mac_address(). "xx:xx:xx:xx:xx:xx" or "xx-xx-xx-xx-xx-xx".
+ * @original parse_mac_address(), which is as strict.
  */
 bool
 parse_mac_address (const char *str, std::array<std::uint8_t, 6> &mac) {
-  unsigned int b[6];
-  if (std::sscanf (str, "%2x:%2x:%2x:%2x:%2x:%2x", &b[0], &b[1], &b[2], &b[3],
-                   &b[4], &b[5]) != 6 &&
-      std::sscanf (str, "%2x-%2x-%2x-%2x-%2x-%2x", &b[0], &b[1], &b[2], &b[3],
-                   &b[4], &b[5]) != 6) {
+  std::array<std::uint8_t, 6> value{};
+  const char *p = str;
+  for (std::size_t i = 0; i < value.size(); ++i) {
+    unsigned int group = 0;
+    int digits = 0;
+    while (digits < 3 && std::isxdigit (static_cast<unsigned char> (*p))) {
+      const char c = *p;
+      group = group * 16 + (std::isdigit (static_cast<unsigned char> (c))
+                              ? static_cast<unsigned int> (c - '0')
+                              : static_cast<unsigned int> (std::tolower (static_cast<unsigned char> (c)) - 'a' + 10));
+      ++p;
+      ++digits;
+    }
+    if (digits < 1 || digits > 2) {
+      return false;
+    }
+    value[i] = static_cast<std::uint8_t> (group);
+    if (i + 1 < value.size()) {
+      if (*p != ':') {
+        return false;
+      }
+      ++p;
+    }
+  }
+  if (*p != '\0') {
     return false;
   }
-  for (std::size_t i = 0; i < 6; ++i) {
-    mac[i] = static_cast<std::uint8_t> (b[i]);
-  }
+  mac = value;
   return true;
+}
+
+/**
+ * @brief Reads the interface index of "-i idx:interface".
+ *
+ * A decimal number of 0 to 65535 with an optional leading '+'; nothing before,
+ * inside or after it. Anything else, and the empty text, is taken as no index.
+ *
+ * @param str The text before the colon.
+ * @return The index, or 0 when str is not an index.
+ *
+ * @original the atoi () of -i in options.c, which read "70000" as 4464 and "-1" as 65535.
+ */
+std::uint16_t
+parse_ifindex (const char *str) {
+  unsigned long value = 0;
+  const char *p = str;
+  if (*p == '+') {
+    ++p;
+  }
+  if (*p == '\0') {
+    return 0;
+  }
+  for (; *p != '\0'; ++p) {
+    if (!std::isdigit (static_cast<unsigned char> (*p))) {
+      return 0;
+    }
+    value = value * 10 + static_cast<unsigned long> (*p - '0');
+    if (value > 65535) {
+      return 0;
+    }
+  }
+  return static_cast<std::uint16_t> (value);
 }
 
 /**
@@ -781,10 +837,7 @@ parse_command_line (int argc, char **argv) {
             std::string name = optarg;
             const auto colon = name.find (':');
             if (colon != std::string::npos) {
-              if (colon > 0) {
-                config.if_index = static_cast<std::uint16_t> (
-                  std::atoi (name.substr (0, colon).c_str()));
-              }
+              config.if_index = parse_ifindex (name.substr (0, colon).c_str());
               name.erase (0, colon + 1);
               config.user_ifindex = true;
             }
