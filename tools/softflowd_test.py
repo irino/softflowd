@@ -156,7 +156,7 @@ from softflowd_test_helper import (
     print_yellow,
 )
 from softflowd_test_ntopng import ntopng_step
-from softflowd_test_parity import PARITY_PAIRS
+from softflowd_test_parity import PARITY_PAIRS, parity_golden, parity_make_pcaps
 from softflowd_test_parity_live import run_single_comparison
 from softflowd_test_measure import MeasureSettings, finish_measurements
 
@@ -350,6 +350,17 @@ def run_matrix(args: argparse.Namespace, binaries: Dict[str, Optional[str]]) -> 
 def compat_main():
     args = parse_args()
     build_dir = setup_suite(args)
+
+    if args.save_golden or args.check_golden:
+        if not args.b or args.save_golden and args.check_golden:
+            print("--save-golden or --check-golden (not both) needs --b", file=sys.stderr)
+            sys.exit(2)
+        pcaps = parity_make_pcaps(tempfile.mkdtemp(dir=helper.SUITE_TMP_DIR))
+        print("  [Golden] Datagrams of B for every case of the byte for byte step...")
+        success = parity_golden(args.b, pcaps, args.save_golden or args.check_golden,
+                                save=bool(args.save_golden))
+        finish_measurements()
+        sys.exit(0 if success else 1)
 
     # A single pair that the command line names
     if args.a and args.b:

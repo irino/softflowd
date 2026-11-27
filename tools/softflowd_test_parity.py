@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 import softflowd_test_helper as helper
-from softflowd_test_helper import PROJECT_ROOT, parity_loopback_pcap, print_green, print_red
+from softflowd_test_helper import PROJECT_ROOT, parity_loopback_pcap, print_green, print_red, print_yellow
 
 
 # ==========================================================================
@@ -178,6 +178,14 @@ def parity_datagrams_differ(a: List[bytes], b: List[bytes], version: str) -> Opt
 PARITY_WORKERS = 8
 
 
+def parity_jobs(pcaps: Dict[str, str]) -> List[Tuple[str, str, str, List[str]]]:
+    """Every case of the byte for byte step: (name of the pcap, pcap, export version, options)."""
+    return [(name, pcap, version, extra)
+            for name, pcap in pcaps.items()
+            for version, arg_sets in PARITY_ARGS.items()
+            for extra in arg_sets]
+
+
 def parity_export_bytes(a_daemon: str, b_daemon: str, pcaps: Dict[str, str]) -> bool:
     """Compare the datagrams of A and B for every (pcap, version, option set).
 
@@ -192,10 +200,7 @@ def parity_export_bytes(a_daemon: str, b_daemon: str, pcaps: Dict[str, str]) -> 
         except (OSError, subprocess.SubprocessError) as e:
             return str(e)
 
-    jobs = [(name, pcap, version, extra)
-            for name, pcap in pcaps.items()
-            for version, arg_sets in PARITY_ARGS.items()
-            for extra in arg_sets]
+    jobs = parity_jobs(pcaps)
     ok = True
     failures = 0
     runs = len(jobs)
@@ -209,6 +214,140 @@ def parity_export_bytes(a_daemon: str, b_daemon: str, pcaps: Dict[str, str]) -> 
         print_green(f"    - exported datagrams, byte for byte ({runs} runs): MATCHED")
     else:
         print_red(f"    - exported datagrams: {failures} of {runs} runs DIFFER")
+    return ok
+
+
+# ==========================================================================
+# golden datagrams: what B exported when it was known to be right
+# ==========================================================================
+#
+# --save-golden DIR writes the datagrams that B exports for every case of the byte for byte step
+# (one file per case), --check-golden DIR compares B with them.  A patch that is not about the
+# format must not change a byte, and A (the C version) is not needed for this check.
+
+IPFIX_METERING_PROCESS_ID = 143
+
+
+def ipfix_mask_process_id(datagrams: List[bytes]) -> List[bytes]:
+    """The datagrams of one IPFIX case with the meteringProcessId of the options records set to 0
+    (it is the process id of the exporter, so it differs from run to run)."""
+    pid_fields: Dict[int, Tuple[int, int]] = {}  # options template id -> (offset, record length)
+    masked: List[bytes] = []
+    for datagram in datagrams:
+        data = bytearray(datagram)
+        if len(data) >= 16:
+            end = min(struct.unpack("!H", data[2:4])[0], len(data))
+            off = 16
+            while off + 4 <= end:
+                set_id, set_len = struct.unpack("!HH", data[off:off + 4])
+                if set_len < 4:
+                    break
+                body = off + 4
+                if set_id == 3:  # options template set
+                    pos = body
+                    while pos + 6 <= off + set_len:
+                        tid, nfields, _scope = struct.unpack("!HHH", data[pos:pos + 6])
+                        pos += 6
+                        rec_off, rec_len, pid_off = 0, 0, None
+                        for _ in range(nfields):
+                            ie, flen = struct.unpack("!HH", data[pos:pos + 4])
+                            pos += 4
+                            if ie & 0x8000:
+                                pos += 4
+                            if (ie & 0x7FFF) == IPFIX_METERING_PROCESS_ID and flen == 4:
+                                pid_off = rec_off
+                            rec_off += flen
+                        rec_len = rec_off
+                        if pid_off is not None and rec_len > 0:
+                            pid_fields[tid] = (pid_off, rec_len)
+                elif set_id in pid_fields:
+                    pid_off, rec_len = pid_fields[set_id]
+                    for rec in range((set_len - 4) // rec_len):
+                        at = body + rec * rec_len + pid_off
+                        data[at:at + 4] = b"\0\0\0\0"
+                off += set_len
+        masked.append(bytes(data))
+    return masked
+
+
+def golden_case_name(job: Tuple[str, str, str, List[str]]) -> str:
+    """The text of a case with the spaces made underscores: smoke_-v_9_-a_-b_-T_vlan"""
+    name, _, version, extra = job
+    return "_".join([name, "-v", version, "-a"] + extra).replace("/", "_")
+
+
+def golden_dump(datagrams: List[bytes]) -> str:
+    """A hex dump: a line 'datagram N length L' and the bytes, 16 to a line, for each datagram."""
+    lines: List[str] = []
+    for n, data in enumerate(datagrams):
+        lines.append(f"datagram {n} length {len(data)}")
+        for pos in range(0, len(data), 16):
+            lines.append(f"{pos:04x}: " + " ".join(f"{b:02x}" for b in data[pos:pos + 16]))
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def golden_parse(text: str) -> List[bytes]:
+    datagrams: List[bytes] = []
+    for line in text.splitlines():
+        if line.startswith("datagram "):
+            datagrams.append(b"")
+        elif line.strip():
+            datagrams[-1] += bytes.fromhex(line.split(":", 1)[1])
+    return datagrams
+
+
+def parity_golden(daemon: str, pcaps: Dict[str, str], directory: str, save: bool) -> bool:
+    """Save the datagrams of daemon for every case of the byte for byte step into directory, or
+    compare daemon with the files that were saved there."""
+    jobs = parity_jobs(pcaps)
+    names = [golden_case_name(job) for job in jobs]
+    if len(set(names)) != len(names):
+        print_red("    - golden: two cases have the same name")
+        return False
+    if save:
+        os.makedirs(directory, exist_ok=True)
+        for stale in os.listdir(directory):
+            if stale not in names:
+                os.remove(os.path.join(directory, stale))
+
+    def run(job: Tuple[str, str, str, List[str]]) -> Optional[str]:
+        _, pcap, version, extra = job
+        path = os.path.join(directory, golden_case_name(job))
+        try:
+            datagrams = parity_export(daemon, pcap, version, extra)
+        except (OSError, subprocess.SubprocessError) as e:
+            return str(e)
+        if version == "10":
+            datagrams = ipfix_mask_process_id(datagrams)
+        if save:
+            with open(path, "w") as f:
+                f.write(golden_dump(datagrams))
+            return None
+        if not os.path.exists(path):
+            return "no golden file"
+        with open(path) as f:
+            return parity_datagrams_differ(golden_parse(f.read()), datagrams, "9")
+
+    ok = True
+    failures = 0
+    with ThreadPoolExecutor(max_workers=PARITY_WORKERS) as pool:
+        for job, why in zip(jobs, pool.map(run, jobs)):
+            if why:
+                failures += 1
+                ok = False
+                print_red(f"    - golden {golden_case_name(job)}: DIFFERENT: {why}")
+    if not save:
+        extra_files = sorted(set(os.listdir(directory)) - set(names)) if os.path.isdir(directory) else []
+        for name in extra_files:
+            ok = False
+            failures += 1
+            print_red(f"    - golden {name}: DIFFERENT: no case of this name (stale file)")
+    if ok and save:
+        print_green(f"    - golden datagrams saved ({len(jobs)} cases) in {directory}")
+    elif ok:
+        print_green(f"    - golden datagrams, byte for byte ({len(jobs)} cases): MATCHED")
+    else:
+        print_red(f"    - golden datagrams: {failures} of {len(jobs)} cases DIFFER")
     return ok
 
 

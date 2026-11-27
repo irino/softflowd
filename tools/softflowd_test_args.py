@@ -80,6 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
              "before and --b the softflowd+ after (their usage must be the same)"
     )
     parser.add_argument(
+        "--save-golden",
+        metavar="DIR",
+        default=None,
+        help="Write the datagrams that --b exports for every case of the byte for byte step "
+             "(step 6) into DIR, one file per case (a hex dump), and stop; --a is not needed. "
+             "The process id of the IPFIX options record is set to 0"
+    )
+    parser.add_argument(
+        "--check-golden",
+        metavar="DIR",
+        default=None,
+        help="Compare the datagrams of --b with the files that --save-golden wrote into DIR, "
+             "and stop; --a is not needed"
+    )
+    parser.add_argument(
         "--skip-parity",
         action="store_true",
         help="Skip the byte for byte comparison (step 6) of the pairs softflowd-static, "
