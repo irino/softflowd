@@ -392,9 +392,10 @@ pub fn parse_interface_spec(s: &str) -> (u16, String) {
 
 /// Parse a time such as `90`, `5m` or `1h30m` into seconds.
 ///
-/// Original: `convtime()` in `convtime.c`.  A time that does not fit in an
-/// `i32` is an error, as in `set_timeout()` of the C version.  A sign and
-/// white space, which `strtol()` accepts there, are not accepted here.
+/// Original: `convtime()` in `convtime.c`.  Every number is read as `strtol()`
+/// reads it, so white space before it and a sign are accepted (`+5`, ` 5`,
+/// `1h 30m`, `-0`); a negative number is an error.  A time that does not fit in
+/// an `i32` is an error, as in `set_timeout()` of the C version.
 pub fn parse_duration(s: &str) -> Option<i32> {
     if s.is_empty() {
         return None;
@@ -402,12 +403,21 @@ pub fn parse_duration(s: &str) -> Option<i32> {
     let mut total: i64 = 0;
     let mut rest = s;
     while !rest.is_empty() {
+        // strtol(): white space (isspace), then an optional sign, then the digits.
+        rest = rest.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
+        let negative = rest.starts_with('-');
+        if negative || rest.starts_with('+') {
+            rest = &rest[1..];
+        }
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         if digits == 0 {
             return None;
         }
         let secs: i64 = rest[..digits].parse().ok()?;
         rest = &rest[digits..];
+        if negative && secs != 0 {
+            return None;
+        }
         let mult: i64 = match rest.bytes().next() {
             None => 1,
             Some(b's' | b'S') => 1,
@@ -770,11 +780,44 @@ mod tests {
             ("1h1h", 7200), // a unit can repeat
             ("1m2", 62),
             ("5m5s5", 310),
+            // As strtol() reads a number: white space and a sign before it.
+            ("+5", 5),
+            (" 5", 5),
+            ("1s+1", 2),
+            ("1h 30m", 5400),
+            ("-0", 0),
+            ("+0", 0),
+            ("-00", 0),
+            ("5m-0", 300),
+            ("1m+1m", 120),
+            ("5m  3", 303),
+            ("  1h  30m", 5400),
+            ("\t5", 5),
+            ("1h\t30m", 5400),
         ] {
             assert_eq!(parse_duration(s), Some(secs), "{s:?}");
         }
         for bad in [
-            "5 ", "5m ", "1.5h", "1,5", "0x10", "1d-1", "1e3", "5mm", "5ms", "s",
+            "+",
+            "-",
+            "- 5",
+            "+-5",
+            "--5",
+            "-5m",
+            "1h-5",
+            " ",
+            "5\x0b",
+            "2147483647s1",
+            "5 ",
+            "5m ",
+            "1.5h",
+            "1,5",
+            "0x10",
+            "1d-1",
+            "1e3",
+            "5mm",
+            "5ms",
+            "s",
         ] {
             assert_eq!(parse_duration(bad), None, "{bad:?} was accepted");
         }
