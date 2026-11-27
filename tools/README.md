@@ -9,12 +9,12 @@ they import each other by module name.
 | Script | What it does | Same as |
 |---|---|---|
 | `softflowd_test_suite.py` | One entry point for the three tools below; the first argument selects one. Without a subcommand it runs `compat`. | |
-| `softflowd_test.py` | Backward compatibility and variants test suite: builds the C stable / development, C++ and Rust binaries, replays pcaps through two builds (A vs B) and compares the exported flows, the control socket replies, the PSAMP and ntopng exports, and the parity of softflowd+ with softflowd. Optionally measures the daemons (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`). | `softflowd_test_suite.py compat` (alias `test`) |
+| `softflowd_test.py` | Backward compatibility and variants test suite: builds the C stable / development, C++ and Rust binaries, replays pcaps through two builds (A vs B) and compares the exported flows, the control socket replies, the PSAMP and ntopng exports, and the parity of softflowd+ with softflowd. Optionally measures the daemons (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`). `--save-golden DIR` and `--check-golden DIR` only save or compare the datagrams of B (see "Byte for byte step and golden datagrams"). | `softflowd_test_suite.py compat` (alias `test`) |
 | `softflowd_bench.py` | Export benchmark: compares the export build variants across pcaps and NetFlow/IPFIX versions with hyperfine (or a plain timing loop), perf and callgrind. | `softflowd_test_suite.py bench` |
 | `softflowd_collector.py` | Flow collector: prints NetFlow v1/v5/v9 and IPFIX flows received on a UDP port as CSV with the column names of `nfdump -o csv`. The successor of `deprecated/collector.pl`. | `softflowd_test_suite.py collect` |
 | `softflowd_test_gate.py` | Quality gate for a pair of builds (the Rust version against C): runs `softflowd_test.py --strict` (and cargo fmt, clippy, test with `--rust-dir`), sorts every reported difference with `gate_expected.json` (accepted, open, unexpected, stale) and checks the entries against `rust/doc/DIFFERENCES-FROM-C.en.md`; the last line is `GATE: PASS` or `GATE: FAIL`. Depends on `softflowd_test.py` (it runs it). | `softflowd_test_suite.py gate` |
 | `gate_expected.json` | The differences that the gate accepts or tracks, with their ids in the differences document. | |
-| `softflowd_test_fuzz.py` | Garbage packet corpus: mutated copies of `http.cap` and `v6-http.cap` (packets cut to every length, bit flips in the packets, damaged file and record headers) are read with `-r` by C (A) and Rust (B); the exported flow records, the statistics and the exit status must agree and B must not crash. Quick by default (under a minute), `--full` for the whole corpus. | `softflowd_test_suite.py fuzz` |
+| `softflowd_test_fuzz.py` | Garbage packet corpus: mutated copies of `http.cap` and `v6-http.cap` (packets cut to every length, bit flips in the packets, damaged file and record headers) are read with `-r` by C (A) and Rust (B); the exported flow records, the statistics and the exit status must agree and B must not crash. Quick by default (under a minute), `--full` for the whole corpus; `--jobs`, `--seed` and `--keep-failing DIR` (copies the failing pcaps) are also accepted. | `softflowd_test_suite.py fuzz` |
 | `gen_usage_rs.py` | Makes `rust/src/usage.txt`, the usage text of the C version, from the output of `softflowd -h` (the program name and the version become `{prog}` and `{version}`). Run it again when the options of C change; the text is that of the default configuration. | |
 | `gen_cli_parity_cases.py` | Makes `rust/doc/CLI-PARITY-CASES.md`: the wrong command lines of `PARITY_CLI_ERROR_CASES` run with C and with Rust, with the exit status and the first line of each, and whether the whole output is the same. | |
 
@@ -39,8 +39,8 @@ These are imported by `softflowd_test.py`; they are not meant to be run.
 | `softflowd_test_verify.py` | The checks of the CLI options, the control socket and the flows that the collector receives. |
 | `softflowd_test_psamp.py` | PSAMP checks (`-v psamp` sender and `-R` receiver). Also used by `psamp_regress.py`. |
 | `softflowd_test_ntopng.py` | ntopng checks (the ZMQ export of `-v ntopng`). |
-| `softflowd_test_parity.py` | Parity checks, part 1: what softflowd+ (C++) must do byte for byte like softflowd (C), offline (exported datagrams, control replies, logs). |
-| `softflowd_test_parity_live.py` | Parity checks, part 2: live capture, daemon, signals, CLI errors, and the comparison of a pair (`run_single_comparison`). |
+| `softflowd_test_parity.py` | Parity checks, part 1: what softflowd+ (C++) and the Rust version must do byte for byte like softflowd (C), offline (exported datagrams, control replies, logs), the live capture on `lo` with `-m` and the stops by signal and control command, and the golden datagrams. |
+| `softflowd_test_parity_live.py` | Parity checks, part 2: live capture, daemon, signals, the start order (`parity_start_order`), CLI errors, and the comparison of a pair (`run_single_comparison`). |
 
 ## Steps of a pair comparison
 
@@ -55,6 +55,31 @@ are printed for a pair, and which pairs get them:
 | 4 | measurement (`--gauge-clock`, `--benchmark`, `--callgrind`, `--perf`) | all, when one of these is on |
 | 5 | PSAMP sender and receiver (`--skip-psamp` skips it) | the pairs of step 6, or `--psamp` |
 | 6 | byte for byte: datagrams, control replies, logs, CLI errors, live capture (`--skip-parity` skips it) | `PARITY_PAIRS` in `softflowd_test_parity.py` (`softflowd-static` vs `softflowd`, `softflowd-direct` vs `softflowd`, `softflowd` vs `softflowd+`), or `--strict` |
+
+### Byte for byte step and golden datagrams
+
+Step 6 runs every pcap of the step (`smoke`, `smoke6`, `vlan`, `slow`, `many`,
+`loopback`) with A and with B for these option sets (`PARITY_ARGS` in
+`softflowd_test_parity.py`): 4 for `-v 1`, 6 for `-v 5`, and for `-v 9` and `-v 10`
+3 plain ones and 288 combinations of `-b`, `-H 02:00:00:00:00:01`,
+`-T ether|vlan|full`, `-e 192.0.2.1`, `-e 2001:db8::1`, `-s 10`, `-A micro` and
+`-x 2`. The runs go on 8 threads, each with its own UDP socket, and the results
+are printed in order. All of them are compared datagram by datagram (for IPFIX, differing bytes within a span
+of 4 bytes, the process id of the options record, are ignored).
+
+`--save-golden DIR` writes the datagrams that B exports for every one of these
+cases into DIR and stops, and `--check-golden DIR` compares B with them and
+stops; neither needs `--a`. There is one file per case, named by the case text
+with the spaces made underscores (`smoke_-v_10_-a_-b_-T_vlan`), with a hex dump
+of every datagram (16 bytes to a line). The `meteringProcessId` of the IPFIX
+options record, the process id of the exporter, is set to 0 in both. A file
+that no case has is reported as stale. The directory is large, so do not add it
+to the repository.
+
+The live checks of step 6 (stops by SIGINT, SIGTERM, `shutdown` and `exit`
+with `-m 10`, `-m 100` and the default; the start order; the capture on `lo`)
+need root and are SKIPPED without it; the start order check of a daemon that
+drops its privileges also needs `/var/empty`.
 
 `--skip-static` and `--skip-direct` leave out the `softflowd-static` and
 `softflowd-direct` builds and their pairs.
