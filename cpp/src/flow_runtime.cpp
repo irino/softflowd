@@ -164,6 +164,11 @@ FlowTableRuntime::count_packet_without_flow () noexcept {
 }
 
 void
+FlowTableRuntime::count_non_sampled_packet () noexcept {
+  std::visit ([] (auto &table) { table.count_non_sampled_packet(); }, table_);
+}
+
+void
 FlowTableRuntime::count_non_ip_packet () noexcept {
   std::visit ([] (auto &table) { table.count_non_ip_packet(); }, table_);
 }

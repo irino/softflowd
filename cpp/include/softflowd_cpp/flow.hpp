@@ -165,6 +165,7 @@ struct StatAccumulator {
  */
 struct FlowTableStats {
   std::uint64_t total_packets{0};        ///< The packets processed ("Packets processed").
+  std::uint64_t non_sampled_packets{0};  ///< The packets that -s left out ("Packets non-sampled").
   std::uint64_t bad_packets{0};          ///< The packets that were too short for their headers ("too short").
   std::uint64_t non_ip_packets{0};       ///< The packets that were not IP ("non-IP").
   std::uint64_t frag_packets{0};         ///< The fragments ("Fragments").
@@ -527,6 +528,13 @@ public:
     stats_.total_packets += 1;
   }
   /**
+     * @brief Counts a packet that sampling (-s) left out.
+     */
+  void
+  count_non_sampled_packet () noexcept {
+    stats_.non_sampled_packets += 1;
+  }
+  /**
      * @brief Counts a packet that is not IP as ignored.
      */
   void
@@ -845,6 +853,12 @@ public:
      */
   void
   count_packet_without_flow () noexcept;
+  /**
+     * @brief Forwards to the table; see FlowTable::count_non_sampled_packet.
+     * @copydoc FlowTable::count_non_sampled_packet
+     */
+  void
+  count_non_sampled_packet () noexcept;
   /**
      * @brief Forwards to the table; see FlowTable::count_non_ip_packet.
      * @copydoc FlowTable::count_non_ip_packet

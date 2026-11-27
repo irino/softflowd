@@ -199,6 +199,7 @@ run_live_capture (const DaemonConfig &config,
     if (config.sampling_rate > 1 &&
         (sampled_total + non_sampled) % config.sampling_rate > 0) {
       ++non_sampled;
+      table.count_non_sampled_packet();
       return;
     }
     ++sampled_total;

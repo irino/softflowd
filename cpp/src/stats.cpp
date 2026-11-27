@@ -40,6 +40,10 @@ print_statistics (const softflowd_cpp::FlowTableStats &s, std::size_t active_flo
   std::fprintf (out, "Number of active flows: %zu\n", active_flows);
   std::fprintf (out, "Packets processed: %llu\n",
                 static_cast<unsigned long long> (s.total_packets));
+  if (s.non_sampled_packets != 0) {
+    std::fprintf (out, "Packets non-sampled: %llu\n",
+                  static_cast<unsigned long long> (s.non_sampled_packets));
+  }
   std::fprintf (out, "Fragments: %llu\n",
                 static_cast<unsigned long long> (s.frag_packets));
   std::fprintf (out,

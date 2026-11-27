@@ -239,6 +239,7 @@ run_pcap_file (const DaemonConfig &config) {
     if (config.sampling_rate > 1 &&
         (sampled_total + non_sampled) % config.sampling_rate > 0) {
       ++non_sampled;
+      table.count_non_sampled_packet();
       continue;
     }
     ++sampled_total;
