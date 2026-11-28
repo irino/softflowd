@@ -116,11 +116,11 @@ write_mpls_labels (ByteWriter &writer, const MplsLabelStack &labels,
 }
 
 /**
- * @brief Writes the VLAN IDs and the Ethernet addresses of the track level, and then the MPLS labels.
+ * @brief Writes the VLAN IDs and the Ethernet addresses of the track level.
  *
  * @param writer The buffer to append to.
- * @param r The record, which has l2 and mpls_labels.
- * @param tail The track level, the number of MPLS labels and the interface index.
+ * @param r The record, which has l2.
+ * @param tail The track level, which decides whether the VLAN IDs and the Ethernet addresses are written.
  * @tparam Record IpfixDirectionalRecord or BiflowRecord.
  */
 template <typename Record>
@@ -140,6 +140,14 @@ write_l2_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
   }
 }
 
+/**
+ * @brief Writes the VLAN IDs and the Ethernet addresses of the track level, and then the MPLS labels.
+ *
+ * @param writer The buffer to append to.
+ * @param r The record, which has l2 and mpls_labels.
+ * @param tail The track level, the number of MPLS labels and the interface index.
+ * @tparam Record IpfixDirectionalRecord or BiflowRecord.
+ */
 template <typename Record>
 void
 write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
