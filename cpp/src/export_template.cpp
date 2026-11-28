@@ -347,7 +347,7 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
     // Field order must exactly match write_biflow_v4_record()/
     // write_biflow_v6_record(): the SAME forward layout as the
     // non-biflow branch above (address, time, common, transport), then
-    // MPLS, then the Reverse Information Elements (RFC 5103): reverse
+    // the Reverse Information Elements (RFC 5103), then MPLS: reverse
     // octetDeltaCount/packetDeltaCount/ipClassOfService
     // [field_bicommon] and reverse tcpControlBits [field_bitransport].
     // The ICMP templates have no reverse elements: ICMP is not a biflow
@@ -404,13 +404,6 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
         fields->push_back ({57, 6});  // postDestinationMacAddress
       }
     }
-    for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
-      const IpfixFieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
-      for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
-        fields->push_back (mpls);
-      }
-    }
-
     const IpfixFieldSpec reverse_octets{1, 4, kIpfixReversePen};
     const IpfixFieldSpec reverse_packets{2, 4, kIpfixReversePen};
     const IpfixFieldSpec reverse_tos{5, 1, kIpfixReversePen};
@@ -420,6 +413,13 @@ IpfixExporter::write_template_set (ByteWriter &writer) const {
       fields->push_back (reverse_packets);
       fields->push_back (reverse_tos);
       fields->push_back (reverse_tcp_flags);
+    }
+    // As in C: the MPLS labels come after the reverse fields (export_template.c).
+    for (std::uint8_t i = 0; i < mpls_label_count_; ++i) {
+      const IpfixFieldSpec mpls{static_cast<std::uint16_t> (70 + i), 3};
+      for (auto *fields : {&v4_fields, &v6_fields, &v4_icmp_fields, &v6_icmp_fields}) {
+        fields->push_back (mpls);
+      }
     }
 
     write_template (kIpfixTemplateIdV4, v4_fields);

@@ -125,7 +125,7 @@ write_mpls_labels (ByteWriter &writer, const MplsLabelStack &labels,
  */
 template <typename Record>
 void
-write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
+write_l2_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
   if (tail.track_level >= TrackLevel::FullVlan) {
     writer.put_u16 (r.l2.vlan);
     writer.put_u16 (r.l2.post_vlan);
@@ -138,6 +138,12 @@ write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
       writer.put_u8 (b);
     }
   }
+}
+
+template <typename Record>
+void
+write_tail (ByteWriter &writer, const Record &r, const TailFormat &tail) {
+  write_l2_tail (writer, r, tail);
   write_mpls_labels (writer, *r.mpls_labels, tail.mpls_label_count);
 }
 
@@ -589,8 +595,9 @@ write_biflow_v4_record (ByteWriter &writer, const BiflowRecord &r,
   writer.put_u8 (r.fwd_tcp_flags);
   writer.put_u8 (4);  // ipVersion
   writer.put_u8 (r.tos);
-  write_tail (writer, r, tail);
+  write_l2_tail (writer, r, tail);
   write_biflow_common_tail (writer, r);
+  write_mpls_labels (writer, *r.mpls_labels, tail.mpls_label_count);
 }
 
 /**
@@ -626,8 +633,9 @@ write_biflow_v6_record (ByteWriter &writer, const BiflowRecord &r,
   writer.put_u8 (r.fwd_tcp_flags);
   writer.put_u8 (6);
   writer.put_u8 (r.tos);
-  write_tail (writer, r, tail);
+  write_l2_tail (writer, r, tail);
   write_biflow_common_tail (writer, r);
+  write_mpls_labels (writer, *r.mpls_labels, tail.mpls_label_count);
 }
 
 }  // namespace
